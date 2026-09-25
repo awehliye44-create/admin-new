@@ -17,7 +17,9 @@ import {
   DRIVER_FINANCIAL_REPAIR_COPY,
   evaluateFalseFreezeClearedFromRecompute,
   planDriverFinancialRepairMoney,
+  resolveProvenCommissionPercentForRepair,
   shouldShowDriverFinancialReviewRepair,
+  UNKNOWN_FINANCIAL_RULE_IS_NOT_ZERO,
   type DriverFinancialRepairEvidence,
 } from "../../functions/_shared/driverFinancialReviewRepairSSOT.ts";
 
@@ -287,4 +289,141 @@ Deno.test("1–10 source certification locks (preview zero writes, real recomput
   assert(
     shouldShowDriverFinancialReviewRepair({ driver_credit_status: "EXPECTED_STAMP_MISSING" }),
   );
+
+  // Commission fail-closed invariant + trip-specific ride_offer source
+  assert(ssot.includes("UNKNOWN_FINANCIAL_RULE_IS_NOT_ZERO"));
+  assert(ssot.includes("resolveProvenCommissionPercentForRepair"));
+  assert(ssot.includes("NO_REPAIR_INSUFFICIENT_EVIDENCE"));
+  assert(edge.includes("ride_offers"));
+  assert(edge.includes("effective_commission_percent"));
+  assert(edge.includes("commission_rule_source"));
+});
+
+Deno.test("commission: missing rule + existing TEN → BLOCKED £0", () => {
+  const preview = buildDriverFinancialRepairPreview({
+    evidence: baseEvidence({
+      commission_rate_percent: null,
+      commission_pence: null,
+      captured_amount_pence: 716,
+      final_fare_pence: 716,
+      commission_basis_pence: 716,
+      actual_ten_credit_pence: 609,
+    }),
+    repair_token: "aa000001-0000-0000-0000-000000000001",
+  });
+  assertEquals(preview.classification, DRIVER_FINANCIAL_REPAIR_ACTION.NO_REPAIR_INSUFFICIENT_EVIDENCE);
+  assertEquals(preview.block_code, DRIVER_FINANCIAL_REPAIR_BLOCK.INSUFFICIENT_EVIDENCE);
+  assertFalse(preview.apply_allowed);
+  assertEquals(preview.proposed_repair.canonical_ten_restoration_pence, 0);
+  assertEquals(preview.proposed_repair.append_wallet_correction_pence, 0);
+  assertEquals(preview.proposed_repair.proven_wallet_delta_pence, 0);
+  assertFalse(preview.proposed_repair.restore_expected_stamp);
+  assertEquals(preview.proposed_repair.proposed_stamp, null);
+});
+
+Deno.test("commission: missing rule + missing TEN → BLOCKED £0", () => {
+  const preview = buildDriverFinancialRepairPreview({
+    evidence: baseEvidence({
+      commission_rate_percent: null,
+      commission_pence: null,
+      actual_ten_credit_pence: 0,
+    }),
+    repair_token: "aa000001-0000-0000-0000-000000000002",
+  });
+  assertEquals(preview.classification, DRIVER_FINANCIAL_REPAIR_ACTION.NO_REPAIR_INSUFFICIENT_EVIDENCE);
+  assertFalse(preview.apply_allowed);
+  assertEquals(preview.proposed_repair.proven_wallet_delta_pence, 0);
+});
+
+Deno.test("commission: explicit canonical 0% is accepted when positively evidenced", () => {
+  const preview = buildDriverFinancialRepairPreview({
+    evidence: baseEvidence({
+      commission_rate_percent: 0,
+      commission_pence: 0,
+      captured_amount_pence: 716,
+      final_fare_pence: 716,
+      commission_basis_pence: 716,
+      actual_ten_credit_pence: 0,
+      commission_rule_source: "trips.accepted_commission_percent",
+    }),
+    repair_token: "aa000001-0000-0000-0000-000000000003",
+  });
+  assertEquals(preview.block_code, null);
+  assert(preview.apply_allowed);
+  assertEquals(preview.proposed_repair.proposed_stamp?.commission_pct, 0);
+  assertEquals(preview.proposed_repair.proposed_stamp?.driver_net_pence, 716);
+  assertEquals(preview.proposed_repair.canonical_ten_restoration_pence, 716);
+  assertEquals(preview.proposed_repair.append_wallet_correction_pence, 0);
+});
+
+Deno.test("commission: proven 15% on 716 → commission 107, net 609", () => {
+  const preview = buildDriverFinancialRepairPreview({
+    evidence: baseEvidence({
+      commission_rate_percent: 15,
+      commission_pence: null,
+      captured_amount_pence: 716,
+      final_fare_pence: 716,
+      commission_basis_pence: 716,
+      actual_ten_credit_pence: 0,
+      commission_rule_source: "ride_offers.effective_commission_percent",
+    }),
+    repair_token: "aa000001-0000-0000-0000-000000000004",
+  });
+  assertEquals(preview.block_code, null);
+  assertEquals(preview.proposed_repair.proposed_stamp?.commission_pct, 15);
+  assertEquals(preview.proposed_repair.proposed_stamp?.commission_pence, 107);
+  assertEquals(preview.proposed_repair.proposed_stamp?.driver_net_pence, 609);
+  assertEquals(preview.expected_driver_entitlement_pence, 609);
+});
+
+Deno.test("commission: proven 15% + TEN 609 → £0 money stamp-only", () => {
+  const preview = buildDriverFinancialRepairPreview({
+    evidence: baseEvidence({
+      commission_rate_percent: 15,
+      captured_amount_pence: 716,
+      final_fare_pence: 716,
+      commission_basis_pence: 716,
+      actual_ten_credit_pence: 609,
+      existing_driver_net_pence: null,
+      commission_rule_source: "ride_offers.effective_commission_percent",
+    }),
+    repair_token: "aa000001-0000-0000-0000-000000000005",
+  });
+  assertEquals(preview.classification, DRIVER_FINANCIAL_REPAIR_ACTION.RESTORE_EXPECTED_STAMP);
+  assert(preview.proposed_repair.restore_expected_stamp);
+  assertEquals(preview.proposed_repair.canonical_ten_restoration_pence, 0);
+  assertEquals(preview.proposed_repair.append_wallet_correction_pence, 0);
+  assertEquals(preview.proposed_repair.proven_wallet_delta_pence, 0);
+  assertFalse(preview.proposed_repair.wallet_money_changes);
+  assertEquals(preview.proposed_repair.proposed_stamp?.driver_net_pence, 609);
+  assertEquals(preview.proposed_repair.proposed_stamp?.commission_pence, 107);
+});
+
+Deno.test("commission: proven 15% + TEN missing → TEN 609, ADMIN 0", () => {
+  const preview = buildDriverFinancialRepairPreview({
+    evidence: baseEvidence({
+      commission_rate_percent: 15,
+      captured_amount_pence: 716,
+      final_fare_pence: 716,
+      commission_basis_pence: 716,
+      actual_ten_credit_pence: 0,
+      commission_rule_source: "ride_offers.effective_commission_percent",
+    }),
+    repair_token: "aa000001-0000-0000-0000-000000000006",
+  });
+  assertEquals(preview.proposed_repair.canonical_ten_restoration_pence, 609);
+  assertEquals(preview.proposed_repair.append_wallet_correction_pence, 0);
+  assertEquals(preview.proposed_repair.proven_wallet_delta_pence, 609);
+});
+
+Deno.test("commission: UNKNOWN financial rule != ZERO financial rule", () => {
+  assert(UNKNOWN_FINANCIAL_RULE_IS_NOT_ZERO);
+  const unknown = resolveProvenCommissionPercentForRepair({ commission_rate_percent: null });
+  assertEquals(unknown.ok, false);
+  const zero = resolveProvenCommissionPercentForRepair({
+    commission_rate_percent: 0,
+    commission_rule_source: "trips.accepted_commission_percent",
+  });
+  assertEquals(zero.ok, true);
+  if (zero.ok) assertEquals(zero.percent, 0);
 });
