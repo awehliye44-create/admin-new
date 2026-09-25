@@ -41,6 +41,7 @@ import {
 } from "./paymentSessionFinancialLockSSOT.ts";
 import { shouldBlockPrematureScheduledSearchHoldRelease } from "./scheduledHandoverHoldLock.ts";
 import { transitionPaymentSession } from "./paymentSessionTransitionFacade.ts";
+import { reconcileReceivablesOnAbandonOrCancel } from "./customerReceivableLifecycle.ts";
 
 export type { TerminalPaymentDecision, FarePricingFeeConfig } from "./terminalFeeDecisionSSOT.ts";
 export { resolveTerminalPaymentDecision } from "./terminalFeeDecisionSSOT.ts";
@@ -402,6 +403,44 @@ async function reconcileSessionCancelled(
       released_pence: released,
     },
   });
+
+  // Receivable contract (fresh provider GET/cancel result only — never stale
+  // pre-dispose local provider_state):
+  //   CANCELLED/RELEASED + captured=0 → RELEASE allocations → OPEN
+  //   COMPLETED/CAPTURED → SETTLE covered (partial = historical-first)
+  //   UNKNOWN → KEEP_RESERVED (planner fail-closed)
+  const stateFresh = String(providerState ?? "").trim().toUpperCase();
+  const hasCapture = capturedFeePence > 0;
+  const holdSafelyReleased =
+    !hasCapture &&
+    (stateFresh === "CANCELLED" ||
+      stateFresh === "CANCELED" ||
+      stateFresh === "RELEASED");
+  try {
+    const recv = await reconcileReceivablesOnAbandonOrCancel(supabase, {
+      payment_session_id: sessionId,
+      provider_order_id: orderId,
+      provider_state: stateFresh,
+      has_capture: hasCapture,
+      hold_safely_released: holdSafelyReleased || hasCapture,
+      reason: `terminal_disposition:${dispositionKey}`,
+      settle_evidence: hasCapture
+        ? {
+          orderId,
+          terminalState: stateFresh === "CAPTURED" ? "CAPTURED" : "COMPLETED",
+          confirmedCapturedPence: capturedFeePence,
+          amountFromProviderGet: true,
+        }
+        : null,
+    });
+    if (!recv.ok) {
+      console.error("[terminalDisposition] receivable reconcile failed", recv.error);
+      // Provider hold already reconciled locally — do not roll back session.
+      // Keep RESERVED for manual/ops follow-up (same as abandon fail-open).
+    }
+  } catch (err) {
+    console.error("[terminalDisposition] receivable reconcile exception", err);
+  }
 
   return true;
 }

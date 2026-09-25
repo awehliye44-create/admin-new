@@ -1,0 +1,34 @@
+# Terminal dispose receivable release lock
+
+## Never remove or “simplify away”
+
+In `supabase/functions/_shared/terminalTripPaymentDisposition.ts` →
+`reconcileSessionCancelled`:
+
+- After provider GET/cancel proves terminal state, call
+  `reconcileReceivablesOnAbandonOrCancel` with the **fresh** `provider_state`
+  (never a stale pre-dispose local read).
+- `CANCELLED`/`RELEASED` + `captured=0` → allocations RELEASED → receivables OPEN.
+- `COMPLETED`/`CAPTURED` → SETTLE with `amountFromProviderGet: true`.
+- `UNKNOWN` → KEEP_RESERVED (planner fail-closed).
+
+## Owner chain (search expiry)
+
+1. `expire_trip_when_search_exhausted` (Edge helper / RPC)
+2. SQL trigger → `invoke_release_terminal_trip_hold(..., 'search_expired')`
+3. Edge `release-terminal-trip-hold` → `disposeTerminalTripPayment`
+4. Fee SSOT → `NO_FEE_FULL_RELEASE` / `search_or_rematch_expired`
+5. Provider cancel + GET → `reconcileSessionCancelled` **including receivable release**
+
+## Lock tests
+
+`supabase/tests/_shared/terminalDisposeReceivableReleaseLock.test.ts`
+
+**If they fail, fix the code — never delete or soften the lock.**
+
+## Do not
+
+- Leave RESERVED after a confirmed zero-capture provider cancel/release
+- Release on UNKNOWN / timeout without GET classification
+- Re-open OPEN after financially applied COMPLETED/CAPTURED
+- Touch TEN / wallet / commission / payout writers on this path
