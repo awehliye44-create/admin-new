@@ -46,7 +46,7 @@ import {
 } from "./executeFareIncreaseModificationPayment.ts";
 import { resolveTripFare } from "./tripFareSSOT.ts";
 import { planCaptureComposition } from "./captureCompositionSSOT.ts";
-import { loadPlanAndPersistCaptureComposition } from "./captureCompositionLoadPlan.ts";
+import { acquireLockAndResolveCaptureComposition } from "./captureCompositionAcquireSSOT.ts";
 void planCaptureComposition;
 
 export type AdminCaptureTripPaymentDeps = {
@@ -235,13 +235,13 @@ export async function executeAdminCaptureTripPayment(args: {
         || Number(orderBefore.amount ?? args.trip.authorised_amount_pence ?? 0),
     );
 
-    // Capture composition SSOT — fare + tip + RESERVED receivables (MK-260925-002).
+    // Capture composition under the financial lock already claimed above.
     const tipForPlan = Math.max(
       0,
       Math.round(Number(args.trip.tip_pence ?? args.trip.tip_amount_pence ?? 0) || 0),
     );
     const resolvedFare = resolveTripFare(args.trip as never, tipForPlan);
-    const planned = await loadPlanAndPersistCaptureComposition(args.supabase, {
+    const resolved = await acquireLockAndResolveCaptureComposition(args.supabase, {
       payment_session_id: paymentSessionId,
       provider_order_id: orderId,
       trip_fare_component_pence: Math.max(0, resolvedFare.final_fare_pence),
@@ -255,12 +255,15 @@ export async function executeAdminCaptureTripPayment(args: {
         Math.round(Number(bookingSession.total_authorised_amount_pence) || 0),
         Math.round(Number(bookingSession.authorised_amount_pence) || 0),
       ),
+      lock_owner: captureOwner,
+      lock_already_held: true,
+      operation_key: `admin-capture:${orderId}`,
     });
-    if (!planned.ok) {
+    if (!resolved.ok) {
       earlyFail = fail({
         success: false,
-        error_code: "CAPTURE_COMPOSITION_REJECTED",
-        error: planned.reject_reason,
+        error_code: resolved.code,
+        error: resolved.error,
         payment_session_id: paymentSessionId,
         provider_order_id: orderId,
       });
@@ -268,20 +271,20 @@ export async function executeAdminCaptureTripPayment(args: {
     }
     if (
       args.amountPence != null
-      && Math.round(Number(args.amountPence)) !== planned.provider_capture_target_pence
+      && Math.round(Number(args.amountPence)) !== resolved.provider_capture_target_pence
     ) {
       earlyFail = fail({
         success: false,
         error_code: "CAPTURE_COMPOSITION_MISMATCH",
         error:
           `amount_pence (${Math.round(Number(args.amountPence))}) does not match ` +
-          `capture composition target (${planned.provider_capture_target_pence})`,
+          `capture composition target (${resolved.provider_capture_target_pence})`,
         payment_session_id: paymentSessionId,
         provider_order_id: orderId,
       });
       return earlyFail;
     }
-    captureAmountTarget = planned.provider_capture_target_pence;
+    captureAmountTarget = resolved.provider_capture_target_pence;
 
     if (captureAmountTarget > authorisedTotal && revolutState === "AUTHORISED") {
       earlyFail = fail({

@@ -6,7 +6,10 @@ import { planRevolutCompletionCapture } from "../../../shared/revolutPaymentHold
 import { computeCaptureAmount, resolveTripFare } from "./tripFareSSOT.ts";
 import { resolveRevolutMerchantContext } from "./revolutMerchantContext.ts";
 import { planCaptureComposition } from "./captureCompositionSSOT.ts";
-import { loadPlanAndPersistCaptureComposition } from "./captureCompositionLoadPlan.ts";
+import {
+  acquireLockAndResolveCaptureComposition,
+  failClosedWithoutSessionWhenReceivableEvidence,
+} from "./captureCompositionAcquireSSOT.ts";
 import {
   captureRevolutOrder,
   mapRevolutStateToPaymentStatus,
@@ -240,7 +243,12 @@ export async function executeRevolutTripCompletionCapture(args: {
   // Resolve payment session for composition (same order / trip).
   const { data: compositionSession } = await args.supabase
     .from("payment_sessions")
-    .select("id, metadata, authorised_amount_pence, total_authorised_amount_pence")
+    .select(
+      "id, metadata, authorised_amount_pence, total_authorised_amount_pence, "
+        + "provider_order_id, capture_idempotency_key, provider_capture_target_pence, "
+        + "trip_fare_component_pence, tip_component_pence, receivable_component_pence, "
+        + "capture_composition_frozen_at, buffer_pence",
+    )
     .eq("provider_order_id", orderId)
     .eq("trip_id", tripId)
     .neq("purpose", "PAYMENT_RECOVERY")
@@ -249,37 +257,84 @@ export async function executeRevolutTripCompletionCapture(args: {
     .maybeSingle();
   const compositionSessionId = String(compositionSession?.id ?? "").trim();
   let finalFarePence = farePlusTipPence;
+  let compositionLockOwner: string | null = null;
+  let compositionLockClaimedHere = false;
+
+  const tripMeta = args.trip.metadata && typeof args.trip.metadata === "object"
+    ? args.trip.metadata as Record<string, unknown>
+    : {};
+  const sessionMeta = compositionSession?.metadata && typeof compositionSession.metadata === "object"
+    ? compositionSession.metadata as Record<string, unknown>
+    : {};
+  const noSessionFail = failClosedWithoutSessionWhenReceivableEvidence({
+    metadata: { ...tripMeta, ...sessionMeta },
+    customer_receivables_pence: Number(
+      sessionMeta.customer_receivables_pence
+        ?? tripMeta.customer_receivables_pence
+        ?? 0,
+    ) || null,
+  });
+  if (!compositionSessionId && noSessionFail) {
+    return {
+      success: false,
+      status: noSessionFail.code,
+      capture_amount_pence: 0,
+      provider_order_id: orderId,
+      error: noSessionFail.error,
+      error_code: noSessionFail.code,
+    };
+  }
+
   if (compositionSessionId && authorisedHoldPence > 0) {
     const tripFareOnly = Math.max(0, resolvedFare.final_fare_pence);
-    const planned = await loadPlanAndPersistCaptureComposition(args.supabase, {
+    const resolved = await acquireLockAndResolveCaptureComposition(args.supabase, {
       payment_session_id: compositionSessionId,
       provider_order_id: orderId,
       trip_fare_component_pence: tripFareOnly,
       tip_component_pence: safeTipPence,
       preauth_buffer_component_pence: Math.max(
         0,
-        Number(args.trip.preauth_buffer_pence ?? 0),
+        Number(args.trip.preauth_buffer_pence ?? compositionSession?.buffer_pence ?? 0),
       ),
       authorised_total_pence: Math.max(
         authorisedHoldPence,
         Math.round(Number(compositionSession?.total_authorised_amount_pence) || 0),
         Math.round(Number(compositionSession?.authorised_amount_pence) || 0),
       ),
+      lock_owner: `capture:${tripId}`,
+      operation_key: `capture:${orderId}`,
     });
-    // Keep planCaptureComposition referenced for deploy/source locks.
     void planCaptureComposition;
-    if (!planned.ok) {
-      console.error("[revolutCompletionCapture] capture composition rejected", planned);
+    if (!resolved.ok) {
+      console.error("[revolutCompletionCapture] capture composition acquire failed", resolved);
       return {
         success: false,
-        status: "capture_composition_rejected",
+        status: resolved.code,
         capture_amount_pence: 0,
         provider_order_id: orderId,
-        error: planned.reject_reason,
+        error: resolved.error,
+        error_code: resolved.code,
       };
     }
-    finalFarePence = planned.provider_capture_target_pence;
+    compositionLockOwner = resolved.lock_owner;
+    compositionLockClaimedHere = resolved.lock_claimed_here;
+    finalFarePence = resolved.provider_capture_target_pence;
   }
+
+  const releaseCompositionLockQuiet = async () => {
+    if (!compositionLockClaimedHere || !compositionLockOwner || !compositionSessionId) return;
+    try {
+      await releasePaymentSessionFinancialLock(args.supabase, {
+        paymentSessionId: compositionSessionId,
+        owner: compositionLockOwner,
+        nextState: "IDLE",
+      });
+    } catch {
+      /* best-effort */
+    }
+    compositionLockClaimedHere = false;
+  };
+
   const bufferPence = Math.max(0, Number(args.trip.preauth_buffer_pence ?? 0));
 
   const storedTripCapture = Math.round(Number(args.trip.capture_amount_pence) || 0);
@@ -575,6 +630,7 @@ export async function executeRevolutTripCompletionCapture(args: {
   });
 
   if (state !== "AUTHORISED" && state !== "PROCESSING") {
+    await releaseCompositionLockQuiet();
     return {
       success: false,
       status: state.toLowerCase() || "failed",
@@ -660,6 +716,7 @@ export async function executeRevolutTripCompletionCapture(args: {
           tip_pence: safeTipPence,
           increment_kind: incrementResult.kind,
         }));
+        await releaseCompositionLockQuiet();
         return {
           success: false,
           status: "TIP_AUTHORISATION_DECLINED",
@@ -713,13 +770,17 @@ export async function executeRevolutTripCompletionCapture(args: {
             }),
         };
       }
-      const safeLock = await claimPaymentSessionFinancialLock(args.supabase, {
-        paymentSessionId: String(paymentSession.id),
-        owner: `capture:${tripId}`,
-        state: "CAPTURING",
-        operationKey: `capture:${orderId}:${safe.capturePence}`,
-      });
+      const safeLock = compositionLockClaimedHere
+        && compositionSessionId === String(paymentSession.id)
+        ? { ok: true as const, owner: compositionLockOwner ?? `capture:${tripId}`, state: "CAPTURING" as const }
+        : await claimPaymentSessionFinancialLock(args.supabase, {
+          paymentSessionId: String(paymentSession.id),
+          owner: `capture:${tripId}`,
+          state: "CAPTURING",
+          operationKey: `capture:${orderId}:${safe.capturePence}`,
+        });
       if (!safeLock.ok) {
+        await releaseCompositionLockQuiet();
         const blockedBusy = await refuseDifferentFinalCapture(safe.capturePence);
         if (blockedBusy) return blockedBusy;
         return {
@@ -730,6 +791,7 @@ export async function executeRevolutTripCompletionCapture(args: {
           error: `Financial operation busy (${safeLock.currentState ?? "unknown"}); capture not started`,
         };
       }
+      compositionLockClaimedHere = false; // ownership transferred to this capture try/finally
       let safeCapturedOk = false;
       try {
         const blockedSafe = await refuseDifferentFinalCapture(safe.capturePence);
@@ -1029,13 +1091,17 @@ export async function executeRevolutTripCompletionCapture(args: {
   const captureOwner = `capture:${tripId}`;
 
   if (captureSessionId) {
-    const lock = await claimPaymentSessionFinancialLock(args.supabase, {
-      paymentSessionId: captureSessionId,
-      owner: captureOwner,
-      state: "CAPTURING",
-      operationKey: `capture:${orderId}:${amountToCapture}`,
-    });
+    const lock = compositionLockClaimedHere
+      && compositionSessionId === captureSessionId
+      ? { ok: true as const, owner: captureOwner, state: "CAPTURING" as const }
+      : await claimPaymentSessionFinancialLock(args.supabase, {
+        paymentSessionId: captureSessionId,
+        owner: captureOwner,
+        state: "CAPTURING",
+        operationKey: `capture:${orderId}:${amountToCapture}`,
+      });
     if (!lock.ok) {
+      await releaseCompositionLockQuiet();
       return {
         success: false,
         status: "capture_busy",
@@ -1044,6 +1110,7 @@ export async function executeRevolutTripCompletionCapture(args: {
         error: `Financial operation busy (${lock.currentState ?? "unknown"}); capture not started`,
       };
     }
+    compositionLockClaimedHere = false; // owned by this capture try/finally
 
     let capturedOk = false;
     try {

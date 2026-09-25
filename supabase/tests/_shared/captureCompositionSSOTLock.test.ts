@@ -249,6 +249,8 @@ Deno.test("12. receivable creates no TEN/commission in planner (fare-only compon
 Deno.test("13. all capture owners import the canonical planner (source lock)", async () => {
   const owners = [
     "revolutCompletionCapture.ts",
+    "captureCompositionAcquireSSOT.ts",
+    "captureCompositionFreezeSSOT.ts",
     "capture-expired-tip-windows/index.ts",
     "paymentSessionSSOT.ts",
     "tipWindowCaptureOrchestrationSSOT.ts",
