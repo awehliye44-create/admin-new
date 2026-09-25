@@ -59,6 +59,9 @@ verify_jwt = false
 [functions.admin-driver-adjustment]
 verify_jwt = false
 
+[functions.admin-driver-financial-repair]
+verify_jwt = false
+
 [functions.admin-payout-batches]
 verify_jwt = false
 
