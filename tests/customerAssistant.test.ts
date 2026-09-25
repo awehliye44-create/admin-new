@@ -431,6 +431,7 @@ describe("customer knowledge coverage and mutation boundary", () => {
       "vehicles",
       "fare-estimate",
       "payments",
+      "payment-hold",
       "saved-payment",
       "statuses",
       "assignment",

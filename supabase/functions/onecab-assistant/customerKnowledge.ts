@@ -11,7 +11,7 @@ import { CONTACT, normaliseQuestion, NO_CONFIRMED_ANSWER, type Topic } from "./k
 
 export const CUSTOMER_NO_CONFIRMED_ANSWER = NO_CONFIRMED_ANSWER;
 
-export const CUSTOMER_KNOWLEDGE_VERSION = "customer-v1";
+export const CUSTOMER_KNOWLEDGE_VERSION = "customer-v2";
 
 export type CustomerQuickAction =
   | "booking_help"
@@ -86,11 +86,33 @@ export const CUSTOMER_TOPICS: Topic[] = [
   {
     id: "payments",
     title: "Card and digital payments",
-    keywords: ["pay", "payment", "card", "apple", "google", "wallet", "cash", "revolut"],
+    keywords: ["pay", "payment", "card", "apple", "google", "wallet", "cash", "declined", "refund", "hold", "pending", "tip", "receipt"],
     body:
-      "ONECAB Customer bookings are card and digital payment only — no cash and no paying the driver. " +
-      "Available methods (card, Apple Pay or Google Pay) depend on your service area and device. " +
+      "ONECAB Customer bookings are cashless — no cash and no paying the driver. Available methods " +
+      "(card, Apple Pay or Google Pay) depend on your service area and device. Before a trip, ONECAB " +
+      "may ask your bank to temporarily authorise an amount slightly higher than the estimated fare; " +
+      "unused authorised amounts are released after the final fare is charged, and banks may take time " +
+      "to update pending amounts. A pending authorisation is not automatically a completed charge. " +
       "This assistant cannot charge, refund, or collect card details.",
+  },
+  {
+    id: "payment-hold",
+    title: "Temporary payment hold",
+    keywords: [
+      "hold",
+      "pending",
+      "reserved",
+      "preauthorisation",
+      "preauthorization",
+      "authorisation",
+      "authorization",
+      "card hold",
+    ],
+    body:
+      "Before your trip, ONECAB may ask your bank to temporarily authorise an amount slightly higher " +
+      "than the estimated fare to cover possible changes such as waiting time or trip changes. This is " +
+      "not automatically an extra charge. After the trip, the final amount due is charged and any unused " +
+      "authorised amount is released. Your bank may take some time to update or remove the pending amount.",
   },
   {
     id: "saved-payment",
@@ -231,45 +253,165 @@ export const CUSTOMER_FAQ_CACHE: {
   answer: string;
 }[] = [
   {
-    id: "faq-booking",
+    id: "faq-booking-menu",
     quickAction: "booking_help",
-    patterns: [
-      "booking help",
-      "how do i book",
-      "how to book",
-      "book a ride",
-      "book a taxi",
-      "where to",
-    ],
+    patterns: ["booking help"],
+    answer:
+      "How can I help with your booking? You can ask about how to book, finding a driver, scheduled " +
+      "rides, changing pickup or destination, waiting time, cancellations, receipts, or contact Support.",
+  },
+  {
+    id: "faq-booking-how",
+    patterns: ["how do i book", "how to book", "book a ride", "book a taxi", "where to"],
     answer:
       "Tap Where to? on Home, enter pickup and destination, choose a vehicle on Choose Ride, then " +
       "pay with the methods shown. I can't create or confirm a booking myself.",
   },
   {
-    id: "faq-payments",
-    quickAction: "payments",
+    id: "faq-booking-cannot-find",
     patterns: [
-      "payments",
+      "driver cant find me",
+      "driver can't find me",
+      "driver cannot find me",
+      "cant find me",
+      "can't find me",
+    ],
+    answer:
+      "Stay near the pickup pin in the app and use Call in app or the masked call option. ONECAB never " +
+      "shows the driver's private phone number.",
+  },
+  {
+    id: "faq-payments-menu",
+    quickAction: "payments",
+    patterns: ["payments"],
+    answer:
+      "How can I help with your payment? You can ask about a failed payment, a pending amount, a " +
+      "temporary payment hold, being charged twice, refunds, tips, receipts, payment methods, or contact Support.",
+  },
+  {
+    id: "faq-payments-methods",
+    patterns: [
       "how do i pay",
       "payment methods",
       "do you take cash",
       "can i pay cash",
       "apple pay",
+      "google pay",
       "saved card",
     ],
     answer:
-      "ONECAB is card and digital payment only — no cash and no paying the driver. Use card, Apple " +
-      "Pay or Google Pay when your service area and device offer them. I can't charge, refund, or " +
-      "add a payment method.",
+      "ONECAB is cashless — no cash and no paying the driver. Pay with a debit or credit card in the app. " +
+      "Apple Pay or Google Pay may also appear when your phone and service area support them. I can't " +
+      "charge, refund, or add a payment method.",
+  },
+  {
+    id: "faq-payments-failed",
+    patterns: [
+      "card was declined",
+      "card declined",
+      "payment declined",
+      "payment failed",
+      "declined",
+    ],
+    answer:
+      "Your payment or authorisation was not approved. Check your card details and funds, try another " +
+      "method shown in the app, or contact your bank, then try again. ONECAB cannot see your bank's exact " +
+      "decline reason unless it is shared with us.",
+  },
+  {
+    id: "faq-payments-hold",
+    patterns: [
+      "temporary payment hold",
+      "temporary hold",
+      "card hold",
+      "hold more than my fare",
+      "more money reserved",
+      "extra amount pending",
+      "preauthorisation",
+      "preauthorization",
+      "pre-authorisation",
+      "pre-authorization",
+      "preauth",
+      "when will the hold",
+      "why is more money",
+      "take more money than the fare",
+    ],
+    answer:
+      "Before your trip, ONECAB may ask your bank to temporarily authorise an amount slightly higher than " +
+      "the estimated fare. This helps cover possible changes during the journey. This is not automatically " +
+      "an extra charge. After the trip, the final amount due is charged and any unused authorised amount is " +
+      "released. Your bank may take some time to update or remove the pending amount.",
+  },
+  {
+    id: "faq-payments-twice",
+    patterns: [
+      "charged twice",
+      "two payments",
+      "two charges",
+      "double charged",
+      "two payments on my bank",
+    ],
+    answer:
+      "A temporary bank authorisation and a later completed charge can both appear — that is often one " +
+      "payment, not two. If you see two completed charges for the same trip, contact ONECAB Support. We " +
+      "will not say a refund exists unless we can confirm it.",
+  },
+  {
+    id: "faq-payments-additional",
+    patterns: [
+      "additional payment",
+      "changed destination and payment",
+      "destination and payment failed",
+      "extra payment authorisation",
+    ],
+    answer:
+      "If you change a journey and the new fare is higher, ONECAB may need extra payment authorisation. " +
+      "If that is declined, the bank did not approve the additional amount — it is not paid until " +
+      "authorisation succeeds.",
+  },
+  {
+    id: "faq-payments-refund",
+    patterns: ["where is my refund", "refund", "money back"],
+    answer:
+      "Refunds move through started, processing, and completed stages. Bank posting times vary. ONECAB " +
+      "only confirms a refund when that status is known — contact Support for a specific trip.",
+  },
+  {
+    id: "faq-payments-pending",
+    patterns: ["payment pending", "pending payment", "still pending"],
+    answer:
+      "A pending amount may be a temporary authorisation, a payment still processing, or a completed " +
+      "charge waiting to post. Seeing both pending and completed amounts does not automatically mean " +
+      "you were charged twice.",
+  },
+  {
+    id: "faq-payments-cancel-fee",
+    patterns: ["cancellation charge", "cancellation fee", "cancel fee", "no-show fee"],
+    answer:
+      "A cancellation or no-show charge may apply depending on ONECAB rules for that booking. Any fee " +
+      "for your trip is shown in the app — we do not invent a fixed fee here.",
+  },
+  {
+    id: "faq-payments-tips",
+    patterns: ["tip", "tips", "gratuity"],
+    answer:
+      "After a completed Customer-app trip, you may add a tip for a limited time while that option is " +
+      "open. A tip is separate from the trip fare.",
+  },
+  {
+    id: "faq-payments-receipt",
+    patterns: ["receipt", "invoice"],
+    answer:
+      "Open the completed trip in Rides, then Trip Details, to view fare details and send a receipt by email.",
   },
   {
     id: "faq-lost",
     quickAction: "lost_property",
-    patterns: ["lost property", "left my phone", "left my bag", "lost item", "forgot my"],
+    patterns: ["lost property", "left my phone", "left my bag", "lost item", "forgot my", "left in the car"],
     answer:
-      "Open the completed ride in Rides to report lost property, or contact ONECAB Support with the " +
-      `trip date and details on ${CONTACT.phoneDisplay}, WhatsApp or ${CONTACT.email}. I can't ` +
-      "contact the driver or submit a claim for you.",
+      "How can I help with lost property? Open the completed ride in Rides to report an item, or contact " +
+      `ONECAB Support on ${CONTACT.phoneDisplay} or ${CONTACT.email}. The driver's private phone number ` +
+      "is never shown. I can't contact the driver or submit a claim for you.",
   },
   {
     id: "faq-access",
@@ -280,11 +422,13 @@ export const CUSTOMER_FAQ_CACHE: {
       "guide dog",
       "wheelchair",
       "accessible vehicle",
+      "wheelchair access",
       "pet friendly",
     ],
     answer:
-      "Assistance dogs are always carried, free of charge. Choose a wheelchair-accessible or " +
-      "pet-friendly vehicle on Choose Ride when that option is listed. I can't assign a vehicle myself.",
+      "How can I help with accessibility? Assistance dogs are always carried, free of charge. Choose a " +
+      "wheelchair-accessible or pet-friendly vehicle on Choose Ride when that option is listed. I can't " +
+      "assign a vehicle myself.",
   },
 ];
 
@@ -295,11 +439,22 @@ export function matchCustomerFaq(question: string, quickAction?: string | null) 
     if (byAction) return byAction;
   }
   if (!q) return null;
-  return (
-    CUSTOMER_FAQ_CACHE.find((f) => f.patterns.some((p) => q === normaliseQuestion(p))) ??
-    CUSTOMER_FAQ_CACHE.find((f) => f.patterns.some((p) => q.includes(normaliseQuestion(p)))) ??
-    null
-  );
+
+  let best: (typeof CUSTOMER_FAQ_CACHE)[number] | null = null;
+  let bestLen = 0;
+  for (const faq of CUSTOMER_FAQ_CACHE) {
+    for (const pattern of faq.patterns) {
+      const p = normaliseQuestion(pattern);
+      if (!p) continue;
+      if (q === p || q.includes(p)) {
+        if (p.length > bestLen) {
+          best = faq;
+          bestLen = p.length;
+        }
+      }
+    }
+  }
+  return best;
 }
 
 export function selectCustomerTopics(question: string, limit = 3): Topic[] {
