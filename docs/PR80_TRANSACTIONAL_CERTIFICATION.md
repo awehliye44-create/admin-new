@@ -1,6 +1,6 @@
 # PR #80 — FINAL TRANSACTIONAL CERTIFICATION
 
-**Frozen tip (this certification):** `PENDING_COMMIT` (replaces candidate `6bb0fed5`)  
+**Frozen tip (this certification):** `a1fca8bc13b852914fa8858f27f4d5c736a53ae3` (docs stamp on branch tip; parent candidate `6bb0fed5`)  
 **PR:** https://github.com/awehliye44-create/admin-new/pull/80 (draft)  
 **Project:** `thazislrdkjpvvghtvzo`
 
