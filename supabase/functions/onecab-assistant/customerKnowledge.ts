@@ -314,9 +314,9 @@ export const CUSTOMER_FAQ_CACHE: {
       "declined",
     ],
     answer:
-      "Your payment or authorisation was not approved. Check your card details and funds, try another " +
-      "method shown in the app, or contact your bank, then try again. ONECAB cannot see your bank's exact " +
-      "decline reason unless it is shared with us.",
+      "Your payment or authorisation could not be completed. Check your card details and funds, try another " +
+      "method shown in the app, or contact your bank, then try again. ONECAB only describes a bank decline when " +
+      "that is confirmed — we cannot invent the bank's exact reason.",
   },
   {
     id: "faq-payments-hold",
@@ -352,9 +352,9 @@ export const CUSTOMER_FAQ_CACHE: {
       "two payments on my bank",
     ],
     answer:
-      "A temporary bank authorisation and a later completed charge can both appear — that is often one " +
-      "payment, not two. If you see two completed charges for the same trip, contact ONECAB Support. We " +
-      "will not say a refund exists unless we can confirm it.",
+      "I can't confirm from the information available that you were charged twice. A temporary bank " +
+      "authorisation and a later completed charge can both appear on your statement as one payment. If you " +
+      "believe two completed charges exist for the same trip, contact ONECAB Support so we can check.",
   },
   {
     id: "faq-payments-additional",
