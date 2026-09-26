@@ -298,9 +298,11 @@ Deno.test("Edge Apply path: clear FK only; never mutate payment_sessions / MK-01
   assert(mig.includes("STALE_PAYMENT_SESSION_LINK_CLEARED"));
   assert(mig.includes("payment_sessions_row_unchanged"));
   assert(mig.includes("owner_trip_unchanged"));
-  const certBlockStart = edge.indexOf("CERTIFICATION_NON_PAYABLE Apply");
+  const certBlockStart = edge.indexOf("CERTIFICATION_NON_PAYABLE Apply — no Edge session lock");
   assert(certBlockStart > 0);
-  const certBlock = edge.slice(certBlockStart, certBlockStart + 6000);
+  const nonCertStart = edge.indexOf("Non-certification Apply paths — retain Edge session advisory lock");
+  assert(nonCertStart > certBlockStart);
+  const certBlock = edge.slice(certBlockStart, nonCertStart);
   assertFalse(certBlock.includes('.from("payment_sessions").update'));
   assertFalse(certBlock.includes("creditCapturedCardTripLedger"));
   assertFalse(certBlock.includes('.from("trips").update'));
@@ -431,7 +433,7 @@ Deno.test("Edge uses atomic RPC only for cert Apply", async () => {
   const edge = await read("supabase/functions/admin-driver-financial-repair/index.ts");
   assert(edge.includes('admin_apply_certification_non_payable_repair'));
   assert(edge.includes("buildCertificationNonPayableIdempotencyKey"));
-  const start = edge.indexOf("CERTIFICATION_NON_PAYABLE Apply — single atomic");
+  const start = edge.indexOf("CERTIFICATION_NON_PAYABLE Apply — no Edge session lock");
   assert(start > 0);
   const block = edge.slice(start, start + 3500);
   assertFalse(block.includes('.from("trips").update'));
@@ -494,6 +496,72 @@ const CERT_RPC_TYPES =
 function normalizeSql(sql: string): string {
   return sql.replace(/\s+/g, " ").trim();
 }
+
+
+Deno.test("CERT Apply bypasses Edge session advisory lock (pooled PostgREST self-wait fix)", async () => {
+  const edge = await read("supabase/functions/admin-driver-financial-repair/index.ts");
+  const mig = await read(
+    "supabase/migrations/20261201120000_certification_non_payable_financial_outcome.sql",
+  );
+
+  // Comment documents the pooled-connection hazard.
+  assert(edge.includes("Pooled PostgREST session advisory locks cannot safely wrap"));
+
+  const certStart = edge.indexOf("CERTIFICATION_NON_PAYABLE Apply — no Edge session lock");
+  assert(certStart > 0);
+  const nonCertStart = edge.indexOf(
+    "Non-certification Apply paths — retain Edge session advisory lock",
+  );
+  assert(nonCertStart > certStart);
+  const certSlice = edge.slice(certStart, nonCertStart);
+
+  // Certification Apply never acquires/releases Edge session lock.
+  assertFalse(certSlice.includes("acquireDriverFinancialRepairLock"));
+  assertFalse(certSlice.includes("releaseDriverFinancialRepairLock"));
+  assertFalse(certSlice.includes("admin_driver_financial_repair_lock"));
+
+  // Certification Apply calls only the atomic certification RPC (no trips/session/wallet writes).
+  assert(certSlice.includes("admin_apply_certification_non_payable_repair"));
+  assertEquals(
+    (certSlice.match(/admin_apply_certification_non_payable_repair/g) ?? []).length,
+    1,
+  );
+  assertFalse(certSlice.includes('.from("trips").update'));
+  assertFalse(certSlice.includes('.from("payment_sessions")'));
+  assertFalse(certSlice.includes("creditCapturedCardTripLedger"));
+
+  // Classification resolved before legacy Edge lock acquire.
+  const classResolve = edge.indexOf("Resolve live classification before any Edge session advisory lock");
+  const acquireCall = edge.indexOf("const lock = await acquireDriverFinancialRepairLock");
+  assert(classResolve > 0 && acquireCall > classResolve);
+
+  // RPC retains xact advisory lock + row locks; no timeout override in Edge or migration.
+  assert(mig.includes("pg_advisory_xact_lock"));
+  assert(mig.includes("FOR UPDATE"));
+  assert(/FROM\s+public\.trips[\s\S]*FOR UPDATE/i.test(mig));
+  assert(/FROM\s+public\.payment_sessions[\s\S]*FOR UPDATE/i.test(mig));
+  assertFalse(/statement_timeout/i.test(edge));
+  assertFalse(/statement_timeout/i.test(mig));
+  assertFalse(/SET\s+LOCAL\s+statement_timeout/i.test(edge));
+  assertFalse(/SET\s+LOCAL\s+statement_timeout/i.test(mig));
+
+  // Non-certification paths still use Edge session lock acquire + release.
+  const nonCertSlice = edge.slice(nonCertStart);
+  assert(nonCertSlice.includes("acquireDriverFinancialRepairLock"));
+  assert(nonCertSlice.includes("releaseDriverFinancialRepairLock"));
+});
+
+Deno.test("APPEND_WALLET_CORRECTION remains blocked after cert lock bypass", async () => {
+  const edge = await read("supabase/functions/admin-driver-financial-repair/index.ts");
+  assert(edge.includes("assertWalletCorrectionApplyCertified"));
+  // Cert branch and non-cert branch both gate wallet corrections.
+  assertEquals(
+    (edge.match(/assertWalletCorrectionApplyCertified/g) ?? []).length >= 2,
+    true,
+  );
+  const ssot = await read("supabase/functions/_shared/driverFinancialReviewRepairSSOT.ts");
+  assert(ssot.includes("WALLET_CORRECTION_NOT_CERTIFIED") || ssot.includes("assertWalletCorrectionApplyCertified"));
+});
 
 Deno.test("Follow-up privilege migration explicitly revokes PUBLIC+anon+authenticated", async () => {
   const mig = normalizeSql(
