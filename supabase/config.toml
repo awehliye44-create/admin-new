@@ -361,6 +361,11 @@ verify_jwt = false
 [functions.reconcile-payment-session]
 verify_jwt = false
 
+# CTAP-inflight fast canonical adopt — JWT checked inside. Read-only trips CAI lookup.
+# Never mutates payment/wallet/trip. Finding seed only when owned live trip exists.
+[functions.lookup-booking-canonical-trip]
+verify_jwt = false
+
 # --- AUTH SSOT (managed) ---
 # enable_confirmations=false: public /auth/v1/signup must not call broken GoTrue SMTP.
 # Customer phone OTP is MSG91 Edge (not GoTrue SMS). Keep redirect allow-list for deep links.

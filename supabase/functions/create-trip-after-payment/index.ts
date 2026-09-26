@@ -1346,6 +1346,18 @@ serveWithEdgeTiming("create-trip-after-payment", corsHeaders, async (req) => {
       },
     });
 
+    // Persist T1 → response_ready off the HTTP critical path so future certs can
+    // measure without requiring the CTAP body to reach Customer (adopt may win).
+    EdgeRuntime.waitUntil(
+      bookingWaterfall.persistOpsLog(supabase, {
+        trip_id: trip.id,
+        phase: "response_ready",
+        canonical_t1_ms: canonicalT1At,
+        response_ready_ms: responseReadyAt,
+        post_t1_required_ms: responseReadyAt - canonicalT1At,
+      }),
+    );
+
     const bookingMilestones = {
       ctap_start_ms: ctapStartedAt,
       trip_inserted_ms: canonicalT1At,

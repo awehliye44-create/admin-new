@@ -121,6 +121,8 @@ Deno.test("post-T1 telemetry milestones present", async () => {
   assert(ctap.includes("canonical_t1_ms"));
   assert(ctap.includes("response_ready_ms"));
   assert(ctap.includes("post_t1_required_ms"));
+  assert(ctap.includes('phase: "response_ready"'));
+  assert(ctap.includes("persistOpsLog(supabase"));
   const waterfall = await read("supabase/functions/_shared/bookingWaterfallSSOT.ts");
   assert(waterfall.includes("trip_inserted → response_ready"));
 });
