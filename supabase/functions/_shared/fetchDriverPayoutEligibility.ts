@@ -28,6 +28,23 @@ export type FetchDriverPayoutEligibilityContext = {
   fee_pence: number;
 };
 
+/**
+ * Driver Withdraw GET quote requires a 4-digit masked account for authorization.
+ * Prefer destination_last4 (canonical on save/verify) and fall back to account_last4
+ * for rows written before both columns were kept in sync (MK0007 / MK-260926).
+ */
+export function resolveActiveDestinationLast4(dest: {
+  account_last4?: string | null;
+  destination_last4?: string | null;
+} | null | undefined): string | null {
+  if (!dest) return null;
+  for (const raw of [dest.destination_last4, dest.account_last4]) {
+    const digits = String(raw ?? "").replace(/\D/g, "").slice(-4);
+    if (digits.length === 4) return digits;
+  }
+  return null;
+}
+
 /** Stage C2 context: eligibility balances + effective payout gates (legacy flag diagnostic only). */
 export async function fetchDriverPayoutEligibilityContext(
   supabase: SupabaseClient,
@@ -64,7 +81,7 @@ export async function fetchDriverPayoutEligibilityContext(
     supabase
       .from("driver_payout_destinations")
       .select(
-        "id, is_active, archived_at, verification_status, provider_link_status, provider_counterparty_id, provider_recipient_account_id, account_last4",
+        "id, is_active, archived_at, verification_status, provider_link_status, provider_counterparty_id, provider_recipient_account_id, account_last4, destination_last4",
       )
       .eq("driver_id", args.driver_id)
       .eq("is_active", true)
@@ -377,7 +394,7 @@ export async function fetchDriverPayoutEligibilityContext(
     driver_approved: driverApproved,
     driver_suspended: driverSuspended,
     legacy_payouts_enabled: driverRes.data?.payouts_enabled ?? null,
-    active_destination_last4: dest?.account_last4 ? String(dest.account_last4) : null,
+    active_destination_last4: resolveActiveDestinationLast4(dest),
     fee_pence: feePence,
   };
 }
