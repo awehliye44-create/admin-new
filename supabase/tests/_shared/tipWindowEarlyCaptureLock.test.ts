@@ -182,3 +182,76 @@ Deno.test("LOCK: AUTHORISED provider response cannot close tip window", () => {
     "authorized",
   );
 });
+
+Deno.test("LOCK MK-260926-001: fare already captured blocks tip-window stamp", async () => {
+  const {
+    isFareCapturedBlockingTipWindow,
+    shouldCloseOpenTipWindowAfterFareCapture,
+  } = await import("../../functions/_shared/tripPaymentFinalised.ts");
+
+  assertEquals(
+    isFareCapturedBlockingTipWindow({
+      paymentStatus: "authorized",
+      captureAmountPence: 500,
+    }),
+    true,
+  );
+  assertEquals(
+    isFareCapturedBlockingTipWindow({
+      paymentStatus: "captured",
+      captureAmountPence: 0,
+    }),
+    true,
+  );
+  assertEquals(
+    isFareCapturedBlockingTipWindow({
+      paymentStatus: "authorized",
+      captureAmountPence: 0,
+    }),
+    false,
+  );
+
+  // Fare-only confirm while window open (tip=0) → close immediately.
+  assertEquals(
+    shouldCloseOpenTipWindowAfterFareCapture({
+      tipWindowExpiresAt: EXPIRES,
+      tipWindowClosedAt: null,
+      tipCollectedPence: 0,
+    }),
+    true,
+  );
+  // Tip collected → tip-submit finalize owns seal.
+  assertEquals(
+    shouldCloseOpenTipWindowAfterFareCapture({
+      tipWindowExpiresAt: EXPIRES,
+      tipWindowClosedAt: null,
+      tipCollectedPence: 200,
+    }),
+    false,
+  );
+  assertEquals(
+    shouldCloseOpenTipWindowAfterFareCapture({
+      tipWindowExpiresAt: EXPIRES,
+      tipWindowClosedAt: CLOSED_EARLY,
+      tipCollectedPence: 0,
+    }),
+    false,
+  );
+
+  const stop = await Deno.readTextFile(
+    new URL("../../functions/stop-workflow/index.ts", import.meta.url),
+  );
+  assertEquals(stop.includes("isFareCapturedBlockingTipWindow"), true);
+
+  const submit = await Deno.readTextFile(
+    new URL("../../functions/submit-customer-trip-tip/index.ts", import.meta.url),
+  );
+  assertEquals(submit.includes("closeOpenTipWindowAfterFareCapture"), true);
+  assertEquals(submit.includes("tip_window_status: TIP_WINDOW_STATUS.CLOSED"), true);
+
+  const persist = await Deno.readTextFile(
+    new URL("../../functions/_shared/persistConfirmedProviderCapture.ts", import.meta.url),
+  );
+  assertEquals(persist.includes("closeOpenTipWindowAfterFareCapture"), true);
+  assertEquals(persist.includes('tipStatus !== "processing"'), true);
+});

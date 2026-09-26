@@ -74,6 +74,13 @@ function memoryMutex(trip: MemTrip): MutexDeps {
       trip.claimToken = null;
       return { ok: true, tipWindowStatus: trip.status };
     },
+    closeAfterFareCapture: async ({ tipPence }) => {
+      trip.status = TIP_WINDOW_STATUS.CLOSED;
+      trip.trigger = null;
+      trip.claimToken = null;
+      trip.tipPence = Math.max(0, Math.round(tipPence ?? 0));
+      return { ok: true };
+    },
   };
 }
 
@@ -633,9 +640,9 @@ Deno.test("MK-260926-001: fare already captured tip_shortfall refuses — never 
   assertEquals(result.success, false);
   assertEquals(result.error_code, TIP_NOT_COLLECTED);
   assertEquals(result.error, TIP_NOT_COLLECTED_CUSTOMER_MESSAGE);
-  assertEquals(result.tip_window_status, TIP_WINDOW_STATUS.OPEN);
+  assertEquals(result.tip_window_status, TIP_WINDOW_STATUS.CLOSED);
   assertEquals(result.window_released, true);
-  assertEquals(trip.status, TIP_WINDOW_STATUS.OPEN);
+  assertEquals(trip.status, TIP_WINDOW_STATUS.CLOSED);
   assertEquals(trip.trigger, null);
   assertEquals(trip.tipPence, 0);
   assertEquals(trip.claimToken, null);

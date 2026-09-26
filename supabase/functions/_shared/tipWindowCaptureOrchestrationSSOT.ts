@@ -52,6 +52,11 @@ export type MutexDeps = {
     trigger: TipWindowTrigger;
     tipPence: number;
   }) => Promise<{ ok: boolean; tipWindowStatus?: string }>;
+  /** Seal CLOSED after fare captured without tip (no claim token required). */
+  closeAfterFareCapture: (args: {
+    tripId: string;
+    tipPence?: number;
+  }) => Promise<{ ok: boolean }>;
 };
 
 export type OrchestrationResult = {
@@ -162,17 +167,22 @@ export async function runCustomerTipWindowTrigger(args: {
     )
   ) {
     // Fare may already be captured; tip was not. Never seal WITH_TIP at tip=0.
+    // MK-260926-001: close the window so Rate Trip hides tip stepper/timer.
     await args.mutex.release({
       tripId: args.tripId,
       claimToken: claimed.claimToken,
       clearTip: true,
+    });
+    await args.mutex.closeAfterFareCapture({
+      tripId: args.tripId,
+      tipPence: 0,
     });
     return {
       success: false,
       error_code: TIP_NOT_COLLECTED,
       error: TIP_NOT_COLLECTED_CUSTOMER_MESSAGE,
       tip_amount_pence: 0,
-      tip_window_status: TIP_WINDOW_STATUS.OPEN,
+      tip_window_status: TIP_WINDOW_STATUS.CLOSED,
       capture_calls: captureCalls,
       tip_rows_written: 0,
       tip_credits: 0,

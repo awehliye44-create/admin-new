@@ -18,6 +18,10 @@ import { extractConfirmedCaptureAmountPence, extractProviderCaptureId } from "./
 import { markPaymentSessionCaptured } from "./paymentSessionSSOT.ts";
 import { transitionPaymentSession } from "./paymentSessionTransitionFacade.ts";
 import { maybeResumeTerminalFeeSettlementAfterProviderFee } from "./terminalFeeSettlementResumptionSSOT.ts";
+import {
+  shouldCloseOpenTipWindowAfterFareCapture,
+} from "./tripPaymentFinalised.ts";
+import { closeOpenTipWindowAfterFareCapture } from "./tipWindowTriggerMutexSSOT.ts";
 
 export type PersistConfirmedCaptureArgs = {
   supabase: SupabaseClient;
@@ -161,7 +165,7 @@ export async function persistConfirmedProviderCapture(
   const { data: tripRow } = await args.supabase
     .from("trips")
     .select(
-      "final_customer_fare_pence, final_fare_pence, no_show_charge_pence, cancellation_fee_pence, outstanding_balance_pence, estimated_total_pence, authorised_amount_pence, payment_provider, payment_method",
+      "final_customer_fare_pence, final_fare_pence, no_show_charge_pence, cancellation_fee_pence, outstanding_balance_pence, estimated_total_pence, authorised_amount_pence, payment_provider, payment_method, tip_amount_pence, tip_pence, tip_window_expires_at, tip_window_closed_at, tip_window_status",
     )
     .eq("id", tripId)
     .maybeSingle();
@@ -205,6 +209,28 @@ export async function persistConfirmedProviderCapture(
     provider_fee_pence: fee,
     updated_at: now,
   }).eq("id", tripId);
+
+  // MK-260926-001: fare capture confirmed while tip window open with tip=0 → close window.
+  // Do not race tip-submit/expiry finalize while mutex is PROCESSING.
+  const tipStatus = String(tripRow?.tip_window_status ?? "open").trim().toLowerCase();
+  const storedTip = Math.max(
+    0,
+    Math.round(Number(tripRow?.tip_amount_pence ?? tripRow?.tip_pence ?? 0) || 0),
+  );
+  if (
+    tipStatus !== "processing"
+    && shouldCloseOpenTipWindowAfterFareCapture({
+      tipWindowExpiresAt: tripRow?.tip_window_expires_at as string | null | undefined,
+      tipWindowClosedAt: tripRow?.tip_window_closed_at as string | null | undefined,
+      tipCollectedPence: storedTip,
+    })
+  ) {
+    await closeOpenTipWindowAfterFareCapture(args.supabase, {
+      tripId,
+      tipPence: 0,
+      nowIso: now,
+    });
+  }
 
   // payments uses provider_order_id as Revolut order id.
   const paymentPatch: Record<string, unknown> = {

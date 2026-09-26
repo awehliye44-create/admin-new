@@ -31,7 +31,8 @@ export const TIP_AUTHORISATION_DECLINED_CUSTOMER_MESSAGE =
 /**
  * Tip > 0 was requested but confirmed capture did not cover the tip
  * (fare-only already_captured / tip_shortfall). Must NOT seal tip=0 under
- * CUSTOMER_SUBMIT_WITH_TIP — release claim, keep window OPEN, let Skip / tip=0 close.
+ * CUSTOMER_SUBMIT_WITH_TIP. Release the WITH_TIP claim, then close the tip
+ * window immediately (MK-260926-001) so Rate Trip hides tip stepper/timer.
  */
 export const TIP_NOT_COLLECTED = "TIP_NOT_COLLECTED";
 

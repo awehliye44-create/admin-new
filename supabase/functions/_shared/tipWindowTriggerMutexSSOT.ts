@@ -264,6 +264,42 @@ export async function finalizeTipWindowExpiredAfterProviderCapture(
   };
 }
 
+/**
+ * MK-260926-001: after confirmed fare capture with tip=0 / tip not collected,
+ * seal the tip window CLOSED so Rate Trip stops showing tip stepper/timer.
+ * Idempotent when already closed. Does not require a mutex claim token.
+ */
+export async function closeOpenTipWindowAfterFareCapture(
+  supabase: SupabaseClient,
+  args: {
+    tripId: string;
+    tipPence?: number;
+    nowIso?: string;
+  },
+): Promise<{ ok: boolean; closed?: boolean }> {
+  const nowIso = args.nowIso ?? new Date().toISOString();
+  const tipPence = Math.max(0, Math.round(Number(args.tipPence) || 0));
+  const { data, error } = await supabase
+    .from("trips")
+    .update({
+      tip_amount_pence: tipPence,
+      tip_pence: tipPence,
+      tip_window_closed_at: nowIso,
+      tip_window_status: TIP_WINDOW_STATUS.CLOSED,
+      tip_window_claim_token: null,
+      tip_window_trigger: null,
+      tip_window_claimed_at: null,
+      updated_at: nowIso,
+    })
+    .eq("id", args.tripId)
+    .not("tip_window_expires_at", "is", null)
+    .is("tip_window_closed_at", null)
+    .select("id")
+    .maybeSingle();
+  if (error) return { ok: false };
+  return { ok: true, closed: Boolean(data?.id) };
+}
+
 export async function reclaimStaleTipWindowExpiryAfterAuthorisedGet(
   supabase: SupabaseClient,
   args: { tripId: string; claimToken: string; nowIso?: string },
