@@ -72,7 +72,8 @@ export type BackendPerformanceAction =
   | 'edge_respond_trip_modification'
   | 'edge_resolve_service_area'
   | 'edge_estimate_fare'
-  | 'edge_get_active_trip';
+  | 'edge_get_active_trip'
+  | 'edge_restore_active_trip';
 
 /**
  * Admin Panel — one action per tracked page load/refresh/save.
@@ -156,6 +157,7 @@ export const P95_TARGET_MS: Record<PerformanceActionName, number> = {
   edge_resolve_service_area: 1_500,
   edge_estimate_fare: 2_000,
   edge_get_active_trip: 1_500,
+  edge_restore_active_trip: 800,
   admin_dashboard_load: 2_000,
   admin_financial_reconciliation_load: 3_000,
   admin_driver_wallet_ledger_load: 3_000,
@@ -334,4 +336,5 @@ export const EDGE_FUNCTION_PERF_ACTION: Record<string, BackendPerformanceAction>
   'resolve-service-area': 'edge_resolve_service_area',
   'estimate-fare': 'edge_estimate_fare',
   'get-active-trip': 'edge_get_active_trip',
+  'restore-active-trip': 'edge_restore_active_trip',
 };

@@ -130,83 +130,172 @@ async function clearCustomerActiveTripPointer(
   await supabase.from("customers").update({ active_trip_id: null }).eq("user_id", userId);
 }
 
-export async function findCustomerActiveTrip(
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+/** Client/store trip_id hints must be UUID-shaped before any DB lookup. */
+export function isRestoreKnownTripIdShape(value: unknown): value is string {
+  return typeof value === "string" && UUID_RE.test(value.trim());
+}
+
+export type FindCustomerActiveTripOptions = {
+  /**
+   * Optional client/store hint. NEVER trusted without passenger_id ownership
+   * verification against the authenticated Customer's row.
+   */
+  knownTripId?: string | null;
+};
+
+export type FindCustomerActiveTripResult = {
+  trip: TripRow | null;
+  /** True when a well-shaped knownTripId was supplied. */
+  knownTripIdPresent: boolean;
+  /** True when knownTripId was owned + restore-candidate (fast path hit). */
+  knownTripHit: boolean;
+};
+
+const CUSTOMER_ACTIVE_SEARCH_STATES = [
+  "payment_pending",
+  "pending",
+  "searching",
+  "offered",
+  "offering",
+  "broadcasting",
+  "negotiating",
+  "driver_cancelled",
+  "searching_new_driver",
+  "queued",
+  "scheduled_committed",
+  ...CUSTOMER_LIVE_PRE_PICKUP,
+  "in_progress",
+  "completing",
+  "arrived_at_stop",
+  "drive_to_next_stop",
+  "scheduled",
+] as const;
+
+/**
+ * Resolve the authenticated Customer's single canonical active trip.
+ *
+ * Fast path: knownTripId (or customers.active_trip_id) → ownership check →
+ * candidate gate. Broad search only when pointer/hint miss.
+ */
+export async function findCustomerActiveTripDetailed(
   supabase: SupabaseClient,
   userId: string,
-): Promise<TripRow | null> {
+  options?: FindCustomerActiveTripOptions,
+): Promise<FindCustomerActiveTripResult> {
   const nowMs = Date.now();
+  const knownRaw =
+    typeof options?.knownTripId === "string" ? options.knownTripId.trim() : "";
+  const knownTripIdPresent = isRestoreKnownTripIdShape(knownRaw);
+  const knownTripId = knownTripIdPresent ? knownRaw : null;
+
   const { data: customers } = await supabase
     .from("customers")
     .select("id, active_trip_id")
     .eq("user_id", userId);
   const customer = customers?.[0];
-  if (!customer) return null;
+  if (!customer) {
+    return { trip: null, knownTripIdPresent, knownTripHit: false };
+  }
 
   let trip: TripRow | null = null;
+  let knownTripHit = false;
+  let loadedIds = new Set<string>();
 
-  if (customer.active_trip_id) {
+  const tryCandidate = async (
+    candidate: TripRow | undefined,
+    opts: { fromKnownHint: boolean; clearPointerIfTerminal: boolean },
+  ): Promise<boolean> => {
+    if (!candidate?.id) return false;
+    const id = String(candidate.id);
+    loadedIds.add(id);
+    // HARD RULE: never trust client trip_id without ownership verification.
+    if (String(candidate.passenger_id ?? "") !== String(customer.id)) {
+      return false;
+    }
+    if (isCustomerRestoreCandidate(candidate, nowMs)) {
+      trip = candidate;
+      if (opts.fromKnownHint) knownTripHit = true;
+      return true;
+    }
+    if (
+      opts.clearPointerIfTerminal &&
+      isRestoreTerminalTripStatus(String(candidate.status ?? ""))
+    ) {
+      await clearCustomerActiveTripPointer(supabase, userId);
+    }
+    return false;
+  };
+
+  if (knownTripId) {
     const { data: rows } = await supabase
       .from("trips")
       .select("*")
-      .eq("id", customer.active_trip_id)
+      .eq("id", knownTripId)
       .limit(1);
-    const candidate = rows?.[0] as TripRow | undefined;
-    if (candidate && isCustomerRestoreCandidate(candidate, nowMs)) {
-      trip = candidate;
-    } else if (candidate && isRestoreTerminalTripStatus(String(candidate.status ?? ""))) {
-      await clearCustomerActiveTripPointer(supabase, userId);
+    await tryCandidate(rows?.[0] as TripRow | undefined, {
+      fromKnownHint: true,
+      clearPointerIfTerminal: customer.active_trip_id === knownTripId,
+    });
+  }
+
+  if (!trip && customer.active_trip_id) {
+    const pointerId = String(customer.active_trip_id);
+    if (!loadedIds.has(pointerId)) {
+      const { data: rows } = await supabase
+        .from("trips")
+        .select("*")
+        .eq("id", pointerId)
+        .limit(1);
+      await tryCandidate(rows?.[0] as TripRow | undefined, {
+        fromKnownHint: false,
+        clearPointerIfTerminal: true,
+      });
     }
   }
 
   if (!trip) {
-    const activeStates = [
-      "payment_pending",
-      "pending",
-      "searching",
-      "offered",
-      "offering",
-      "broadcasting",
-      "negotiating",
-      "driver_cancelled",
-      "searching_new_driver",
-      "queued",
-      "scheduled_committed",
-      ...CUSTOMER_LIVE_PRE_PICKUP,
-      "in_progress",
-      "completing",
-      "arrived_at_stop",
-      "drive_to_next_stop",
-      "scheduled",
-    ];
-    const { data: instantTrips } = await supabase
-      .from("trips")
-      .select("*")
-      .eq("passenger_id", customer.id)
-      .in("status", activeStates)
-      .or("is_scheduled.is.null,is_scheduled.eq.false")
-      .order("created_at", { ascending: false })
-      .limit(10);
-    trip =
-      ((instantTrips ?? []) as TripRow[]).find((candidate) =>
-        isCustomerRestoreCandidate(candidate, nowMs)
-      ) ?? null;
-    if (!trip) {
-      const { data: scheduledTrips } = await supabase
+    // Instant ∥ scheduled broad search — independent, same ownership scope.
+    const [instantResult, scheduledResult] = await Promise.all([
+      supabase
+        .from("trips")
+        .select("*")
+        .eq("passenger_id", customer.id)
+        .in("status", [...CUSTOMER_ACTIVE_SEARCH_STATES])
+        .or("is_scheduled.is.null,is_scheduled.eq.false")
+        .order("created_at", { ascending: false })
+        .limit(10),
+      supabase
         .from("trips")
         .select("*")
         .eq("passenger_id", customer.id)
         .eq("is_scheduled", true)
-        .in("status", activeStates)
+        .in("status", [...CUSTOMER_ACTIVE_SEARCH_STATES])
         .order("created_at", { ascending: false })
-        .limit(10);
-      trip =
-        ((scheduledTrips ?? []) as TripRow[]).find((candidate) =>
-          isCustomerRestoreCandidate(candidate, nowMs)
-        ) ?? null;
-    }
+        .limit(10),
+    ]);
+    trip =
+      ((instantResult.data ?? []) as TripRow[]).find((candidate) =>
+        isCustomerRestoreCandidate(candidate, nowMs)
+      ) ??
+      ((scheduledResult.data ?? []) as TripRow[]).find((candidate) =>
+        isCustomerRestoreCandidate(candidate, nowMs)
+      ) ??
+      null;
   }
 
-  return trip;
+  return { trip, knownTripIdPresent, knownTripHit };
+}
+
+export async function findCustomerActiveTrip(
+  supabase: SupabaseClient,
+  userId: string,
+  options?: FindCustomerActiveTripOptions,
+): Promise<TripRow | null> {
+  const result = await findCustomerActiveTripDetailed(supabase, userId, options);
+  return result.trip;
 }
 
 export async function findDriverActiveTrip(
@@ -375,25 +464,29 @@ async function buildCustomerSafeAssignedDriver(
   trip: TripRow,
   role: RestoreActiveTripRole,
 ): Promise<Record<string, unknown> | null> {
-  const { data: driverRow } = await supabase
-    .from("drivers")
-    .select(
-      "id, first_name, last_name, profile_photo_url, rating, display_rating, driver_code, current_lat, current_lng, heading",
-    )
-    .eq("id", driverId)
-    .maybeSingle();
+  // Driver profile ∥ approved vehicle — independent reads.
+  const [driverResult, approvedResult] = await Promise.all([
+    supabase
+      .from("drivers")
+      .select(
+        "id, first_name, last_name, profile_photo_url, rating, display_rating, driver_code, current_lat, current_lng, heading",
+      )
+      .eq("id", driverId)
+      .maybeSingle(),
+    supabase
+      .from("vehicles")
+      .select(
+        "id, make, model, color, license_plate, is_primary, approval_status, vehicle_type_id",
+      )
+      .eq("driver_id", driverId)
+      .eq("approval_status", "approved")
+      .order("is_primary", { ascending: false })
+      .limit(1),
+  ]);
+  const driverRow = driverResult.data;
   if (!driverRow) return null;
 
-  const { data: approvedRows } = await supabase
-    .from("vehicles")
-    .select(
-      "id, make, model, color, license_plate, is_primary, approval_status, vehicle_type_id",
-    )
-    .eq("driver_id", driverId)
-    .eq("approval_status", "approved")
-    .order("is_primary", { ascending: false })
-    .limit(1);
-  let vehicleRow = (approvedRows?.[0] as Record<string, unknown> | undefined) ?? null;
+  let vehicleRow = (approvedResult.data?.[0] as Record<string, unknown> | undefined) ?? null;
 
   // Fall back to any vehicle for the driver so Customer card colour / plate
   // still hydrate when approval_status is pending / legacy-null.
@@ -413,36 +506,37 @@ async function buildCustomerSafeAssignedDriver(
   const vehicleTypeId =
     (vehicleRow?.vehicle_type_id as string | null | undefined) ??
     (typeof trip.vehicle_type_id === "string" ? trip.vehicle_type_id : null);
-  if (vehicleTypeId) {
-    const { data: typeRow } = await supabase
-      .from("vehicle_types")
-      .select("name, slug")
-      .eq("id", vehicleTypeId)
-      .maybeSingle();
-    category =
-      (typeof typeRow?.name === "string" && typeRow.name) ||
-      (typeof typeRow?.slug === "string" && typeRow.slug) ||
-      null;
-  }
 
-  const colour =
-    typeof vehicleRow?.color === "string" && vehicleRow.color.trim()
-      ? vehicleRow.color.trim()
-      : null;
+  // Vehicle type name ∥ photo sign — independent after vehicle row known.
   const columnPhoto =
     typeof driverRow.profile_photo_url === "string" &&
       driverRow.profile_photo_url.trim()
       ? driverRow.profile_photo_url.trim()
       : null;
-  // Customer must receive a renderable signed URL; raw storage paths 400.
-  const photoUrl =
+
+  const [typeRowResult, photoUrl] = await Promise.all([
+    vehicleTypeId
+      ? supabase
+        .from("vehicle_types")
+        .select("name, slug")
+        .eq("id", vehicleTypeId)
+        .maybeSingle()
+      : Promise.resolve({ data: null as { name?: string; slug?: string } | null }),
     role === "customer"
-      ? await resolveCustomerRenderableDriverPhotoUrl(
-        supabase,
-        driverId,
-        columnPhoto,
-      )
-      : columnPhoto;
+      ? resolveCustomerRenderableDriverPhotoUrl(supabase, driverId, columnPhoto)
+      : Promise.resolve(columnPhoto),
+  ]);
+
+  const typeRow = typeRowResult.data;
+  category =
+    (typeof typeRow?.name === "string" && typeRow.name) ||
+    (typeof typeRow?.slug === "string" && typeRow.slug) ||
+    null;
+
+  const colour =
+    typeof vehicleRow?.color === "string" && vehicleRow.color.trim()
+      ? vehicleRow.color.trim()
+      : null;
   const rating =
     typeof driverRow.display_rating === "number" &&
       Number.isFinite(driverRow.display_rating)
@@ -513,6 +607,10 @@ export async function buildRestoreActiveTripPayload(
   trip: TripRow,
   role: RestoreActiveTripRole,
   stops: TripRow[],
+  timingHooks?: {
+    onDriverMs?: (ms: number) => void;
+    onWaitingMs?: (ms: number) => void;
+  },
 ): Promise<Record<string, unknown>> {
   const tripId = String(trip.id ?? "");
   const status = String(trip.status ?? "");
@@ -531,14 +629,28 @@ export async function buildRestoreActiveTripPayload(
   let customer: Record<string, unknown> | null = null;
 
   const resolvedDriverId = trip.confirmed_driver_id ?? trip.driver_id;
-  if (resolvedDriverId) {
-    driver = await buildCustomerSafeAssignedDriver(
-      supabase,
-      String(resolvedDriverId),
-      trip,
-      role,
-    );
-  }
+  const serviceAreaId =
+    typeof trip.service_area_id === "string" ? trip.service_area_id : null;
+  const vehicleTypeId =
+    typeof trip.vehicle_type_id === "string" ? trip.vehicle_type_id : null;
+
+  // Driver enrichment ∥ waiting Admin config — independent after trip+stops known.
+  const driverStarted = Date.now();
+  const waitingStarted = Date.now();
+  const [driverResult, config] = await Promise.all([
+    resolvedDriverId
+      ? buildCustomerSafeAssignedDriver(
+        supabase,
+        String(resolvedDriverId),
+        trip,
+        role,
+      )
+      : Promise.resolve(null),
+    loadAdminWaitingConfig(supabase, serviceAreaId, vehicleTypeId),
+  ]);
+  timingHooks?.onDriverMs?.(Date.now() - driverStarted);
+  timingHooks?.onWaitingMs?.(Date.now() - waitingStarted);
+  driver = driverResult;
 
   if (trip.passenger_id && role === "driver") {
     const { data: customerRow } = await supabase
@@ -550,11 +662,6 @@ export async function buildRestoreActiveTripPayload(
   }
 
   // Project trip-SA waiting SSOT so reconnect restores the same timers/fees.
-  const config = await loadAdminWaitingConfig(
-    supabase,
-    typeof trip.service_area_id === "string" ? trip.service_area_id : null,
-    typeof trip.vehicle_type_id === "string" ? trip.vehicle_type_id : null,
-  );
   const driverArrivedAt =
     (typeof trip.pickup_arrived_at === "string" && trip.pickup_arrived_at) ||
     (typeof trip.driver_arrived_at === "string" && trip.driver_arrived_at) ||

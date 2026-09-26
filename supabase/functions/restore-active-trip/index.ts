@@ -5,7 +5,7 @@ import { computeLiveTripFarePreview } from "../_shared/liveTripFareSSOT.ts";
 import {
   buildRestoreActiveTripPayload,
   buildRestoreNonePayload,
-  findCustomerActiveTrip,
+  findCustomerActiveTripDetailed,
   findDriverActiveTrip,
   loadTripStops,
 } from "../_shared/activeTripRestoreCore.ts";
@@ -13,6 +13,10 @@ import type { RestoreActiveTripRole } from "../_shared/activeTripRestoreSSOT.ts"
 import { serveWithEdgeTiming } from "../_shared/edgeFunctionTiming.ts";
 import { buildTripCommunicationConfigForTrip } from "../_shared/tripCommunicationConfigBuilder.ts";
 import { loadCustomerNegotiationView } from "../_shared/customerNegotiationView.ts";
+import {
+  attachRestoreTiming,
+  createRestoreEdgeTiming,
+} from "../_shared/restoreEdgeTimingSSOT.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -25,6 +29,7 @@ async function buildCustomerActiveTrip(
   trip: Record<string, unknown>,
   driver: Record<string, unknown> | null,
   stops: Record<string, unknown>[],
+  communicationConfig?: Record<string, unknown> | null,
 ): Promise<Record<string, unknown>> {
   const displayFarePence = resolveCustomerPreauthBasePence(trip);
   const displayFareMajor = displayFarePence / 100;
@@ -42,6 +47,17 @@ async function buildCustomerActiveTrip(
     commission_pence: trip.commission_pence as number | null,
     gross_fare_pence: trip.gross_fare_pence as number | null,
   });
+
+  const resolvedCommunication =
+    communicationConfig ??
+    (await buildTripCommunicationConfigForTrip(supabase, {
+      id: String(trip.id),
+      status: String(trip.status ?? ""),
+      service_area_id: (trip.service_area_id as string | null) ?? null,
+      driver_id: (trip.driver_id as string | null) ?? null,
+      confirmed_driver_id: (trip.confirmed_driver_id as string | null) ?? null,
+      passenger_id: (trip.passenger_id as string | null) ?? null,
+    }));
 
   return {
     id: trip.id,
@@ -132,18 +148,12 @@ async function buildCustomerActiveTrip(
       waiting_total_amount_pence: stop.waiting_total_amount_pence,
     })),
     paymentConfirmationStatus: trip.payment_status ?? null,
-    communicationConfig: await buildTripCommunicationConfigForTrip(supabase, {
-      id: String(trip.id),
-      status: String(trip.status ?? ""),
-      service_area_id: (trip.service_area_id as string | null) ?? null,
-      driver_id: (trip.driver_id as string | null) ?? null,
-      confirmed_driver_id: (trip.confirmed_driver_id as string | null) ?? null,
-      passenger_id: (trip.passenger_id as string | null) ?? null,
-    }),
+    communicationConfig: resolvedCommunication,
   };
 }
 
 serveWithEdgeTiming("restore-active-trip", corsHeaders, async (req) => {
+  const timing = createRestoreEdgeTiming();
   try {
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const supabaseAnonKey = Deno.env.get("SUPABASE_ANON_KEY")!;
@@ -157,10 +167,12 @@ serveWithEdgeTiming("restore-active-trip", corsHeaders, async (req) => {
       });
     }
 
+    timing.markAuthStart();
     const supabaseAuth = createClient(supabaseUrl, supabaseAnonKey, {
       global: { headers: { Authorization: authHeader } },
     });
     const { data: userData, error: userError } = await supabaseAuth.auth.getUser();
+    timing.markAuthEnd();
     if (userError || !userData?.user) {
       return new Response(JSON.stringify({ error: "Unauthorized" }), {
         status: 401,
@@ -169,7 +181,13 @@ serveWithEdgeTiming("restore-active-trip", corsHeaders, async (req) => {
     }
 
     const userId = userData.user.id;
-    let body: { role?: RestoreActiveTripRole } = {};
+    let body: {
+      role?: RestoreActiveTripRole;
+      trip_id?: string | null;
+      tripId?: string | null;
+      restore_trigger?: string | null;
+      trigger?: string | null;
+    } = {};
     try {
       if (req.method === "POST") {
         const text = await req.text();
@@ -179,46 +197,99 @@ serveWithEdgeTiming("restore-active-trip", corsHeaders, async (req) => {
       /* empty body ok */
     }
 
+    const knownTripIdHint =
+      (typeof body.trip_id === "string" && body.trip_id.trim()) ||
+      (typeof body.tripId === "string" && body.tripId.trim()) ||
+      null;
+    timing.setKnownTripId(Boolean(knownTripIdHint));
+    timing.setTrigger(
+      (typeof body.restore_trigger === "string" && body.restore_trigger) ||
+        (typeof body.trigger === "string" && body.trigger) ||
+        null,
+    );
+
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
     let role: RestoreActiveTripRole = body.role ?? "customer";
 
+    timing.markIdentityStart();
+    // Customer app always sends role:"customer" — skip drivers∩customers probe.
     if (!body.role) {
-      const { data: driverRow } = await supabase
-        .from("drivers")
-        .select("id")
-        .eq("user_id", userId)
-        .maybeSingle();
-      const { data: customerRow } = await supabase
-        .from("customers")
-        .select("id")
-        .eq("user_id", userId)
-        .maybeSingle();
+      const [{ data: driverRow }, { data: customerRow }] = await Promise.all([
+        supabase.from("drivers").select("id").eq("user_id", userId).maybeSingle(),
+        supabase.from("customers").select("id").eq("user_id", userId).maybeSingle(),
+      ]);
       if (driverRow && !customerRow) role = "driver";
       else if (customerRow) role = "customer";
     }
+    timing.markIdentityEnd();
 
-    console.log("RESTORE_ACTIVE_TRIP_START", { userId, role });
+    console.log("RESTORE_ACTIVE_TRIP_START", {
+      userId,
+      role,
+      known_trip_id: Boolean(knownTripIdHint),
+    });
 
     let trip: Record<string, unknown> | null = null;
+    let knownTripHit = false;
 
+    timing.markTripStart();
     if (role === "driver") {
       const found = await findDriverActiveTrip(supabase, userId);
       trip = found.trip;
     } else {
-      trip = await findCustomerActiveTrip(supabase, userId);
+      const found = await findCustomerActiveTripDetailed(supabase, userId, {
+        knownTripId: knownTripIdHint,
+      });
+      trip = found.trip;
+      knownTripHit = found.knownTripHit;
+      timing.setKnownTripHit(found.knownTripIdPresent ? found.knownTripHit : null);
     }
+    timing.markTripEnd();
 
     if (!trip?.id) {
       console.log("RESTORE_ACTIVE_TRIP_NONE", { userId, role });
-      return new Response(JSON.stringify(buildRestoreNonePayload(role)), {
-        status: 200,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+      timing.markResponseStart();
+      return new Response(
+        JSON.stringify(attachRestoreTiming(buildRestoreNonePayload(role), timing)),
+        {
+          status: 200,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        },
+      );
     }
 
     const tripId = String(trip.id);
+    timing.markStopsStart();
     const stops = await loadTripStops(supabase, tripId);
-    const payload = await buildRestoreActiveTripPayload(supabase, trip, role, stops);
+    timing.markStopsEnd();
+
+    const negotiating =
+      role === "customer" && String(trip.status ?? "") === "negotiating";
+    const originalFarePence =
+      role === "customer" ? resolveCustomerPreauthBasePence(trip) : 0;
+
+    timing.markEnrichStart();
+    timing.markSecondaryStart();
+    // Enrich (driver∥waiting) ∥ communication ∥ negotiation — independent after trip+stops.
+    const [payload, communicationConfig, negotiation] = await Promise.all([
+      buildRestoreActiveTripPayload(supabase, trip, role, stops, {
+        onDriverMs: (ms) => timing.setDriverMs(ms),
+        onWaitingMs: (ms) => timing.setWaitingMs(ms),
+      }),
+      buildTripCommunicationConfigForTrip(supabase, {
+        id: tripId,
+        status: String(trip.status ?? ""),
+        service_area_id: (trip.service_area_id as string | null) ?? null,
+        driver_id: (trip.driver_id as string | null) ?? null,
+        confirmed_driver_id: (trip.confirmed_driver_id as string | null) ?? null,
+        passenger_id: (trip.passenger_id as string | null) ?? null,
+      }),
+      negotiating
+        ? loadCustomerNegotiationView(supabase, tripId, originalFarePence)
+        : Promise.resolve(null),
+    ]);
+    timing.markEnrichEnd();
+    timing.markSecondaryEnd();
 
     console.log("RESTORE_ACTIVE_TRIP_FOUND", {
       userId,
@@ -226,6 +297,7 @@ serveWithEdgeTiming("restore-active-trip", corsHeaders, async (req) => {
       trip_id: tripId,
       status: trip.status ?? null,
       lifecycle_action: payload.lifecycle_action ?? null,
+      known_trip_hit: knownTripHit,
     });
 
     const response: Record<string, unknown> = { ...payload };
@@ -236,7 +308,6 @@ serveWithEdgeTiming("restore-active-trip", corsHeaders, async (req) => {
     delete response.trip;
 
     if (role === "customer") {
-      const negotiating = String(trip.status ?? "") === "negotiating";
       // Prefer enriched trip (waiting expiry + admin config) so intermediate-stop
       // waiting UI restores without requiring another Driver action.
       const tripForCustomer = {
@@ -248,20 +319,15 @@ serveWithEdgeTiming("restore-active-trip", corsHeaders, async (req) => {
           trip.pickup_waiting_admin_config ??
           null,
       };
+
+      timing.markResponseStart();
       response.activeTrip = await buildCustomerActiveTrip(
         supabase,
         tripForCustomer,
         negotiating ? null : ((payload.driver as Record<string, unknown> | null) ?? null),
         stops,
+        communicationConfig as unknown as Record<string, unknown>,
       );
-      const originalFarePence = resolveCustomerPreauthBasePence(trip);
-      const negotiation = negotiating
-        ? await loadCustomerNegotiationView(
-            supabase,
-            tripId,
-            originalFarePence,
-          )
-        : null;
       // Always stamp the key. Omitting it lets Customer merge keep stale
       // waiting_customer / £Z chips after second chance, rematch, or assign.
       (response.activeTrip as Record<string, unknown>).negotiation = negotiation;
@@ -271,17 +337,11 @@ serveWithEdgeTiming("restore-active-trip", corsHeaders, async (req) => {
       }
     } else {
       response.trip_row = trip;
-      response.communicationConfig = await buildTripCommunicationConfigForTrip(supabase, {
-        id: tripId,
-        status: String(trip.status ?? ""),
-        service_area_id: (trip.service_area_id as string | null) ?? null,
-        driver_id: (trip.driver_id as string | null) ?? null,
-        confirmed_driver_id: (trip.confirmed_driver_id as string | null) ?? null,
-        passenger_id: (trip.passenger_id as string | null) ?? null,
-      });
+      response.communicationConfig = communicationConfig;
+      timing.markResponseStart();
     }
 
-    return new Response(JSON.stringify(response), {
+    return new Response(JSON.stringify(attachRestoreTiming(response, timing)), {
       status: 200,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
