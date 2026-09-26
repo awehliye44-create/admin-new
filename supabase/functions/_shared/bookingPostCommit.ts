@@ -35,6 +35,7 @@ import { finalizeRevolutTokenCapture } from "./revolutSavedCardWalletLink.ts";
 import { resolveRevolutMerchantContext } from "./revolutMerchantContext.ts";
 import {
   markPaymentSessionDispatching,
+  runPaymentSessionTripLinkAsync,
 } from "./paymentSessionSSOT.ts";
 import type { BookingWaterfallCollector } from "./bookingWaterfallTelemetry.ts";
 import type { BookingCommitBody } from "./bookingSSOT.ts";
@@ -334,6 +335,31 @@ export function buildBookingPostCommitTasks(ctx: BookingPostCommitContext): Prom
   const tasks: PromiseLike<unknown>[] = [
     fareEnrich,
   ];
+
+  // PLATFORM_COLLECTED: payment_session ↔ trip link is durable SSOT but must NOT
+  // block the Customer Finding HTTP response after canonical T1. Trip already
+  // stamps payment_session_id at insert; this reverse link runs in waitUntil.
+  if (
+    ctx.paymentProvider === "revolut"
+    && ctx.paymentSessionId
+    && ctx.body.client_action_id
+  ) {
+    tasks.push(
+      runPaymentSessionTripLinkAsync(ctx.supabase, {
+        clientActionId: ctx.body.client_action_id,
+        tripId: ctx.tripId,
+        providerOrderId: ctx.paymentRefId,
+        source: "bookingPostCommit.waitUntil",
+      }).then((result) => {
+        if (!result.ok) {
+          ctx.log("payment_session_trip_link_async_failed", {
+            trip_id: ctx.tripId,
+            error: result.error ?? "unknown",
+          });
+        }
+      }),
+    );
+  }
 
   if (ctx.paymentProvider === "revolut") {
     const platformPaymentMethodId = ctx.preauthMetadata.platform_payment_method_id ?? null;
