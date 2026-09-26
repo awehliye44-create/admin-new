@@ -22,8 +22,16 @@ import {
 import { computeModificationFareDelta } from "../_shared/tripModificationFareDelta.ts";
 import { SERVICE_AREA_FINANCIAL_MODEL } from "../_shared/commissionWalletSSOT.ts";
 import { executeFareIncreaseModificationPayment } from "../_shared/executeFareIncreaseModificationPayment.ts";
+import {
+  appendIntermediateStops,
+  assertFinalDropoffRequired,
+  isPastIntermediateStop,
+  partitionItineraryStops,
+  rebuildRemainingRouteItinerary,
+  removeIntermediateStop,
+} from "../_shared/tripModificationItinerary.ts";
 
-const LOCKED_STOP_STATUSES = new Set(["completed", "skipped", "arrived"]);
+const LOCKED_STOP_STATUSES = new Set(["completed", "skipped", "arrived", "departed"]);
 const PRE_PICKUP_STATUSES = new Set([
   "accepted",
   "confirmed",
@@ -105,12 +113,21 @@ function sameStopIdentity(a: Stop | null, b: Stop | null): boolean {
   return latDiff < 1e-5 && lngDiff < 1e-5;
 }
 
+/**
+ * Past intermediates (status-locked or behind nav) must survive unchanged.
+ * Modifications may only alter future stops + final drop-off.
+ */
 function assertPastStopsImmutable(
   beforeStops: Stop[],
   afterStops: Stop[],
+  tripStatus: string,
 ): string | null {
-  const lockedBefore = sortStops(beforeStops).filter(isStopLocked);
-  for (const locked of lockedBefore) {
+  const pastBefore = sortStops(beforeStops).filter(
+    (s) =>
+      isStopLocked(s) ||
+      isPastIntermediateStop(s, beforeStops, tripStatus),
+  );
+  for (const locked of pastBefore) {
     const match = afterStops.find((s) =>
       s.type === locked.type
       && (s.stop_index === locked.stop_index
@@ -130,6 +147,24 @@ function assertPastStopsImmutable(
   return null;
 }
 
+/** Drop client-sent stops that duplicate past/locked intermediates (server reattaches them). */
+function filterFutureIntermediatesOnly(
+  proposed: Stop[],
+  beforeStops: Stop[],
+  tripStatus: string,
+): Stop[] {
+  const past = partitionItineraryStops(beforeStops).intermediates.filter((s) =>
+    isPastIntermediateStop(s, beforeStops, tripStatus) || isStopLocked(s)
+  );
+  return proposed.filter((candidate) => {
+    return !past.some((p) =>
+      String(p.address ?? "") === String(candidate.address ?? "")
+      && Math.abs(Number(p.lat ?? 0) - Number(candidate.lat ?? 0)) < 1e-5
+      && Math.abs(Number(p.lng ?? 0) - Number(candidate.lng ?? 0)) < 1e-5
+    );
+  });
+}
+
 function hasValidCoords(lat: unknown, lng: unknown): boolean {
   return (
     typeof lat === "number" &&
@@ -138,6 +173,21 @@ function hasValidCoords(lat: unknown, lng: unknown): boolean {
     Number.isFinite(lng) &&
     !(lat === 0 && lng === 0)
   );
+}
+
+/**
+ * Final intended route must end with a valid dropoff waypoint.
+ * Stops are optional; destination is mandatory (DROPOFF_REQUIRED).
+ */
+function dropoffRequiredResponse() {
+  return new Response(JSON.stringify({
+    success: false,
+    error: "Final drop-off is required. Please choose a destination.",
+    code: "DROPOFF_REQUIRED",
+  }), {
+    status: 400,
+    headers: { ...corsHeaders, "Content-Type": "application/json" },
+  });
 }
 
 async function resolveCoordsFromAddress(
@@ -431,10 +481,7 @@ serveWithEdgeTiming("request-trip-modification", corsHeaders, async (req) => {
     }
 
     if (changeType === "change_dropoff" && !newDropoff) {
-      return new Response(JSON.stringify({ error: "newDropoff required for change_dropoff" }), {
-        status: 400,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+      return dropoffRequiredResponse();
     }
 
     if (changeType === "remove_stop" && stopIndexToRemove === undefined) {
@@ -652,11 +699,6 @@ serveWithEdgeTiming("request-trip-modification", corsHeaders, async (req) => {
     const afterRouteSnapshot = JSON.parse(JSON.stringify(beforeRouteSnapshot));
 
     if (changeType === "add_stop") {
-      const maxIndex = afterRouteSnapshot.stops.reduce(
-        (max: number, stop: Stop) => Math.max(max, stop.stop_index ?? 0),
-        -1,
-      );
-
       const resolvedStops = await Promise.all(
         newStops!.map((stop) =>
           ensureStopCoords(stop, supabaseUrl, supabaseServiceKey, trip.service_area_id),
@@ -667,33 +709,59 @@ serveWithEdgeTiming("request-trip-modification", corsHeaders, async (req) => {
         return new Response(JSON.stringify({
           success: false,
           error: "Unable to resolve stop address. Please select a suggestion and try again.",
+          code: "STOP_ADDRESS_UNRESOLVED",
         }), {
           status: 400,
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
 
-      const stopsToAdd = resolvedStops.map((stop, index) => ({
-        address: stop.address,
-        lat: stop.lat,
-        lng: stop.lng,
-        type: "stop",
-        status: "pending",
-        stop_index: maxIndex + index + 1,
-      }));
-
-      afterRouteSnapshot.stops = sortStops([...afterRouteSnapshot.stops, ...stopsToAdd]);
+      // Insert BEFORE dropoff and reindex — never append after the final destination
+      // (MK-260922-001: Home was written at stop_index 2 while dropoff stayed at 1).
+      afterRouteSnapshot.stops = appendIntermediateStops({
+        stops: afterRouteSnapshot.stops,
+        pickupFallback: {
+          address: beforeRouteSnapshot.pickup.address,
+          lat: beforeRouteSnapshot.pickup.lat,
+          lng: beforeRouteSnapshot.pickup.lng,
+        },
+        dropoffFallback: {
+          address: afterRouteSnapshot.dropoff.address,
+          lat: afterRouteSnapshot.dropoff.lat,
+          lng: afterRouteSnapshot.dropoff.lng,
+        },
+        toAdd: resolvedStops.map((stop) => ({
+          address: stop.address,
+          lat: stop.lat!,
+          lng: stop.lng!,
+          type: "stop",
+          status: "pending",
+        })),
+      });
     } else if (changeType === "remove_stop") {
       const stopToRemove = afterRouteSnapshot.stops.find((stop: Stop) => stop.stop_index === stopIndexToRemove);
       if (!stopToRemove || stopToRemove.type !== "stop") {
-        return new Response(JSON.stringify({ error: "Stop not found" }), {
+        return new Response(JSON.stringify({
+          error: "Stop not found",
+          code: "STOP_NOT_FOUND",
+        }), {
           status: 400,
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
 
-      if (isStopLocked(stopToRemove)) {
-        return new Response(JSON.stringify({ error: "Cannot remove completed or past stop" }), {
+      if (
+        isStopLocked(stopToRemove) ||
+        isPastIntermediateStop(
+          stopToRemove,
+          afterRouteSnapshot.stops,
+          String(trip.status ?? ""),
+        )
+      ) {
+        return new Response(JSON.stringify({
+          error: "Cannot remove completed or past stop",
+          code: "STOP_LOCKED",
+        }), {
           status: 400,
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
@@ -708,18 +776,95 @@ serveWithEdgeTiming("request-trip-modification", corsHeaders, async (req) => {
         && (stopToRemove.stop_index ?? 0) < (navStop.stop_index ?? 0)
         && !sameStopIdentity(navStop, stopToRemove)
       ) {
-        return new Response(JSON.stringify({ error: "Cannot remove past stop" }), {
+        return new Response(JSON.stringify({
+          error: "Cannot remove past stop",
+          code: "STOP_PAST",
+        }), {
           status: 400,
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
 
-      afterRouteSnapshot.stops = afterRouteSnapshot.stops.filter(
-        (stop: Stop) => stop.stop_index !== stopIndexToRemove,
-      );
+      const removed = removeIntermediateStop({
+        stops: afterRouteSnapshot.stops,
+        stopIndexToRemove: stopIndexToRemove!,
+        pickupFallback: {
+          address: beforeRouteSnapshot.pickup.address,
+          lat: beforeRouteSnapshot.pickup.lat,
+          lng: beforeRouteSnapshot.pickup.lng,
+        },
+        dropoffFallback: {
+          address: afterRouteSnapshot.dropoff.address,
+          lat: afterRouteSnapshot.dropoff.lat,
+          lng: afterRouteSnapshot.dropoff.lng,
+        },
+        tripStatus: String(trip.status ?? ""),
+      });
+      if (!removed.ok) {
+        return new Response(JSON.stringify({
+          error: removed.reason === "locked"
+            ? "Cannot remove completed or past stop"
+            : "Stop not found",
+          code: removed.reason === "locked" ? "STOP_LOCKED" : "STOP_NOT_FOUND",
+        }), {
+          status: 400,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      afterRouteSnapshot.stops = removed.stops;
     } else if (changeType === "reorder_stops") {
-      if (!newStops || newStops.length === 0) {
-        return new Response(JSON.stringify({ error: "newStops required for reorder" }), {
+      // Empty newStops is valid (clear all intermediates). Combined dropoff+stop edits
+      // also arrive here with optional newDropoff.
+      if (!Array.isArray(newStops)) {
+        return new Response(JSON.stringify({
+          error: "newStops required for reorder",
+          code: "NEW_STOPS_REQUIRED",
+        }), {
+          status: 400,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      if (newDropoff) {
+        const resolvedDropoff = await ensureStopCoords(
+          {
+            address: newDropoff.address,
+            lat: newDropoff.lat,
+            lng: newDropoff.lng,
+          },
+          supabaseUrl,
+          supabaseServiceKey,
+          trip.service_area_id,
+        );
+        if (!hasValidCoords(resolvedDropoff.lat, resolvedDropoff.lng)) {
+          return new Response(JSON.stringify({
+            success: false,
+            error: "Unable to resolve dropoff address. Please select a suggestion and try again.",
+            code: "DROPOFF_ADDRESS_UNRESOLVED",
+          }), {
+            status: 400,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        }
+        afterRouteSnapshot.dropoff = {
+          address: resolvedDropoff.address,
+          lat: resolvedDropoff.lat,
+          lng: resolvedDropoff.lng,
+        };
+      }
+
+      const resolvedReorderStops = await Promise.all(
+        newStops.map((stop) =>
+          ensureStopCoords(stop, supabaseUrl, supabaseServiceKey, trip.service_area_id),
+        ),
+      );
+      const invalidReorder = resolvedReorderStops.find((stop) => !hasValidCoords(stop.lat, stop.lng));
+      if (invalidReorder) {
+        return new Response(JSON.stringify({
+          success: false,
+          error: "Unable to resolve stop address. Please select a suggestion and try again.",
+          code: "STOP_ADDRESS_UNRESOLVED",
+        }), {
           status: 400,
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
@@ -734,34 +879,33 @@ serveWithEdgeTiming("request-trip-modification", corsHeaders, async (req) => {
         stop_index: 0,
       };
 
-      const dropoffStop = afterRouteSnapshot.stops.find((stop: Stop) => stop.type === "dropoff") ?? {
-        address: afterRouteSnapshot.dropoff.address,
-        lat: afterRouteSnapshot.dropoff.lat,
-        lng: afterRouteSnapshot.dropoff.lng,
-        type: "dropoff",
-        status: "pending",
-        stop_index: newStops.length + 1,
-      };
-
-      afterRouteSnapshot.stops = [
-        { ...pickupStop, stop_index: 0 },
-        ...newStops.map((stop, index) => ({
+      // newStops = future intermediates only. Past locked stops come from before snapshot.
+      const futureOnly = filterFutureIntermediatesOnly(
+        resolvedReorderStops.map((stop) => ({
           address: stop.address,
-          lat: stop.lat,
-          lng: stop.lng,
-          type: stop.type || "stop",
+          lat: stop.lat!,
+          lng: stop.lng!,
+          type: "stop",
           status: "pending",
-          stop_index: index + 1,
         })),
-        {
-          ...dropoffStop,
+        beforeRouteSnapshot.stops,
+        String(trip.status ?? ""),
+      );
+      afterRouteSnapshot.stops = rebuildRemainingRouteItinerary({
+        beforeStops: beforeRouteSnapshot.stops,
+        futureIntermediates: futureOnly,
+        dropoff: {
           address: afterRouteSnapshot.dropoff.address,
           lat: afterRouteSnapshot.dropoff.lat,
           lng: afterRouteSnapshot.dropoff.lng,
-          type: "dropoff",
-          stop_index: newStops.length + 1,
         },
-      ];
+        tripStatus: String(trip.status ?? ""),
+        pickupFallback: {
+          address: pickupStop.address,
+          lat: pickupStop.lat,
+          lng: pickupStop.lng,
+        },
+      });
     } else if (changeType === "change_dropoff") {
       const resolvedDropoff = await ensureStopCoords(
         {
@@ -788,33 +932,55 @@ serveWithEdgeTiming("request-trip-modification", corsHeaders, async (req) => {
         lng: resolvedDropoff.lng,
       };
 
-      const existingDropoffIndex = afterRouteSnapshot.stops.findIndex((stop: Stop) => stop.type === "dropoff");
-      const fallbackStopIndex = afterRouteSnapshot.stops.reduce(
-        (max: number, stop: Stop) => Math.max(max, stop.stop_index ?? 0),
-        -1,
-      ) + 1;
-
-      const updatedDropoffStop: Stop = {
-        address: resolvedDropoff.address,
-        lat: resolvedDropoff.lat,
-        lng: resolvedDropoff.lng,
-        type: "dropoff",
+      const pickupStop = afterRouteSnapshot.stops.find((stop: Stop) => stop.type === "pickup") ?? {
+        address: beforeRouteSnapshot.pickup.address,
+        lat: beforeRouteSnapshot.pickup.lat,
+        lng: beforeRouteSnapshot.pickup.lng,
+        type: "pickup",
         status: "pending",
-        stop_index: existingDropoffIndex >= 0
-          ? afterRouteSnapshot.stops[existingDropoffIndex].stop_index
-          : fallbackStopIndex,
+        stop_index: 0,
       };
-
-      if (existingDropoffIndex >= 0) {
-        afterRouteSnapshot.stops[existingDropoffIndex] = updatedDropoffStop;
-      } else {
-        afterRouteSnapshot.stops.push(updatedDropoffStop);
-      }
-
-      afterRouteSnapshot.stops = sortStops(afterRouteSnapshot.stops);
+      const beforeParts = partitionItineraryStops(beforeRouteSnapshot.stops);
+      const futureUnchanged = beforeParts.intermediates.filter(
+        (s) => !isPastIntermediateStop(s, beforeRouteSnapshot.stops, String(trip.status ?? "")),
+      );
+      // Past locked stops stay; future stops unchanged; only dropoff updates.
+      afterRouteSnapshot.stops = rebuildRemainingRouteItinerary({
+        beforeStops: beforeRouteSnapshot.stops,
+        futureIntermediates: futureUnchanged.map((s) => ({
+          address: s.address,
+          lat: s.lat,
+          lng: s.lng,
+          type: "stop",
+          status: "pending",
+        })),
+        dropoff: {
+          address: resolvedDropoff.address,
+          lat: resolvedDropoff.lat!,
+          lng: resolvedDropoff.lng!,
+        },
+        tripStatus: String(trip.status ?? ""),
+        pickupFallback: {
+          address: pickupStop.address,
+          lat: pickupStop.lat,
+          lng: pickupStop.lng,
+        },
+      });
     }
 
-    const pastLockError = assertPastStopsImmutable(currentStops, afterRouteSnapshot.stops);
+    const dropoffGate = assertFinalDropoffRequired({
+      dropoff: afterRouteSnapshot.dropoff,
+      stops: afterRouteSnapshot.stops,
+    });
+    if (!dropoffGate.ok) {
+      return dropoffRequiredResponse();
+    }
+
+    const pastLockError = assertPastStopsImmutable(
+      currentStops,
+      afterRouteSnapshot.stops,
+      String(trip.status ?? ""),
+    );
     if (pastLockError) {
       return new Response(JSON.stringify({ error: pastLockError }), {
         status: 400,
@@ -872,10 +1038,7 @@ serveWithEdgeTiming("request-trip-modification", corsHeaders, async (req) => {
     const beforeDestinationLng = beforeRouteSnapshot.dropoff?.lng;
 
     if (destinationLat == null || destinationLng == null) {
-      return new Response(JSON.stringify({ error: "Unable to recalculate fare. Please try again." }), {
-        status: 400,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+      return dropoffRequiredResponse();
     }
 
     const remainingStopsForRoute = (stops: Stop[]) =>
