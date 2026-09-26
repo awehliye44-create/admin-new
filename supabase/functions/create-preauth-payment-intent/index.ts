@@ -221,7 +221,9 @@ serveWithEdgeTiming("create-preauth-payment-intent", corsHeaders, async (req) =>
     edgeTiming.markAuthEnd();
     logStep("User authenticated", { userId: user.id, email: user.email });
 
+    edgeTiming.markEligibilityStart();
     const bookingEligibility = await assertCanBookRide(supabaseClient, user.id);
+    edgeTiming.markEligibilityEnd();
     if (!bookingEligibility.allowed) {
       logPassengerBookingBlocked("create-preauth-payment-intent", user.id, bookingEligibility);
       return passengerNotEligibleResponse(bookingEligibility, corsHeaders);
@@ -258,6 +260,9 @@ serveWithEdgeTiming("create-preauth-payment-intent", corsHeaders, async (req) =>
     let resolvedServiceAreaId: string | null = null;
     /** Used to skip min-hold floor when a promo reduced the fare */
     let offerDiscountPenceForBuffer = 0;
+    /** Quote-path customer row — avoids duplicate customers SELECT before Revolut. */
+    let quotePathCustomerId: string | null = null;
+    let quotePathCustomerFullName: string | null = null;
 
     if (body.trip_id) {
       // Legacy path: trip already exists
@@ -315,6 +320,7 @@ serveWithEdgeTiming("create-preauth-payment-intent", corsHeaders, async (req) =>
       // Fare is recomputed server-side from the booking route; the app's
       // estimated_fare is never used as the charge amount.
       resolvedServiceAreaId = body.service_area_id || null;
+      edgeTiming.markFareQuoteStart();
       const serverQuote = await quoteFareServerSide({
         serviceAreaId: resolvedServiceAreaId,
         vehicleTypeId: typeof body.vehicle_type_id === "string" ? body.vehicle_type_id : null,
@@ -323,6 +329,7 @@ serveWithEdgeTiming("create-preauth-payment-intent", corsHeaders, async (req) =>
             ? body.booking_snapshot as Record<string, unknown>
             : null,
       });
+      edgeTiming.markFareQuoteEnd();
       if (!serverQuote.ok) {
         logStep("SERVER_FARE_QUOTE_FAILED", { reason: serverQuote.reason });
         return new Response(JSON.stringify({
@@ -337,6 +344,24 @@ serveWithEdgeTiming("create-preauth-payment-intent", corsHeaders, async (req) =>
       });
       idempotencyKeySuffix = body.client_action_id || crypto.randomUUID();
 
+      // Single customer lookup for offer + voucher + later session attach (dedupe).
+      edgeTiming.markCustomerLookupStart();
+      const { data: customerRowOnce } = await supabaseClient
+        .from("customers")
+        .select("id, first_name, last_name")
+        .eq("user_id", user.id)
+        .maybeSingle();
+      edgeTiming.markCustomerLookupEnd();
+      quotePathCustomerId = customerRowOnce?.id ?? null;
+      const cachedCustomerId = quotePathCustomerId ?? user.id;
+      quotePathCustomerFullName = [
+        customerRowOnce?.first_name,
+        customerRowOnce?.last_name,
+      ]
+        .filter((part) => typeof part === "string" && part.trim())
+        .join(" ")
+        .trim() || null;
+
       // ── Server-side offer resolution (Single Source of Truth) ─────────────
       // Apply the same discount the customer was previewed in SelectVehicle so
       // that the provider authorises the DISCOUNTED amount + buffer — not the gross
@@ -346,26 +371,22 @@ serveWithEdgeTiming("create-preauth-payment-intent", corsHeaders, async (req) =>
       let offerDiscountPence = 0;
       if (resolvedServiceAreaId) {
         try {
-          // Resolve the customer record (matches the create-trip path) so
-          // per-user redemption limits and first-ride checks line up.
-          const { data: customerRow } = await supabaseClient
-            .from("customers")
-            .select("id")
-            .eq("user_id", user.id)
-            .maybeSingle();
+          edgeTiming.markOfferResolveStart();
           const resolvedOffer = await resolveBestOfferForTrip({
             admin: supabaseClient,
             serviceAreaId: resolvedServiceAreaId,
             estimatedFarePence: grossFarePence,
             userId: user.id,
-            customerId: customerRow?.id ?? user.id,
+            customerId: cachedCustomerId,
           });
+          edgeTiming.markOfferResolveEnd();
           if (resolvedOffer && resolvedOffer.discountPence > 0) {
             appliedOfferId = resolvedOffer.offerId;
             appliedOfferCode = resolvedOffer.offerCode;
             offerDiscountPence = Math.min(resolvedOffer.discountPence, grossFarePence);
           }
         } catch (offerErr) {
+          edgeTiming.markOfferResolveEnd();
           // Non-fatal: if offer resolution fails we authorise the gross fare
           // (over-authorise, then capture corrects). Better than blocking the
           // booking entirely on a transient lookup error.
@@ -377,15 +398,10 @@ serveWithEdgeTiming("create-preauth-payment-intent", corsHeaders, async (req) =>
       let appliedPersonalVoucherCode: string | null = null;
       let personalVoucherDiscountPence = 0;
       if (body.personal_voucher_code?.trim()) {
-        const { data: customerRow } = await supabaseClient
-          .from("customers")
-          .select("id")
-          .eq("user_id", user.id)
-          .maybeSingle();
         const voucherResult = await resolvePersonalVoucherForTrip({
           admin: supabaseClient,
           code: body.personal_voucher_code,
-          customerId: customerRow?.id ?? user.id,
+          customerId: cachedCustomerId,
           estimatedFarePence: grossFarePence,
         });
         if (!voucherResult.ok) {
@@ -440,11 +456,13 @@ serveWithEdgeTiming("create-preauth-payment-intent", corsHeaders, async (req) =>
     }
 
     if (resolvedServiceAreaId && !tripFinancialModel) {
+      edgeTiming.markFinancialModelStart();
       const { data: saFinancialRow, error: saFinancialErr } = await supabaseClient
         .from("service_areas")
         .select("financial_model, commission_wallet_enabled, customer_payment_policy")
         .eq("id", resolvedServiceAreaId)
         .maybeSingle();
+      edgeTiming.markFinancialModelEnd();
       if (saFinancialErr) {
         throw new Error(`Service area financial config failed: ${saFinancialErr.message}`);
       }
@@ -488,9 +506,11 @@ serveWithEdgeTiming("create-preauth-payment-intent", corsHeaders, async (req) =>
 
     let customerGatewayCheck: Awaited<ReturnType<typeof checkServiceAreaGateway>> | null = null;
     if (resolvedServiceAreaId) {
+      edgeTiming.markGatewayStart();
       customerGatewayCheck = assertGatewayExecutable(
         await checkServiceAreaGateway(supabaseClient, resolvedServiceAreaId, "customer"),
       );
+      edgeTiming.markGatewayEnd();
       if (!customerGatewayCheck.ok) {
         logStep("Customer payment gateway not configured", customerGatewayCheck);
         return gatewayNotConfiguredResponse(customerGatewayCheck, corsHeaders);
@@ -503,13 +523,24 @@ serveWithEdgeTiming("create-preauth-payment-intent", corsHeaders, async (req) =>
 
     // Quote-based legacy PaymentIntent search is unavailable — Revolut only.
 
-    // Calculate buffer using the admin Pre-Authorization Buffer config
-    const { bufferPence, source: bufferSource } = await resolvePreauthBuffer(
-      supabaseClient,
-      estimatedTotalPence,
-      resolvedServiceAreaId,
-      { skipMinHoldWhenDiscounted: offerDiscountPenceForBuffer > 0 },
-    );
+    // Buffer + currency are independent after fare freeze — parallelize (P1).
+    edgeTiming.markBufferStart();
+    edgeTiming.markCurrencyStart();
+    const [{ bufferPence, source: bufferSource }, regionCurrency] = await Promise.all([
+      resolvePreauthBuffer(
+        supabaseClient,
+        estimatedTotalPence,
+        resolvedServiceAreaId,
+        { skipMinHoldWhenDiscounted: offerDiscountPenceForBuffer > 0 },
+      ),
+      resolveRegionCurrency(
+        supabaseClient,
+        tripId,
+        body.service_area_id || metadataExtra.service_area_id || null,
+      ),
+    ]);
+    edgeTiming.markBufferEnd();
+    edgeTiming.markCurrencyEnd();
     const authorisedAmountPence = estimatedTotalPence + bufferPence;
     logStep("Buffer calculated", {
       estimated_fare_pence: estimatedTotalPence,
@@ -525,12 +556,6 @@ serveWithEdgeTiming("create-preauth-payment-intent", corsHeaders, async (req) =>
       source_config: bufferSource.config_table,
       enable_preauth_buffer: bufferSource.enable_preauth_buffer,
     });
-
-    const regionCurrency = await resolveRegionCurrency(
-      supabaseClient,
-      tripId,
-      body.service_area_id || metadataExtra.service_area_id || null,
-    );
     /** Ride pre-auth product spec: GBP manual-capture PaymentIntent (amount in pence). */
     const paymentCurrency = "gbp";
     if (regionCurrency !== paymentCurrency) {
@@ -541,19 +566,25 @@ serveWithEdgeTiming("create-preauth-payment-intent", corsHeaders, async (req) =>
     }
 
     if (customerGatewayCheck?.ok && customerGatewayCheck.provider === "revolut") {
-      const { data: dbCustomerForSession } = await supabaseClient
-        .from("customers")
-        .select("id, first_name, last_name")
-        .eq("user_id", user.id)
-        .maybeSingle();
-
-      const customerFullName = [
-        dbCustomerForSession?.first_name,
-        dbCustomerForSession?.last_name,
-      ]
-        .filter((part) => typeof part === "string" && part.trim())
-        .join(" ")
-        .trim() || null;
+      let dbCustomerForSessionId = quotePathCustomerId;
+      let customerFullName = quotePathCustomerFullName;
+      if (!dbCustomerForSessionId) {
+        edgeTiming.markCustomerLookupStart();
+        const { data: dbCustomerForSession } = await supabaseClient
+          .from("customers")
+          .select("id, first_name, last_name")
+          .eq("user_id", user.id)
+          .maybeSingle();
+        edgeTiming.markCustomerLookupEnd();
+        dbCustomerForSessionId = dbCustomerForSession?.id ?? null;
+        customerFullName = [
+          dbCustomerForSession?.first_name,
+          dbCustomerForSession?.last_name,
+        ]
+          .filter((part) => typeof part === "string" && part.trim())
+          .join(" ")
+          .trim() || null;
+      }
 
       // Receivable fold: createRevolutPreauthResponse creates the pending
       // payment session, reserves OPEN receivables, then calls Revolut
@@ -562,7 +593,7 @@ serveWithEdgeTiming("create-preauth-payment-intent", corsHeaders, async (req) =>
         estimated_total_pence: estimatedTotalPence,
         buffer_pence: bufferPence,
         authorised_amount_pence: authorisedAmountPence,
-        customer_id: dbCustomerForSession?.id ?? null,
+        customer_id: dbCustomerForSessionId ?? null,
       });
 
       return await createRevolutPreauthResponse({
@@ -578,7 +609,7 @@ serveWithEdgeTiming("create-preauth-payment-intent", corsHeaders, async (req) =>
         metadataExtra,
         paymentMethodType: body.payment_method_type ?? null,
         userId: user.id,
-        customerId: dbCustomerForSession?.id ?? null,
+        customerId: dbCustomerForSessionId ?? null,
         customerEmail: user.email,
         customerName: customerFullName,
         platformPaymentMethodId: body.payment_method_id ?? null,

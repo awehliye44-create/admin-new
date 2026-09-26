@@ -302,7 +302,9 @@ export async function createRevolutPreauthResponse(
 
   let existingOrderId: string | null = null;
   if (clientActionId) {
+    edgeTiming.markPaymentSessionStart();
     const existingSession = await loadPaymentSession(supabase, { clientActionId });
+    edgeTiming.markPaymentSessionEnd();
     existingOrderId = (existingSession?.provider_order_id as string | undefined) ?? null;
     paymentSessionId = (existingSession?.id as string | undefined) ?? null;
     if (existingOrderId) {
@@ -315,11 +317,13 @@ export async function createRevolutPreauthResponse(
   }
 
   if (!existingOrderId && (clientActionId || tripId)) {
+    edgeTiming.markLedgerStart();
     const { data: ledgerRow } = await supabase
       .from("payment_authorization_ledger")
       .select("metadata")
       .eq("idempotency_key", idempotencyKey)
       .maybeSingle();
+    edgeTiming.markLedgerEnd();
 
     existingOrderId = String((ledgerRow?.metadata as any)?.provider_order_id ?? "").trim() || null;
   }
@@ -778,6 +782,7 @@ export async function createRevolutPreauthResponse(
           receivableFoldAdmission = "admitted";
           receivableFoldResult = "opaque_quote_consumed";
           receivableConsentVersionOut = opaqueQuote.consent_version;
+          edgeTiming.markReceivableStart();
           const reserve = await reserveReceivablesBeforeProviderCall(supabase, {
             customer_id: customerId,
             payment_session_id: paymentSessionId,
@@ -786,6 +791,7 @@ export async function createRevolutPreauthResponse(
             ride_fare_pence: rideFarePence,
             buffer_pence: bufferPenceForSession,
           });
+          edgeTiming.markReceivableEnd();
           if (!reserve.ok) {
             await rollbackOrphanPendingPaymentSession(supabase, paymentSessionId);
             return new Response(JSON.stringify({

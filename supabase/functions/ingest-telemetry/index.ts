@@ -11,7 +11,7 @@ const corsHeaders = {
 const MAX_BODY_BYTES = 65_536;
 const MAX_EVENTS_PER_REQUEST = 50;
 /** Book tap → Finding residual closure needs many flat segment keys. */
-const MAX_METADATA_KEYS = 80;
+const MAX_METADATA_KEYS = 120;
 const MAX_METADATA_VALUE_LEN = 256;
 const MAX_SCREEN_NAME_LEN = 120;
 
@@ -44,12 +44,23 @@ const ALLOWED_METADATA_KEYS = new Set([
   "apple_pay_present_ms",
   "apple_pay_user_interaction_ms",
   "apple_pay_return_to_app_ms",
+  "apple_pay_prepare_ms",
+  "apple_pay_make_payment_request_ms",
+  "apple_pay_present_invoked_to_on_authorize_ms",
+  "apple_pay_on_authorize_ms",
+  "apple_pay_on_authorize_to_completion_ms",
+  "apple_pay_native_total_ms",
+  "apple_pay_sheet_visible_known",
+  "apple_pay_confirm_ms",
   "google_pay_user_interaction_ms",
   "preauth_to_confirm_ms",
   "confirm_ms",
   "confirm_poll_iters",
   "confirm_poll_sleep_ms",
   "confirm_poll_request_ms",
+  "confirm_poll_first_authorised_iter",
+  "confirm_first_poll_ms",
+  "confirm_authorised_after_ms",
   "confirm_to_ctap_ms",
   "confirm_to_settle_ms",
   "payment_authorisation_settle_ms",
@@ -78,6 +89,19 @@ const ALLOWED_METADATA_KEYS = new Set([
   "edge_persist_ms",
   "edge_response_build_ms",
   "edge_total_ms",
+  "edge_eligibility_ms",
+  "edge_fare_quote_ms",
+  "edge_customer_lookup_ms",
+  "edge_offer_resolve_ms",
+  "edge_financial_model_ms",
+  "edge_gateway_ms",
+  "edge_buffer_ms",
+  "edge_currency_ms",
+  "edge_payment_session_ms",
+  "edge_ledger_ms",
+  "edge_receivable_ms",
+  "edge_accounted_wall_ms",
+  "edge_unaccounted_ms",
   "already_authorised",
   "three_ds_required",
   // Driver Accept waterfall (client + Edge shared perf_id)
