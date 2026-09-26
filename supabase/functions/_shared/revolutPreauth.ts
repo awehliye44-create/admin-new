@@ -232,6 +232,7 @@ export async function createRevolutPreauthResponse(
   }
   edgeTiming.markValidationEnd();
 
+  edgeTiming.markProviderPrepareStart();
   edgeTiming.markDbLookupStart();
   let merchant;
   try {
@@ -239,6 +240,7 @@ export async function createRevolutPreauthResponse(
   } catch (err) {
     const message = humanizeRevolutPreauthCustomerError((err as Error)?.message);
     edgeTiming.markDbLookupEnd();
+    edgeTiming.markProviderPrepareEnd();
     return jsonResponseWithPreauthTiming({
       error: message,
       code: "PAYMENT_GATEWAY_NOT_CONFIGURED",
@@ -246,6 +248,7 @@ export async function createRevolutPreauthResponse(
     }, corsHeaders, 503, edgeTiming);
   }
   edgeTiming.markDbLookupEnd();
+  edgeTiming.markProviderPrepareEnd();
 
   const { secretKey, publicKey } = merchant;
   const holdStartedAt = edgeTiming.t0;
@@ -302,7 +305,9 @@ export async function createRevolutPreauthResponse(
 
   let existingOrderId: string | null = null;
   if (clientActionId) {
+    edgeTiming.markExistingSessionStart();
     const existingSession = await loadPaymentSession(supabase, { clientActionId });
+    edgeTiming.markExistingSessionEnd();
     existingOrderId = (existingSession?.provider_order_id as string | undefined) ?? null;
     paymentSessionId = (existingSession?.id as string | undefined) ?? null;
     if (existingOrderId) {
