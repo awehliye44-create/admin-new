@@ -16,6 +16,8 @@ import {
   finalizeBookingAfterPaymentFromSession,
   loadPaymentSession,
   markPaymentSessionReleased,
+  markPaymentSessionTripCreated,
+  resolveCanonicalTripIdForPaymentSession,
 } from "./paymentSessionSSOT.ts";
 import { transitionPaymentSession } from "./paymentSessionTransitionFacade.ts";
 import {
@@ -285,10 +287,10 @@ export async function releaseHoldForPaymentSession(
     };
   }
 
-  const tripId = session?.trip_id ? String(session.trip_id) : null;
-  if (tripId) {
+  const tripIdLinked = session?.trip_id ? String(session.trip_id) : null;
+  if (tripIdLinked) {
     return releaseHoldOnTripTerminal(supabase, {
-      tripId,
+      tripId: tripIdLinked,
       terminalReason: args.terminalReason,
       source: args.source,
       idempotencyKey: args.idempotencyKey,
@@ -296,6 +298,34 @@ export async function releaseHoldForPaymentSession(
       providerOrderId: args.providerOrderId,
       clientActionId: args.clientActionId,
     });
+  }
+
+  // Post-T1 race: reverse link may lag session.trip_id. Never treat as tripless
+  // when a canonical trip already stamps this payment_session / client_action_id.
+  if (session) {
+    const resolvedTripId = await resolveCanonicalTripIdForPaymentSession(supabase, session);
+    if (resolvedTripId) {
+      const clientActionId =
+        args.clientActionId
+        ?? (session.client_action_id ? String(session.client_action_id) : null);
+      if (clientActionId) {
+        await markPaymentSessionTripCreated(supabase, {
+          clientActionId,
+          tripId: resolvedTripId,
+          providerOrderId: args.providerOrderId
+            ?? (session.provider_order_id ? String(session.provider_order_id) : null),
+        });
+      }
+      return releaseHoldOnTripTerminal(supabase, {
+        tripId: resolvedTripId,
+        terminalReason: args.terminalReason,
+        source: args.source,
+        idempotencyKey: args.idempotencyKey,
+        forceRelease: true,
+        providerOrderId: args.providerOrderId,
+        clientActionId: args.clientActionId,
+      });
+    }
   }
 
   const providerOrderId =

@@ -1029,6 +1029,59 @@ export function gatePaymentSessionForTripCreate(
   return { ok: true, sessionId: (session.id as string | undefined) ?? null };
 }
 
+/**
+ * Resolve the canonical trip for a payment session when session.trip_id may
+ * still be null (post-T1 link in flight). Prefer session.trip_id, then the
+ * durable reverse stamp trips.payment_session_id, then client_action_id.
+ */
+export async function resolveCanonicalTripIdForPaymentSession(
+  supabase: SupabaseClient,
+  session: {
+    id?: unknown;
+    trip_id?: unknown;
+    client_action_id?: unknown;
+  },
+): Promise<string | null> {
+  if (session.trip_id) return String(session.trip_id);
+
+  const sessionId = session.id != null ? String(session.id) : "";
+  if (sessionId) {
+    const { data } = await supabase
+      .from("trips")
+      .select("id")
+      .eq("payment_session_id", sessionId)
+      .limit(1)
+      .maybeSingle();
+    if (data?.id) return String(data.id);
+  }
+
+  const clientActionId = session.client_action_id != null
+    ? String(session.client_action_id)
+    : "";
+  if (clientActionId) {
+    const { data } = await supabase
+      .from("trips")
+      .select("id")
+      .eq("client_action_id", clientActionId)
+      .limit(1)
+      .maybeSingle();
+    if (data?.id) return String(data.id);
+  }
+
+  return null;
+}
+
+export type MarkPaymentSessionTripCreatedResult = {
+  ok: boolean;
+  error?: string;
+};
+
+/**
+ * Idempotent payment_session → trip link (status trip_created + trip_id).
+ * Callers may run this off the Customer Finding critical path via waitUntil,
+ * but must never drop the link as silent best-effort: failures are returned
+ * and must be ops-audited by the scheduler.
+ */
 export async function markPaymentSessionTripCreated(
   supabase: SupabaseClient,
   args: {
@@ -1036,22 +1089,107 @@ export async function markPaymentSessionTripCreated(
     tripId: string;
     providerOrderId?: string | null;
   },
-): Promise<void> {
-  await patchPaymentSession(supabase, { clientActionId: args.clientActionId }, {
-    status: toDbPaymentSessionStatus("trip_created"),
+): Promise<MarkPaymentSessionTripCreatedResult> {
+  const mutate = await mutatePaymentSession(
+    supabase,
+    { clientActionId: args.clientActionId },
+    {
+      status: toDbPaymentSessionStatus("trip_created"),
+      trip_id: args.tripId,
+      provider_order_id: args.providerOrderId ?? undefined,
+      // Usable authorised session linked to a trip must not retain terminal cancel pollution.
+      failure_reason: null,
+    },
+    "ssot",
+  );
+  if (!mutate.ok) {
+    console.error("[paymentSessionSSOT] markPaymentSessionTripCreated failed", {
+      client_action_id: args.clientActionId,
+      trip_id: args.tripId,
+      error: mutate.error,
+    });
+    return { ok: false, error: mutate.error ?? "payment_session_trip_link_failed" };
+  }
+
+  try {
+    const { emitHoldTelemetry } = await import("./holdTelemetrySSOT.ts");
+    await emitHoldTelemetry(supabase, "HOLD_LINKED_TO_TRIP", {
+      tripId: args.tripId,
+      clientActionId: args.clientActionId,
+      providerOrderId: args.providerOrderId ?? null,
+      source: "markPaymentSessionTripCreated",
+    });
+  } catch (err) {
+    // Link row is durable; telemetry must not undo or block recovery.
+    console.warn("[paymentSessionSSOT] HOLD_LINKED_TO_TRIP telemetry failed", {
+      trip_id: args.tripId,
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
+
+  return { ok: true };
+}
+
+/**
+ * Durable post-T1 payment_session ↔ trip linker for EdgeRuntime.waitUntil.
+ * Observable, idempotent, retry-safe. Never creates a second trip/session.
+ */
+export async function runPaymentSessionTripLinkAsync(
+  supabase: SupabaseClient,
+  args: {
+    clientActionId: string;
+    tripId: string;
+    providerOrderId?: string | null;
+    source: string;
+  },
+): Promise<MarkPaymentSessionTripCreatedResult> {
+  const linkStart = Date.now();
+  console.info("payment_session_trip_link_start", {
+    client_action_id: args.clientActionId,
     trip_id: args.tripId,
-    provider_order_id: args.providerOrderId ?? undefined,
-    // Usable authorised session linked to a trip must not retain terminal cancel pollution.
-    failure_reason: null,
+    provider_order_id: args.providerOrderId ?? null,
+    source: args.source,
   });
 
-  const { emitHoldTelemetry } = await import("./holdTelemetrySSOT.ts");
-  await emitHoldTelemetry(supabase, "HOLD_LINKED_TO_TRIP", {
-    tripId: args.tripId,
+  const result = await markPaymentSessionTripCreated(supabase, {
     clientActionId: args.clientActionId,
-    providerOrderId: args.providerOrderId ?? null,
-    source: "markPaymentSessionTripCreated",
+    tripId: args.tripId,
+    providerOrderId: args.providerOrderId,
   });
+
+  console.info("payment_session_trip_link_async_result", {
+    client_action_id: args.clientActionId,
+    trip_id: args.tripId,
+    ok: result.ok,
+    error: result.error ?? null,
+    duration_ms: Date.now() - linkStart,
+    source: args.source,
+  });
+
+  if (!result.ok) {
+    await supabase.from("admin_payment_audit").insert({
+      action: "payment_session_trip_link_failed",
+      provider: "revolut",
+      provider_payment_id: args.providerOrderId ?? null,
+      metadata: {
+        client_action_id: args.clientActionId,
+        trip_id: args.tripId,
+        error: result.error ?? "unknown",
+        source: args.source,
+        recoverable: true,
+        repair_via: "idempotent_ctap_retry_or_orphan_reconcile",
+      },
+    }).then(({ error }) => {
+      if (error) {
+        console.warn(
+          "[paymentSessionSSOT] payment_session_trip_link_failed audit insert failed",
+          error.message,
+        );
+      }
+    });
+  }
+
+  return result;
 }
 
 export async function markPaymentSessionOrphaned(

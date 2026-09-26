@@ -15,6 +15,8 @@ import {
   finalizeBookingAfterPaymentFromSession,
   loadPaymentSession,
   markPaymentSessionOrphaned,
+  markPaymentSessionTripCreated,
+  resolveCanonicalTripIdForPaymentSession,
 } from "./paymentSessionSSOT.ts";
 import { releaseHoldForPaymentSession } from "./holdReleaseSSOT.ts";
 
@@ -73,6 +75,21 @@ export async function syncRevolutOrphanFromSession(
   if (!providerOrderId) return;
   const tripId = session.trip_id as string | null;
   if (tripId) return;
+
+  // Post-T1 race: trip may already exist with payment_session_id stamped while
+  // session.trip_id link is still in waitUntil. Repair — never orphan a live trip.
+  const resolvedTripId = await resolveCanonicalTripIdForPaymentSession(supabase, session);
+  if (resolvedTripId) {
+    const clientActionId = String(session.client_action_id ?? "").trim();
+    if (clientActionId) {
+      await markPaymentSessionTripCreated(supabase, {
+        clientActionId,
+        tripId: resolvedTripId,
+        providerOrderId,
+      });
+    }
+    return;
+  }
 
   const state = String(orderState ?? "").toUpperCase();
   const isOpen =

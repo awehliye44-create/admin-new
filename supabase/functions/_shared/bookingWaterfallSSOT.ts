@@ -69,6 +69,10 @@ export type BookingWaterfallMilestones = {
   hold_authorised_ms?: number | null;
   ctap_start_ms?: number | null;
   trip_inserted_ms?: number | null;
+  canonical_t1_ms?: number | null;
+  response_ready_ms?: number | null;
+  response_sent_ms?: number | null;
+  post_t1_required_ms?: number | null;
   ctap_response_ms?: number | null;
   dispatch_started_ms?: number | null;
   ride_offers_created_ms?: number | null;
@@ -94,6 +98,7 @@ export function buildBookingWaterfallMilestoneReport(input: {
     ["hold_start → hold_authorised", m.hold_start_ms, m.hold_authorised_ms, "revolutPreauth.ts"],
     ["hold_authorised → ctap_start", m.hold_authorised_ms, m.ctap_start_ms, "client createTripAfterPayment"],
     ["ctap_start → trip_inserted", m.ctap_start_ms, m.trip_inserted_ms, "create-trip-after-payment"],
+    ["trip_inserted → response_ready", m.trip_inserted_ms, m.response_ready_ms ?? m.ctap_response_ms, "create-trip-after-payment HTTP"],
     ["trip_inserted → ctap_response", m.trip_inserted_ms, m.ctap_response_ms, "create-trip-after-payment HTTP"],
     ["ctap_response → dispatch_started", m.ctap_response_ms, m.dispatch_started_ms, "bookingPostCommit.ts"],
     ["dispatch_started → ride_offers_created", m.dispatch_started_ms, m.ride_offers_created_ms, "auto-dispatch"],

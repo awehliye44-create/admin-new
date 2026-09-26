@@ -33,7 +33,7 @@ import {
   loadPaymentSession,
   markPaymentSessionAuthorised,
   markPaymentSessionOrphaned,
-  markPaymentSessionTripCreated,
+  runPaymentSessionTripLinkAsync,
   PAYMENT_ORPHANED_CUSTOMER_MESSAGE,
 } from "../_shared/paymentSessionSSOT.ts";
 import { buildBookingWaterfallMilestoneReport } from "../_shared/bookingWaterfallSSOT.ts";
@@ -61,6 +61,26 @@ const log = (step: string, details?: unknown) => {
   const d = details ? ` - ${JSON.stringify(details)}` : "";
   console.log(`[CREATE-TRIP-AFTER-PAYMENT] ${step}${d}`);
 };
+
+/** Repair payment_session ↔ trip link off the HTTP critical path (idempotent/adopt). */
+function schedulePaymentSessionTripLinkRepair(args: {
+  supabase: AnySupabaseClient;
+  clientActionId?: string | null;
+  tripId: string;
+  providerOrderId?: string | null;
+  source: string;
+}): void {
+  const clientActionId = String(args.clientActionId ?? "").trim();
+  if (!clientActionId || !args.tripId) return;
+  EdgeRuntime.waitUntil(
+    runPaymentSessionTripLinkAsync(args.supabase, {
+      clientActionId,
+      tripId: args.tripId,
+      providerOrderId: args.providerOrderId ?? null,
+      source: args.source,
+    }),
+  );
+}
 
 const error = (message: string, status: number) =>
   new Response(JSON.stringify({ error: message }), {
@@ -536,6 +556,13 @@ serveWithEdgeTiming("create-trip-after-payment", corsHeaders, async (req) => {
           }
         }
       }
+      schedulePaymentSessionTripLinkRepair({
+        supabase,
+        clientActionId: body.client_action_id,
+        tripId: String(idempotentTrip.id),
+        providerOrderId: body.payment_intent_id ?? null,
+        source: "ctap.idempotent_client_action_id",
+      });
       return new Response(JSON.stringify({
         success: true,
         ride_id: idempotentTrip.id,
@@ -774,6 +801,16 @@ serveWithEdgeTiming("create-trip-after-payment", corsHeaders, async (req) => {
         reason,
         by: sameClientAction ? "client_action_id" : "provider_order_id",
       });
+      schedulePaymentSessionTripLinkRepair({
+        supabase,
+        clientActionId: body.client_action_id,
+        tripId: String(liveTrip.id),
+        providerOrderId:
+          body.payment_intent_id
+          ?? (liveTrip.provider_order_id as string | null)
+          ?? null,
+        source: `ctap.idempotent_live_${reason}`,
+      });
       return new Response(JSON.stringify({
         success: true,
         ride_id: liveTrip.id,
@@ -810,6 +847,13 @@ serveWithEdgeTiming("create-trip-after-payment", corsHeaders, async (req) => {
             log("Idempotent — trip appeared after live precheck", {
               tripId: byCa.id,
               by: "client_action_id",
+            });
+            schedulePaymentSessionTripLinkRepair({
+              supabase,
+              clientActionId: body.client_action_id,
+              tripId: String(byCa.id),
+              providerOrderId: body.payment_intent_id ?? null,
+              source: "ctap.idempotent_after_live_precheck",
             });
             return new Response(JSON.stringify({
               success: true,
@@ -1151,6 +1195,13 @@ serveWithEdgeTiming("create-trip-after-payment", corsHeaders, async (req) => {
             "create-trip-after-payment/index.ts:trips.insert(idempotent)",
             { trip_id: retryTrips[0].id, idempotent: true },
           );
+          schedulePaymentSessionTripLinkRepair({
+            supabase,
+            clientActionId: body.client_action_id,
+            tripId: String(retryTrips[0].id),
+            providerOrderId: paymentRefId || body.payment_intent_id || null,
+            source: "ctap.insert_duplicate_client_action_id",
+          });
           return new Response(JSON.stringify({
             success: true,
             ride_id: retryTrips[0].id,
@@ -1187,6 +1238,13 @@ serveWithEdgeTiming("create-trip-after-payment", corsHeaders, async (req) => {
               .limit(1)
               .maybeSingle();
             if (byCa) {
+              schedulePaymentSessionTripLinkRepair({
+                supabase,
+                clientActionId: body.client_action_id,
+                tripId: String(byCa.id),
+                providerOrderId: paymentRefId || body.payment_intent_id || null,
+                source: "ctap.insert_unique_violation_by_ca",
+              });
               return new Response(JSON.stringify({
                 success: true,
                 ride_id: byCa.id,
@@ -1227,6 +1285,7 @@ serveWithEdgeTiming("create-trip-after-payment", corsHeaders, async (req) => {
     }
 
     const trip = insertedTrips;
+    const canonicalT1At = Date.now();
     log("Trip created", { tripId: trip.id });
     bookingWaterfall.completeStep(
       "trip_inserted",
@@ -1234,20 +1293,10 @@ serveWithEdgeTiming("create-trip-after-payment", corsHeaders, async (req) => {
       { trip_id: trip.id },
     );
 
-    const ctapResponseAt = Date.now();
-    bookingWaterfall.recordStep({
-      step: "trip_inserted",
-      start_time_ms: ctapStartedAt,
-      finish_time_ms: ctapResponseAt,
-      source: "create-trip-after-payment/index.ts:ctap_response",
-      blocking_dependency: "revolut_authorised",
-      metadata: {
-        phase: "ctap_response",
-        ctap_duration_ms: ctapResponseAt - ctapStartedAt,
-        trip_id: trip.id,
-      },
-    });
-
+    // Canonical T1 committed — return minimal booking seed immediately.
+    // P2 work (payment_session reverse link, dispatch, notifications, fare
+    // enrich) stays on EdgeRuntime.waitUntil. Never await markPaymentSession
+    // trip link on the Customer Finding critical path (MK-260926-005).
     const postInsertTasks = buildBookingPostCommitTasks({
       supabase,
       userId: user.id,
@@ -1272,19 +1321,40 @@ serveWithEdgeTiming("create-trip-after-payment", corsHeaders, async (req) => {
 
     EdgeRuntime.waitUntil(Promise.allSettled(postInsertTasks));
 
-    if (!skipPlatformPreauth) {
-      await markPaymentSessionTripCreated(supabase, {
-        clientActionId: body.client_action_id,
-        tripId: trip.id,
-        providerOrderId: paymentRefId,
-      });
-    }
+    const responseReadyAt = Date.now();
+    bookingWaterfall.recordStep({
+      step: "trip_inserted",
+      start_time_ms: ctapStartedAt,
+      finish_time_ms: canonicalT1At,
+      source: "create-trip-after-payment/index.ts:canonical_t1",
+      blocking_dependency: "revolut_authorised",
+      metadata: {
+        phase: "canonical_t1",
+        trip_id: trip.id,
+      },
+    });
+    bookingWaterfall.recordStep({
+      step: "trip_inserted",
+      start_time_ms: canonicalT1At,
+      finish_time_ms: responseReadyAt,
+      source: "create-trip-after-payment/index.ts:response_ready",
+      blocking_dependency: "revolut_authorised",
+      metadata: {
+        phase: "response_ready",
+        post_t1_required_ms: responseReadyAt - canonicalT1At,
+        trip_id: trip.id,
+      },
+    });
 
     const bookingMilestones = {
       ctap_start_ms: ctapStartedAt,
-      trip_inserted_ms: ctapResponseAt,
-      ctap_response_ms: ctapResponseAt,
-      ctap_duration_ms: ctapResponseAt - ctapStartedAt,
+      trip_inserted_ms: canonicalT1At,
+      canonical_t1_ms: canonicalT1At,
+      response_ready_ms: responseReadyAt,
+      response_sent_ms: responseReadyAt,
+      ctap_response_ms: responseReadyAt,
+      ctap_duration_ms: responseReadyAt - ctapStartedAt,
+      post_t1_required_ms: responseReadyAt - canonicalT1At,
     };
     const bookingWaterfallReport = buildBookingWaterfallMilestoneReport({
       milestones: bookingMilestones,
