@@ -412,6 +412,31 @@ function extractDriverDocumentStoragePath(fileUrl: string): string | null {
   return null;
 }
 
+async function withBoundedTimeout<T>(
+  promise: Promise<T>,
+  ms: number,
+): Promise<T | null> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      promise.then((value) => value as T | null),
+      new Promise<null>((resolve) => {
+        timer = setTimeout(() => resolve(null), ms);
+      }),
+    ]);
+  } finally {
+    if (timer != null) clearTimeout(timer);
+  }
+}
+
+/**
+ * Driver photo signing is enrichment only — must never block restore for
+ * ~130s+ when Storage hangs. Bound to 2.5s; fall through without photo.
+ * UNKNOWN whether Storage is the sole 132–135s zombie cause; this is a
+ * justified safety bound on a non-authoritative enrichment await.
+ */
+const DRIVER_PHOTO_SIGN_TIMEOUT_MS = 2_500;
+
 async function resolveCustomerRenderableDriverPhotoUrl(
   supabase: SupabaseClient,
   driverId: string,
@@ -423,10 +448,17 @@ async function resolveCustomerRenderableDriverPhotoUrl(
 
     const storagePath = extractDriverDocumentStoragePath(trimmed);
     if (storagePath) {
-      const { data, error } = await supabase.storage
-        .from("driver-documents")
-        .createSignedUrl(storagePath, 60 * 60); // 1 hour
-      if (!error && data?.signedUrl) return data.signedUrl;
+      const signed = await withBoundedTimeout(
+        supabase.storage
+          .from("driver-documents")
+          .createSignedUrl(storagePath, 60 * 60)
+          .then(({ data, error }) => {
+            if (!error && data?.signedUrl) return data.signedUrl;
+            return null;
+          }),
+        DRIVER_PHOTO_SIGN_TIMEOUT_MS,
+      );
+      if (signed) return signed;
     }
 
     // External HTTPS (CDN) — usable as-is. Never return private storage paths.
@@ -444,14 +476,18 @@ async function resolveCustomerRenderableDriverPhotoUrl(
     if (fromColumn) return fromColumn;
   }
 
-  const { data: doc } = await supabase
-    .from("documents")
-    .select("file_url")
-    .eq("driver_id", driverId)
-    .eq("document_type", "profile_photo")
-    .order("created_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
+  const doc = await withBoundedTimeout(
+    supabase
+      .from("documents")
+      .select("file_url")
+      .eq("driver_id", driverId)
+      .eq("document_type", "profile_photo")
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle()
+      .then(({ data }) => data),
+    DRIVER_PHOTO_SIGN_TIMEOUT_MS,
+  );
 
   const docUrl = typeof doc?.file_url === "string" ? doc.file_url.trim() : "";
   if (!docUrl) return null;
