@@ -18,6 +18,11 @@ import {
   type ModificationPaymentGateDecision,
 } from "./tripModificationPaymentGateSSOT.ts";
 import { SERVICE_AREA_FINANCIAL_MODEL } from "./commissionWalletSSOT.ts";
+import {
+  customerSafeErrorForFailureClass,
+  failureClassFromGateReason,
+  type ModificationPaymentFailureClass,
+} from "./modificationPaymentFailureTaxonomy.ts";
 
 export const CUSTOMER_PAYMENT_INCREMENT_UNRESOLVED =
   "CUSTOMER_PAYMENT_INCREMENT_UNRESOLVED";
@@ -41,6 +46,8 @@ export type FareIncreasePaymentResult = {
   authorisedTotalPence?: number;
   requiredPayablePence?: number;
   error?: string;
+  /** Structured failure taxonomy for Customer copy — never invent bank decline. */
+  failure_class?: ModificationPaymentFailureClass;
   httpStatus: number;
   requiresApproval?: boolean;
   navigationImpacted?: boolean;
@@ -328,6 +335,10 @@ export async function executeFareIncreaseModificationPayment(
 
   if (!gate.mayApply) {
     const pending = gate.phase === "PAYMENT_PENDING";
+    const failureClass = failureClassFromGateReason(
+      "reason" in gate ? gate.reason : null,
+      gate.phase,
+    );
     await supabase
       .from("trip_change_requests")
       .update({
@@ -348,9 +359,10 @@ export async function executeFareIncreaseModificationPayment(
       tripUnchanged: true,
       authorisedTotalPence: gate.authorisedTotalPence,
       requiredPayablePence: newFarePence,
+      failure_class: failureClass,
       error: pending
         ? "Payment is still processing. Your trip has not been changed."
-        : "Payment confirmation failed",
+        : customerSafeErrorForFailureClass(failureClass),
       httpStatus: pending ? 202 : 402,
     };
   }
