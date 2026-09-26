@@ -418,7 +418,7 @@ Deno.serve(async (req) => {
 
   const clientIP = getClientIP(req);
   if (!checkRateLimit(clientIP)) {
-    return json({ error: "Too many requests" }, 429);
+    return json({ error: "Too many requests. Please wait a moment and try again.", code: "RATE_LIMITED" }, 429);
   }
 
   const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
@@ -486,31 +486,16 @@ Deno.serve(async (req) => {
   let passengerPhone = "";
   let activeContinuationToken = "";
 
-  const rawContinuation =
-    typeof continuation_token === "string" ? continuation_token.trim() : "";
-  if (rawContinuation) {
-    const claims = await verifyWhatsAppContinuationToken(rawContinuation, signingMaterial);
-    if (!claims || claims.purpose !== "book" || !claims.waId) {
-      return json({
-        error: "Invalid or expired WhatsApp booking link",
-        code: "INVALID_CONTINUATION_TOKEN",
-      }, 401);
-    }
-    resolvedWaId = claims.waId;
-    const fromToken = whatsAppWaIdToE164(resolvedWaId);
-    if (!fromToken) {
-      return json({ error: "WhatsApp identity could not be resolved" }, 401);
-    }
-    passengerPhone = fromToken;
-    activeContinuationToken = rawContinuation;
-  } else {
-    // Website guest checkout: mint a book continuation from the passenger mobile.
+  const resolvePhoneFromCustomerField = ():
+    | { ok: true; e164: string; waId: string }
+    | { ok: false; code: string; error: string } => {
     const phoneRaw = typeof customer_phone === "string" ? customer_phone.trim() : "";
     if (!phoneRaw) {
-      return json({
-        error: "Enter your mobile number to continue to payment",
+      return {
+        ok: false,
         code: "PHONE_REQUIRED",
-      }, 400);
+        error: "Enter your mobile number to continue to payment",
+      };
     }
     let e164: string | null = null;
     const digits = phoneRaw.replace(/\D/g, "");
@@ -528,19 +513,58 @@ Deno.serve(async (req) => {
       e164 = gb.valid && gb.e164 ? gb.e164 : null;
     }
     if (!e164) {
-      return json({
-        error: "Enter a valid mobile number including country code",
+      return {
+        ok: false,
         code: "PHONE_INVALID",
-      }, 400);
-    }
-    passengerPhone = e164;
-    resolvedWaId = normalizeWhatsAppPhoneDigits(e164);
-    if (resolvedWaId.length < 10) {
-      return json({
         error: "Enter a valid mobile number including country code",
-        code: "PHONE_INVALID",
-      }, 400);
+      };
     }
+    const waId = normalizeWhatsAppPhoneDigits(e164);
+    if (waId.length < 10) {
+      return {
+        ok: false,
+        code: "PHONE_INVALID",
+        error: "Enter a valid mobile number including country code",
+      };
+    }
+    return { ok: true, e164, waId };
+  };
+
+  const rawContinuation =
+    typeof continuation_token === "string" ? continuation_token.trim() : "";
+  if (rawContinuation) {
+    const claims = await verifyWhatsAppContinuationToken(rawContinuation, signingMaterial);
+    if (claims && claims.purpose === "book" && claims.waId) {
+      const fromToken = whatsAppWaIdToE164(claims.waId);
+      if (fromToken) {
+        resolvedWaId = claims.waId;
+        passengerPhone = fromToken;
+        activeContinuationToken = rawContinuation;
+      }
+    }
+    // Stale/invalid ?wa= must not block website guests who entered a mobile number.
+    if (!passengerPhone) {
+      const fromPhone = resolvePhoneFromCustomerField();
+      if (!fromPhone.ok) {
+        return json({
+          error: "Invalid or expired WhatsApp booking link",
+          code: "INVALID_CONTINUATION_TOKEN",
+        }, 401);
+      }
+      passengerPhone = fromPhone.e164;
+      resolvedWaId = fromPhone.waId;
+      activeContinuationToken = await createWhatsAppContinuationToken(
+        { purpose: "book", waId: resolvedWaId, tripId: null, ttlSeconds: 7200 },
+        signingMaterial,
+      );
+    }
+  } else {
+    const fromPhone = resolvePhoneFromCustomerField();
+    if (!fromPhone.ok) {
+      return json({ error: fromPhone.error, code: fromPhone.code }, 400);
+    }
+    passengerPhone = fromPhone.e164;
+    resolvedWaId = fromPhone.waId;
     activeContinuationToken = await createWhatsAppContinuationToken(
       { purpose: "book", waId: resolvedWaId, tripId: null, ttlSeconds: 7200 },
       signingMaterial,
@@ -552,7 +576,10 @@ Deno.serve(async (req) => {
     activeContinuationToken,
   );
   if (!redirectUrl) {
-    return json({ error: "Booking return URL is not configured" }, 503);
+    return json({
+      error: "Booking return URL is not configured",
+      code: "RETURN_URL_UNAVAILABLE",
+    }, 503);
   }
 
   const invokeHeaders = edgeFunctionInvokeHeaders(req);
