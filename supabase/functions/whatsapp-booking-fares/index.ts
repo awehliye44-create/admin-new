@@ -160,6 +160,8 @@ Deno.serve(async (req) => {
 
     // 3. Call calculate-fare SSOT — identical call shape to the Customer app.
     //    Returns per-vehicle authoritative fares including zones, surge, airport charges.
+    //    Must use JWT invoke headers (caller/anon) — never the service-role secret as
+    //    Authorization, or the Functions gateway returns HTTP 401.
     const calculateFareUrl = `${Deno.env.get("SUPABASE_URL")}/functions/v1/calculate-fare`;
     const fareReqBody: Record<string, unknown> = {
       service_area_id,
@@ -171,11 +173,7 @@ Deno.serve(async (req) => {
 
     const fareRes = await fetch(calculateFareUrl, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
-        apikey: Deno.env.get("SUPABASE_ANON_KEY") ?? "",
-      },
+      headers: invokeHeaders,
       body: JSON.stringify(fareReqBody),
     });
 
