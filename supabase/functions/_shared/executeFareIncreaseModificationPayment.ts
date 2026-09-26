@@ -313,7 +313,17 @@ export async function executeFareIncreaseModificationPayment(
       total_authorised_amount_pence: sessionProtected,
     }),
   );
-  if (gate.mayApply && protectedAfter < newFarePence) {
+  // Canonical session/trip hold already covers the revised payable — unlock apply
+  // even when the preauth invoke returned processing/unknown with a stale amount.
+  if (protectedAfter >= newFarePence && newFarePence > 0) {
+    gate = {
+      phase: "PROVIDER_CONFIRMED",
+      mayApply: true,
+      paymentStatus: "confirmed",
+      requestStatus: "payment_confirmed",
+      authorisedTotalPence: protectedAfter,
+    };
+  } else if (gate.mayApply && protectedAfter < newFarePence) {
     gate = {
       phase: "PAYMENT_FAILED",
       mayApply: false,
@@ -328,6 +338,9 @@ export async function executeFareIncreaseModificationPayment(
 
   if (!gate.mayApply) {
     const pending = gate.phase === "PAYMENT_PENDING";
+    const holdNotRaised =
+      gate.phase === "PAYMENT_FAILED"
+      && (gate.reason === "amount_mismatch" || gate.reason === "declined");
     await supabase
       .from("trip_change_requests")
       .update({
@@ -350,7 +363,14 @@ export async function executeFareIncreaseModificationPayment(
       requiredPayablePence: newFarePence,
       error: pending
         ? "Payment is still processing. Your trip has not been changed."
+        : holdNotRaised
+        ? "The payment hold could not be increased to cover the new fare."
         : "Payment confirmation failed",
+      error_code: pending
+        ? "AUTHORISATION_RECONCILIATION_PENDING"
+        : holdNotRaised
+        ? "AUTHORISED_TOTAL_BELOW_TARGET"
+        : "PAYMENT_CONFIRMATION_FAILED",
       httpStatus: pending ? 202 : 402,
     };
   }

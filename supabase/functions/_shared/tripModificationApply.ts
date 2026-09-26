@@ -331,9 +331,13 @@ export async function invokePreauthUpdateOnModification(
     if (contextBody && typeof contextBody.json === "function") {
       try {
         const parsed = await contextBody.json();
-        if (parsed?.requires_revolut_checkout === true) {
-          console.log("TRIP_MODIFICATION_PREAUTH_REVOLUT_CHECKOUT", { tripId, parsed });
-          return parsed;
+        if (parsed && typeof parsed === "object") {
+          // 4xx bodies from update-preauth are structured payment outcomes
+          // (decline / pending / checkout). Never map them to a bare throw —
+          // that became AUTHORISATION_RECONCILIATION_PENDING and the Customer
+          // "confirming payment" alert while PSA was already DECLINED.
+          console.log("TRIP_MODIFICATION_PREAUTH_ERROR_BODY", { tripId, parsed });
+          return parsed as Record<string, unknown>;
         }
       } catch {
         // fall through

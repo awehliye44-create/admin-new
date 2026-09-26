@@ -255,6 +255,9 @@ export function isConfirmedIncrementRowStatus(status: string | null | undefined)
 export function isPriorIncrementAttemptStatus(status: string | null | undefined): boolean {
   const s = String(status ?? "").trim();
   if (!s || s === "superseded") return false;
+  // Retryable means Revolut was never durably asked / POST failed before a
+  // provider-side increment existed — a new POST for the same target is allowed.
+  if (s === "ADDITIONAL_AUTHORISATION_FAILED_RETRYABLE") return false;
   return !isConfirmedIncrementRowStatus(s);
 }
 
