@@ -77,15 +77,14 @@ async function sendReminderPush(
       },
       body: JSON.stringify({
         driverId: input.driver_id,
-        type: "RIDE_OFFER_REMINDER",
+        // Must be RIDE_OFFER — send-driver-notification allow-list rejects
+        // RIDE_OFFER_REMINDER (MK-260926-004: iOS continuous re-alert send_failed).
+        type: "RIDE_OFFER",
         title: input.title,
         body: input.body,
         targetPlatform: input.targetPlatform,
         data: {
           ...input.notifData,
-          type: "new_ride_offer_reminder",
-          notificationType: "new_ride_offer_reminder",
-          offer_notification_type: "new_ride_offer_reminder",
           offer_id: input.offer_id,
           offerId: input.offer_id,
           booking_id: input.booking_id,
@@ -94,6 +93,7 @@ async function sendReminderPush(
           expirySeconds: String(secondsLeft),
           reminder_index: String(input.reminderIndex),
           is_reminder: "true",
+          offer_notification_type: "new_ride_offer_reminder",
           sound: RIDE_OFFER_IOS_ALERT_SOUND,
           ...(input.iosRealert ? { ios_realert: "true" } : {}),
         },
