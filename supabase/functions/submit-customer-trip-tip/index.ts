@@ -7,7 +7,7 @@
  * - Only after status=completed and within tip window
  * - Exactly one trigger owns finalisation via claim_tip_window_trigger mutex
  * - tip>0 + tip auth decline → TIP_AUTHORISATION_DECLINED; no fare capture; window stays OPEN
- * - tip>0 + fare already captured / tip_shortfall → TIP_NOT_COLLECTED; never seal tip=0 under WITH_TIP
+ * - tip>0 + fare already captured / tip_shortfall → TIP_NOT_COLLECTED; never seal tip=0 under WITH_TIP; close window (MK-260926-001)
  * - Capture fare (+ tip when tip > 0) then seal CLOSED
  * - On capture failure / decline: release claim (except provider UNKNOWN retains claim)
  */
@@ -26,6 +26,7 @@ import {
 import {
   claimTipWindowTrigger,
   classifyTipWindowCaptureOutcome,
+  closeOpenTipWindowAfterFareCapture,
   finalizeTipWindowTrigger,
   newTipWindowClaimToken,
   releaseTipWindowTriggerClaim,
@@ -404,6 +405,7 @@ Deno.serve(async (req) => {
       }
 
       // MK-260926-001: fare-only already_captured must not seal WITH_TIP at tip=0.
+      // Close the tip window immediately so Rate Trip hides tip stepper/timer.
       const requestedTipBeforeCollect = tipAmountPence;
       if (
         tipRequestedButNotCollected({
@@ -411,17 +413,24 @@ Deno.serve(async (req) => {
           body: rec.body,
         })
       ) {
+        const closeNow = new Date().toISOString();
         await releaseTipWindowTriggerClaim(admin, {
           tripId,
           claimToken: mutex.claimToken,
           clearTip: true,
-          nowIso: new Date().toISOString(),
+          nowIso: closeNow,
+        });
+        await closeOpenTipWindowAfterFareCapture(admin, {
+          tripId,
+          tipPence: 0,
+          nowIso: closeNow,
         });
         return json({
           success: false,
           error: TIP_NOT_COLLECTED_CUSTOMER_MESSAGE,
           error_code: TIP_NOT_COLLECTED,
-          tip_window_status: TIP_WINDOW_STATUS.OPEN,
+          tip_window_status: TIP_WINDOW_STATUS.CLOSED,
+          tip_window_closed_at: closeNow,
           tip_amount_pence: 0,
           fare_captured: true,
         }, 409);

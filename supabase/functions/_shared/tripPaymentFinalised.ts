@@ -89,6 +89,33 @@ export function isTripPaymentFinalised(paymentStatus: string | null | undefined)
   return FINALISED_PAYMENT_STATUSES.has((paymentStatus ?? "").trim().toLowerCase());
 }
 
+/**
+ * MK-260926-001: fare already taken — tip window must not open / tip UI must not run.
+ * payment_status can lag as authorised while capture_amount_pence is already > 0.
+ */
+export function isFareCapturedBlockingTipWindow(args: {
+  paymentStatus?: string | null;
+  captureAmountPence?: number | null;
+}): boolean {
+  if (isTripPaymentFinalised(args.paymentStatus)) return true;
+  return Math.round(Number(args.captureAmountPence) || 0) > 0;
+}
+
+/**
+ * True when a confirmed fare capture should seal an open tip window immediately
+ * (tip=0 or tip not collected). Tip-submit WITH_TIP success (collected tip) seals
+ * via finalize — do not race-close with tip wiped to 0.
+ */
+export function shouldCloseOpenTipWindowAfterFareCapture(args: {
+  tipWindowExpiresAt?: string | null;
+  tipWindowClosedAt?: string | null;
+  tipCollectedPence?: number | null;
+}): boolean {
+  if (!args.tipWindowExpiresAt || args.tipWindowClosedAt) return false;
+  const collected = Math.round(Number(args.tipCollectedPence) || 0);
+  return collected <= 0;
+}
+
 export function isTerminalTripNoCapture(status: string | null | undefined): boolean {
   return TERMINAL_NO_CAPTURE_STATUSES.has((status ?? "").trim().toLowerCase());
 }
