@@ -468,7 +468,10 @@ Deno.serve(async (req) => {
     return json({ error: "dropoff_lat / dropoff_lng are required" }, 400);
   }
   if (typeof continuation_token !== "string" || !continuation_token.trim()) {
-    return json({ error: "A secure WhatsApp booking link is required" }, 401);
+    return json({
+      error: "A secure WhatsApp booking link is required",
+      code: "CONTINUATION_TOKEN_REQUIRED",
+    }, 401);
   }
 
   const verifyToken = Deno.env.get("WHATSAPP_WEBHOOK_VERIFY_TOKEN")?.trim() ?? "";
