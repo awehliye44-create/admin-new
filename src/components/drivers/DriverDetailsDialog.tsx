@@ -667,7 +667,7 @@ export function DriverDetailsDialog({
               <div className="flex items-center gap-1">
                 <Star className="h-5 w-5 text-yellow-500 fill-yellow-500" />
                 <span className="text-lg font-medium">
-                  {driver.rating?.toFixed(1) || 'N/A'}
+                  {driver.rating?.toFixed(2) || 'N/A'}
                 </span>
               </div>
             </div>
