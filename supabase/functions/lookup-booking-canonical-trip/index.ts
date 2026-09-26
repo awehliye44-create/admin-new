@@ -1,9 +1,8 @@
 /**
- * Authenticated read-only lookup: has THIS client_action_id already produced
- * a canonical trip for the caller? CTAP-inflight fast adopt uses this instead
- * of full restore-active-trip hydration (MK-260926-007).
+ * CTAP-inflight booking identity discovery (MK-260926-007 / MK-009).
+ * Authenticated read-only lookup by client_action_id — never creates a trip.
  *
- * Zero payment/wallet/trip mutations.
+ * Zero payment/wallet/trip mutations. Internal spans are observability only.
  */
 import { createClient } from "npm:@supabase/supabase-js@2.57.2";
 import {
@@ -27,6 +26,7 @@ function json(body: Record<string, unknown>, status = 200): Response {
 }
 
 serveWithEdgeTiming("lookup-booking-canonical-trip", corsHeaders, async (req) => {
+  const edgeReceiveMs = Date.now();
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
   }
@@ -42,14 +42,23 @@ serveWithEdgeTiming("lookup-booking-canonical-trip", corsHeaders, async (req) =>
   const authHeader = req.headers.get("Authorization");
   if (!authHeader) return json({ ok: false, reason: "unauthorized" }, 401);
 
+  const authStartMs = Date.now();
   const anonClient = createClient(supabaseUrl, anonKey, {
     global: { headers: { Authorization: authHeader } },
     auth: { persistSession: false },
   });
   const token = authHeader.replace(/^Bearer\s+/i, "").trim();
   const { data: claimsData, error: claimsError } = await anonClient.auth.getClaims(token);
+  const authEndMs = Date.now();
   if (claimsError || !claimsData?.claims?.sub) {
-    return json({ ok: false, reason: "unauthorized" }, 401);
+    return json({
+      ok: false,
+      reason: "unauthorized",
+      timing: {
+        edge_receive_ms: edgeReceiveMs,
+        auth_ms: authEndMs - authStartMs,
+      },
+    }, 401);
   }
   const userId = String(claimsData.claims.sub);
 
@@ -63,32 +72,57 @@ serveWithEdgeTiming("lookup-booking-canonical-trip", corsHeaders, async (req) =>
     auth: { persistSession: false },
   });
 
+  const customerStartMs = Date.now();
   const { data: customer, error: customerErr } = await supabase
     .from("customers")
     .select("id")
     .eq("user_id", userId)
     .maybeSingle();
+  const customerEndMs = Date.now();
   if (customerErr || !customer?.id) {
-    return json({ ok: false, reason: "customer_not_found" }, 404);
+    return json({
+      ok: false,
+      reason: "customer_not_found",
+      timing: {
+        edge_receive_ms: edgeReceiveMs,
+        auth_ms: authEndMs - authStartMs,
+        customer_lookup_ms: customerEndMs - customerStartMs,
+      },
+    }, 404);
   }
 
   // UNIQUE(trips.client_action_id) — O(1) identity discovery.
+  const tripLookupStartMs = Date.now();
   const { data: trip, error: tripErr } = await supabase
     .from("trips")
     .select(BOOKING_CANONICAL_TRIP_LOOKUP_SELECT)
     .eq("client_action_id", clientActionId)
     .maybeSingle();
+  const tripLookupEndMs = Date.now();
 
   if (tripErr) {
     console.warn("[lookup-booking-canonical-trip] query failed", tripErr.message);
     return json({ ok: false, reason: "lookup_failed" }, 500);
   }
 
+  const validationStartMs = Date.now();
   const evaluated = evaluateBookingCanonicalTripLookup({
     clientActionId,
     customerId: String(customer.id),
     trip: (trip as BookingCanonicalTripRow | null) ?? null,
   });
+  const validationEndMs = Date.now();
+  const responseReadyMs = Date.now();
+
+  const timing = {
+    edge_receive_ms: edgeReceiveMs,
+    auth_ms: authEndMs - authStartMs,
+    customer_lookup_ms: customerEndMs - customerStartMs,
+    trip_cai_lookup_ms: tripLookupEndMs - tripLookupStartMs,
+    status_validation_ms: validationEndMs - validationStartMs,
+    response_ready_ms: responseReadyMs,
+    server_total_ms: responseReadyMs - edgeReceiveMs,
+  };
 
   if (!evaluated.ok) {
     return json({
@@ -96,6 +130,7 @@ serveWithEdgeTiming("lookup-booking-canonical-trip", corsHeaders, async (req) =>
       found: false,
       reason: evaluated.reason,
       client_action_id: clientActionId,
+      timing,
     });
   }
 
@@ -124,5 +159,6 @@ serveWithEdgeTiming("lookup-booking-canonical-trip", corsHeaders, async (req) =>
     scheduled_status: seed.scheduled_status,
     payment_session_id: seed.payment_session_id,
     client_action_id: seed.client_action_id,
+    timing,
   });
 });

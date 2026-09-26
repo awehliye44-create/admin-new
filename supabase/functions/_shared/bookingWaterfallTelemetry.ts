@@ -118,19 +118,33 @@ export function createBookingWaterfallCollector(input?: {
     },
     persistOpsLog: async (adminClient, extra = {}) => {
       if (!clientActionId && !tripId) return;
+      const metaTripId =
+        (typeof extra.trip_id === "string" && extra.trip_id.trim()) || tripId || null;
       try {
-        await adminClient.from("ops_logs").insert({
+        // PostgREST returns { error } — it does NOT throw on insert failure.
+        const { error } = await adminClient.from("ops_logs").insert({
           level: "info",
           source: "booking_waterfall",
           app: "customer_app",
-          message: `booking_waterfall ${clientActionId ?? tripId}`,
+          message: `booking_waterfall ${clientActionId ?? metaTripId}`,
+          trip_id: metaTripId,
           metadata: {
             client_action_id: clientActionId,
-            trip_id: tripId,
+            trip_id: metaTripId,
             steps,
             ...extra,
           },
         });
+        if (error) {
+          console.warn("[bookingWaterfallTelemetry] ops_logs insert error:", {
+            message: error.message,
+            code: error.code ?? null,
+            details: error.details ?? null,
+            client_action_id: clientActionId,
+            trip_id: metaTripId,
+            phase: extra.phase ?? null,
+          });
+        }
       } catch (err) {
         console.warn("[bookingWaterfallTelemetry] ops_logs insert failed:", err);
       }

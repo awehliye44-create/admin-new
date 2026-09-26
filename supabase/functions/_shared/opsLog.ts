@@ -42,7 +42,7 @@ export async function opsLog(
       ...(input.event_type ? { event_type: input.event_type } : {}),
     };
 
-    await client.from("ops_logs").insert({
+    const { error } = await client.from("ops_logs").insert({
       level: input.level,
       source: input.source,
       app: input.app ?? "backend",
@@ -55,6 +55,14 @@ export async function opsLog(
       metadata,
       is_synthetic: false,
     });
+    if (error) {
+      console.error("[opsLog] insert error:", {
+        message: error.message,
+        code: error.code ?? null,
+        source: input.source,
+      });
+      return;
+    }
 
     const workflowType = input.workflow_event_type ?? input.event_type;
     if (workflowType && WORKFLOW_EVENT_TYPES.has(workflowType)) {
