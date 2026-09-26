@@ -10,6 +10,8 @@ import {
 import {
   TIP_AUTHORISATION_DECLINED,
   TIP_AUTHORISATION_DECLINED_CUSTOMER_MESSAGE,
+  TIP_NOT_COLLECTED,
+  TIP_NOT_COLLECTED_CUSTOMER_MESSAGE,
   TIP_WINDOW_STATUS,
   TIP_WINDOW_TRIGGER,
 } from "../../functions/_shared/tipWindowConstants.ts";
@@ -598,6 +600,47 @@ Deno.test("LOCK: bank decline copy is typed and exact", () => {
   assert(!TIP_AUTHORISATION_DECLINED_CUSTOMER_MESSAGE.toLowerCase().includes("fare already taken"));
 });
 
+Deno.test("MK-260926-001: fare already captured tip_shortfall refuses — never seals WITH_TIP tip=0", async () => {
+  const trip: MemTrip = {
+    status: TIP_WINDOW_STATUS.OPEN,
+    trigger: null,
+    claimToken: null,
+    tipPence: 0,
+    captureCalls: 0,
+    tipRows: 0,
+    tipCredits: 0,
+    tenCount: 1,
+  };
+  const result = await runCustomerTipWindowTrigger({
+    tripId: "mk-260926-001",
+    trigger: TIP_WINDOW_TRIGGER.CUSTOMER_SUBMIT_WITH_TIP,
+    tipPence: 200,
+    claimToken: "tok-shortfall",
+    mutex: memoryMutex(trip),
+    capture: async () => ({
+      ok: true,
+      body: {
+        success: true,
+        status: "already_captured",
+        capture_amount_pence: 500,
+        tip_collected_pence: 0,
+        tip_shortfall_pence: 200,
+        provider_state: "COMPLETED",
+      },
+      captureCallCount: 1,
+    }),
+  });
+  assertEquals(result.success, false);
+  assertEquals(result.error_code, TIP_NOT_COLLECTED);
+  assertEquals(result.error, TIP_NOT_COLLECTED_CUSTOMER_MESSAGE);
+  assertEquals(result.tip_window_status, TIP_WINDOW_STATUS.OPEN);
+  assertEquals(result.window_released, true);
+  assertEquals(trip.status, TIP_WINDOW_STATUS.OPEN);
+  assertEquals(trip.trigger, null);
+  assertEquals(trip.tipPence, 0);
+  assertEquals(trip.claimToken, null);
+});
+
 Deno.test("LOCK: tip>0 decline path removes safeCapture from WITH_TIP", async () => {
   const src = await Deno.readTextFile(
     new URL("../../functions/_shared/revolutCompletionCapture.ts", import.meta.url),
@@ -621,6 +664,8 @@ Deno.test("LOCK: submit + expiry wire claim_tip_window_trigger mutex", async () 
   );
   assert(submit.includes("claimTipWindowTrigger"));
   assert(submit.includes("TIP_AUTHORISATION_DECLINED"));
+  assert(submit.includes("TIP_NOT_COLLECTED"));
+  assert(submit.includes("tipRequestedButNotCollected"));
   assert(submit.includes("releaseTipWindowTriggerClaim"));
   assert(expiry.includes("claimTipWindowTrigger"));
   assert(expiry.includes("TIP_WINDOW_STATUS.EXPIRED"));

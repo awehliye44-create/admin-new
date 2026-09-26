@@ -10,12 +10,17 @@ import {
 import {
   TIP_AUTHORISATION_DECLINED,
   TIP_AUTHORISATION_DECLINED_CUSTOMER_MESSAGE,
+  TIP_NOT_COLLECTED,
+  TIP_NOT_COLLECTED_CUSTOMER_MESSAGE,
 } from "../../functions/_shared/tipWindowConstants.ts";
 import { classifyTipWindowCaptureOutcome } from "../../functions/_shared/tipWindowTriggerMutexSSOT.ts";
 import { durableSettlementColumns } from "../../functions/_shared/durableSettlementOutcomeSSOT.ts";
 
 const BANK_COPY =
   "Your bank declined the tip. Your fare has not been taken yet. You can try again, continue without a tip, or skip.";
+
+const FARE_TAKEN_COPY =
+  "The fare was already taken, so this tip could not be added. You can continue without a tip or skip.";
 
 const CUSTOMER_TIP =
   "/Users/admin/onecab-customer-native/src/features/booking/data/submitCustomerTripTip.ts";
@@ -50,6 +55,18 @@ Deno.test("COMPAT: New Customer + new Edge — typed bank-decline copy", async (
   const src = await Deno.readTextFile(CUSTOMER_TIP);
   assertStringIncludes(src, "TIP_AUTHORISATION_DECLINED");
   assertStringIncludes(src, BANK_COPY);
+});
+
+Deno.test("COMPAT: MK-260926-001 tip-not-collected refuse copy on Edge + Customer", async () => {
+  assertEquals(TIP_NOT_COLLECTED_CUSTOMER_MESSAGE, FARE_TAKEN_COPY);
+  const src = await Deno.readTextFile(CUSTOMER_TIP);
+  assertStringIncludes(src, "TIP_NOT_COLLECTED");
+  assertStringIncludes(src, FARE_TAKEN_COPY);
+  const submit = await Deno.readTextFile(
+    new URL("../../functions/submit-customer-trip-tip/index.ts", import.meta.url),
+  );
+  assertStringIncludes(submit, TIP_NOT_COLLECTED);
+  assertStringIncludes(submit, "tipRequestedButNotCollected");
 });
 
 Deno.test("COMPAT: Migration + old Edge — additive; closed remains valid", async () => {
