@@ -7,6 +7,7 @@
  * - Only after status=completed and within tip window
  * - Exactly one trigger owns finalisation via claim_tip_window_trigger mutex
  * - tip>0 + tip auth decline → TIP_AUTHORISATION_DECLINED; no fare capture; window stays OPEN
+ * - tip>0 + fare already captured / tip_shortfall → TIP_NOT_COLLECTED; never seal tip=0 under WITH_TIP
  * - Capture fare (+ tip when tip > 0) then seal CLOSED
  * - On capture failure / decline: release claim (except provider UNKNOWN retains claim)
  */
@@ -17,6 +18,8 @@ import { isCustomerAppTipChannelEligible } from "../_shared/tipChannelEligibilit
 import {
   TIP_AUTHORISATION_DECLINED,
   TIP_AUTHORISATION_DECLINED_CUSTOMER_MESSAGE,
+  TIP_NOT_COLLECTED,
+  TIP_NOT_COLLECTED_CUSTOMER_MESSAGE,
   TIP_WINDOW_STATUS,
   resolveCustomerTipWindowTrigger,
 } from "../_shared/tipWindowConstants.ts";
@@ -26,6 +29,7 @@ import {
   finalizeTipWindowTrigger,
   newTipWindowClaimToken,
   releaseTipWindowTriggerClaim,
+  tipRequestedButNotCollected,
 } from "../_shared/tipWindowTriggerMutexSSOT.ts";
 import {
   isTipWindowOpen,
@@ -397,6 +401,30 @@ Deno.serve(async (req) => {
           error: rec.error ?? "Capture failed",
           error_code: "CAPTURE_FAILED",
         }, 502);
+      }
+
+      // MK-260926-001: fare-only already_captured must not seal WITH_TIP at tip=0.
+      const requestedTipBeforeCollect = tipAmountPence;
+      if (
+        tipRequestedButNotCollected({
+          requestedTipPence: requestedTipBeforeCollect,
+          body: rec.body,
+        })
+      ) {
+        await releaseTipWindowTriggerClaim(admin, {
+          tripId,
+          claimToken: mutex.claimToken,
+          clearTip: true,
+          nowIso: new Date().toISOString(),
+        });
+        return json({
+          success: false,
+          error: TIP_NOT_COLLECTED_CUSTOMER_MESSAGE,
+          error_code: TIP_NOT_COLLECTED,
+          tip_window_status: TIP_WINDOW_STATUS.OPEN,
+          tip_amount_pence: 0,
+          fare_captured: true,
+        }, 409);
       }
 
       if (tipAmountPence > 0) {

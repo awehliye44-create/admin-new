@@ -139,7 +139,7 @@ export async function finalizeTipWindowTrigger(
 export function classifyTipWindowCaptureOutcome(
   body: Record<string, unknown> | null | undefined,
 ): {
-  kind: "tip_authorisation_declined" | "capture_confirmed" | "capture_not_confirmed" | "provider_unknown";
+  kind: "tip_authorisation_declined" | "tip_not_collected" | "capture_confirmed" | "capture_not_confirmed" | "provider_unknown";
   status: string;
 } {
   const status = String(body?.status ?? "").trim();
@@ -151,6 +151,13 @@ export function classifyTipWindowCaptureOutcome(
   ) {
     return { kind: "tip_authorisation_declined", status };
   }
+  if (
+    statusUpper === "TIP_NOT_COLLECTED"
+    || errorCode === "TIP_NOT_COLLECTED"
+  ) {
+    return { kind: "tip_not_collected", status };
+  }
+
 
   const providerState = String(
     body?.provider_state
@@ -185,6 +192,25 @@ export function classifyTipWindowCaptureOutcome(
   }
 
   return { kind: "capture_not_confirmed", status };
+}
+
+/**
+ * MK-260926-001: tip>0 + fare already captured (tip_collected=0 / tip_shortfall>0)
+ * must refuse — never seal CUSTOMER_SUBMIT_WITH_TIP at tip=0.
+ */
+export function tipRequestedButNotCollected(args: {
+  requestedTipPence: number;
+  body: Record<string, unknown> | null | undefined;
+}): boolean {
+  const requested = Math.max(0, Math.round(Number(args.requestedTipPence) || 0));
+  if (requested <= 0) return false;
+  const collected = Math.round(Number(args.body?.tip_collected_pence ?? NaN));
+  if (Number.isFinite(collected) && collected >= requested) return false;
+  const shortfall = Math.round(Number(args.body?.tip_shortfall_pence ?? NaN));
+  if (Number.isFinite(shortfall) && shortfall > 0) return true;
+  // Missing / zero collected after a tip request = refuse (fail closed).
+  if (!Number.isFinite(collected) || collected <= 0) return true;
+  return collected < requested;
 }
 
 export function newTipWindowClaimToken(): string {

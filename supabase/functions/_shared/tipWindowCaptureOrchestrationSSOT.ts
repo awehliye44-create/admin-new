@@ -11,12 +11,17 @@
 import {
   TIP_AUTHORISATION_DECLINED,
   TIP_AUTHORISATION_DECLINED_CUSTOMER_MESSAGE,
+  TIP_NOT_COLLECTED,
+  TIP_NOT_COLLECTED_CUSTOMER_MESSAGE,
   TIP_WINDOW_STATUS,
   TIP_WINDOW_TRIGGER,
   tipWindowTerminalStatusForTrigger,
   type TipWindowTrigger,
 } from "./tipWindowConstants.ts";
-import { classifyTipWindowCaptureOutcome } from "./tipWindowTriggerMutexSSOT.ts";
+import {
+  classifyTipWindowCaptureOutcome,
+  tipRequestedButNotCollected,
+} from "./tipWindowTriggerMutexSSOT.ts";
 import { tipWindowCloseAllowedAfterFinalize } from "./tripPaymentFinalised.ts";
 
 export type CaptureInvokeFn = (args: {
@@ -141,6 +146,34 @@ export async function runCustomerTipWindowTrigger(args: {
       tip_amount_pence: 0,
       tip_window_status: TIP_WINDOW_STATUS.OPEN,
       capture_calls: Number(rec.captureCallCount ?? 0) || 0,
+      tip_rows_written: 0,
+      tip_credits: 0,
+      claim_retained: false,
+      window_released: true,
+    };
+  }
+
+  if (
+    outcome.kind === "tip_not_collected"
+    || (
+      tipPence > 0
+      && outcome.kind === "capture_confirmed"
+      && tipRequestedButNotCollected({ requestedTipPence: tipPence, body: rec.body })
+    )
+  ) {
+    // Fare may already be captured; tip was not. Never seal WITH_TIP at tip=0.
+    await args.mutex.release({
+      tripId: args.tripId,
+      claimToken: claimed.claimToken,
+      clearTip: true,
+    });
+    return {
+      success: false,
+      error_code: TIP_NOT_COLLECTED,
+      error: TIP_NOT_COLLECTED_CUSTOMER_MESSAGE,
+      tip_amount_pence: 0,
+      tip_window_status: TIP_WINDOW_STATUS.OPEN,
+      capture_calls: captureCalls,
       tip_rows_written: 0,
       tip_credits: 0,
       claim_retained: false,
