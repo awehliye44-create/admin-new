@@ -1165,7 +1165,7 @@ export default function Drivers() {
                     <TableCell>
                       <div className="flex items-center gap-1">
                         <Star className="h-4 w-4 text-yellow-500 fill-yellow-500" />
-                        <span>{driver.rating?.toFixed(1) || 'N/A'}</span>
+                        <span>{driver.rating?.toFixed(2) || 'N/A'}</span>
                       </div>
                     </TableCell>
                     <TableCell>{driver.total_trips || 0}</TableCell>

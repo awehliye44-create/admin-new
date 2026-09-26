@@ -857,7 +857,7 @@ export default function FleetTracking() {
                             </span>
                             <span className="flex items-center gap-1">
                               <Star className="h-3 w-3 text-yellow-500" />
-                              {driver.rating?.toFixed(1) || '5.0'}
+                              {driver.rating?.toFixed(2) || '5.00'}
                             </span>
                           </div>
                           {driver.current_trip && (
@@ -898,7 +898,7 @@ export default function FleetTracking() {
                 <p className="text-xs text-muted-foreground">Rating</p>
                 <p className="font-medium flex items-center gap-1">
                   <Star className="h-4 w-4 text-yellow-500" />
-                  {selectedDriver.rating?.toFixed(1) || '5.0'}
+                  {selectedDriver.rating?.toFixed(2) || '5.00'}
                 </p>
               </div>
               <div className="p-3 bg-muted/50 rounded-lg">

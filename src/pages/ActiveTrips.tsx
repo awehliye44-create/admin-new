@@ -1011,7 +1011,7 @@ export default function ActiveTrips() {
                         <span className="flex items-center gap-2">
                           {driver.first_name} {driver.last_name}
                           <span className="text-muted-foreground">
-                            ({driver.phone}) ★{driver.rating?.toFixed(1) || '5.0'}
+                            ({driver.phone}) ★{driver.rating?.toFixed(2) || '5.00'}
                           </span>
                         </span>
                       </SelectItem>
