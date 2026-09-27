@@ -22,9 +22,14 @@ import {
 } from "../_shared/passengerEligibility.ts";
 import {
   assertGatewayExecutable,
-  checkServiceAreaGateway,
+  checkServiceAreaGatewayForBooking,
   gatewayNotConfiguredResponse,
+  type ServiceAreaBookingGatewayBundle,
 } from "../_shared/paymentGatewayGuard.ts";
+import {
+  extractBookingPaymentQuoteIdFromBody,
+  loadBookingPaymentQuote,
+} from "../_shared/bookingPaymentQuoteSSOT.ts";
 import { createRevolutPreauthResponse } from "../_shared/revolutPreauth.ts";
 import { extractReceivableConsentFromPreauthBody } from "../_shared/customerReceivableConsentSSOT.ts";
 import { createPreauthEdgeTiming } from "../_shared/preauthEdgeTimingSSOT.ts";
@@ -263,6 +268,7 @@ serveWithEdgeTiming("create-preauth-payment-intent", corsHeaders, async (req) =>
     /** Quote-path customer row — avoids duplicate customers SELECT before Revolut. */
     let quotePathCustomerId: string | null = null;
     let quotePathCustomerFullName: string | null = null;
+    let prefetchedBookingGateway: ServiceAreaBookingGatewayBundle | null = null;
 
     if (body.trip_id) {
       // Legacy path: trip already exists
@@ -316,42 +322,134 @@ serveWithEdgeTiming("create-preauth-payment-intent", corsHeaders, async (req) =>
         final_fare_pence: String(estimatedTotalPence),
       };
     } else {
-      // Quote-based path: no trip yet
-      // Fare is recomputed server-side from the booking route; the app's
-      // estimated_fare is never used as the charge amount.
+      // Quote-based path: no trip yet.
+      // When an opaque booking-payment quote id is present, the persisted row
+      // is the admission amount (NO_REPRICE_AFTER_BOOK_TAP). The nested
+      // estimate-fare call is skipped because revolutPreauth discards it.
+      // body.estimated_fare is never the charge amount.
+      // Ownership, fingerprint, expiry, and single-use consume still run
+      // before any provider order.
       resolvedServiceAreaId = body.service_area_id || null;
-      edgeTiming.markFareQuoteStart();
-      const serverQuote = await quoteFareServerSide({
-        serviceAreaId: resolvedServiceAreaId,
-        vehicleTypeId: typeof body.vehicle_type_id === "string" ? body.vehicle_type_id : null,
-        bookingSnapshot:
-          body.booking_snapshot && typeof body.booking_snapshot === "object"
-            ? body.booking_snapshot as Record<string, unknown>
-            : null,
-      });
-      edgeTiming.markFareQuoteEnd();
-      if (!serverQuote.ok) {
-        logStep("SERVER_FARE_QUOTE_FAILED", { reason: serverQuote.reason });
-        return new Response(JSON.stringify({
-          error: "We couldn't confirm the fare for this trip. Please refresh and try again.",
-          error_code: "FARE_QUOTE_UNAVAILABLE",
-        }), { status: 422, headers: { ...corsHeaders, "Content-Type": "application/json" } });
-      }
-      const grossFarePence = serverQuote.totalFarePence;
-      logStep("SERVER_FARE_QUOTE", {
-        server_total_pence: grossFarePence,
-        client_estimate_pence: Math.round(Number(body.estimated_fare ?? 0) * 100) || null,
-      });
+      const opaqueQuoteId = extractBookingPaymentQuoteIdFromBody(
+        body as Record<string, unknown>,
+      );
       idempotencyKeySuffix = body.client_action_id || crypto.randomUUID();
 
-      // Single customer lookup for offer + voucher + later session attach (dedupe).
-      edgeTiming.markCustomerLookupStart();
-      const { data: customerRowOnce } = await supabaseClient
-        .from("customers")
-        .select("id, first_name, last_name")
-        .eq("user_id", user.id)
-        .maybeSingle();
-      edgeTiming.markCustomerLookupEnd();
+      const parallelStart = Date.now();
+      const [fareSettled, customerSettled, gatewaySettled] = await Promise.all([
+        (async () => {
+          const started = Date.now();
+          if (opaqueQuoteId) {
+            const row = await loadBookingPaymentQuote(supabaseClient, opaqueQuoteId);
+            const ms = Date.now() - started;
+            return { kind: "opaque" as const, row, ms };
+          }
+          const serverQuote = await quoteFareServerSide({
+            serviceAreaId: resolvedServiceAreaId,
+            vehicleTypeId: typeof body.vehicle_type_id === "string" ? body.vehicle_type_id : null,
+            bookingSnapshot:
+              body.booking_snapshot && typeof body.booking_snapshot === "object"
+                ? body.booking_snapshot as Record<string, unknown>
+                : null,
+          });
+          return { kind: "estimate" as const, serverQuote, ms: Date.now() - started };
+        })(),
+        (async () => {
+          const started = Date.now();
+          const { data } = await supabaseClient
+            .from("customers")
+            .select("id, first_name, last_name")
+            .eq("user_id", user.id)
+            .maybeSingle();
+          return { data, ms: Date.now() - started };
+        })(),
+        (async () => {
+          const started = Date.now();
+          if (!resolvedServiceAreaId) {
+            return { bundle: null as ServiceAreaBookingGatewayBundle | null, ms: 0 };
+          }
+          const bundle = await checkServiceAreaGatewayForBooking(
+            supabaseClient,
+            resolvedServiceAreaId,
+            "customer",
+          );
+          return { bundle, ms: Date.now() - started };
+        })(),
+      ]);
+      const parallelEnd = Date.now();
+      edgeTiming.stampMeasured("fareQuote", parallelStart, parallelStart + fareSettled.ms);
+      edgeTiming.stampMeasured(
+        "customerLookup",
+        parallelStart,
+        parallelStart + customerSettled.ms,
+      );
+      if (gatewaySettled.bundle) {
+        const saMs = gatewaySettled.bundle.diagnostics.service_area_ms;
+        edgeTiming.stampMeasured("financialModel", parallelStart, parallelStart + saMs);
+        edgeTiming.stampMeasured("gateway", parallelStart, parallelStart + gatewaySettled.ms);
+        edgeTiming.recordDiagnostic(
+          "edge_gateway_service_area_ms",
+          gatewaySettled.bundle.diagnostics.service_area_ms,
+        );
+        edgeTiming.recordDiagnostic(
+          "edge_gateway_provider_config_ms",
+          gatewaySettled.bundle.diagnostics.provider_config_ms,
+        );
+        edgeTiming.recordDiagnostic(
+          "edge_gateway_credentials_ms",
+          gatewaySettled.bundle.diagnostics.credentials_ms,
+        );
+        edgeTiming.recordDiagnostic(
+          "edge_gateway_probe_ms",
+          gatewaySettled.bundle.diagnostics.probe_ms,
+        );
+        edgeTiming.recordDiagnostic(
+          "edge_gateway_probe_deferred",
+          gatewaySettled.bundle.diagnostics.probe_deferred,
+        );
+      }
+      edgeTiming.recordParallelGroupWall(parallelStart, parallelEnd);
+      prefetchedBookingGateway = gatewaySettled.bundle;
+
+      let grossFarePence: number;
+      if (fareSettled.kind === "opaque") {
+        edgeTiming.recordDiagnostic("edge_quote_source", "opaque_row");
+        edgeTiming.recordDiagnostic("edge_quote_load_ms", fareSettled.ms);
+        edgeTiming.recordDiagnostic("edge_estimate_fare_ms", 0);
+        if (!fareSettled.row || fareSettled.row.trip_fare_pence <= 0) {
+          logStep("OPAQUE_QUOTE_ROW_UNUSABLE", { quote_id: opaqueQuoteId });
+          return new Response(JSON.stringify({
+            error: "We couldn't verify this payment total. Please refresh and try again.",
+            error_code: "BOOKING_QUOTE_INVALID",
+            code: "BOOKING_QUOTE_INVALID",
+            charge_state: "no_charge",
+          }), { status: 409, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        }
+        grossFarePence = fareSettled.row.trip_fare_pence;
+        logStep("OPAQUE_QUOTE_ROW_FARE", {
+          quote_id: opaqueQuoteId,
+          trip_fare_pence: grossFarePence,
+          client_estimate_ignored: true,
+        });
+      } else {
+        edgeTiming.recordDiagnostic("edge_quote_source", "estimate_fare");
+        edgeTiming.recordDiagnostic("edge_estimate_fare_ms", fareSettled.ms);
+        edgeTiming.recordDiagnostic("edge_quote_load_ms", 0);
+        if (!fareSettled.serverQuote.ok) {
+          logStep("SERVER_FARE_QUOTE_FAILED", { reason: fareSettled.serverQuote.reason });
+          return new Response(JSON.stringify({
+            error: "We couldn't confirm the fare for this trip. Please refresh and try again.",
+            error_code: "FARE_QUOTE_UNAVAILABLE",
+          }), { status: 422, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        }
+        grossFarePence = fareSettled.serverQuote.totalFarePence;
+        logStep("SERVER_FARE_QUOTE", {
+          server_total_pence: grossFarePence,
+          client_estimate_pence: Math.round(Number(body.estimated_fare ?? 0) * 100) || null,
+        });
+      }
+
+      const customerRowOnce = customerSettled.data;
       quotePathCustomerId = customerRowOnce?.id ?? null;
       const cachedCustomerId = quotePathCustomerId ?? user.id;
       quotePathCustomerFullName = [
@@ -456,15 +554,30 @@ serveWithEdgeTiming("create-preauth-payment-intent", corsHeaders, async (req) =>
     }
 
     if (resolvedServiceAreaId && !tripFinancialModel) {
-      edgeTiming.markFinancialModelStart();
-      const { data: saFinancialRow, error: saFinancialErr } = await supabaseClient
-        .from("service_areas")
-        .select("financial_model, commission_wallet_enabled, customer_payment_policy")
-        .eq("id", resolvedServiceAreaId)
-        .maybeSingle();
-      edgeTiming.markFinancialModelEnd();
-      if (saFinancialErr) {
-        throw new Error(`Service area financial config failed: ${saFinancialErr.message}`);
+      let saFinancialRow = prefetchedBookingGateway?.financialRow ?? null;
+      if (!prefetchedBookingGateway) {
+        edgeTiming.markFinancialModelStart();
+        const loaded = await supabaseClient
+          .from("service_areas")
+          .select("financial_model, commission_wallet_enabled, customer_payment_policy")
+          .eq("id", resolvedServiceAreaId)
+          .maybeSingle();
+        edgeTiming.markFinancialModelEnd();
+        if (loaded.error) {
+          throw new Error(`Service area financial config failed: ${loaded.error.message}`);
+        }
+        const raw = loaded.data as {
+          financial_model?: string | null;
+          commission_wallet_enabled?: boolean | null;
+          customer_payment_policy?: string | null;
+        } | null;
+        saFinancialRow = raw
+          ? {
+            financial_model: raw.financial_model ?? null,
+            commission_wallet_enabled: raw.commission_wallet_enabled ?? null,
+            customer_payment_policy: raw.customer_payment_policy ?? null,
+          }
+          : null;
       }
       const saFinancialConfig: ServiceAreaCommissionWalletConfig = {
         financial_model: saFinancialRow?.financial_model,
@@ -504,13 +617,37 @@ serveWithEdgeTiming("create-preauth-payment-intent", corsHeaders, async (req) =>
       });
     }
 
-    let customerGatewayCheck: Awaited<ReturnType<typeof checkServiceAreaGateway>> | null = null;
+    let customerGatewayCheck: ServiceAreaBookingGatewayBundle["check"] | null = null;
     if (resolvedServiceAreaId) {
-      edgeTiming.markGatewayStart();
-      customerGatewayCheck = assertGatewayExecutable(
-        await checkServiceAreaGateway(supabaseClient, resolvedServiceAreaId, "customer"),
-      );
-      edgeTiming.markGatewayEnd();
+      if (prefetchedBookingGateway) {
+        customerGatewayCheck = assertGatewayExecutable(prefetchedBookingGateway.check);
+      } else {
+        edgeTiming.markGatewayStart();
+        const bundle = await checkServiceAreaGatewayForBooking(
+          supabaseClient,
+          resolvedServiceAreaId,
+          "customer",
+        );
+        edgeTiming.markGatewayEnd();
+        edgeTiming.recordDiagnostic(
+          "edge_gateway_service_area_ms",
+          bundle.diagnostics.service_area_ms,
+        );
+        edgeTiming.recordDiagnostic(
+          "edge_gateway_provider_config_ms",
+          bundle.diagnostics.provider_config_ms,
+        );
+        edgeTiming.recordDiagnostic(
+          "edge_gateway_credentials_ms",
+          bundle.diagnostics.credentials_ms,
+        );
+        edgeTiming.recordDiagnostic("edge_gateway_probe_ms", bundle.diagnostics.probe_ms);
+        edgeTiming.recordDiagnostic(
+          "edge_gateway_probe_deferred",
+          bundle.diagnostics.probe_deferred,
+        );
+        customerGatewayCheck = assertGatewayExecutable(bundle.check);
+      }
       if (!customerGatewayCheck.ok) {
         logStep("Customer payment gateway not configured", customerGatewayCheck);
         return gatewayNotConfiguredResponse(customerGatewayCheck, corsHeaders);

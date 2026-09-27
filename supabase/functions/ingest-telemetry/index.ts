@@ -12,7 +12,7 @@ const MAX_BODY_BYTES = 65_536;
 const MAX_EVENTS_PER_REQUEST = 50;
 /** Book tap → Finding residual closure needs many flat segment keys. */
 const MAX_METADATA_KEYS = 120;
-const MAX_METADATA_VALUE_LEN = 256;
+const MAX_METADATA_VALUE_LEN = 512;
 const MAX_SCREEN_NAME_LEN = 120;
 
 /** Flat keys only — nested objects are dropped. Book→Finding segments are scalars. */
@@ -102,6 +102,20 @@ const ALLOWED_METADATA_KEYS = new Set([
   "edge_receivable_ms",
   "edge_accounted_wall_ms",
   "edge_unaccounted_ms",
+  "edge_quote_source",
+  "edge_quote_load_ms",
+  "edge_estimate_fare_ms",
+  "edge_gateway_service_area_ms",
+  "edge_gateway_provider_config_ms",
+  "edge_gateway_credentials_ms",
+  "edge_gateway_probe_ms",
+  "edge_gateway_probe_deferred",
+  "invoke_to_make_request_start_ms",
+  "make_request_end_to_native_present_ms",
+  "native_present_to_on_authorize_ms",
+  "completion_to_js_resolve_ms",
+  "native_timings",
+  "confirm_poll_last_provider_state",
   "already_authorised",
   "three_ds_required",
   // Driver Accept waterfall (client + Edge shared perf_id)

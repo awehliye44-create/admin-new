@@ -80,6 +80,12 @@ export type PreauthEdgeTiming = {
   markResponseBuildStart: () => void;
   /** Record a parallel group wall (start/end absolute ms from epoch). */
   recordParallelGroupWall: (startMs: number, endMs: number) => void;
+  stampMeasured: (
+    kind: "fareQuote" | "customerLookup" | "financialModel" | "gateway",
+    startMs: number,
+    endMs: number,
+  ) => void;
+  recordDiagnostic: (key: string, value: number | string | boolean | null) => void;
   toFlatFields: () => PreauthEdgeTimingFlat;
   attachToBody: <T extends Record<string, unknown>>(body: T) => T & PreauthEdgeTimingFlat;
 };
@@ -144,6 +150,13 @@ export function createPreauthEdgeTiming(startedAtMs = Date.now()): PreauthEdgeTi
   const persist: Span = { start: null, end: null };
   let responseBuildStart: number | null = null;
   const extraParallel: Array<{ start: number; end: number }> = [];
+  const diagnostics: Record<string, number | string | boolean | null> = {};
+  const spanByKind = {
+    fareQuote,
+    customerLookup,
+    financialModel,
+    gateway,
+  } as const;
 
   const markStart = (s: Span) => {
     if (s.start == null) s.start = Date.now();
@@ -196,16 +209,31 @@ export function createPreauthEdgeTiming(startedAtMs = Date.now()): PreauthEdgeTi
         extraParallel.push({ start: startMs, end: endMs });
       }
     },
+    stampMeasured: (kind, startMs, endMs) => {
+      if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs < startMs) return;
+      const span = spanByKind[kind];
+      span.start = startMs;
+      span.end = endMs;
+    },
+    recordDiagnostic: (key, value) => {
+      diagnostics[key] = value;
+    },
     toFlatFields: () => {
       const now = Date.now();
       const edge_total_ms = Math.max(0, Math.round(now - t0));
       const edge_revolut_request_ms = spanMs(revReq);
-      const edge_revolut_response_ms = spanMs(revRes);
-      const revolutParts = [edge_revolut_request_ms, edge_revolut_response_ms].filter(
-        (n): n is number => typeof n === "number",
-      );
-      const edge_preauth_revolut_ms = revolutParts.length
-        ? revolutParts.reduce((a, b) => a + b, 0)
+      // Order create is one HTTP round trip. When no separate pay/response span
+      // exists, report that same RTT as edge_revolut_response_ms (not a second wait).
+      const edge_revolut_response_ms = spanMs(revRes) ?? edge_revolut_request_ms;
+      const revolutIntervals: Array<{ start: number; end: number }> = [];
+      if (revReq.start != null && revReq.end != null && revReq.end >= revReq.start) {
+        revolutIntervals.push({ start: revReq.start, end: revReq.end });
+      }
+      if (revRes.start != null && revRes.end != null && revRes.end >= revRes.start) {
+        revolutIntervals.push({ start: revRes.start, end: revRes.end });
+      }
+      const edge_preauth_revolut_ms = revolutIntervals.length
+        ? mergeIntervalWallMs(revolutIntervals)
         : null;
 
       const spans: Span[] = [
@@ -263,6 +291,7 @@ export function createPreauthEdgeTiming(startedAtMs = Date.now()): PreauthEdgeTi
         edge_total_ms,
         edge_preauth_server_ms: edge_total_ms,
         edge_preauth_revolut_ms,
+        ...diagnostics,
         booking_milestones: {
           hold_start_ms: t0,
           hold_authorised_ms: now,

@@ -819,6 +819,10 @@ export async function createRevolutPreauthResponse(
               note: "reserved_ne_quoted_receivable",
             });
           }
+        } else {
+          // No receivable reservation on this quote. Stamp 0 so the field is present.
+          edgeTiming.markReceivableStart();
+          edgeTiming.markReceivableEnd();
         }
       } else if (customerId) {
         const eligibility = isCustomerReceivablePreauthEligible({
