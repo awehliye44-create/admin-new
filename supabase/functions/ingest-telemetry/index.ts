@@ -139,6 +139,9 @@ const ALLOWED_METADATA_KEYS = new Set([
   "client_preauth_map_ms",
   "client_preauth_outside_handler_ms",
   "edge_offer_deferred",
+  "edge_prewrite_reads_wall_ms",
+  "edge_prewrite_reads_critical_ms",
+  "edge_prewrite_reads_parallel",
   "already_authorised",
   "three_ds_required",
   // Driver Accept waterfall (client + Edge shared perf_id)
