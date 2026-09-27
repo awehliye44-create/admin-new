@@ -414,10 +414,7 @@ export async function syncWaitingGeofenceClock(
   }
 
   let countedSeconds: number;
-  if (openedFresh && !open) {
-    // First open segment this session — no prior rows needed for sum.
-    countedSeconds = segmentDurationSeconds(nowIso, null, nowMs);
-  } else {
+  {
     let sumQuery = supabase
       .from("trip_waiting_segments")
       .select("started_at, ended_at")

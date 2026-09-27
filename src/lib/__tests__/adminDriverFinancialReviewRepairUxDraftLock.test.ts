@@ -215,7 +215,7 @@ describe('Review & repair UX draft — history, FR deep-link, wallet correction 
       classification: DRIVER_FINANCIAL_REPAIR_ACTION.APPEND_WALLET_CORRECTION,
     });
     expect(gate.ok).toBe(false);
-    if (!gate.ok) {
+    if (gate.ok === false) {
       expect(gate.error_code).toBe(DRIVER_FINANCIAL_REPAIR_BLOCK.WALLET_CORRECTION_NOT_CERTIFIED);
     }
   });

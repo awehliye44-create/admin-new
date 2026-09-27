@@ -209,7 +209,11 @@ export function mapSavedCardProviderOrderToReconcileState(
   if (ORDER_AUTHORISED.has(orderState) || (paymentState && PAYMENT_AUTHORISED.has(paymentState))) {
     return {
       client_state: "AUTHORISED",
-      lifecycle_provider_state: "AUTHORISED",
+      // Preserve capture evidence so webhook capture branch still fires.
+      lifecycle_provider_state:
+        orderState === "COMPLETED" || paymentState === "CAPTURED" || paymentState === "COMPLETED"
+          ? "COMPLETED"
+          : "AUTHORISED",
       order_state: orderState || "PENDING",
       payment_state: paymentState,
       payment_id: paymentId,

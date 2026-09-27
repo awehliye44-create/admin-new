@@ -157,7 +157,9 @@ export function DriverWalletReviewRepairPanel({
       ? initialTripId
       : (candidates[0]?.trip_id ?? '');
     setTripId(preferred);
-  }, [open, candidates, initialTripId]);
+    // Reset only on open / initial trip change — never on background refetch of candidates.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, initialTripId]);
 
   const previewMutation = useMutation({
     mutationFn: async () => {

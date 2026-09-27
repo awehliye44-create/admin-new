@@ -500,6 +500,8 @@ export async function captureRevolutProviderTokenFromOrder(
      * setup: save-card / save-eligible booking (waitUntil / post-commit); ~6.3s + durable retry.
      */
     pollProfile?: "booking" | "setup";
+    /** false for inline request paths — durable retry only in background callers. */
+    includeDurableRetry?: boolean;
   },
 ): Promise<{
   captured: boolean;
@@ -530,7 +532,7 @@ export async function captureRevolutProviderTokenFromOrder(
     ...(useSetupProfile
       ? REVOLUT_TOKEN_CAPTURE_SETUP_POLL_MS
       : REVOLUT_TOKEN_CAPTURE_BOOKING_POLL_MS),
-    ...(useSetupProfile ? REVOLUT_TOKEN_CAPTURE_DURABLE_RETRY_MS : []),
+    ...(useSetupProfile && args.includeDurableRetry !== false ? REVOLUT_TOKEN_CAPTURE_DURABLE_RETRY_MS : []),
   ];
   let paymentCount = 0;
   let sawOneTimePaymentMethodId = false;
