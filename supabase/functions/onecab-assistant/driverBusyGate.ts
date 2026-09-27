@@ -20,20 +20,21 @@ export const LIVE_RIDE_OFFER_STATUSES = ["pending", "countered"] as const;
 
 export type DriverAssistantBusySnapshot = {
   liveOffer: boolean;
+  /** Time-boxed scheduled activation Accept. Same safety rule as a live offer. */
+  activationAccept: boolean;
   assignedOrActiveTrip: boolean;
   stackedTrip: boolean;
   scheduledActivating: boolean;
   completionUnfinished: boolean;
 };
 
+/**
+ * Help stays available during an active trip, a queued ride, and trip completion.
+ * A live ride offer, including the scheduled activation Accept, still closes Help
+ * so the countdown is not left under another screen.
+ */
 export function isDriverAssistantBusy(snapshot: DriverAssistantBusySnapshot): boolean {
-  return (
-    snapshot.liveOffer ||
-    snapshot.assignedOrActiveTrip ||
-    snapshot.stackedTrip ||
-    snapshot.scheduledActivating ||
-    snapshot.completionUnfinished
-  );
+  return snapshot.liveOffer || snapshot.activationAccept;
 }
 
 export function isLiveRideOfferStatus(status: string | null | undefined): boolean {
@@ -157,16 +158,23 @@ export function evaluateDriverAssistantBusyFromRows(args: {
   let stackedTrip = false;
   let scheduledActivating = false;
   let completionUnfinished = false;
+  let activationAccept = false;
 
   for (const trip of args.trips) {
     if (isStackedQueuedTripStatus(trip.status)) stackedTrip = true;
     if (isUnfinishedCompletionStatus(trip.status)) completionUnfinished = true;
     if (isAssignedOrActiveDriverTripStatus(trip.status)) assignedOrActiveTrip = true;
     if (isScheduledJobActivating(trip, nowMs)) scheduledActivating = true;
+    const scheduledStatus = String(trip.scheduled_status ?? "")
+      .trim()
+      .toLowerCase()
+      .replace(/-/g, "_");
+    if (scheduledStatus === "awaiting_activation_accept") activationAccept = true;
   }
 
   return {
     liveOffer,
+    activationAccept,
     assignedOrActiveTrip,
     stackedTrip,
     scheduledActivating,

@@ -8,11 +8,15 @@
 
 export const DRIVER_ASSISTANT_BUSY_CODE = "DRIVER_ASSISTANT_UNAVAILABLE_DURING_TRIP";
 
+import type { DriverReadContext } from "./driverReadContext.ts";
+
 export type DriverAssistantIdentity = {
   authUserId: string;
   driverId: string;
   firstName: string | null;
   installationId: string;
+  /** Server-resolved. Absent means unknown — never a client-supplied model. */
+  context?: DriverReadContext;
 };
 
 export type DriverAuthFailure =

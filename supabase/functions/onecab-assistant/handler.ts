@@ -35,6 +35,7 @@ import {
   matchDriverFaq,
   selectDriverTopics,
 } from "./driverKnowledge.ts";
+import { UNKNOWN_DRIVER_CONTEXT, type DriverReadContext } from "./driverReadContext.ts";
 import {
   asksForPrivateData,
   buildSystemPrompt,
@@ -434,6 +435,7 @@ export function createHandler(deps: AssistantDeps) {
     let sessionHash: string;
     let identityHash: string | null = null;
     let deviceHash: string | null = null;
+    let driverContext: DriverReadContext = UNKNOWN_DRIVER_CONTEXT;
 
     if (driverPlatform) {
       if (!deps.authenticateDriver) {
@@ -472,6 +474,7 @@ export function createHandler(deps: AssistantDeps) {
       sessionHash = (await hmac(sessionSecret, `driver:${auth.identity.authUserId}`)).slice(0, 32);
       identityHash = sessionHash;
       deviceHash = (await hmac(sessionSecret, `driver-device:${auth.identity.installationId}`)).slice(0, 32);
+      driverContext = auth.identity.context ?? UNKNOWN_DRIVER_CONTEXT;
     } else if (customerPlatform) {
       if (!deps.authenticateCustomer) {
         return jsonResponse({ error: "assistant_unconfigured", reply: null, handoff: true }, 503, origin);
@@ -664,11 +667,21 @@ export function createHandler(deps: AssistantDeps) {
     const faq = customerPlatform
       ? matchCustomerFaq(message, quickAction)
       : driverPlatform
-        ? matchDriverFaq(message, quickAction)
+        ? matchDriverFaq(message, quickAction, driverContext)
         : matchFaq(message, quickAction);
     if (faq) {
       await log("faq_cache", { rate_limit_outcome: "allowed" });
-      return jsonResponse({ reply: faq.answer, source: "faq" }, 200, origin);
+      const followUps =
+        driverPlatform && "followUps" in faq && Array.isArray(faq.followUps) ? faq.followUps : undefined;
+      return jsonResponse(
+        {
+          reply: faq.answer,
+          source: "faq",
+          ...(followUps ? { followUps } : {}),
+        },
+        200,
+        origin,
+      );
     }
 
     /* ── budget: monthly hard cap + kill switch (per platform) ─────────── */
@@ -701,7 +714,11 @@ export function createHandler(deps: AssistantDeps) {
     const instructions = customerPlatform
       ? buildCustomerSystemPrompt(selectCustomerTopics(message), config.max_output_words)
       : driverPlatform
-        ? buildDriverSystemPrompt(selectDriverTopics(message), config.max_output_words)
+        ? buildDriverSystemPrompt(
+            selectDriverTopics(message, 3, driverContext),
+            config.max_output_words,
+            driverContext,
+          )
         : buildSystemPrompt(selectTopics(message), config.max_output_words);
 
     const ai = await callOpenAi(deps, {

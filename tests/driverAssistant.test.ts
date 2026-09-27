@@ -209,7 +209,7 @@ describe("active-workflow gate", () => {
     expect(body.reply).toBeNull();
   });
 
-  it("blocks a live offer, assigned trip, active trip, stacked trip and scheduled activation", () => {
+  it("blocks a live offer and scheduled activation Accept, and allows active or queued trips", () => {
     expect(
       isDriverAssistantBusy(
         evaluateDriverAssistantBusyFromRows({
@@ -225,7 +225,7 @@ describe("active-workflow gate", () => {
           trips: [{ status: "accepted", driver_id: "d1" }],
         }),
       ),
-    ).toBe(true);
+    ).toBe(false);
     expect(
       isDriverAssistantBusy(
         evaluateDriverAssistantBusyFromRows({
@@ -233,7 +233,7 @@ describe("active-workflow gate", () => {
           trips: [{ status: "in_progress", driver_id: "d1" }],
         }),
       ),
-    ).toBe(true);
+    ).toBe(false);
     expect(
       isDriverAssistantBusy(
         evaluateDriverAssistantBusyFromRows({
@@ -241,23 +241,31 @@ describe("active-workflow gate", () => {
           trips: [{ status: "queued", driver_id: "d1" }],
         }),
       ),
+    ).toBe(false);
+    expect(
+      isDriverAssistantBusy(
+        evaluateDriverAssistantBusyFromRows({
+          offers: [],
+          trips: [{ status: "completing", driver_id: "d1" }],
+        }),
+      ),
+    ).toBe(false);
+    expect(
+      isDriverAssistantBusy(
+        evaluateDriverAssistantBusyFromRows({
+          offers: [],
+          trips: [{ status: "scheduled", scheduled_status: "awaiting_activation_accept", confirmed_driver_id: "d1" }],
+        }),
+      ),
     ).toBe(true);
     expect(
       isDriverAssistantBusy(
         evaluateDriverAssistantBusyFromRows({
           offers: [],
-          trips: [
-            {
-              status: "searching",
-              driver_id: "d1",
-              is_scheduled: true,
-              dispatch_mode: "scheduled",
-              scheduled_convert_at: new Date(Date.now() - 1_000).toISOString(),
-            },
-          ],
+          trips: [{ status: "scheduled", scheduled_status: "driver_assigned", confirmed_driver_id: "d1" }],
         }),
       ),
-    ).toBe(true);
+    ).toBe(false);
   });
 
   it("allows a Driver with no live offer or trip", () => {
@@ -310,14 +318,19 @@ describe("driver knowledge isolation", () => {
     expect(TOPICS.some((t) => t.id === "booking")).toBe(true);
   });
 
-  it("wallet questions stay on terminology and never calculate", () => {
-    const faq = matchDriverFaq("what is my available balance", "wallet_earnings")!;
-    expect(faq.answer).toMatch(/Available is withdrawable/i);
+  it("wallet questions stay explanatory and never calculate", () => {
+    const faq = matchDriverFaq("what is my available balance", null, {
+      financialModel: "PLATFORM_COLLECTED",
+      online: null,
+      documentState: null,
+      workflow: "idle",
+    })!;
+    expect(faq.answer).toMatch(/Available is what you can withdraw/i);
     expect(faq.answer).not.toMatch(/£\d/);
     expect(faq.answer).toMatch(/can't calculate/i);
-    const prompt = buildDriverSystemPrompt(selectDriverTopics("wallet"), 150);
+    const prompt = buildDriverSystemPrompt(selectDriverTopics("my wallet"), 150);
     expect(prompt).not.toContain("SELECT ");
-    expect(prompt).toMatch(/cannot calculate/i);
+    expect(prompt).toMatch(/Never calculate/i);
   });
 
   it("unknown Driver questions use the Driver Support fallback", () => {
@@ -381,7 +394,7 @@ describe("driver safety, budget and accounting", () => {
       },
       authenticateDriver: allowDriver,
     });
-    const res = await handler(driverAsk({ message: "explain precise location requirements please" }));
+    const res = await handler(driverAsk({ message: "zzzz unrelated quarry mineral sample" }));
     const body = await res.json();
     expect(body.limitReached).toBe("budget");
     expect(body.reply).toBeNull();
@@ -395,12 +408,12 @@ describe("driver safety, budget and accounting", () => {
       db,
       authenticateDriver: allowDriver,
     });
-    await handler(driverAsk({ message: "how is the second queued job promoted after drop-off" }));
+    await handler(driverAsk({ message: "zzzz unrelated quarry mineral sample" }));
     expect(events[0].platform).toBe("driver_app");
     expect(events[0].outcome).toBe("ai");
     expect(events[0].cost_usd).toBeGreaterThan(0);
     expect(JSON.stringify(events)).not.toContain("Secret driver answer");
-    expect(JSON.stringify(events)).not.toContain("how is the second queued job promoted after drop-off");
+    expect(JSON.stringify(events)).not.toContain("zzzz unrelated quarry mineral sample");
   });
 
   it("keeps website usage separately attributed", async () => {
@@ -417,7 +430,7 @@ describe("driver safety, budget and accounting", () => {
       },
       authenticateDriver: allowDriver,
     });
-    await handler(driverAsk({ message: "how is the second queued job promoted after drop-off" }));
+    await handler(driverAsk({ message: "zzzz unrelated quarry mineral sample" }));
     expect(seen).toEqual(["driver_app"]);
   });
 
@@ -436,7 +449,7 @@ describe("driver safety, budget and accounting", () => {
       db: makeDb().db,
       authenticateDriver: allowDriver,
     });
-    await handler(driverAsk({ message: "how is the second queued job promoted after drop-off" }));
+    await handler(driverAsk({ message: "zzzz unrelated quarry mineral sample" }));
     expect(fetchSpy).toHaveBeenCalled();
   });
 
@@ -456,8 +469,224 @@ describe("driver safety, budget and accounting", () => {
       db: makeDb().db,
       authenticateDriver: allowDriver,
     });
-    const body = await (await provider(driverAsk({ message: "how is the second queued job promoted after drop-off" }))).json();
+    const body = await (await provider(driverAsk({ message: "zzzz unrelated quarry mineral sample" }))).json();
     expect(body.reply).toBe(DRIVER_NO_CONFIRMED_ANSWER);
     expect(body.error).toBe("unavailable");
   });
 });
+
+const platformCtx = {
+  financialModel: "PLATFORM_COLLECTED" as const,
+  online: true as boolean | null,
+  documentState: null,
+  workflow: "idle" as const,
+};
+const commissionCtx = {
+  financialModel: "DRIVER_COLLECTED_COMMISSION_WALLET" as const,
+  online: false as boolean | null,
+  documentState: "documents_rejected" as const,
+  workflow: "active_with_queue" as const,
+};
+
+function answer(question: string, ctx = platformCtx, quickAction?: string) {
+  const hit = matchDriverFaq(question, quickAction, ctx);
+  expect(hit, question).toBeTruthy();
+  return hit!;
+}
+
+describe("driver knowledge domains", () => {
+  it("routes typos without the model", () => {
+    expect(answer("towards destintion").id).toBe("td_what");
+    expect(answer("can I enter a post code").id).toBe("td_search");
+    expect(answer("where is my quied trip").id).toBe("stacked_what");
+    expect(answer("cant go online").id).toBe("go_online_blocked");
+    expect(answer("waiting money isn't going up").id).toBe("waiting_not_increasing");
+    expect(answer("another trip is queued").id).toBe("stacked_what");
+    expect(answer("my document was rejected").id).toBe("documents_status");
+    expect(answer("how do I change my profile photo").id).toBe("profile_photo");
+  });
+
+  it("explains towards destination as a radius filter with no invented limit", () => {
+    const what = answer("How do trips towards destination work?");
+    expect(what.answer).toMatch(/gold search button/i);
+    expect(what.answer).toMatch(/does not move you up the offer list/i);
+    expect(what.answer).not.toMatch(/priorit/i);
+    const search = answer("Can I enter a postcode?");
+    expect(search.answer).toMatch(/postcode/i);
+    const match = answer("how matching works for destination");
+    expect(match.id).toBe("td_match");
+    expect(match.answer).toMatch(/radius/i);
+    expect(match.answer).toMatch(/normal ride offer/i);
+    expect(match.answer).not.toMatch(/priorit/i);
+    const limit = answer("How many times can I use towards destination?");
+    expect(limit.id).toBe("td_limit");
+    expect(limit.answer).toMatch(/usage limit/i);
+    expect(limit.answer).toMatch(/app will tell you/i);
+    expect(limit.answer).not.toMatch(/\b5\b/);
+    expect(limit.answer).not.toMatch(/24 hour/i);
+    const off = answer("How do I turn it off?");
+    expect(off.id).toBe("td_off");
+    expect(off.answer).toMatch(/close the Matching trips towards/i);
+    const joined = DRIVER_SUBTOPICS_TEXT();
+    expect(joined).not.toMatch(/priorit/i);
+    expect(joined).not.toMatch(/24 hour/i);
+    expect(joined).not.toMatch(/\b5 uses\b/i);
+  });
+
+  it("keeps platform and commission wallet answers apart", () => {
+    const platformPayout = answer("where is my weekly payout", platformCtx);
+    expect(platformPayout.answer).toMatch(/Weekly payouts are sent/i);
+    expect(platformPayout.answer).not.toMatch(/Commission Wallet/i);
+    expect(platformPayout.answer).not.toMatch(/top up/i);
+    const commissionPayout = answer("where is my weekly payout", commissionCtx);
+    expect(commissionPayout.answer).toMatch(/not paid out/i);
+    expect(commissionPayout.answer).toMatch(/no weekly payout/i);
+    expect(commissionPayout.answer).not.toMatch(/Weekly payouts are sent/i);
+    expect(commissionPayout.answer).not.toMatch(/Available is what you can withdraw/i);
+    const commissionWallet = answer("why is commission deducted", commissionCtx);
+    expect(commissionWallet.id).toBe("wallet_commission");
+    expect(commissionWallet.answer).toMatch(/Commission Wallet/i);
+    expect(commissionWallet.answer).toMatch(/cannot withdraw/i);
+    expect(commissionWallet.answer).not.toMatch(/Weekly payouts are sent/i);
+    const platformCommissionAsk = answer("commission wallet", platformCtx);
+    expect(platformCommissionAsk.answer).toMatch(/do not top up a Commission Wallet/i);
+    expect(platformCommissionAsk.answer).not.toMatch(/Top up only from/i);
+    const menu = answer("wallet", platformCtx, "wallet_earnings");
+    expect(menu.followUps.map((chip) => chip.id)).not.toContain("wallet_commission");
+    const commissionMenu = answer("wallet", commissionCtx, "wallet_earnings");
+    expect(commissionMenu.followUps.map((chip) => chip.id)).toEqual([
+      "wallet_overview",
+      "wallet_commission",
+    ]);
+    expect(commissionMenu.followUps.map((chip) => chip.label).join(" ")).not.toMatch(/Withdraw|Weekly payout/);
+  });
+
+  it("describes the current scheduled and stacked workflows", () => {
+    const scheduled = answer("I have a booking tomorrow");
+    expect(scheduled.answer).toMatch(/Scheduled Jobs/i);
+    expect(answer("what is requested versus confirmed").answer).toMatch(/Requested and Confirmed/i);
+    expect(answer("Accept now to drive to pickup").id).toBe("scheduled_activation");
+    const activation = answer("when does a scheduled ride become available");
+    expect(activation.answer).toMatch(/Accept now to drive to pickup/i);
+    expect(activation.answer).toMatch(/Arrive, Start Trip, and Complete Trip/i);
+    const corpus = [
+      answer("scheduled ride").answer,
+      answer("requested").answer,
+      activation.answer,
+      answer("cancel a scheduled job").answer,
+    ].join("\n");
+    expect(corpus).not.toMatch(/commitment/i);
+    expect(corpus).not.toMatch(/check-in|check in/i);
+    expect(corpus).not.toMatch(/leave-by|leave by/i);
+    const stacked = answer("I accepted another trip while I'm already on one");
+    expect(stacked.answer).toMatch(/current trip stays the active one/i);
+    expect(stacked.answer).toMatch(/do not search for it or accept it again/i);
+    const after = answer("where is my queued ride after I complete");
+    expect(after.id).toBe("stacked_after");
+    expect(after.answer).toMatch(/promotes the queued trip/i);
+    expect(after.answer).toMatch(/do not accept that queued trip a second time/i);
+  });
+
+  it("explains waiting and no-show without a global free-wait or the 500m mix-up", () => {
+    const waiting = answer("how does free waiting work");
+    expect(waiting.answer).toMatch(/not one length for every driver/i);
+    expect(waiting.answer).not.toMatch(/\b\d+\s*minute/i);
+    const stalled = answer("why isn't waiting money increasing");
+    expect(stalled.answer).toMatch(/outside the pickup area/i);
+    expect(stalled.answer).toMatch(/free waiting is still running/i);
+    expect(stalled.answer).toMatch(/far-from-pickup confirmation is a separate check/i);
+    expect(stalled.answer).not.toMatch(/500/);
+    const far = answer("it says I am far from the pickup");
+    expect(far.answer).toMatch(/not the area used for waiting time/i);
+    const platformNoShow = answer("the passenger hasn't come out", platformCtx);
+    expect(platformNoShow.answer).toMatch(/added to Wallet only when ONECAB confirms/i);
+    const commissionNoShow = answer("the passenger hasn't come out", commissionCtx);
+    expect(commissionNoShow.answer).not.toMatch(/added to Wallet/i);
+    expect(commissionNoShow.answer).toMatch(/not an earnings payout/i);
+  });
+
+  it("opens primary topics as subtopic chips instead of one long answer", () => {
+    const trips = answer("trips", platformCtx, "trips_offers");
+    expect(trips.answer).toMatch(/Choose a step/i);
+    expect(trips.followUps.map((chip) => chip.label)).toEqual([
+      "Receiving an offer",
+      "Accept or decline",
+      "Arrive at pickup",
+      "Start Trip",
+      "Multi-stop trips",
+      "Stacked or queued rides",
+      "Pickup waiting",
+      "Passenger no-show",
+      "Complete Trip",
+    ]);
+    const stops = answer("how do I Drive Next");
+    expect(stops.answer).toMatch(/Arrived at Stop and Drive Next/i);
+    expect(stops.answer).toMatch(/Past stops stay on the list as history/i);
+    expect(stops.answer).toMatch(/I can't advance a stop/i);
+  });
+
+  it("uses server context for documents and does not trust a client model", async () => {
+    const rejected = answer("why can't I go online", commissionCtx);
+    expect(rejected.answer).toMatch(/rejected/i);
+    const handler = createHandler({
+      env: env(),
+      fetch: vi.fn(),
+      db: makeDb().db,
+      authenticateDriver: async () => ({
+        ok: true,
+        identity: {
+          authUserId: "user-1",
+          driverId: "drv-real",
+          firstName: "Ahmed",
+          installationId: "inst-1",
+          context: platformCtx,
+        },
+      }),
+    });
+    const res = await handler(
+      driverAsk({
+        message: "where is my weekly payout",
+        financial_model: "DRIVER_COLLECTED_COMMISSION_WALLET",
+        driverId: "attacker",
+      }),
+    );
+    const body = await res.json();
+    expect(body.source).toBe("faq");
+    expect(body.reply).toMatch(/Weekly payouts are sent/i);
+    expect(body.reply).not.toMatch(/Commission Wallet/i);
+    expect(body.followUps?.length).toBeGreaterThan(0);
+  });
+
+  it("answers safety and support without inventing a procedure", () => {
+    const safety = answer("I had an accident");
+    expect(safety.id).toBe("safety_emergency");
+    expect(safety.answer).toMatch(/call 999/);
+    expect(safety.answer).toMatch(/not a replacement for the emergency services/i);
+    expect(answer("lost property").answer).toMatch(/Lost Property/i);
+    expect(answer("contact driver support").id).toBe("support_contact");
+  });
+
+  it("keeps the assistant read-only in workflow answers", () => {
+    for (const question of [
+      "how do I go online",
+      "accept a trip",
+      "arrive at pickup",
+      "start trip",
+      "Drive Next",
+      "complete the trip",
+      "turn off destination",
+      "withdraw",
+    ]) {
+      expect(answer(question, platformCtx).answer).toMatch(/can't|cannot/i);
+    }
+  });
+});
+
+function DRIVER_SUBTOPICS_TEXT(): string {
+  return [
+    answer("towards destination").answer,
+    answer("postcode").answer,
+    answer("how matching works for destination").answer,
+    answer("usage limit towards destination").answer,
+  ].join("\n");
+}
