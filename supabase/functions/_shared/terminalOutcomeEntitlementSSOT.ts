@@ -8,7 +8,13 @@ import { resolveTerminalFeeDriverTenPence } from "./frDriverExpectedEntitlementS
 import { hasConflictingEntitlementTypes } from "./driverEntitlementLedgerSSOT.ts";
 import { tripSettlementDbColumns } from "./tripSettlement.ts";
 
-export type TerminalOutcomeKind = "NO_SHOW" | "LATE_PASSENGER_CANCELLATION";
+export type TerminalOutcomeKind =
+  | "NO_SHOW"
+  | "LATE_PASSENGER_CANCELLATION"
+  | "ARRIVAL_CANCELLATION";
+
+/** One ledger type for every chargeable terminal fee. Idempotent per trip. */
+export const TERMINAL_FEE_LEDGER_TYPE = "TRIP_EARNING_NET";
 
 export type TerminalCaptureEvidence = {
   payment_session_id: string | null;
@@ -191,9 +197,7 @@ export async function postTerminalEntitlementFromSettlement(args: {
     };
   }
 
-  const ledgerType = args.outcome === "NO_SHOW"
-    ? "DRIVER_COMPENSATION_CREDIT"
-    : "TRIP_EARNING_NET";
+  const ledgerType = TERMINAL_FEE_LEDGER_TYPE;
 
   const existingTypes = await existingEntitlementTypes(args.supabase, args.tripId);
   const proposed = [...existingTypes, ledgerType];
@@ -214,6 +218,11 @@ export async function postTerminalEntitlementFromSettlement(args: {
 
   const cs = args.currency.toUpperCase();
   const major = (amount / 100).toFixed(2);
+  const description = args.outcome === "NO_SHOW"
+    ? `No-show compensation (ONECAB) — ${cs} ${major}`
+    : args.outcome === "ARRIVAL_CANCELLATION"
+      ? `Arrival cancellation compensation — ${cs} ${major}`
+      : `Late passenger cancellation compensation — ${cs} ${major}`;
 
   const { error } = await args.supabase.from("driver_wallet_ledger").insert({
     driver_id: args.driverId,
@@ -221,24 +230,9 @@ export async function postTerminalEntitlementFromSettlement(args: {
     type: ledgerType,
     amount_pence: amount,
     currency: cs,
-    description: args.outcome === "NO_SHOW"
-      ? `No-show compensation (ONECAB) — ${cs} ${major}`
-      : `Charged cancellation compensation — ${cs} ${major}`,
+    description,
   });
   if (error && error.code !== "23505") throw error;
-
-  if (args.outcome === "NO_SHOW" && !(await ledgerEntryExists(args.supabase, args.tripId, "NO_SHOW_FEE"))) {
-    await args.supabase.from("driver_wallet_ledger").insert({
-      driver_id: args.driverId,
-      related_trip_id: args.tripId,
-      type: "NO_SHOW_FEE",
-      amount_pence: entitlement.captured_pence,
-      currency: cs,
-      description: `No-show fee — ${cs} ${(entitlement.captured_pence / 100).toFixed(2)}`,
-    }).then(({ error: feeErr }) => {
-      if (feeErr && feeErr.code !== "23505") throw feeErr;
-    });
-  }
 
   return {
     credited: true,
@@ -261,6 +255,7 @@ export async function stampTerminalOutcomeTripRow(args: {
   const tripStatusMap: Record<TerminalOutcomeKind, string> = {
     NO_SHOW: "no_show",
     LATE_PASSENGER_CANCELLATION: "cancelled",
+    ARRIVAL_CANCELLATION: "cancelled",
   };
 
   const settlement = computeAuthoritativeSettlement({

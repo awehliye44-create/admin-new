@@ -81,7 +81,7 @@ export async function postTerminalOutcomeSettlement(args: {
   driverId: string;
   serviceAreaId: string | null;
   feePence: number;
-  outcome: "NO_SHOW" | "LATE_PASSENGER_CANCELLATION";
+  outcome: "NO_SHOW" | "LATE_PASSENGER_CANCELLATION" | "ARRIVAL_CANCELLATION";
   paymentMethod?: string | null;
   currencyCode: string;
 }): Promise<{

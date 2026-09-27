@@ -7,6 +7,7 @@ import {
   loadTerminalCaptureEvidence,
   postTerminalEntitlementFromSettlement,
   stampTerminalOutcomeTripRow,
+  TERMINAL_FEE_LEDGER_TYPE,
   type TerminalOutcomeKind,
 } from "./terminalOutcomeEntitlementSSOT.ts";
 import { tripBlocksDriverWalletLedgerPosting } from "./commissionWalletDeduction.ts";
@@ -17,6 +18,7 @@ export type TerminalTripRow = {
   id?: string;
   driver_id?: string | null;
   confirmed_driver_id?: string | null;
+  previous_driver_id?: string | null;
   financial_model?: string | null;
   financial_outcome?: string | null;
   status?: string | null;
@@ -25,6 +27,9 @@ export type TerminalTripRow = {
   currency_code?: string | null;
   no_show_charge_pence?: number | null;
   cancellation_fee_pence?: number | null;
+  late_cancel_fee_pence?: number | null;
+  arrival_cancellation_applied?: boolean | null;
+  arrival_cancellation_reason?: string | null;
 };
 
 export type ResumeTerminalFeeSettlementResult = {
@@ -37,52 +42,67 @@ export type ResumeTerminalFeeSettlementResult = {
   entitlement_pence: number | null;
 };
 
-const TERMINAL_FEE_OUTCOMES = new Set([
+const CHARGEABLE_TERMINAL_OUTCOMES = new Set<TerminalOutcomeKind>([
   "NO_SHOW",
   "LATE_PASSENGER_CANCELLATION",
-  "CANCELLED_WITH_FEE",
+  "ARRIVAL_CANCELLATION",
 ]);
+
+/**
+ * Driver who qualified for the terminal fee.
+ * Active assignment wins while it still exists. After the cancel trigger
+ * nulls driver_id / confirmed_driver_id, previous_driver_id is the preserved
+ * entitled driver. Never read a nulled driver_id as "no driver".
+ */
+export function resolveTerminalEntitledDriverId(trip: {
+  driver_id?: string | null;
+  confirmed_driver_id?: string | null;
+  previous_driver_id?: string | null;
+}): string | null {
+  const active = String(trip.confirmed_driver_id ?? "").trim()
+    || String(trip.driver_id ?? "").trim();
+  if (active) return active;
+  const preserved = String(trip.previous_driver_id ?? "").trim();
+  return preserved || null;
+}
 
 function pence(v: unknown): number {
   const n = Math.round(Number(v ?? 0));
   return Number.isFinite(n) ? n : 0;
 }
 
-/** Pure — terminal fee trip detection for resume eligibility. */
+/**
+ * Settlement eligibility only.
+ * CANCELLED_WITH_FEE is not a terminal kind and must not become
+ * Late Passenger Cancellation or Arrival Cancellation.
+ * Arrival stamps alone do not settle historical rows.
+ */
 export function resolveTerminalOutcomeKind(trip: TerminalTripRow): TerminalOutcomeKind | null {
   const outcome = String(trip.financial_outcome ?? "").toUpperCase();
   const status = String(trip.status ?? "").toLowerCase();
   const paymentStatus = String(trip.payment_status ?? "").toLowerCase();
   const noShowCharge = pence(trip.no_show_charge_pence);
-  const cancelFee = pence(trip.cancellation_fee_pence);
-
-  if (outcome === "COMPLETED") return null;
-
-  if (outcome === "NO_SHOW" || status === "no_show") return "NO_SHOW";
 
   if (
-    outcome === "LATE_PASSENGER_CANCELLATION"
+    outcome === "COMPLETED"
+    || outcome === "CANCELLED_NO_FEE"
     || outcome === "CANCELLED_WITH_FEE"
   ) {
-    return "LATE_PASSENGER_CANCELLATION";
+    return null;
   }
 
-  if (paymentStatus === "fee_pending_settlement") {
-    if (noShowCharge > 0) return "NO_SHOW";
-    if (cancelFee > 0) return "LATE_PASSENGER_CANCELLATION";
+  if (outcome === "ARRIVAL_CANCELLATION") return "ARRIVAL_CANCELLATION";
+  if (outcome === "NO_SHOW" || status === "no_show") return "NO_SHOW";
+  if (outcome === "LATE_PASSENGER_CANCELLATION") return "LATE_PASSENGER_CANCELLATION";
+
+  if (paymentStatus === "fee_pending_settlement" && (noShowCharge > 0 || status === "no_show")) {
+    return "NO_SHOW";
   }
 
   if (paymentStatus.includes("no_show") && noShowCharge > 0) return "NO_SHOW";
 
-  if (
-    (paymentStatus.includes("cancel") || paymentStatus.includes("charged"))
-    && cancelFee > 0
-  ) {
-    return "LATE_PASSENGER_CANCELLATION";
-  }
-
-  if (TERMINAL_FEE_OUTCOMES.has(outcome)) {
-    return outcome === "NO_SHOW" ? "NO_SHOW" : "LATE_PASSENGER_CANCELLATION";
+  if (CHARGEABLE_TERMINAL_OUTCOMES.has(outcome as TerminalOutcomeKind)) {
+    return outcome as TerminalOutcomeKind;
   }
 
   return null;
@@ -134,7 +154,7 @@ export async function maybeResumeTerminalFeeSettlementAfterProviderFee(
   const { data: trip, error: tripErr } = await supabase
     .from("trips")
     .select(
-      "id, driver_id, confirmed_driver_id, financial_model, financial_outcome, status, payment_status, payment_method, currency_code, no_show_charge_pence, cancellation_fee_pence",
+      "id, driver_id, confirmed_driver_id, previous_driver_id, financial_model, financial_outcome, status, payment_status, payment_method, currency_code, no_show_charge_pence, cancellation_fee_pence",
     )
     .eq("id", tripId)
     .maybeSingle();
@@ -189,7 +209,7 @@ export async function maybeResumeTerminalFeeSettlementAfterProviderFee(
     };
   }
 
-  const driverId = String(trip.confirmed_driver_id ?? trip.driver_id ?? "").trim();
+  const driverId = resolveTerminalEntitledDriverId(trip) ?? "";
   if (!driverId) {
     return {
       resumed: false,
@@ -202,9 +222,7 @@ export async function maybeResumeTerminalFeeSettlementAfterProviderFee(
     };
   }
 
-  const ledgerType = outcome === "NO_SHOW"
-    ? "DRIVER_COMPENSATION_CREDIT"
-    : "TRIP_EARNING_NET";
+  const ledgerType = TERMINAL_FEE_LEDGER_TYPE;
 
   if (await ledgerTypeAlreadyPosted(supabase, tripId, ledgerType)) {
     return {

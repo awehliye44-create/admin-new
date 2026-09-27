@@ -18,6 +18,7 @@ import {
 import { noShowEligibleFromCountedSeconds } from "../_shared/waitingSegmentClock.ts";
 import { notifyCustomerTripLifecycle } from "../_shared/customerTripLifecycleNotify.ts";
 import { notifyDriverTripStopped } from "../_shared/notifyDriverTripStopped.ts";
+import { maybeResumeTerminalFeeSettlementAfterProviderFee } from "../_shared/terminalFeeSettlementResumptionSSOT.ts";
 
 
 /**
@@ -246,7 +247,7 @@ serve(async (req) => {
           appliedFee = lateCancelFeePence;
           feeType = "late_cancellation";
           cancellationReasonFinal = reason || "late_passenger_cancellation";
-          financialOutcome = "CANCELLED_WITH_FEE";
+          financialOutcome = "LATE_PASSENGER_CANCELLATION";
           lateCancelApplied = true;
 
           console.log(
@@ -322,7 +323,7 @@ serve(async (req) => {
             appliedFee = arrivalFeePence;
             feeType = "arrival_cancellation";
             cancellationReasonFinal = reason || "arrival_cancellation_fee";
-            financialOutcome = "CANCELLED_WITH_FEE";
+            financialOutcome = "ARRIVAL_CANCELLATION";
           } else {
             appliedFee = 0;
             feeType = "none";
@@ -350,10 +351,9 @@ serve(async (req) => {
     // ══════════════════════════════════════════
     // UPDATE TRIP
     // ══════════════════════════════════════════
-    // NOTE: driver_id / confirmed_driver_id are intentionally PRESERVED.
-    // Driver RLS on trips matches driver_id/confirmed_driver_id, so nulling them in
-    // this same UPDATE hid the realtime cancellation event from the assigned driver's
-    // device and the active trip card never cleared immediately.
+    // Active assignment is cleared by enforce_trip_cancel_assignment_invariant.
+    // previous_driver_id keeps the driver who accepted/arrived so settlement
+    // and driver history do not depend on the nulled driver_id.
     const tripUpdate: Record<string, unknown> = {
       status: tripStatus,
       cancelled_at: now.toISOString(),
@@ -369,6 +369,11 @@ serve(async (req) => {
       dispatch_status: "cancelled",
       updated_at: now.toISOString(),
     };
+
+    const entitledDriverId = trip.confirmed_driver_id ?? trip.driver_id ?? null;
+    if (entitledDriverId) {
+      tripUpdate.previous_driver_id = entitledDriverId;
+    }
 
 
     const { error: updateErr } = await supabase
@@ -474,33 +479,20 @@ serve(async (req) => {
       console.error("[cancel-trip] provider failed — fee stamp cleared, no wallet credit", { trip_id });
     }
 
-    // Arrival cancellation captures the configured fee only. No policy flag
-    // credits the driver wallet for that fee. No-show and late-cancel keep
-    // their existing settlement, and only after the provider capture is confirmed.
-    const creditsDriverWallet = feeType === "no_show" || feeType === "late_cancellation";
-    if (captureConfirmed && creditsDriverWallet && appliedFee > 0 && trip.driver_id) {
-      const outcomeType = feeType === "no_show" ? "NO_SHOW" 
-        : feeType === "late_cancellation" ? "LATE_PASSENGER_CANCELLATION" 
-        : "LATE_PASSENGER_CANCELLATION";
-
+    // Chargeable terminal fees settle through the canonical poster after capture.
+    // Driver identity is previous_driver_id, set before the assignment trigger
+    // nulls driver_id. CANCELLED_WITH_FEE (pre-arrival grace fee) is not settled here.
+    const settlesTerminalFee = feeType === "arrival_cancellation"
+      || feeType === "no_show"
+      || feeType === "late_cancellation";
+    if (captureConfirmed && settlesTerminalFee && appliedFee > 0 && entitledDriverId) {
       try {
-        const fnUrl = `${supabaseUrl}/functions/v1/record-financial-outcome`;
-        await fetch(fnUrl, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${supabaseKey}`,
-          },
-          body: JSON.stringify({
-            trip_id,
-            driver_id: trip.driver_id,
-            outcome: outcomeType,
-            fee_pence: appliedFee,
-            payment_method: trip.payment_method || "unknown",
-          }),
+        await maybeResumeTerminalFeeSettlementAfterProviderFee(supabase, {
+          tripId: trip_id,
+          source: "cancel-trip",
         });
       } catch (finErr) {
-        console.error("[cancel-trip] record-financial-outcome error:", finErr);
+        console.error("[cancel-trip] terminal fee settlement error:", finErr);
       }
     }
 

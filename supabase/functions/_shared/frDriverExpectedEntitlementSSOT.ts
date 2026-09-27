@@ -77,7 +77,15 @@ export type FrDriverEntitlementResolution = {
 
 const TERMINAL_FINANCIAL_OUTCOMES = new Set([
   "NO_SHOW",
+  "ARRIVAL_CANCELLATION",
   "CANCELLED_WITH_FEE",
+  "LATE_PASSENGER_CANCELLATION",
+]);
+
+/** Outcomes whose wallet credit is captured fee minus confirmed provider fee. */
+const CANONICAL_CHARGEABLE_OUTCOMES = new Set([
+  "ARRIVAL_CANCELLATION",
+  "NO_SHOW",
   "LATE_PASSENGER_CANCELLATION",
 ]);
 
@@ -268,9 +276,25 @@ export function resolveFrDriverExpectedEntitlement(
     ? null
     : Math.max(0, Math.round(Number(trip.commission_pence)));
 
-  // Terminal fee FR expected: capture − commission (provider fee platform-owned).
-  // Do not use resolveTerminalFeeDriverTenPence here — that path still deducts fee for
-  // legacy settlement writers and would falsely OVER-credit variance vs live TEN.
+  // Canonical chargeable outcomes post TRIP_EARNING_NET = capture − provider fee.
+  // Historical CANCELLED_WITH_FEE stays on the capture − commission branch below.
+  if (CANONICAL_CHARGEABLE_OUTCOMES.has(outcomeUpper) && captured != null && captured > 0) {
+    const terminalTen = resolveTerminalFeeDriverTenPence({
+      captured_pence: captured,
+      provider_fee_pence: providerFee,
+      commission_pence: 0,
+    });
+    return {
+      expected_entitlement_pence: terminalTen + tipsPence(trip),
+      expected_stamp_status: FR_EXPECTED_STAMP_STATUS.OK,
+      entitlement_source: "terminal_fee_capture_minus_provider_fee",
+      financial_settled_at: financialSettledAt,
+      is_terminal_fee_outcome: true,
+    };
+  }
+
+  // Historical charged-cancellation FR expected: capture − commission.
+  // Provider fee stays platform-owned on that older formula (MK-260916-030 = 435).
   if (isTerminal && captured != null && captured > 0) {
     const terminalTen = resolveFrTerminalFeeExpectedEntitlementPence({
       captured_pence: captured,
