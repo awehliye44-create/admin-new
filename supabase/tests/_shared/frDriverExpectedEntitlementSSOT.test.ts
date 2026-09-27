@@ -17,7 +17,7 @@ import {
   sumActualWalletTripCreditsPence,
 } from "../../functions/_shared/frDriverReconciliationSSOT.ts";
 
-Deno.test("1. no-show 400p capture + 24p provider fee (platform-owned for FR) => expected 400", () => {
+Deno.test("1. no-show 400p capture + 24p provider fee => expected 376", () => {
   const row = resolveFrDriverExpectedEntitlement({
     trip_status: "no_show",
     financial_outcome: "NO_SHOW",
@@ -25,16 +25,51 @@ Deno.test("1. no-show 400p capture + 24p provider fee (platform-owned for FR) =>
     captured_amount_pence: 400,
     provider_processing_fee_pence: 24,
     commission_pence: 0,
-    driver_net_pence: 400,
+    driver_net_pence: 376,
   });
-  // FR expected: provider fee platform-owned — do not deduct.
-  assertEquals(row.expected_entitlement_pence, 400);
-  assertEquals(row.entitlement_source, "terminal_fee_capture_minus_commission");
+  assertEquals(row.expected_entitlement_pence, 376);
+  assertEquals(row.entitlement_source, "terminal_fee_capture_minus_provider_fee");
   assertEquals(row.expected_stamp_status, FR_EXPECTED_STAMP_STATUS.OK);
   assertEquals(
-    classifyDriverCreditPair({ expected: 400, actual: 400 }),
+    classifyDriverCreditPair({ expected: 376, actual: 376 }),
     "DRIVER_CREDIT_OK",
   );
+});
+
+Deno.test("1b. arrival cancellation 400/24 => expected 376, not the quote net", () => {
+  const row = resolveFrDriverExpectedEntitlement({
+    trip_status: "cancelled",
+    financial_outcome: "ARRIVAL_CANCELLATION",
+    financial_model: "PLATFORM_COLLECTED",
+    captured_amount_pence: 400,
+    provider_processing_fee_pence: 24,
+    commission_pence: 75,
+    driver_net_pence: 425,
+  });
+  assertEquals(row.expected_entitlement_pence, 376);
+  assertEquals(row.entitlement_source, "terminal_fee_capture_minus_provider_fee");
+});
+
+Deno.test("1c. arrival cancellation keeps booking fare stamps (425 + 75 = 500) => still 376", () => {
+  for (const financial_outcome of ["ARRIVAL_CANCELLATION", "NO_SHOW", "LATE_PASSENGER_CANCELLATION"]) {
+    const trip = {
+      trip_status: financial_outcome === "NO_SHOW" ? "no_show" : "cancelled",
+      financial_outcome,
+      financial_model: "PLATFORM_COLLECTED",
+      captured_amount_pence: 400,
+      provider_processing_fee_pence: 24,
+      commission_pence: 75,
+      driver_net_pence: 425,
+      commissionable_fare_pence: 500,
+      final_fare_pence: 500,
+      gross_fare_pence: 500,
+    };
+    assertEquals(isTerminalFeeFinancialOutcome(trip), true, financial_outcome);
+    const row = resolveFrDriverExpectedEntitlement(trip);
+    assertEquals(row.expected_entitlement_pence, 376, financial_outcome);
+    assertEquals(row.entitlement_source, "terminal_fee_capture_minus_provider_fee", financial_outcome);
+    assertEquals(row.is_terminal_fee_outcome, true, financial_outcome);
+  }
 });
 
 Deno.test("2. terminal outcome with completed_at NULL stays in financial period via captured_at", () => {

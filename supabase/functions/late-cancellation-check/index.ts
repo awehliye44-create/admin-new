@@ -11,6 +11,7 @@ import {
 } from "../_shared/security.ts";
 import { notifyDriverTripStopped } from "../_shared/notifyDriverTripStopped.ts";
 import { notifyCustomerTripLifecycle } from "../_shared/customerTripLifecycleNotify.ts";
+import { maybeResumeTerminalFeeSettlementAfterProviderFee } from "../_shared/terminalFeeSettlementResumptionSSOT.ts";
 
 const RATE_LIMIT_CONFIG = {
   limit: 20,
@@ -62,6 +63,7 @@ Deno.serve(async (req) => {
     if (tripErr || !trip) return errorResponse("NOT_FOUND", "Trip not found", 404);
 
     const driverIdEarly = trip.driver_id || trip.confirmed_driver_id;
+    const preservedDriver = driverIdEarly ? { previous_driver_id: driverIdEarly } : {};
     const cancelledByRole = cancelled_by || "passenger";
 
     const notifyDriverIfAssigned = async () => {
@@ -158,6 +160,9 @@ Deno.serve(async (req) => {
       // Within grace period → still arrived, charge cancellation fee
       const feePence = cancellationFeeAfterArrival;
 
+      // After-arrival here is not Late Passenger Cancellation and does not
+      // check free-wait arrival eligibility. Do not stamp late_cancel_fee_pence
+      // or a canonical chargeable outcome. cancel-trip owns arrival settlement.
       await supabase
         .from("trips")
         .update({
@@ -165,8 +170,8 @@ Deno.serve(async (req) => {
           cancelled_at: nowIso,
           cancelled_by: cancelled_by || "passenger",
           cancel_reason: elapsedSec >= gracePeriodSec ? "cancelled_after_grace" : "cancelled_after_arrival",
-          late_cancel_fee_pence: feePence,
-          // Clear waiting charges — cancellation fee overrides them
+          cancellation_fee_pence: feePence,
+          ...preservedDriver,
           pickup_waiting_charge_pence: 0,
           total_waiting_charge_pence: 0,
           updated_at: nowIso,
@@ -188,7 +193,7 @@ Deno.serve(async (req) => {
         success: true,
         fee_applied: true,
         fee_type: "cancellation_after_arrival",
-        late_cancel_fee_pence: feePence,
+        cancellation_fee_pence: feePence,
         trip_id,
       });
     }
@@ -205,6 +210,7 @@ Deno.serve(async (req) => {
             cancelled_by: cancelled_by || "passenger",
             cancel_reason: "passenger_cancelled",
             updated_at: nowIso,
+            ...preservedDriver,
           })
           .eq("id", trip_id);
         if (driverId) {
@@ -246,6 +252,7 @@ Deno.serve(async (req) => {
             cancelled_by: cancelled_by || "passenger",
             cancel_reason: "passenger_cancelled",
             updated_at: nowIso,
+            ...preservedDriver,
           })
           .eq("id", trip_id);
         if (driverId) {
@@ -269,9 +276,22 @@ Deno.serve(async (req) => {
         cancelled_by: cancelled_by || "passenger",
         cancel_reason: "late_cancellation",
         late_cancel_fee_pence: lateFeePence,
+        financial_outcome: "LATE_PASSENGER_CANCELLATION",
         updated_at: nowIso,
+        ...preservedDriver,
       })
       .eq("id", trip_id);
+
+    if (driverIdEarly) {
+      try {
+        await maybeResumeTerminalFeeSettlementAfterProviderFee(supabase, {
+          tripId: trip_id,
+          source: "late-cancellation-check",
+        });
+      } catch (settleErr) {
+        console.error("[late-cancellation-check] terminal settlement error:", settleErr);
+      }
+    }
 
     if (driverId) {
       await supabase
