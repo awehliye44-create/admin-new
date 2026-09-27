@@ -13,8 +13,9 @@ const corsHeaders = {
 /**
  * record-financial-outcome
  *
- * Records financial outcomes for NO_SHOW and LATE_PASSENGER_CANCELLATION.
- * Wallet posting delegates to canonicalTypedWalletPostingSSOT.
+ * Records financial outcomes for NO_SHOW, LATE_PASSENGER_CANCELLATION,
+ * and ARRIVAL_CANCELLATION. Wallet posting delegates to the canonical
+ * terminal entitlement poster (TRIP_EARNING_NET, once per trip).
  */
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
@@ -38,7 +39,7 @@ serve(async (req) => {
       );
     }
 
-    const VALID_OUTCOMES = ['NO_SHOW', 'LATE_PASSENGER_CANCELLATION'];
+    const VALID_OUTCOMES = ['NO_SHOW', 'LATE_PASSENGER_CANCELLATION', 'ARRIVAL_CANCELLATION'];
     if (!VALID_OUTCOMES.includes(outcome)) {
       return new Response(
         JSON.stringify({ error: `Invalid outcome. Must be one of: ${VALID_OUTCOMES.join(', ')}` }),
@@ -113,7 +114,11 @@ serve(async (req) => {
       );
     }
 
-    const revenue_type = outcome === 'NO_SHOW' ? 'no_show_revenue' : 'late_cancellation_revenue';
+    const revenue_type = outcome === 'NO_SHOW'
+      ? 'no_show_revenue'
+      : outcome === 'ARRIVAL_CANCELLATION'
+        ? 'arrival_cancellation_revenue'
+        : 'late_cancellation_revenue';
 
     const posted = await postTerminalOutcomeSettlement({
       supabase,
