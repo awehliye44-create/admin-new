@@ -392,6 +392,8 @@ serveWithEdgeTiming("confirm-revolut-payment", corsHeaders, async (req) => {
             || body.expect_saved_card_token === true
             ? "setup"
             : "booking",
+          // Inline request path: never block the response on the durable retry ladder.
+          includeDurableRetry: false,
           markFailedOnMiss: isSaveCardPurpose
             && body.expect_saved_card_token === true
             && Boolean(platformPmId),

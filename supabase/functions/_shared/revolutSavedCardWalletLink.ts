@@ -41,6 +41,7 @@ export async function finalizeRevolutTokenCapture(
     platformPaymentMethodId?: string | null;
     markFailedOnMiss?: boolean;
     pollProfile?: "booking" | "setup";
+    includeDurableRetry?: boolean;
   },
 ): Promise<{
   captured: boolean;
@@ -57,6 +58,7 @@ export async function finalizeRevolutTokenCapture(
     orderMetadata: args.orderMetadata,
     markFailedOnMiss: args.markFailedOnMiss,
     pollProfile: args.pollProfile,
+    includeDurableRetry: args.includeDurableRetry,
   });
 }
 

@@ -136,5 +136,6 @@ export function adminScheduledBoardExcludedStatusInFilter(): string {
 /** PostgREST `.or(...)` keeping Active board free of scheduled open-lifecycle rows. */
 export function adminActiveBoardScheduledExclusivityOrFilter(): string {
   // Instant trips OR scheduled trips that already have active driver ownership.
-  return 'is_scheduled.eq.false,driver_id.not.is.null';
+  // NULL is_scheduled is treated as instant (matches COALESCE(is_scheduled,false)).
+  return 'is_scheduled.is.null,is_scheduled.eq.false,driver_id.not.is.null';
 }
