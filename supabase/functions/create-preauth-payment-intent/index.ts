@@ -33,6 +33,7 @@ import {
 import { createRevolutPreauthResponse } from "../_shared/revolutPreauth.ts";
 import { extractReceivableConsentFromPreauthBody } from "../_shared/customerReceivableConsentSSOT.ts";
 import { createPreauthEdgeTiming } from "../_shared/preauthEdgeTimingSSOT.ts";
+import { scheduleEdgeBackground } from "../_shared/scheduleEdgeBackground.ts";
 import {
   citBrowserEnvironmentErrorResponse,
   extractBrowserEnvironmentFromPreauthBody,
@@ -226,14 +227,6 @@ serveWithEdgeTiming("create-preauth-payment-intent", corsHeaders, async (req) =>
     edgeTiming.markAuthEnd();
     logStep("User authenticated", { userId: user.id, email: user.email });
 
-    edgeTiming.markEligibilityStart();
-    const bookingEligibility = await assertCanBookRide(supabaseClient, user.id);
-    edgeTiming.markEligibilityEnd();
-    if (!bookingEligibility.allowed) {
-      logPassengerBookingBlocked("create-preauth-payment-intent", user.id, bookingEligibility);
-      return passengerNotEligibleResponse(bookingEligibility, corsHeaders);
-    }
-
     const body = await req.json();
     logStep("Request body", body);
 
@@ -268,10 +261,19 @@ serveWithEdgeTiming("create-preauth-payment-intent", corsHeaders, async (req) =>
     /** Quote-path customer row — avoids duplicate customers SELECT before Revolut. */
     let quotePathCustomerId: string | null = null;
     let quotePathCustomerFullName: string | null = null;
+    let preloadedOpaqueQuote: Awaited<ReturnType<typeof loadBookingPaymentQuote>> = null;
+    let deferredOfferMetadata: (() => Promise<void>) | null = null;
     let prefetchedBookingGateway: ServiceAreaBookingGatewayBundle | null = null;
 
     if (body.trip_id) {
-      // Legacy path: trip already exists
+      // Legacy path: trip already exists. Eligibility stays ahead of trip reads.
+      edgeTiming.markEligibilityStart();
+      const bookingEligibility = await assertCanBookRide(supabaseClient, user.id);
+      edgeTiming.markEligibilityEnd();
+      if (!bookingEligibility.allowed) {
+        logPassengerBookingBlocked("create-preauth-payment-intent", user.id, bookingEligibility);
+        return passengerNotEligibleResponse(bookingEligibility, corsHeaders);
+      }
       tripId = body.trip_id;
       idempotencyKeySuffix = tripId!;
 
@@ -335,47 +337,85 @@ serveWithEdgeTiming("create-preauth-payment-intent", corsHeaders, async (req) =>
       );
       idempotencyKeySuffix = body.client_action_id || crypto.randomUUID();
 
+      // Eligibility is a read gate. It overlaps quote/customer/gateway/offer
+      // reads and still finishes before any payment session or provider order.
+      edgeTiming.markEligibilityStart();
+      const eligibilityP = assertCanBookRide(supabaseClient, user.id).finally(() => {
+        edgeTiming.markEligibilityEnd();
+      });
       const parallelStart = Date.now();
-      const [fareSettled, customerSettled, gatewaySettled] = await Promise.all([
-        (async () => {
-          const started = Date.now();
-          if (opaqueQuoteId) {
-            const row = await loadBookingPaymentQuote(supabaseClient, opaqueQuoteId);
-            const ms = Date.now() - started;
-            return { kind: "opaque" as const, row, ms };
+      const fareP = (async () => {
+        const started = Date.now();
+        if (opaqueQuoteId) {
+          const row = await loadBookingPaymentQuote(supabaseClient, opaqueQuoteId);
+          const ms = Date.now() - started;
+          return { kind: "opaque" as const, row, ms };
+        }
+        const serverQuote = await quoteFareServerSide({
+          serviceAreaId: resolvedServiceAreaId,
+          vehicleTypeId: typeof body.vehicle_type_id === "string" ? body.vehicle_type_id : null,
+          bookingSnapshot:
+            body.booking_snapshot && typeof body.booking_snapshot === "object"
+              ? body.booking_snapshot as Record<string, unknown>
+              : null,
+        });
+        return { kind: "estimate" as const, serverQuote, ms: Date.now() - started };
+      })();
+      const customerP = (async () => {
+        const started = Date.now();
+        const { data } = await supabaseClient
+          .from("customers")
+          .select("id, first_name, last_name")
+          .eq("user_id", user.id)
+          .maybeSingle();
+        return { data, ms: Date.now() - started };
+      })();
+      const gatewayP = (async () => {
+        const started = Date.now();
+        if (!resolvedServiceAreaId) {
+          return { bundle: null as ServiceAreaBookingGatewayBundle | null, ms: 0 };
+        }
+        const bundle = await checkServiceAreaGatewayForBooking(
+          supabaseClient,
+          resolvedServiceAreaId,
+          "customer",
+        );
+        return { bundle, ms: Date.now() - started };
+      })();
+      // Offer needs the fare and customer id. On the opaque path the quote
+      // total is the charge, so this read must not hold the response.
+      const hasPersonalVoucher = Boolean(body.personal_voucher_code?.trim());
+      const offerP = hasPersonalVoucher
+        ? Promise.resolve(null)
+        : (async () => {
+          const [fareForOffer, customerForOffer] = await Promise.all([fareP, customerP]);
+          const farePence = fareForOffer.kind === "opaque"
+            ? (fareForOffer.row?.trip_fare_pence ?? 0)
+            : (fareForOffer.serverQuote.ok ? fareForOffer.serverQuote.totalFarePence : 0);
+          const offerCustomerId = customerForOffer.data?.id ?? user.id;
+          if (!resolvedServiceAreaId || farePence <= 0) return null;
+          edgeTiming.markOfferResolveStart();
+          try {
+            return await resolveBestOfferForTrip({
+              admin: supabaseClient,
+              serviceAreaId: resolvedServiceAreaId,
+              estimatedFarePence: farePence,
+              userId: user.id,
+              customerId: offerCustomerId,
+            });
+          } catch (offerErr) {
+            logStep("Offer resolution warning (non-fatal)", { error: String(offerErr) });
+            return null;
+          } finally {
+            edgeTiming.markOfferResolveEnd();
           }
-          const serverQuote = await quoteFareServerSide({
-            serviceAreaId: resolvedServiceAreaId,
-            vehicleTypeId: typeof body.vehicle_type_id === "string" ? body.vehicle_type_id : null,
-            bookingSnapshot:
-              body.booking_snapshot && typeof body.booking_snapshot === "object"
-                ? body.booking_snapshot as Record<string, unknown>
-                : null,
-          });
-          return { kind: "estimate" as const, serverQuote, ms: Date.now() - started };
-        })(),
-        (async () => {
-          const started = Date.now();
-          const { data } = await supabaseClient
-            .from("customers")
-            .select("id, first_name, last_name")
-            .eq("user_id", user.id)
-            .maybeSingle();
-          return { data, ms: Date.now() - started };
-        })(),
-        (async () => {
-          const started = Date.now();
-          if (!resolvedServiceAreaId) {
-            return { bundle: null as ServiceAreaBookingGatewayBundle | null, ms: 0 };
-          }
-          const bundle = await checkServiceAreaGatewayForBooking(
-            supabaseClient,
-            resolvedServiceAreaId,
-            "customer",
-          );
-          return { bundle, ms: Date.now() - started };
-        })(),
-      ]);
+        })();
+      const [bookingEligibility, fareSettled, customerSettled, gatewaySettled] =
+        await Promise.all([eligibilityP, fareP, customerP, gatewayP]);
+      if (!bookingEligibility.allowed) {
+        logPassengerBookingBlocked("create-preauth-payment-intent", user.id, bookingEligibility);
+        return passengerNotEligibleResponse(bookingEligibility, corsHeaders);
+      }
       const parallelEnd = Date.now();
       edgeTiming.stampMeasured("fareQuote", parallelStart, parallelStart + fareSettled.ms);
       edgeTiming.stampMeasured(
@@ -426,6 +466,7 @@ serveWithEdgeTiming("create-preauth-payment-intent", corsHeaders, async (req) =>
           }), { status: 409, headers: { ...corsHeaders, "Content-Type": "application/json" } });
         }
         grossFarePence = fareSettled.row.trip_fare_pence;
+        preloadedOpaqueQuote = fareSettled.row;
         logStep("OPAQUE_QUOTE_ROW_FARE", {
           quote_id: opaqueQuoteId,
           trip_fare_pence: grossFarePence,
@@ -460,35 +501,51 @@ serveWithEdgeTiming("create-preauth-payment-intent", corsHeaders, async (req) =>
         .join(" ")
         .trim() || null;
 
-      // ── Server-side offer resolution (Single Source of Truth) ─────────────
-      // Apply the same discount the customer was previewed in SelectVehicle so
-      // that the provider authorises the DISCOUNTED amount + buffer — not the gross
-      // fare. Never trust client-supplied discount values.
+      // Never trust a client-supplied discount.
+      // Opaque quote: the frozen total is the charge. Offer metadata is
+      // attached after the response so it cannot extend the preauth wall.
+      // No-quote path: the offer changes the authorised amount, so it stays
+      // on the wall.
       let appliedOfferId: string | null = null;
       let appliedOfferCode: string | null = null;
       let offerDiscountPence = 0;
-      if (resolvedServiceAreaId) {
-        try {
-          edgeTiming.markOfferResolveStart();
-          const resolvedOffer = await resolveBestOfferForTrip({
-            admin: supabaseClient,
-            serviceAreaId: resolvedServiceAreaId,
-            estimatedFarePence: grossFarePence,
-            userId: user.id,
-            customerId: cachedCustomerId,
-          });
-          edgeTiming.markOfferResolveEnd();
-          if (resolvedOffer && resolvedOffer.discountPence > 0) {
-            appliedOfferId = resolvedOffer.offerId;
-            appliedOfferCode = resolvedOffer.offerCode;
-            offerDiscountPence = Math.min(resolvedOffer.discountPence, grossFarePence);
-          }
-        } catch (offerErr) {
-          edgeTiming.markOfferResolveEnd();
-          // Non-fatal: if offer resolution fails we authorise the gross fare
-          // (over-authorise, then capture corrects). Better than blocking the
-          // booking entirely on a transient lookup error.
-          logStep("Offer resolution warning (non-fatal)", { error: String(offerErr) });
+      const deferOfferMetadata = fareSettled.kind === "opaque" && !hasPersonalVoucher;
+      if (deferOfferMetadata) {
+        edgeTiming.recordDiagnostic("edge_offer_deferred", true);
+        const clientActionForOffer = body.client_action_id || "";
+        const grossForOffer = grossFarePence;
+        deferredOfferMetadata = async () => {
+          const resolvedOffer = await offerP;
+          if (!resolvedOffer || resolvedOffer.discountPence <= 0 || !clientActionForOffer) return;
+          const discount = Math.min(resolvedOffer.discountPence, grossForOffer);
+          const { data } = await supabaseClient
+            .from("payment_sessions")
+            .select("metadata")
+            .eq("client_action_id", clientActionForOffer)
+            .maybeSingle();
+          const existing = data?.metadata && typeof data.metadata === "object"
+            ? data.metadata as Record<string, unknown>
+            : {};
+          await supabaseClient
+            .from("payment_sessions")
+            .update({
+              metadata: {
+                ...existing,
+                offer_discount_pence: String(discount),
+                applied_offer_id: resolvedOffer.offerId,
+                applied_offer_code: resolvedOffer.offerCode,
+                offer_metadata_deferred: "true",
+              },
+              updated_at: new Date().toISOString(),
+            })
+            .eq("client_action_id", clientActionForOffer);
+        };
+      } else {
+        const resolvedOffer = await offerP;
+        if (resolvedOffer && resolvedOffer.discountPence > 0) {
+          appliedOfferId = resolvedOffer.offerId;
+          appliedOfferCode = resolvedOffer.offerCode;
+          offerDiscountPence = Math.min(resolvedOffer.discountPence, grossFarePence);
         }
       }
 
@@ -660,24 +717,51 @@ serveWithEdgeTiming("create-preauth-payment-intent", corsHeaders, async (req) =>
 
     // Quote-based legacy PaymentIntent search is unavailable — Revolut only.
 
-    // Buffer + currency are independent after fare freeze — parallelize (P1).
+    // Opaque quote already froze buffer. The settings read would be discarded
+    // by resolvePreauthAmountsFromQuote. Currency remains a hard gate.
     edgeTiming.markBufferStart();
     edgeTiming.markCurrencyStart();
-    const [{ bufferPence, source: bufferSource }, regionCurrency] = await Promise.all([
-      resolvePreauthBuffer(
-        supabaseClient,
-        estimatedTotalPence,
-        resolvedServiceAreaId,
-        { skipMinHoldWhenDiscounted: offerDiscountPenceForBuffer > 0 },
-      ),
-      resolveRegionCurrency(
+    let bufferPence: number;
+    let bufferSource: Awaited<ReturnType<typeof resolvePreauthBuffer>>["source"];
+    let regionCurrency: string;
+    if (preloadedOpaqueQuote) {
+      bufferPence = preloadedOpaqueQuote.buffer_pence;
+      bufferSource = {
+        service_area_id: resolvedServiceAreaId,
+        enable_preauth_buffer: bufferPence > 0,
+        buffer_type: "quote_row",
+        buffer_value: bufferPence,
+        min_hold_pence: null,
+        max_hold_pence: null,
+        config_table: "booking_payment_quotes",
+      };
+      edgeTiming.markBufferEnd();
+      regionCurrency = await resolveRegionCurrency(
         supabaseClient,
         tripId,
         body.service_area_id || metadataExtra.service_area_id || null,
-      ),
-    ]);
-    edgeTiming.markBufferEnd();
-    edgeTiming.markCurrencyEnd();
+      );
+      edgeTiming.markCurrencyEnd();
+    } else {
+      const resolved = await Promise.all([
+        resolvePreauthBuffer(
+          supabaseClient,
+          estimatedTotalPence,
+          resolvedServiceAreaId,
+          { skipMinHoldWhenDiscounted: offerDiscountPenceForBuffer > 0 },
+        ),
+        resolveRegionCurrency(
+          supabaseClient,
+          tripId,
+          body.service_area_id || metadataExtra.service_area_id || null,
+        ),
+      ]);
+      bufferPence = resolved[0].bufferPence;
+      bufferSource = resolved[0].source;
+      regionCurrency = resolved[1];
+      edgeTiming.markBufferEnd();
+      edgeTiming.markCurrencyEnd();
+    }
     const authorisedAmountPence = estimatedTotalPence + bufferPence;
     logStep("Buffer calculated", {
       estimated_fare_pence: estimatedTotalPence,
@@ -733,7 +817,7 @@ serveWithEdgeTiming("create-preauth-payment-intent", corsHeaders, async (req) =>
         customer_id: dbCustomerForSessionId ?? null,
       });
 
-      return await createRevolutPreauthResponse({
+      const preauthResponse = await createRevolutPreauthResponse({
         supabase: supabaseClient,
         environment: customerGatewayCheck.environment === "test" ? "test" : "live",
         authorisedAmountPence,
@@ -747,6 +831,7 @@ serveWithEdgeTiming("create-preauth-payment-intent", corsHeaders, async (req) =>
         paymentMethodType: body.payment_method_type ?? null,
         userId: user.id,
         customerId: dbCustomerForSessionId ?? null,
+        preloadedBookingPaymentQuote: preloadedOpaqueQuote,
         customerEmail: user.email,
         customerName: customerFullName,
         platformPaymentMethodId: body.payment_method_id ?? null,
@@ -772,6 +857,10 @@ serveWithEdgeTiming("create-preauth-payment-intent", corsHeaders, async (req) =>
         logStep,
         edgeTiming,
       });
+      if (deferredOfferMetadata && preauthResponse.ok) {
+        scheduleEdgeBackground(deferredOfferMetadata, "preauth_offer_metadata");
+      }
+      return preauthResponse;
     }
 
     if (!customerGatewayCheck?.ok) {
