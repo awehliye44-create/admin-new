@@ -21218,6 +21218,8 @@ export type Database = {
       }
       service_areas: {
         Row: {
+          archived_at: string | null
+          archived_by: string | null
           cash_upfront_policy_notice: string | null
           center_lat: number | null
           center_lng: number | null
@@ -21263,6 +21265,8 @@ export type Database = {
           welcome_credit_max_drivers: number
         }
         Insert: {
+          archived_at?: string | null
+          archived_by?: string | null
           cash_upfront_policy_notice?: string | null
           center_lat?: number | null
           center_lng?: number | null
@@ -21308,6 +21312,8 @@ export type Database = {
           welcome_credit_max_drivers?: number
         }
         Update: {
+          archived_at?: string | null
+          archived_by?: string | null
           cash_upfront_policy_notice?: string | null
           center_lat?: number | null
           center_lng?: number | null
@@ -28793,9 +28799,17 @@ export type Database = {
           phone: string
         }[]
       }
+      admin_remove_service_area: {
+        Args: { p_service_area_id: string }
+        Returns: Json
+      }
       admin_remove_staff_member: {
         Args: { _correlation_id?: string; _staff_id: string }
         Returns: string
+      }
+      admin_restore_service_area: {
+        Args: { p_service_area_id: string }
+        Returns: undefined
       }
       admin_save_demand_zone_settings: {
         Args: { _service_area_id: string; _settings: Json }
