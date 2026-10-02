@@ -443,7 +443,7 @@ export async function executeRevolutTripCompletionCapture(args: {
         providerOrderId: orderId,
         tripId,
         authorisedHoldPence: authorisedHoldPence,
-        capturedAmountPence,
+        capturedAmountPence: captureAmountPence,
         environment: merchant.environment,
         secretKey: merchant.secretKey,
         evidenceSource: RELEASE_EVIDENCE_SOURCE.REVOLUT_ALREADY_CAPTURED_RECONCILE,
@@ -599,6 +599,7 @@ export async function executeRevolutTripCompletionCapture(args: {
       });
     } else if (
       incrementResult.kind === "declined"
+      || incrementResult.kind === "provider_failed"
       || incrementResult.kind === "unsupported"
       || incrementResult.kind === "provider_limit"
       || incrementResult.kind === "ineligible"
