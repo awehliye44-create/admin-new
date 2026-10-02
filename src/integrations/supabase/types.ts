@@ -752,9 +752,11 @@ export type Database = {
           id: string
           issued_at: string
           metadata: Json
+          pricing_fingerprint: string | null
           receivable_pence: number
           ride_category: string
           route_fingerprint: string
+          server_fare_quote_id: string | null
           service_area_id: string | null
           state: string
           total_authorisation_pence: number
@@ -775,9 +777,11 @@ export type Database = {
           id?: string
           issued_at?: string
           metadata?: Json
+          pricing_fingerprint?: string | null
           receivable_pence: number
           ride_category?: string
           route_fingerprint: string
+          server_fare_quote_id?: string | null
           service_area_id?: string | null
           state?: string
           total_authorisation_pence: number
@@ -798,9 +802,11 @@ export type Database = {
           id?: string
           issued_at?: string
           metadata?: Json
+          pricing_fingerprint?: string | null
           receivable_pence?: number
           ride_category?: string
           route_fingerprint?: string
+          server_fare_quote_id?: string | null
           service_area_id?: string | null
           state?: string
           total_authorisation_pence?: number
@@ -849,6 +855,13 @@ export type Database = {
             columns: ["customer_id"]
             isOneToOne: false
             referencedRelation: "customers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "booking_payment_quotes_server_fare_quote_id_fkey"
+            columns: ["server_fare_quote_id"]
+            isOneToOne: false
+            referencedRelation: "server_fare_quotes"
             referencedColumns: ["id"]
           },
         ]
@@ -20215,6 +20228,80 @@ export type Database = {
         }
         Relationships: []
       }
+      route_quote_artifacts: {
+        Row: {
+          created_at: string
+          departure_at: string | null
+          distance_km: number
+          distance_meters: number
+          dropoff_lat: number
+          dropoff_lng: number
+          duration_min: number
+          duration_seconds: number
+          expires_at: string
+          id: string
+          pickup_lat: number
+          pickup_lng: number
+          profile: string | null
+          provider: string
+          route_key: string
+          schema_version: number
+          service_area_id: string | null
+          stops: Json
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          departure_at?: string | null
+          distance_km: number
+          distance_meters: number
+          dropoff_lat: number
+          dropoff_lng: number
+          duration_min: number
+          duration_seconds: number
+          expires_at: string
+          id?: string
+          pickup_lat: number
+          pickup_lng: number
+          profile?: string | null
+          provider: string
+          route_key: string
+          schema_version?: number
+          service_area_id?: string | null
+          stops?: Json
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          departure_at?: string | null
+          distance_km?: number
+          distance_meters?: number
+          dropoff_lat?: number
+          dropoff_lng?: number
+          duration_min?: number
+          duration_seconds?: number
+          expires_at?: string
+          id?: string
+          pickup_lat?: number
+          pickup_lng?: number
+          profile?: string | null
+          provider?: string
+          route_key?: string
+          schema_version?: number
+          service_area_id?: string | null
+          stops?: Json
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "route_quote_artifacts_service_area_id_fkey"
+            columns: ["service_area_id"]
+            isOneToOne: false
+            referencedRelation: "service_areas"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       scheduled_offer_attempts: {
         Row: {
           broadcast_round: number
@@ -20357,6 +20444,99 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "v_payment_lifecycle_audit"
             referencedColumns: ["trip_id"]
+          },
+        ]
+      }
+      server_fare_quotes: {
+        Row: {
+          airport_charge_pence: number
+          created_at: string
+          currency: string
+          distance_km: number
+          duration_min: number
+          engine: string
+          expires_at: string
+          fare_source: string | null
+          gross_fare_pence: number
+          id: string
+          is_scheduled: boolean
+          minimum_applied: boolean
+          pricing_evidence: Json
+          pricing_hash: string
+          pricing_mode: string | null
+          route_key: string
+          route_quote_id: string
+          schema_version: number
+          service_area_id: string
+          surge_multiplier: number
+          surge_quote_id: string | null
+          user_id: string
+          vehicle_type_id: string
+        }
+        Insert: {
+          airport_charge_pence?: number
+          created_at?: string
+          currency: string
+          distance_km: number
+          duration_min: number
+          engine?: string
+          expires_at: string
+          fare_source?: string | null
+          gross_fare_pence: number
+          id?: string
+          is_scheduled?: boolean
+          minimum_applied?: boolean
+          pricing_evidence?: Json
+          pricing_hash: string
+          pricing_mode?: string | null
+          route_key: string
+          route_quote_id: string
+          schema_version?: number
+          service_area_id: string
+          surge_multiplier?: number
+          surge_quote_id?: string | null
+          user_id: string
+          vehicle_type_id: string
+        }
+        Update: {
+          airport_charge_pence?: number
+          created_at?: string
+          currency?: string
+          distance_km?: number
+          duration_min?: number
+          engine?: string
+          expires_at?: string
+          fare_source?: string | null
+          gross_fare_pence?: number
+          id?: string
+          is_scheduled?: boolean
+          minimum_applied?: boolean
+          pricing_evidence?: Json
+          pricing_hash?: string
+          pricing_mode?: string | null
+          route_key?: string
+          route_quote_id?: string
+          schema_version?: number
+          service_area_id?: string
+          surge_multiplier?: number
+          surge_quote_id?: string | null
+          user_id?: string
+          vehicle_type_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "server_fare_quotes_route_quote_id_fkey"
+            columns: ["route_quote_id"]
+            isOneToOne: false
+            referencedRelation: "route_quote_artifacts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "server_fare_quotes_service_area_id_fkey"
+            columns: ["service_area_id"]
+            isOneToOne: false
+            referencedRelation: "service_areas"
+            referencedColumns: ["id"]
           },
         ]
       }
