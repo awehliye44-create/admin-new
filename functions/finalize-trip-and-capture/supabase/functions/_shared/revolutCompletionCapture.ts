@@ -12,6 +12,10 @@ import {
   revolutProviderAuthorisedTotalPence,
 } from "./revolutOrders.ts";
 import { executeSameOrderIncrement } from "./executeSameOrderIncrementSSOT.ts";
+import {
+  tipAuthorisationCustomerCopy,
+  tipAuthorisationOutcomeFromIncrementKind,
+} from "./tipAuthorisationOutcomeSSOT.ts";
 import { safeCaptureAfterIncrementDecline } from "./paymentRecoveryGuardSSOT.ts";
 import {
   claimPaymentSessionFinancialLock,
@@ -607,13 +611,17 @@ export async function executeRevolutTripCompletionCapture(args: {
       // CUSTOMER_SUBMIT_WITH_TIP: tip auth/increment failure must NOT fare-capture.
       // Keep original fare AUTHORISED; caller releases the tip-window claim.
       if (safeTipPence > 0) {
+        const tipAuthorisationOutcome = tipAuthorisationOutcomeFromIncrementKind(incrementResult.kind);
         console.log(JSON.stringify({
           event: "tip_authorisation_declined_no_fare_capture",
           trip_id: tripId,
           provider_order_id: `${orderId.slice(0, 4)}…${orderId.slice(-4)}`,
           tip_pence: safeTipPence,
           increment_kind: incrementResult.kind,
+          tip_authorisation_outcome: tipAuthorisationOutcome,
         }));
+        // status/error_code stay TIP_AUTHORISATION_DECLINED: they route the
+        // no-fare-capture path in submit-customer-trip-tip, not customer copy.
         return {
           success: false,
           status: "TIP_AUTHORISATION_DECLINED",
@@ -621,9 +629,9 @@ export async function executeRevolutTripCompletionCapture(args: {
           provider_order_id: orderId,
           error_code: "TIP_AUTHORISATION_DECLINED",
           provider_state: "AUTHORISED",
-          error:
-            "Your bank declined the tip. Your fare has not been taken yet. You can try again, continue without a tip, or skip.",
+          error: tipAuthorisationCustomerCopy(tipAuthorisationOutcome),
           message: "TIP_AUTHORISATION_DECLINED",
+          tip_authorisation_outcome: tipAuthorisationOutcome,
         };
       }
       const safe = safeCaptureAfterIncrementDecline({
