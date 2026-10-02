@@ -296,7 +296,31 @@ export type GatewayResolveOptions = {
    */
   deferLiveProbe?: boolean;
   timing?: GatewayResolveTiming;
+  /**
+   * Provider config read already started for `providerId` (see startProviderConfigRead).
+   * Used only when it matches the resolved provider; otherwise the config is read here.
+   */
+  prefetchedConfig?: PrefetchedProviderConfig;
 };
+
+export type PrefetchedProviderConfig = {
+  providerId: string;
+  result: Promise<{ ok: true; row: ProviderRow | null } | { ok: false; error: unknown }>;
+};
+
+/** Starts the provider config read without awaiting it. Never rejects; errors re-throw on use. */
+export function startProviderConfigRead(
+  supabase: SupabaseClient,
+  providerId: string,
+): PrefetchedProviderConfig {
+  return {
+    providerId,
+    result: loadProviderConfig(supabase, providerId).then(
+      (row) => ({ ok: true as const, row }),
+      (error) => ({ ok: false as const, error }),
+    ),
+  };
+}
 
 export async function resolveProviderGatewayStatus(
   supabase: SupabaseClient,
@@ -319,7 +343,14 @@ export async function resolveProviderGatewayStatus(
   }
 
   const configStarted = Date.now();
-  const config = await loadProviderConfig(supabase, providerId);
+  let config: ProviderRow | null;
+  if (options?.prefetchedConfig && options.prefetchedConfig.providerId === providerId) {
+    const prefetched = await options.prefetchedConfig.result;
+    if (!prefetched.ok) throw prefetched.error;
+    config = prefetched.row;
+  } else {
+    config = await loadProviderConfig(supabase, providerId);
+  }
   if (options?.timing) options.timing.provider_config_ms = Date.now() - configStarted;
   if (!config) {
     return buildSnapshot(role, providerId, null, {
