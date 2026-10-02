@@ -308,6 +308,12 @@ export function planCustomerReceivableFoldConsent(args: {
   const serverTotal = serverRide != null
     ? serverRide + serverBuffer + serverOutstanding
     : null;
+  // Displayed total is the payable the customer agreed to (fare + included
+  // previous balance). The preauth buffer is authorisation headroom, not
+  // payable, so consent compares buffer-excluded amounts on both sides.
+  const serverPayableTotal = serverRide != null
+    ? serverRide + serverOutstanding
+    : null;
 
   const baseTelemetry = {
     customer_id: customerId || null,
@@ -324,6 +330,7 @@ export function planCustomerReceivableFoldConsent(args: {
     server_ride_fare_pence: serverRide,
     server_buffer_pence: serverBuffer,
     server_total_authorisation_pence: serverTotal,
+    server_payable_total_pence: serverPayableTotal,
   };
 
   const failUnavailable = (note: string): ReceivableFoldConsentDecision => ({
@@ -395,8 +402,8 @@ export function planCustomerReceivableFoldConsent(args: {
     }
     if (
       displayedTotal != null
-      && serverTotal != null
-      && displayedTotal !== serverTotal
+      && serverPayableTotal != null
+      && displayedTotal !== serverPayableTotal
     ) {
       return failRefresh("displayed_total_authorisation_mismatch");
     }
@@ -475,8 +482,8 @@ export function planCustomerReceivableFoldConsent(args: {
   }
   if (
     displayedTotal != null
-    && serverTotal != null
-    && displayedTotal !== serverTotal
+    && serverPayableTotal != null
+    && displayedTotal !== serverPayableTotal
   ) {
     return failRefresh("displayed_total_authorisation_mismatch");
   }
@@ -507,6 +514,8 @@ export function planCustomerReceivableFoldConsent(args: {
 export function planReceivableReservedTotalMatchesConsent(args: {
   reserved_authorised_amount_pence: number;
   displayed_total_authorisation_pence?: number | null;
+  /** Buffer inside the reserved authorised amount; excluded from consent. */
+  buffer_pence?: number | null;
 }): {
   ok: true;
 } | {
@@ -520,7 +529,9 @@ export function planReceivableReservedTotalMatchesConsent(args: {
     return { ok: true };
   }
   const displayed = nonNegPence(args.displayed_total_authorisation_pence);
-  if (displayed === reserved) return { ok: true };
+  const buffer = nonNegPence(args.buffer_pence);
+  const reservedPayable = Math.max(0, reserved - buffer);
+  if (displayed === reservedPayable) return { ok: true };
   return {
     ok: false,
     fail_closed: true,
@@ -530,6 +541,8 @@ export function planReceivableReservedTotalMatchesConsent(args: {
       note: "reserved_total_mismatch_after_reserve",
       displayed_total_authorisation_pence: displayed,
       reserved_authorised_amount_pence: reserved,
+      buffer_pence: buffer,
+      reserved_payable_pence: reservedPayable,
     },
   };
 }

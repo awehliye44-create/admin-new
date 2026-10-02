@@ -5,12 +5,14 @@
  * Choose Ride UI must display exclusively from these fields.
  * Client never constructs or edits quote_id.
  *
+ * The preauth buffer is server-owned (service_area_preauth_settings).
+ * Any client-supplied buffer_pence is ignored.
+ *
  * POST {
  *   client_action_id: uuid (required — generated before quote request),
  *   trip_fare_pence: number,
- *   buffer_pence?: number,
  *   currency?: string,
- *   service_area_id?: string,
+ *   service_area_id: string (required, must be an active service area),
  *   ride_category?: string,
  *   vehicle_type_id?: string,
  *   pickup?: { lat, lng },
@@ -24,9 +26,10 @@ import { createClient } from "npm:@supabase/supabase-js@2.57.2";
 import { sumOpenReceivableOutstandingForCustomer } from "../_shared/customerReceivableLifecycle.ts";
 import { readCustomerReceivableFoldGate } from "../_shared/customerReceivableConsentSSOT.ts";
 import {
-  buildBookingPaymentRouteFingerprint,
   issueBookingPaymentQuote,
+  parseBookingQuoteRequestBody,
   quotePublicResponseFields,
+  resolveBookingQuoteServerBuffer,
 } from "../_shared/bookingPaymentQuoteSSOT.ts";
 
 const corsHeaders = {
@@ -80,70 +83,47 @@ serve(async (req) => {
     body = {};
   }
 
-  const clientActionId = String(body.client_action_id ?? "").trim();
-  if (!clientActionId) {
+  const fields = parseBookingQuoteRequestBody(body);
+  if (!fields.client_action_id) {
     return json({ error: "client_action_id_required", code: "BOOKING_QUOTE_INVALID" }, 400);
   }
-
-  const tripFare = Math.max(0, Math.round(Number(body.trip_fare_pence) || 0));
-  const buffer = Math.max(0, Math.round(Number(body.buffer_pence) || 0));
-  const currency = String(body.currency ?? "gbp").trim().toLowerCase() || "gbp";
-  const serviceAreaId = body.service_area_id != null
-    ? String(body.service_area_id).trim() || null
-    : null;
-  const rideCategory = String(
-    body.ride_category ?? body.vehicle_type_id ?? "",
-  ).trim();
-
-  const pickup = body.pickup && typeof body.pickup === "object"
-    ? body.pickup as { lat?: unknown; lng?: unknown }
-    : null;
-  const dropoff = body.dropoff && typeof body.dropoff === "object"
-    ? body.dropoff as { lat?: unknown; lng?: unknown }
-    : null;
-  const stops = Array.isArray(body.stops)
-    ? body.stops as Array<{ lat?: unknown; lng?: unknown }>
-    : [];
-  const voucherId = body.voucher_id != null ? String(body.voucher_id).trim() || null : null;
-
-  const routeFingerprint = buildBookingPaymentRouteFingerprint({
-    service_area_id: serviceAreaId,
-    ride_category: rideCategory,
-    vehicle_type_id: typeof body.vehicle_type_id === "string" ? body.vehicle_type_id : null,
-    pickup,
-    dropoff,
-    stops,
-    voucher_id: voucherId,
-    currency,
-  });
+  if (!fields.service_area_id) {
+    return json({ error: "service_area_id_required", code: "BOOKING_QUOTE_INVALID" }, 400);
+  }
 
   const admin = createClient(supabaseUrl, serviceKey);
-  const { data: customer } = await admin
-    .from("customers")
-    .select("id")
-    .eq("user_id", user.id)
-    .maybeSingle();
+  const [{ data: customer }, { data: serviceArea }] = await Promise.all([
+    admin.from("customers").select("id").eq("user_id", user.id).maybeSingle(),
+    admin.from("service_areas").select("id, is_active").eq("id", fields.service_area_id)
+      .maybeSingle(),
+  ]);
   const customerId = customer?.id ? String(customer.id) : null;
   if (!customerId) {
     return json({ error: "customer_not_found" }, 404);
   }
+  if (!serviceArea || serviceArea.is_active === false) {
+    return json({ error: "service_area_invalid", code: "BOOKING_QUOTE_INVALID" }, 400);
+  }
 
-  const outstanding = await sumOpenReceivableOutstandingForCustomer(admin, {
-    customer_id: customerId,
-    currency,
-  });
+  const [outstanding, serverBuffer] = await Promise.all([
+    sumOpenReceivableOutstandingForCustomer(admin, {
+      customer_id: customerId,
+      currency: fields.currency,
+    }),
+    resolveBookingQuoteServerBuffer(admin, fields),
+  ]);
   const frozenGate = readCustomerReceivableFoldGate();
 
   const issued = await issueBookingPaymentQuote(admin, {
     customer_id: customerId,
     user_id: user.id,
-    client_action_id: clientActionId,
-    service_area_id: serviceAreaId,
-    ride_category: rideCategory,
-    route_fingerprint: routeFingerprint,
-    currency,
-    trip_fare_pence: tripFare,
-    buffer_pence: buffer,
+    client_action_id: fields.client_action_id,
+    service_area_id: fields.service_area_id,
+    ride_category: fields.ride_category,
+    route_fingerprint: fields.route_fingerprint,
+    currency: fields.currency,
+    trip_fare_pence: fields.trip_fare_pence,
+    server_buffer: serverBuffer,
     server_outstanding_pence: outstanding,
     gate: frozenGate,
   });

@@ -13,6 +13,10 @@ import {
   planCustomerReceivableFoldEligibilityQuote,
   readCustomerReceivableFoldGate,
 } from "./customerReceivableConsentSSOT.ts";
+import {
+  type PreauthBufferResolution,
+  resolvePreauthBuffer,
+} from "./preauthBufferResolverSSOT.ts";
 
 export const BOOKING_PAYMENT_QUOTE_TTL_MS = 10 * 60 * 1000;
 
@@ -107,6 +111,75 @@ export function buildBookingPaymentRouteFingerprint(input: {
     `v:${String(input.voucher_id ?? "").trim()}`,
   ];
   return parts.join("|");
+}
+
+/**
+ * Quote request fields the server accepts from the client. There is
+ * deliberately no buffer field: any client `buffer_pence` is ignored.
+ */
+export type BookingQuoteRequestFields = {
+  client_action_id: string;
+  trip_fare_pence: number;
+  currency: string;
+  service_area_id: string | null;
+  ride_category: string;
+  vehicle_type_id: string | null;
+  voucher_id: string | null;
+  route_fingerprint: string;
+};
+
+export function parseBookingQuoteRequestBody(
+  body: Record<string, unknown> | null | undefined,
+): BookingQuoteRequestFields {
+  const b = body && typeof body === "object" ? body : {};
+  const currency = String(b.currency ?? "gbp").trim().toLowerCase() || "gbp";
+  const serviceAreaId = b.service_area_id != null
+    ? String(b.service_area_id).trim() || null
+    : null;
+  const rideCategory = String(b.ride_category ?? b.vehicle_type_id ?? "").trim();
+  const vehicleTypeId = typeof b.vehicle_type_id === "string" ? b.vehicle_type_id : null;
+  const pickup = b.pickup && typeof b.pickup === "object"
+    ? b.pickup as { lat?: unknown; lng?: unknown }
+    : null;
+  const dropoff = b.dropoff && typeof b.dropoff === "object"
+    ? b.dropoff as { lat?: unknown; lng?: unknown }
+    : null;
+  const stops = Array.isArray(b.stops) ? b.stops as Array<{ lat?: unknown; lng?: unknown }> : [];
+  const voucherId = b.voucher_id != null ? String(b.voucher_id).trim() || null : null;
+  return {
+    client_action_id: String(b.client_action_id ?? "").trim(),
+    trip_fare_pence: Math.max(0, Math.round(Number(b.trip_fare_pence) || 0)),
+    currency,
+    service_area_id: serviceAreaId,
+    ride_category: rideCategory,
+    vehicle_type_id: vehicleTypeId,
+    voucher_id: voucherId,
+    route_fingerprint: buildBookingPaymentRouteFingerprint({
+      service_area_id: serviceAreaId,
+      ride_category: rideCategory,
+      vehicle_type_id: vehicleTypeId,
+      pickup,
+      dropoff,
+      stops,
+      voucher_id: voucherId,
+      currency,
+    }),
+  };
+}
+
+/**
+ * Server-owned preauth buffer for a booking quote, from
+ * service_area_preauth_settings via the canonical resolver.
+ * Auto-applied offers are not known at quote time; only a voucher in the
+ * route fingerprint marks the quoted fare as discounted for min_hold.
+ */
+export function resolveBookingQuoteServerBuffer(
+  supabase: SupabaseClient,
+  fields: Pick<BookingQuoteRequestFields, "service_area_id" | "trip_fare_pence" | "voucher_id">,
+): Promise<PreauthBufferResolution> {
+  return resolvePreauthBuffer(supabase, fields.trip_fare_pence, fields.service_area_id, {
+    skipMinHoldWhenDiscounted: fields.voucher_id != null,
+  });
 }
 
 export function bookingPaymentQuoteErrorPayload(
@@ -318,7 +391,8 @@ export async function issueBookingPaymentQuote(
     route_fingerprint: string;
     currency?: string | null;
     trip_fare_pence: number;
-    buffer_pence?: number | null;
+    /** From resolveBookingQuoteServerBuffer — never a client value. */
+    server_buffer: PreauthBufferResolution;
     server_outstanding_pence: number;
     gate?: { enabled: boolean; allowlist: Set<string> };
     ttl_ms?: number;
@@ -340,7 +414,7 @@ export async function issueBookingPaymentQuote(
     customer_id: customerId,
     server_outstanding_pence: input.server_outstanding_pence,
     trip_fare_pence: input.trip_fare_pence,
-    buffer_pence: input.buffer_pence,
+    buffer_pence: input.server_buffer.bufferPence,
     gate,
   });
 
@@ -355,7 +429,12 @@ export async function issueBookingPaymentQuote(
   if (existing) {
     const row = rowFromDb(existing as Record<string, unknown>);
     const exp = Date.parse(row.expires_at);
-    if (Number.isFinite(exp) && exp > Date.now() && row.route_fingerprint === fingerprint) {
+    if (
+      Number.isFinite(exp)
+      && exp > Date.now()
+      && row.route_fingerprint === fingerprint
+      && row.buffer_pence === plan.buffer_pence
+    ) {
       return { ok: true, quote: row, reused: true };
     }
     // Fingerprint changed or expired — cancel old ISSUED row.
@@ -391,6 +470,7 @@ export async function issueBookingPaymentQuote(
     metadata: {
       quote_version: plan.quote_version,
       reason: plan.reason,
+      buffer_source: input.server_buffer.source,
     },
   };
 
