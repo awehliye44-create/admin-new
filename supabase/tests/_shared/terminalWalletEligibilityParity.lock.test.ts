@@ -12,12 +12,19 @@
  */
 import { assertEquals, assertStringIncludes } from "jsr:@std/assert@1";
 import { fetchDriverPayoutEligibility } from "../../functions/_shared/fetchDriverPayoutEligibility.ts";
+import { buildDriverPayoutWithdrawalQuote } from "../../functions/_shared/driverPayoutWithdrawalQuoteSSOT.ts";
+import { planPayoutItemFromEligibleEntries } from "../../functions/_shared/payoutLedgerHandoffSSOT.ts";
 import { resolveTerminalOutcomeKind } from "../../functions/_shared/terminalOutcomeKindSSOT.ts";
 import { createFakeDb, type FakeRow } from "./waitingSsotFakeDb.ts";
 
 type Scenario = {
   id: string;
-  trip: Record<string, unknown> & { owner: string; cancelled_age_s?: number | null; completed_age_s?: number | null };
+  trip: Record<string, unknown> & {
+    owner: string;
+    cancelled_age_s?: number | null;
+    completed_age_s?: number | null;
+    provider_available_age_s?: number | null;
+  };
   session: (Record<string, unknown> & { captured_age_s?: number | null }) | null;
   ledger: Array<{ type: string; amount_pence: number; age_s: number }>;
   expect: { pending: number; eligible: number };
@@ -52,7 +59,7 @@ export const scenarioIds = (i: number) => ({
   ledger: (j: number) => `00000000-0000-4000-b${j.toString(16).padStart(3, "0")}-${hex(0x100 + i)}`,
 });
 
-function seedFor(s: Scenario, i: number) {
+function seedFor(s: Scenario, i: number, withVerifiedDestination = false) {
   const ids = scenarioIds(i);
   const owner = s.trip.owner;
   const trip: FakeRow = {
@@ -71,7 +78,7 @@ function seedFor(s: Scenario, i: number) {
     cancelled_at: ago(s.trip.cancelled_age_s),
     completed_at: ago(s.trip.completed_age_s),
     settlement_formula_version: null,
-    provider_available_on: null,
+    provider_available_on: ago(s.trip.provider_available_age_s as number | null | undefined),
     driver_id: owner === "driver" ? ids.driver : null,
     confirmed_driver_id: null,
     previous_driver_id: owner === "previous" ? ids.driver : owner === "other" ? OTHER_DRIVER : null,
@@ -104,7 +111,20 @@ function seedFor(s: Scenario, i: number) {
     drivers: [{ id: ids.driver, payouts_enabled: true, payout_operational_paused: false, approval_status: "approved", driver_status: "active" }],
     driver_wallet_ledger: ledger,
     driver_early_cashouts: [],
-    driver_payout_destinations: [],
+    driver_payout_destinations: withVerifiedDestination
+      ? [{
+        id: `dest-${i}`,
+        driver_id: ids.driver,
+        is_active: true,
+        archived_at: null,
+        verification_status: "PROVIDER_VERIFIED",
+        provider_link_status: "PROVIDER_VERIFIED",
+        provider_counterparty_id: `cp-${i}`,
+        provider_recipient_account_id: `acct-${i}`,
+        account_last4: "0000",
+        updated_at: new Date(NOW_MS).toISOString(),
+      }]
+      : [],
     admin_settings: [{ setting_key: "payout_clearing_delay_hours", setting_value: String(fixture.clearing_delay_hours) }],
     trips: [trip],
     payment_sessions: sessions,
@@ -113,8 +133,8 @@ function seedFor(s: Scenario, i: number) {
   };
 }
 
-async function evaluate(s: Scenario, i: number) {
-  const db = createFakeDb(seedFor(s, i));
+async function evaluate(s: Scenario, i: number, withVerifiedDestination = false) {
+  const db = createFakeDb(seedFor(s, i, withVerifiedDestination));
   const realNow = Date.now;
   Date.now = () => NOW_MS;
   try {
@@ -150,6 +170,132 @@ Deno.test("terminal wallet: MK-261002-014 never rejected because the trip is can
   assertEquals(r.eligible_entries.map((e) => e.amount_pence), [426]);
   assertEquals(r.available_balance_pence, 426);
 });
+
+/** driver-withdraw: amount = quote.withdrawable_pence, lineage = eligibility.eligible_entries. */
+async function withdrawFor(s: Scenario, i: number) {
+  const eligibility = await evaluate(s, i, true);
+  const quote = buildDriverPayoutWithdrawalQuote({
+    eligibility,
+    global_payouts_enabled: true,
+    payout_operational_paused: false,
+    provider_verified_active_destination: true,
+    driver_approved: true,
+    driver_suspended: false,
+    fee_pence: 0,
+    minimum_pence: 0,
+    early_cash_out_enabled: true,
+    provider_available: true,
+    financial_model_platform_collected: true,
+  });
+  const lineage = planPayoutItemFromEligibleEntries({
+    eligible_entries: eligibility.eligible_entries,
+    available_balance_pence: quote.withdrawable_pence,
+  });
+  return { eligibility, quote, lineage };
+}
+
+const FRESH_TERMINAL_1MIN = [
+  "mk261002015_no_show_pending_1min",
+  "pickup_no_show_path_completed_at_set_pending_1min",
+  "mk261002014_arrival_pending_1min",
+  "late_passenger_cancellation_pending_1min",
+];
+
+for (const id of FRESH_TERMINAL_1MIN) {
+  Deno.test(`terminal withdraw hard gate: ${id} → Pending 426, Available 0, withdrawable 0, no lineage`, async () => {
+    const i = fixture.scenarios.findIndex((s) => s.id === id);
+    const s = fixture.scenarios[i]!;
+    const { eligibility, quote, lineage } = await withdrawFor(s, i);
+    assertEquals(eligibility.pending_balance_pence, 426);
+    assertEquals(eligibility.available_balance_pence, 0);
+    assertEquals(eligibility.eligible_entries.length, 0);
+    assertEquals(quote.withdrawable_pence, 0);
+    assertEquals(quote.payout_allowed, false);
+    assertEquals(quote.blocking_reason_code, "FUNDS_CLEARING");
+    assertEquals(lineage, null);
+  });
+}
+
+for (const id of ["mk261002015_no_show_boundary_27h00m00s_available", "mk261002014_arrival_available_28h"]) {
+  Deno.test(`terminal withdraw hard gate: ${id} → withdrawable 426 after the same 27h clearing`, async () => {
+    const i = fixture.scenarios.findIndex((s) => s.id === id);
+    const s = fixture.scenarios[i]!;
+    const { quote, lineage } = await withdrawFor(s, i);
+    assertEquals(quote.withdrawable_pence, 426);
+    assertEquals(lineage?.amount_pence, 426);
+    assertEquals(lineage?.allocations.map((a) => a.ledger_entry_id), [scenarioIds(i).ledger(0)]);
+  });
+}
+
+Deno.test("terminal withdraw hard gate: 26:59:59 No-Show is not withdrawable, 27:00:00 is", async () => {
+  for (const [id, expected] of [
+    ["mk261002015_no_show_boundary_26h59m59s_pending", 0],
+    ["mk261002015_no_show_boundary_27h00m00s_available", 426],
+  ] as const) {
+    const i = fixture.scenarios.findIndex((s) => s.id === id);
+    const { quote } = await withdrawFor(fixture.scenarios[i]!, i);
+    assertEquals(quote.withdrawable_pence, expected, id);
+  }
+});
+
+/** Strict 27h grid per outcome: [1 minute, 26:59:59, 27:00:00]. */
+const STRICT_27H_GRID: Record<string, readonly [string, string, string]> = {
+  COMPLETED: [
+    "strict27h_completed_pending_1min",
+    "strict27h_completed_boundary_26h59m59s_pending",
+    "strict27h_completed_boundary_27h00m00s_available",
+  ],
+  ARRIVAL_CANCELLATION: [
+    "mk261002014_arrival_pending_1min",
+    "boundary_26h59m59s_pending",
+    "boundary_27h00m00s_available",
+  ],
+  NO_SHOW: [
+    "mk261002015_no_show_pending_1min",
+    "mk261002015_no_show_boundary_26h59m59s_pending",
+    "mk261002015_no_show_boundary_27h00m00s_available",
+  ],
+  LATE_PASSENGER_CANCELLATION: [
+    "late_passenger_cancellation_pending_1min",
+    "strict27h_late_boundary_26h59m59s_pending",
+    "strict27h_late_boundary_27h00m00s_available",
+  ],
+};
+
+for (const [outcome, [m1, b265959, b270000]] of Object.entries(STRICT_27H_GRID)) {
+  Deno.test(`strict 27h withdraw grid: ${outcome} 1m / 26:59:59 Pending, 27:00:00 Available + withdrawable`, async () => {
+    for (const id of [m1, b265959]) {
+      const i = fixture.scenarios.findIndex((s) => s.id === id);
+      const s = fixture.scenarios[i]!;
+      assertEquals(s.trip.financial_outcome, outcome, id);
+      const { eligibility, quote, lineage } = await withdrawFor(s, i);
+      assertEquals(eligibility.pending_balance_pence, s.ledger[0]!.amount_pence, id);
+      assertEquals(eligibility.available_balance_pence, 0, id);
+      assertEquals(quote.withdrawable_pence, 0, id);
+      assertEquals(quote.blocking_reason_code, "FUNDS_CLEARING", id);
+      assertEquals(lineage, null, id);
+    }
+    const i = fixture.scenarios.findIndex((s) => s.id === b270000);
+    const s = fixture.scenarios[i]!;
+    assertEquals(s.trip.financial_outcome, outcome, b270000);
+    const { eligibility, quote, lineage } = await withdrawFor(s, i);
+    assertEquals(eligibility.pending_balance_pence, 0, b270000);
+    assertEquals(eligibility.available_balance_pence, s.ledger[0]!.amount_pence, b270000);
+    assertEquals(quote.withdrawable_pence, s.ledger[0]!.amount_pence, b270000);
+    assertEquals(lineage?.allocations.map((a) => a.ledger_entry_id), [scenarioIds(i).ledger(0)], b270000);
+  });
+}
+
+for (const s of fixture.scenarios.filter((x) => /^strict27h_.*_provider_.*_pending$/.test(x.id))) {
+  Deno.test(`strict 27h withdraw: ${s.id} → not withdrawable before 27h`, async () => {
+    const i = fixture.scenarios.indexOf(s);
+    const { eligibility, quote, lineage } = await withdrawFor(s, i);
+    assertEquals(eligibility.available_balance_pence, 0);
+    assertEquals(quote.withdrawable_pence, 0);
+    assertEquals(quote.blocking_reason_code, "FUNDS_CLEARING");
+    assertEquals(lineage, null);
+  });
+}
 
 Deno.test("terminal wallet: SQL migration carries the same terminal rule", () => {
   const sql = Deno.readTextFileSync(

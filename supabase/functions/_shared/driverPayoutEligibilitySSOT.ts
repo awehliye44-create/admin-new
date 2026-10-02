@@ -61,12 +61,6 @@ export type PayoutClearingPolicy = {
   clearing_delay_hours?: number;
 };
 
-function parseTimeMs(iso: string | null | undefined): number | null {
-  if (!iso) return null;
-  const ms = Date.parse(String(iso));
-  return Number.isFinite(ms) ? ms : null;
-}
-
 /**
  * Settlement-pending applies only where ONECAB collects the customer payment.
  * DRIVER_COLLECTED_COMMISSION_WALLET never uses Driver Wallet payout clearing.
@@ -86,38 +80,15 @@ export function requiresPlatformCollectedClearing(args: {
   return true;
 }
 
-/**
- * Revolut Merchant COMPLETED/CAPTURED is capture, not clearing.
- * Only treat explicit settlement/available-on states as cleared.
- */
-export function isProviderFundsClearedState(state: string | null | undefined): boolean {
-  const s = String(state ?? "").trim().toUpperCase().replace(/[\s-]+/g, "_");
-  if (!s) return false;
-  if (
-    s === "COMPLETED"
-    || s === "CAPTURED"
-    || s === "AUTHORISED"
-    || s === "AUTHORIZED"
-    || s === "PROCESSING"
-    || s === "PENDING"
-  ) {
-    return false;
-  }
-  return s.includes("SETTLE")
-    || s === "AVAILABLE"
-    || s.includes("BALANCE_AVAILABLE")
-    || s === "PAID_OUT"
-    || s === "FUNDS_AVAILABLE";
-}
-
 export type PayoutClearingEvidence = {
   payment_collection_model?: string | null;
   financial_model?: string | null;
   payment_method?: string | null;
-  /** DES / payments column — strongest when present and reached. */
+  /** Audit evidence only — provider availability never shortens the clearing delay. */
   provider_available_on?: string | null;
   settled_at?: string | null;
   des_settlement_status?: string | null;
+  /** Audit evidence only — provider settlement states never shorten the clearing delay. */
   provider_state?: string | null;
   /** Payment Sessions capture confirmation time — delay origin, not SSOT alone. */
   captured_at?: string | null;
@@ -132,9 +103,11 @@ export type PayoutClearingEvidence = {
 };
 
 /**
- * Payout-cleared for PLATFORM_COLLECTED card earnings.
- * Prefer real provider/financial settlement evidence; otherwise apply backend delay policy.
- * Never uses trip.completed_at or client clocks.
+ * Payout-cleared for PLATFORM_COLLECTED card earnings: stable clearing origin +
+ * the configured delay (27h), with no exception. Provider availability or
+ * settlement state (available_on, SETTLE, AVAILABLE, PAID_OUT, ...) never makes
+ * an earning Available sooner, and a pending provider state never delays it.
+ * Mirrors SQL driver_wallet_eligibility_balances.
  */
 export function isPayoutClearedForPlatformCollected(
   evidence: PayoutClearingEvidence,
@@ -146,14 +119,6 @@ export function isPayoutClearedForPlatformCollected(
   const hours = typeof delayHours === "number" && Number.isFinite(delayHours)
     ? Math.max(0, delayHours)
     : DEFAULT_PAYOUT_CLEARING_DELAY_HOURS;
-
-  const availableOn = parseTimeMs(evidence.provider_available_on);
-  if (availableOn != null && availableOn <= nowMs) return true;
-
-  // DES settlement_status / settled_at are capture-companion fields in this
-  // codebase, not Revolut merchant-clearing. Do not treat them as Available.
-
-  if (isProviderFundsClearedState(evidence.provider_state)) return true;
 
   const origin = resolveStablePayoutClearingOriginMs({
     captured_at: evidence.captured_at,
