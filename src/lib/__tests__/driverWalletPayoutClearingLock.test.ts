@@ -330,10 +330,17 @@ describe("driver wallet payout clearing lock", () => {
       provider_state: "COMPLETED",
       captured_at: FRESH_CAPTURE,
     }, POLICY_27H)).toBe(false);
+    // Strict 27h: provider availability never clears without the origin + delay.
     expect(isPayoutClearedForPlatformCollected({
       payment_collection_model: "PLATFORM_COLLECTED",
       provider_available_on: CLEARED_AT,
-    }, POLICY_27H)).toBe(true);
+    }, POLICY_27H)).toBe(false);
+    expect(isPayoutClearedForPlatformCollected({
+      payment_collection_model: "PLATFORM_COLLECTED",
+      provider_available_on: CLEARED_AT,
+      provider_state: "AVAILABLE",
+      captured_at: FRESH_CAPTURE,
+    }, POLICY_27H)).toBe(false);
   });
 
   it("DES settlement_status=settled is capture companion, not merchant clearing", () => {

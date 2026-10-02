@@ -83,12 +83,12 @@ for i, s in enumerate(FIX["scenarios"]):
     w("  INSERT INTO public.trips(id, trip_number, passenger_id, pickup_address, dropoff_address, financial_model, payment_method,"
       " status, financial_outcome, payment_status, no_show_charge_pence, gross_fare_pence, commission_pence, driver_net_pence,"
       " provider_fee_pence, capture_amount_pence, cancellation_fee_pence, late_cancel_fee_pence, cancelled_at, completed_at,"
-      " driver_id, confirmed_driver_id, previous_driver_id, payment_session_id) VALUES ("
+      " provider_available_on, driver_id, confirmed_driver_id, previous_driver_id, payment_session_id) VALUES ("
       f"'{d['trip']}', 'CERT-{i:03d}', '{d['user']}', 'A', 'B', {lit(t.get('financial_model', 'PLATFORM_COLLECTED'))}::public.service_area_financial_model, 'card',"
       f" {lit(t['status'])}, {lit(t.get('financial_outcome'))}, {lit(t.get('payment_status'))}, {lit(t.get('no_show_charge_pence'))},"
       f" {lit(t.get('gross_fare_pence'))}, {lit(t.get('commission_pence'))}, {lit(t.get('driver_net_pence'))},"
       f" {lit(t.get('provider_fee_pence'))}, {lit(t.get('capture_amount_pence'))}, {lit(t.get('cancellation_fee_pence'))}, {lit(t.get('late_cancel_fee_pence'))},"
-      f" {ago(t.get('cancelled_age_s'))}, {ago(t.get('completed_age_s'))},"
+      f" {ago(t.get('cancelled_age_s'))}, {ago(t.get('completed_age_s'))}, {ago(t.get('provider_available_age_s'))},"
       f" {lit(d['driver'] if owner == 'driver' else None)}, NULL, {lit(d['driver'] if owner == 'previous' else OTHER if owner == 'other' else None)},"
       f" {lit(d['session'] if s['session'] else None)});")
     ps = s["session"]
