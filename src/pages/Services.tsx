@@ -95,6 +95,7 @@ interface ServiceArea {
   distance_unit: string;
   region_id: string;
   is_active: boolean;
+  archived_at?: string | null;
   tips_enabled?: boolean;
   geo_boundary?: any;
   created_at: string;
@@ -103,7 +104,7 @@ interface ServiceArea {
 }
 
 const SERVICE_AREA_SELECT =
-  'id, name, code, country, timezone, currency_code, distance_unit, region_id, is_active, tips_enabled, trip_id_prefix, driver_id_prefix, geo_boundary, created_at, updated_at, region:regions(id, name, distance_unit, currency_code, timezone, status, geo_boundary)';
+  'id, name, code, country, timezone, currency_code, distance_unit, region_id, is_active, archived_at, tips_enabled, trip_id_prefix, driver_id_prefix, geo_boundary, created_at, updated_at, region:regions(id, name, distance_unit, currency_code, timezone, status, geo_boundary)';
 
 interface PricingStatus {
   vehicleTypesConfigured: number;
@@ -643,23 +644,50 @@ export default function Services() {
 
     setIsSaving(true);
     try {
-      const { error } = await supabase
-        .from('service_areas')
-        .delete()
-        .eq('id', selectedArea.id);
+      const { data, error } = await (supabase.rpc as any)('admin_remove_service_area', {
+        p_service_area_id: selectedArea.id,
+      });
+      if (error) {
+        const msg = String(error.message ?? '');
+        if (msg.includes('SERVICE_AREA_HAS_DRIVERS')) {
+          throw new Error('Remove all active drivers from this service area first.');
+        }
+        if (msg.includes('SERVICE_AREA_HAS_OPEN_TRIPS')) {
+          throw new Error('This service area still has trips in progress. Finish or cancel them first.');
+        }
+        throw error;
+      }
 
-      if (error) throw error;
-
-      setServiceAreas(prev => prev.filter(a => a.id !== selectedArea.id));
-      toast.success('Service area deleted successfully');
+      if ((data as { outcome?: string } | null)?.outcome === 'archived') {
+        const archivedAt = new Date().toISOString();
+        setServiceAreas(prev => prev.map(a =>
+          a.id === selectedArea.id ? { ...a, is_active: false, archived_at: archivedAt } : a,
+        ));
+        toast.success('Service area archived — it has trip or payment history that must be kept.');
+      } else {
+        setServiceAreas(prev => prev.filter(a => a.id !== selectedArea.id));
+        toast.success('Service area deleted successfully');
+      }
       setIsDeleteDialogOpen(false);
       setSelectedArea(null);
     } catch (err: any) {
-      console.error('Error deleting service area:', err);
-      toast.error(err.message || 'Failed to delete service area');
+      console.error('Error removing service area:', err);
+      toast.error(err.message || 'Failed to remove service area');
     } finally {
       setIsSaving(false);
     }
+  };
+
+  const handleRestoreArchived = async (area: ServiceArea) => {
+    const { error } = await (supabase.rpc as any)('admin_restore_service_area', {
+      p_service_area_id: area.id,
+    });
+    if (error) {
+      toast.error(error.message || 'Failed to restore service area');
+      return;
+    }
+    setServiceAreas(prev => prev.map(a => a.id === area.id ? { ...a, archived_at: null } : a));
+    toast.success(`${area.name} restored (inactive)`);
   };
 
   const toggleTipsEnabled = async (area: ServiceArea) => {
@@ -741,14 +769,17 @@ export default function Services() {
   const filteredAreas = serviceAreas.filter(area => {
     const matchesSearch = area.name.toLowerCase().includes(searchQuery.toLowerCase());
     const matchesRegion = regionFilter === 'all' || area.region_id === regionFilter;
-    const matchesStatus = statusFilter === 'all' || 
-      (statusFilter === 'active' && area.is_active) || 
-      (statusFilter === 'inactive' && !area.is_active);
+    const isArchived = !!area.archived_at;
+    const matchesStatus = statusFilter === 'archived'
+      ? isArchived
+      : !isArchived && (statusFilter === 'all' ||
+        (statusFilter === 'active' && area.is_active) ||
+        (statusFilter === 'inactive' && !area.is_active));
     return matchesSearch && matchesRegion && matchesStatus;
   });
 
-  const activeCount = serviceAreas.filter(a => a.is_active).length;
-  const inactiveCount = serviceAreas.filter(a => !a.is_active).length;
+  const activeCount = serviceAreas.filter(a => !a.archived_at && a.is_active).length;
+  const inactiveCount = serviceAreas.filter(a => !a.archived_at && !a.is_active).length;
   const configuredCount = Object.values(pricingStatus).filter(p => p.vehicleTypesConfigured > 0).length;
 
   return (
@@ -872,6 +903,7 @@ export default function Services() {
                 <SelectItem value="all">All Status</SelectItem>
                 <SelectItem value="active">Active</SelectItem>
                 <SelectItem value="inactive">Inactive</SelectItem>
+                <SelectItem value="archived">Archived</SelectItem>
               </SelectContent>
             </Select>
             <Button onClick={() => {
@@ -1744,8 +1776,9 @@ export default function Services() {
           <AlertDialogHeader>
             <AlertDialogTitle>Delete Service Area</AlertDialogTitle>
             <AlertDialogDescription>
-              Are you sure you want to delete "{selectedArea?.name}"? This action cannot be undone.
-              All pricing configurations and driver assignments will be removed.
+              Remove "{selectedArea?.name}"? All active drivers must be removed first.
+              If it has no history it is permanently deleted. If it has past trips or payment records,
+              it is archived instead (deactivated and hidden) so those records are kept.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

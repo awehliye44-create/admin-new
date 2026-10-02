@@ -752,9 +752,11 @@ export type Database = {
           id: string
           issued_at: string
           metadata: Json
+          pricing_fingerprint: string | null
           receivable_pence: number
           ride_category: string
           route_fingerprint: string
+          server_fare_quote_id: string | null
           service_area_id: string | null
           state: string
           total_authorisation_pence: number
@@ -775,9 +777,11 @@ export type Database = {
           id?: string
           issued_at?: string
           metadata?: Json
+          pricing_fingerprint?: string | null
           receivable_pence: number
           ride_category?: string
           route_fingerprint: string
+          server_fare_quote_id?: string | null
           service_area_id?: string | null
           state?: string
           total_authorisation_pence: number
@@ -798,9 +802,11 @@ export type Database = {
           id?: string
           issued_at?: string
           metadata?: Json
+          pricing_fingerprint?: string | null
           receivable_pence?: number
           ride_category?: string
           route_fingerprint?: string
+          server_fare_quote_id?: string | null
           service_area_id?: string | null
           state?: string
           total_authorisation_pence?: number
@@ -849,6 +855,13 @@ export type Database = {
             columns: ["customer_id"]
             isOneToOne: false
             referencedRelation: "customers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "booking_payment_quotes_server_fare_quote_id_fkey"
+            columns: ["server_fare_quote_id"]
+            isOneToOne: false
+            referencedRelation: "server_fare_quotes"
             referencedColumns: ["id"]
           },
         ]
@@ -2987,6 +3000,8 @@ export type Database = {
         Row: {
           address: string | null
           approved_at: string | null
+          archived_at: string | null
+          archived_by: string | null
           city: string | null
           company_name: string
           contact_email: string
@@ -3013,6 +3028,8 @@ export type Database = {
         Insert: {
           address?: string | null
           approved_at?: string | null
+          archived_at?: string | null
+          archived_by?: string | null
           city?: string | null
           company_name: string
           contact_email: string
@@ -3039,6 +3056,8 @@ export type Database = {
         Update: {
           address?: string | null
           approved_at?: string | null
+          archived_at?: string | null
+          archived_by?: string | null
           city?: string | null
           company_name?: string
           contact_email?: string
@@ -3082,6 +3101,8 @@ export type Database = {
       corporate_accounts: {
         Row: {
           address: string | null
+          archived_at: string | null
+          archived_by: string | null
           billing_email: string | null
           city: string | null
           company_name: string
@@ -3112,6 +3133,8 @@ export type Database = {
         }
         Insert: {
           address?: string | null
+          archived_at?: string | null
+          archived_by?: string | null
           billing_email?: string | null
           city?: string | null
           company_name: string
@@ -3142,6 +3165,8 @@ export type Database = {
         }
         Update: {
           address?: string | null
+          archived_at?: string | null
+          archived_by?: string | null
           billing_email?: string | null
           city?: string | null
           company_name?: string
@@ -8308,6 +8333,329 @@ export type Database = {
           },
           {
             foreignKeyName: "driver_earning_settlement_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "v_payment_lifecycle_audit"
+            referencedColumns: ["trip_id"]
+          },
+        ]
+      }
+      driver_financial_repair_audit: {
+        Row: {
+          admin_user_id: string
+          after_state: Json | null
+          before_state: Json | null
+          calculation_version: string
+          created_at: string
+          details: Json | null
+          driver_id: string | null
+          event_type: string
+          id: string
+          idempotency_key: string | null
+          preview_hash: string | null
+          reason: string | null
+          repair_token: string
+          source_evidence: Json | null
+          trip_id: string | null
+        }
+        Insert: {
+          admin_user_id: string
+          after_state?: Json | null
+          before_state?: Json | null
+          calculation_version: string
+          created_at?: string
+          details?: Json | null
+          driver_id?: string | null
+          event_type: string
+          id?: string
+          idempotency_key?: string | null
+          preview_hash?: string | null
+          reason?: string | null
+          repair_token: string
+          source_evidence?: Json | null
+          trip_id?: string | null
+        }
+        Update: {
+          admin_user_id?: string
+          after_state?: Json | null
+          before_state?: Json | null
+          calculation_version?: string
+          created_at?: string
+          details?: Json | null
+          driver_id?: string | null
+          event_type?: string
+          id?: string
+          idempotency_key?: string | null
+          preview_hash?: string | null
+          reason?: string | null
+          repair_token?: string
+          source_evidence?: Json | null
+          trip_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "driver_financial_repair_audit_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "admin_driver_fleet_status"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "driver_financial_repair_audit_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "admin_driver_online_snapshot"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "driver_financial_repair_audit_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "commission_wallet_driver_financial_summary"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "driver_financial_repair_audit_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "dispatchable_drivers"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "driver_financial_repair_audit_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "driver_document_compliance_ssot"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "driver_financial_repair_audit_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "driver_document_status"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "driver_financial_repair_audit_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "driver_financial_summary"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "driver_financial_repair_audit_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "driver_passenger_profile"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "driver_financial_repair_audit_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "drivers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "driver_financial_repair_audit_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "drivers_public_safe"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "driver_financial_repair_audit_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "platform_collected_driver_financial_summary"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "driver_financial_repair_audit_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "admin_trip_lifecycle_fees"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "driver_financial_repair_audit_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "available_scheduled_jobs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "driver_financial_repair_audit_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "trips"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "driver_financial_repair_audit_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "v_payment_lifecycle_audit"
+            referencedColumns: ["trip_id"]
+          },
+        ]
+      }
+      driver_financial_repair_requests: {
+        Row: {
+          applied_at: string | null
+          applied_by_admin_id: string | null
+          apply_reason: string | null
+          apply_result: Json | null
+          calculation_version: string
+          classification: string
+          created_at: string
+          created_by_admin_id: string
+          driver_id: string
+          id: string
+          idempotency_key: string | null
+          preview_hash: string
+          preview_payload: Json
+          repair_token: string
+          status: string
+          trip_id: string
+        }
+        Insert: {
+          applied_at?: string | null
+          applied_by_admin_id?: string | null
+          apply_reason?: string | null
+          apply_result?: Json | null
+          calculation_version: string
+          classification: string
+          created_at?: string
+          created_by_admin_id: string
+          driver_id: string
+          id?: string
+          idempotency_key?: string | null
+          preview_hash: string
+          preview_payload?: Json
+          repair_token: string
+          status?: string
+          trip_id: string
+        }
+        Update: {
+          applied_at?: string | null
+          applied_by_admin_id?: string | null
+          apply_reason?: string | null
+          apply_result?: Json | null
+          calculation_version?: string
+          classification?: string
+          created_at?: string
+          created_by_admin_id?: string
+          driver_id?: string
+          id?: string
+          idempotency_key?: string | null
+          preview_hash?: string
+          preview_payload?: Json
+          repair_token?: string
+          status?: string
+          trip_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "driver_financial_repair_requests_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "admin_driver_fleet_status"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "driver_financial_repair_requests_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "admin_driver_online_snapshot"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "driver_financial_repair_requests_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "commission_wallet_driver_financial_summary"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "driver_financial_repair_requests_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "dispatchable_drivers"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "driver_financial_repair_requests_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "driver_document_compliance_ssot"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "driver_financial_repair_requests_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "driver_document_status"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "driver_financial_repair_requests_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "driver_financial_summary"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "driver_financial_repair_requests_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "driver_passenger_profile"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "driver_financial_repair_requests_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "drivers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "driver_financial_repair_requests_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "drivers_public_safe"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "driver_financial_repair_requests_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "platform_collected_driver_financial_summary"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "driver_financial_repair_requests_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "admin_trip_lifecycle_fees"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "driver_financial_repair_requests_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "available_scheduled_jobs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "driver_financial_repair_requests_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "trips"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "driver_financial_repair_requests_trip_id_fkey"
             columns: ["trip_id"]
             isOneToOne: false
             referencedRelation: "v_payment_lifecycle_audit"
@@ -17064,6 +17412,9 @@ export type Database = {
           booking_snapshot: Json
           buffer_pence: number | null
           cancellation_fee_pence: number | null
+          capture_composition_frozen_at: string | null
+          capture_composition_version: string | null
+          capture_idempotency_key: string | null
           captured_amount_pence: number | null
           captured_at: string | null
           client_action_id: string
@@ -17096,6 +17447,7 @@ export type Database = {
           payment_resolution_type: string | null
           platform_payment_method_id: string | null
           provider_capture_id: string | null
+          provider_capture_target_pence: number | null
           provider_checkout_url: string | null
           provider_fee_confirmed_at: string | null
           provider_fee_currency_snapshot: string | null
@@ -17114,6 +17466,7 @@ export type Database = {
           provider_state_verified_at: string | null
           provider_state_verified_by: string | null
           purpose: Database["public"]["Enums"]["payment_session_purpose"]
+          receivable_component_pence: number | null
           recovery_attempt_count: number
           recovery_reason: string | null
           recovery_required: boolean
@@ -17129,7 +17482,9 @@ export type Database = {
           service_area_id: string
           shortfall_pence: number | null
           status: Database["public"]["Enums"]["payment_session_status"]
+          tip_component_pence: number | null
           total_authorised_amount_pence: number | null
+          trip_fare_component_pence: number | null
           trip_id: string | null
           updated_at: string
           user_id: string
@@ -17141,6 +17496,9 @@ export type Database = {
           booking_snapshot?: Json
           buffer_pence?: number | null
           cancellation_fee_pence?: number | null
+          capture_composition_frozen_at?: string | null
+          capture_composition_version?: string | null
+          capture_idempotency_key?: string | null
           captured_amount_pence?: number | null
           captured_at?: string | null
           client_action_id: string
@@ -17173,6 +17531,7 @@ export type Database = {
           payment_resolution_type?: string | null
           platform_payment_method_id?: string | null
           provider_capture_id?: string | null
+          provider_capture_target_pence?: number | null
           provider_checkout_url?: string | null
           provider_fee_confirmed_at?: string | null
           provider_fee_currency_snapshot?: string | null
@@ -17191,6 +17550,7 @@ export type Database = {
           provider_state_verified_at?: string | null
           provider_state_verified_by?: string | null
           purpose?: Database["public"]["Enums"]["payment_session_purpose"]
+          receivable_component_pence?: number | null
           recovery_attempt_count?: number
           recovery_reason?: string | null
           recovery_required?: boolean
@@ -17206,7 +17566,9 @@ export type Database = {
           service_area_id: string
           shortfall_pence?: number | null
           status?: Database["public"]["Enums"]["payment_session_status"]
+          tip_component_pence?: number | null
           total_authorised_amount_pence?: number | null
+          trip_fare_component_pence?: number | null
           trip_id?: string | null
           updated_at?: string
           user_id: string
@@ -17218,6 +17580,9 @@ export type Database = {
           booking_snapshot?: Json
           buffer_pence?: number | null
           cancellation_fee_pence?: number | null
+          capture_composition_frozen_at?: string | null
+          capture_composition_version?: string | null
+          capture_idempotency_key?: string | null
           captured_amount_pence?: number | null
           captured_at?: string | null
           client_action_id?: string
@@ -17250,6 +17615,7 @@ export type Database = {
           payment_resolution_type?: string | null
           platform_payment_method_id?: string | null
           provider_capture_id?: string | null
+          provider_capture_target_pence?: number | null
           provider_checkout_url?: string | null
           provider_fee_confirmed_at?: string | null
           provider_fee_currency_snapshot?: string | null
@@ -17268,6 +17634,7 @@ export type Database = {
           provider_state_verified_at?: string | null
           provider_state_verified_by?: string | null
           purpose?: Database["public"]["Enums"]["payment_session_purpose"]
+          receivable_component_pence?: number | null
           recovery_attempt_count?: number
           recovery_reason?: string | null
           recovery_required?: boolean
@@ -17283,7 +17650,9 @@ export type Database = {
           service_area_id?: string
           shortfall_pence?: number | null
           status?: Database["public"]["Enums"]["payment_session_status"]
+          tip_component_pence?: number | null
           total_authorised_amount_pence?: number | null
+          trip_fare_component_pence?: number | null
           trip_id?: string | null
           updated_at?: string
           user_id?: string
@@ -19865,6 +20234,80 @@ export type Database = {
         }
         Relationships: []
       }
+      route_quote_artifacts: {
+        Row: {
+          created_at: string
+          departure_at: string | null
+          distance_km: number
+          distance_meters: number
+          dropoff_lat: number
+          dropoff_lng: number
+          duration_min: number
+          duration_seconds: number
+          expires_at: string
+          id: string
+          pickup_lat: number
+          pickup_lng: number
+          profile: string | null
+          provider: string
+          route_key: string
+          schema_version: number
+          service_area_id: string | null
+          stops: Json
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          departure_at?: string | null
+          distance_km: number
+          distance_meters: number
+          dropoff_lat: number
+          dropoff_lng: number
+          duration_min: number
+          duration_seconds: number
+          expires_at: string
+          id?: string
+          pickup_lat: number
+          pickup_lng: number
+          profile?: string | null
+          provider: string
+          route_key: string
+          schema_version?: number
+          service_area_id?: string | null
+          stops?: Json
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          departure_at?: string | null
+          distance_km?: number
+          distance_meters?: number
+          dropoff_lat?: number
+          dropoff_lng?: number
+          duration_min?: number
+          duration_seconds?: number
+          expires_at?: string
+          id?: string
+          pickup_lat?: number
+          pickup_lng?: number
+          profile?: string | null
+          provider?: string
+          route_key?: string
+          schema_version?: number
+          service_area_id?: string | null
+          stops?: Json
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "route_quote_artifacts_service_area_id_fkey"
+            columns: ["service_area_id"]
+            isOneToOne: false
+            referencedRelation: "service_areas"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       scheduled_offer_attempts: {
         Row: {
           broadcast_round: number
@@ -20007,6 +20450,99 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "v_payment_lifecycle_audit"
             referencedColumns: ["trip_id"]
+          },
+        ]
+      }
+      server_fare_quotes: {
+        Row: {
+          airport_charge_pence: number
+          created_at: string
+          currency: string
+          distance_km: number
+          duration_min: number
+          engine: string
+          expires_at: string
+          fare_source: string | null
+          gross_fare_pence: number
+          id: string
+          is_scheduled: boolean
+          minimum_applied: boolean
+          pricing_evidence: Json
+          pricing_hash: string
+          pricing_mode: string | null
+          route_key: string
+          route_quote_id: string
+          schema_version: number
+          service_area_id: string
+          surge_multiplier: number
+          surge_quote_id: string | null
+          user_id: string
+          vehicle_type_id: string
+        }
+        Insert: {
+          airport_charge_pence?: number
+          created_at?: string
+          currency: string
+          distance_km: number
+          duration_min: number
+          engine?: string
+          expires_at: string
+          fare_source?: string | null
+          gross_fare_pence: number
+          id?: string
+          is_scheduled?: boolean
+          minimum_applied?: boolean
+          pricing_evidence?: Json
+          pricing_hash: string
+          pricing_mode?: string | null
+          route_key: string
+          route_quote_id: string
+          schema_version?: number
+          service_area_id: string
+          surge_multiplier?: number
+          surge_quote_id?: string | null
+          user_id: string
+          vehicle_type_id: string
+        }
+        Update: {
+          airport_charge_pence?: number
+          created_at?: string
+          currency?: string
+          distance_km?: number
+          duration_min?: number
+          engine?: string
+          expires_at?: string
+          fare_source?: string | null
+          gross_fare_pence?: number
+          id?: string
+          is_scheduled?: boolean
+          minimum_applied?: boolean
+          pricing_evidence?: Json
+          pricing_hash?: string
+          pricing_mode?: string | null
+          route_key?: string
+          route_quote_id?: string
+          schema_version?: number
+          service_area_id?: string
+          surge_multiplier?: number
+          surge_quote_id?: string | null
+          user_id?: string
+          vehicle_type_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "server_fare_quotes_route_quote_id_fkey"
+            columns: ["route_quote_id"]
+            isOneToOne: false
+            referencedRelation: "route_quote_artifacts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "server_fare_quotes_service_area_id_fkey"
+            columns: ["service_area_id"]
+            isOneToOne: false
+            referencedRelation: "service_areas"
+            referencedColumns: ["id"]
           },
         ]
       }
@@ -20880,6 +21416,8 @@ export type Database = {
       }
       service_areas: {
         Row: {
+          archived_at: string | null
+          archived_by: string | null
           cash_upfront_policy_notice: string | null
           center_lat: number | null
           center_lng: number | null
@@ -20925,6 +21463,8 @@ export type Database = {
           welcome_credit_max_drivers: number
         }
         Insert: {
+          archived_at?: string | null
+          archived_by?: string | null
           cash_upfront_policy_notice?: string | null
           center_lat?: number | null
           center_lng?: number | null
@@ -20970,6 +21510,8 @@ export type Database = {
           welcome_credit_max_drivers?: number
         }
         Update: {
+          archived_at?: string | null
+          archived_by?: string | null
           cash_upfront_policy_notice?: string | null
           center_lat?: number | null
           center_lng?: number | null
@@ -28213,6 +28755,22 @@ export type Database = {
         Args: { _delta: number; _merchant_id: string; _notes?: string }
         Returns: Json
       }
+      admin_apply_certification_non_payable_repair: {
+        Args: {
+          p_admin_user_id: string
+          p_calculation_version?: string
+          p_driver_id: string
+          p_expected_fingerprint?: Json
+          p_expected_owner_trip_id?: string
+          p_idempotency_key: string
+          p_preview_hash: string
+          p_reason: string
+          p_repair_token: string
+          p_stale_payment_session_id?: string
+          p_trip_id: string
+        }
+        Returns: Json
+      }
       admin_assign_staff_role: {
         Args: {
           _correlation_id?: string
@@ -28244,6 +28802,10 @@ export type Database = {
           p_note?: string
           p_verification_id: string
         }
+        Returns: Json
+      }
+      admin_driver_financial_repair_lock: {
+        Args: { p_acquire?: boolean; p_driver_id: string }
         Returns: Json
       }
       admin_driver_financial_summaries: {
@@ -28435,9 +28997,33 @@ export type Database = {
           phone: string
         }[]
       }
+      admin_remove_corporate_account: {
+        Args: { p_account_id: string }
+        Returns: Json
+      }
+      admin_remove_corporate_request: {
+        Args: { p_request_id: string }
+        Returns: Json
+      }
+      admin_remove_service_area: {
+        Args: { p_service_area_id: string }
+        Returns: Json
+      }
       admin_remove_staff_member: {
         Args: { _correlation_id?: string; _staff_id: string }
         Returns: string
+      }
+      admin_restore_corporate_account: {
+        Args: { p_account_id: string }
+        Returns: undefined
+      }
+      admin_restore_corporate_request: {
+        Args: { p_request_id: string }
+        Returns: undefined
+      }
+      admin_restore_service_area: {
+        Args: { p_service_area_id: string }
+        Returns: undefined
       }
       admin_save_demand_zone_settings: {
         Args: { _service_area_id: string; _settings: Json }
@@ -29390,6 +29976,14 @@ export type Database = {
       }
       driver_passes_commission_wallet_dispatch_gate: {
         Args: { p_driver_id: string; p_trip_id: string }
+        Returns: boolean
+      }
+      driver_passes_dispatch_online_availability_gate: {
+        Args: {
+          p_driver_online_intent: boolean
+          p_is_online: boolean
+          p_offline_reason?: string
+        }
         Returns: boolean
       }
       driver_presence_last_signal_at: {
@@ -30847,6 +31441,19 @@ export type Database = {
         Returns: boolean
       }
       payment_gate_historical_audit: { Args: never; Returns: Json }
+      payment_session_acquire_capture_composition: {
+        Args: {
+          p_authorised_total_pence?: number
+          p_lock_owner?: string
+          p_operation_key?: string
+          p_payment_session_id: string
+          p_preauth_buffer_component_pence?: number
+          p_provider_order_id: string
+          p_tip_component_pence?: number
+          p_trip_fare_component_pence: number
+        }
+        Returns: Json
+      }
       payment_session_action_policy: {
         Args: { p_provider_verification?: Json; p_session_id: string }
         Returns: Json

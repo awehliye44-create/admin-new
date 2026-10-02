@@ -148,6 +148,9 @@ serve(async (req) => {
     }
     authenticated = true;
 
+    const body = await req.json().catch(() => ({}));
+    action = typeof body.action === "string" ? body.action.trim().toLowerCase() : "start";
+
     // Fail-closed server gate — independent of Book / saved-card reuse.
     // Uses JWT auth user id only (never a client-supplied customer id).
     const gateEnv = readMerchantVaultAddCardGateFromEnv();
@@ -156,7 +159,8 @@ serve(async (req) => {
       allowlistUserIds: gateEnv.allowlistUserIds,
       authUserId: user.id,
     });
-    if (!gate.allowed) {
+    // Gate new setups only — in-flight complete/cancel must always finish (release £1 hold).
+    if (action === "start" && !gate.allowed) {
       edgeStatus = 403;
       safeLog({
         edgeStatus,
@@ -177,8 +181,6 @@ serve(async (req) => {
       );
     }
 
-    const body = await req.json().catch(() => ({}));
-    action = typeof body.action === "string" ? body.action.trim().toLowerCase() : "start";
 
     let secretKey: string;
     let environment: ProviderEnvironment;

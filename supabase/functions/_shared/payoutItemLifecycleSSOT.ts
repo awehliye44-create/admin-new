@@ -37,6 +37,8 @@ export const PAYOUT_ITEM_IN_FLIGHT_STATUSES = new Set([
   "SENT",
   "UNKNOWN",
   "PROVIDER_ACCEPTED",
+  // Funds reserved, execution parked — must block duplicate payouts and resume later.
+  "BLOCKED_EXECUTION_DISABLED",
 ]);
 
 export type PayoutItemLifecycle =
