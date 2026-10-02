@@ -55,8 +55,24 @@ Deno.test("resolveTerminalOutcomeKind: no-show fee_pending_settlement", () => {
   assertEquals(isTerminalFeeTrip(NO_SHOW_PENDING), true);
 });
 
-Deno.test("resolveTerminalOutcomeKind: charged cancellation", () => {
-  assertEquals(resolveTerminalOutcomeKind(CHARGED_CANCEL), "LATE_PASSENGER_CANCELLATION");
+Deno.test("resolveTerminalOutcomeKind: CANCELLED_WITH_FEE is not late cancellation", () => {
+  assertEquals(resolveTerminalOutcomeKind(CHARGED_CANCEL), null);
+  assertEquals(isTerminalFeeTrip(CHARGED_CANCEL), false);
+});
+
+Deno.test("resolveTerminalOutcomeKind: explicit late outcome stays late", () => {
+  assertEquals(resolveTerminalOutcomeKind({
+    ...CHARGED_CANCEL,
+    financial_outcome: "LATE_PASSENGER_CANCELLATION",
+  }), "LATE_PASSENGER_CANCELLATION");
+});
+
+Deno.test("resolveTerminalOutcomeKind: arrival outcome is not late", () => {
+  assertEquals(resolveTerminalOutcomeKind({
+    ...CHARGED_CANCEL,
+    financial_outcome: "ARRIVAL_CANCELLATION",
+    status: "cancelled",
+  }), "ARRIVAL_CANCELLATION");
 });
 
 Deno.test("resolveTerminalOutcomeKind: completed trip excluded", () => {

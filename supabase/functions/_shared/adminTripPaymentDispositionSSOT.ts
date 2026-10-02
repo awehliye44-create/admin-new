@@ -8,9 +8,9 @@
 import {
   adminNoShowPaymentLabel,
   isAdminNoShowTrip,
-  tripHistoryNoShowDisplayLabel,
   type AdminTripClassificationRow,
 } from "./adminTripNoShowClassification.ts";
+import { resolveTripHistoryTerminalOutcomeKind } from "./tripHistoryTerminalOutcomeDisplaySSOT.ts";
 
 export type AdminPaymentSessionDispositionInput = {
   id?: string | null;
@@ -230,9 +230,20 @@ export function resolveMissedCancelledPaymentDisposition(args: {
   }
 
   if (captured != null && captured > 0) {
+    const kind = resolveTripHistoryTerminalOutcomeKind({
+      ...trip,
+      terminal_disposition_reason: terminalReason,
+    });
+    const paymentLabel = kind === "ARRIVAL_CANCELLATION"
+      ? "Arrival cancellation fee captured"
+      : kind === "LATE_PASSENGER_CANCELLATION"
+        ? "Late passenger cancellation fee charged"
+        : kind === "NO_SHOW"
+          ? "No-show fee captured"
+          : MISSED_CANCELLED_PAYMENT_LABELS.CANCELLATION_FEE_CHARGED;
     return {
       ...base,
-      payment_label: MISSED_CANCELLED_PAYMENT_LABELS.CANCELLATION_FEE_CHARGED,
+      payment_label: paymentLabel,
       amount_pence: captured,
     };
   }
@@ -357,11 +368,26 @@ export function buildAdminTripPaymentDispositionRead(args: {
   return resolveTripHistoryPaymentDisposition({ trip: args.trip, session });
 }
 
+/** Shared Admin status label for Trip History and Missed & Cancelled. */
 export function tripHistoryStatusLabel(trip: AdminTripPaymentDispositionTrip): string {
-  const noShow = tripHistoryNoShowDisplayLabel(trip);
-  if (noShow) return noShow;
-  if (trip.status === "cancelled") return "Cancelled";
-  if (trip.financial_outcome === "LATE_PASSENGER_CANCELLATION") return "Late cancellation";
+  const kind = resolveTripHistoryTerminalOutcomeKind(trip);
+  if (kind === "ARRIVAL_CANCELLATION") return "Arrival Cancellation";
+  if (kind === "NO_SHOW") return "No-show";
+  if (kind === "LATE_PASSENGER_CANCELLATION") return "Late Passenger Cancellation";
+  const status = String(trip.status ?? "").trim().toLowerCase();
+  const outcome = String(trip.financial_outcome ?? "").trim().toUpperCase();
+  if (status === "missed") return "Missed";
+  if (status === "expired" || status === "expired_no_driver") return "Expired";
+  if (
+    status === "cancelled"
+    || status === "customer_cancelled"
+    || status === "driver_cancelled"
+    || outcome === "CANCELLED_NO_FEE"
+    || outcome === "CANCELLED_WITH_FEE"
+  ) {
+    return "Cancelled";
+  }
+  if (outcome === "COMPLETED" || status === "completed") return "Completed";
   return "Completed";
 }
 

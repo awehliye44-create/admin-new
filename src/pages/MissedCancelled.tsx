@@ -52,6 +52,9 @@ import {
   MISSED_CANCELLED_STATUSES,
   belongsInMissedCancelled,
 } from '@/lib/adminTripNoShowClassification';
+import { tripHistoryStatusLabel } from '../../shared/adminTripPaymentDispositionSSOT';
+import { resolveTripHistoryTerminalOutcomeDisplay } from '../../shared/tripHistoryTerminalOutcomeDisplaySSOT';
+import { TripHistoryTerminalOutcomePanel } from '@/components/trips/TripHistoryTerminalOutcomePanel';
 
 interface CancelledTrip {
   id: string;
@@ -90,6 +93,10 @@ interface CancelledTrip {
   arrival_cancellation_fee: number | null;
   arrival_cancellation_applied_at: string | null;
   arrival_cancellation_reason: string | null;
+  capture_amount_pence?: number | null;
+  provider_fee_pence?: number | null;
+  late_cancel_fee_pence?: number | null;
+  previous_driver_id?: string | null;
   financial_outcome?: string | null;
   financial_model?: string | null;
   terminal_reason?: string | null;
@@ -98,6 +105,13 @@ interface CancelledTrip {
   no_show_charge_pence?: number | null;
   payment_disposition?: AdminTripPaymentDispositionRead;
   driver?: {
+    id: string;
+    first_name: string;
+    last_name: string;
+    phone: string;
+    region_id: string | null;
+  } | null;
+  previous_driver?: {
     id: string;
     first_name: string;
     last_name: string;
@@ -115,6 +129,10 @@ interface CancelledTrip {
 }
 
 /** Resolve currency for a trip from the Region chain (Region is single source of truth) */
+function assignedDriver(trip: CancelledTrip) {
+  return trip.driver ?? trip.previous_driver ?? null;
+}
+
 function resolveTripCurrency(trip: CancelledTrip): string {
   // Region is the authoritative source; fall back to trip snapshot only for historical records
   if (trip.service_area?.region?.currency_code) return trip.service_area.region.currency_code;
@@ -187,7 +205,9 @@ export default function MissedCancelled() {
           cancelled_by, cancelled_by_role, cancel_reason, cancellation_note,
           arrival_cancellation_applied, arrival_cancellation_fee, arrival_cancellation_applied_at, arrival_cancellation_reason,
           financial_model, cancellation_fee_pence, payment_status,
+          capture_amount_pence, provider_fee_pence, late_cancel_fee_pence, previous_driver_id,
           driver:drivers!trips_driver_id_fkey(id, first_name, last_name, phone, region_id),
+          previous_driver:drivers!trips_previous_driver_id_fkey(id, first_name, last_name, phone, region_id),
           service_area:service_areas!trips_service_area_id_fkey(id, name, region_id, region:regions(currency_code))
         `, { count: 'exact' })
         .gte('created_at', start.toISOString())
@@ -300,8 +320,18 @@ export default function MissedCancelled() {
   const resolvedCurrency = serviceFilter.currencyCode || getSingleCurrency(statsCurrencies) || '';
   const isMixedCurrency = !serviceFilter.currencyCode && !getSingleCurrency(statsCurrencies) && statsFareRows.length > 0;
 
-  const getStatusConfig = (status: string | null) => {
-    switch (status) {
+  const getStatusConfig = (trip: CancelledTrip) => {
+    const label = tripHistoryStatusLabel(trip);
+    if (label === 'Arrival Cancellation') {
+      return { label, color: 'bg-rose-100 text-rose-700', icon: XCircle };
+    }
+    if (label === 'Late Passenger Cancellation') {
+      return { label, color: 'bg-orange-100 text-orange-800', icon: XCircle };
+    }
+    if (label === 'No-show') {
+      return { label, color: 'bg-amber-100 text-amber-700', icon: AlertTriangle };
+    }
+    switch (trip.status) {
       case 'cancelled':
       case 'customer_cancelled':
         return { label: 'Cancelled', color: 'bg-red-100 text-red-700', icon: XCircle };
@@ -311,7 +341,7 @@ export default function MissedCancelled() {
       case 'expired_no_driver':
         return { label: 'Expired', color: 'bg-gray-100 text-gray-700', icon: Clock };
       default:
-        return { label: status || 'Unknown', color: 'bg-gray-100 text-gray-700', icon: Ban };
+        return { label: label || trip.status || 'Unknown', color: 'bg-gray-100 text-gray-700', icon: Ban };
     }
   };
 
@@ -518,7 +548,7 @@ export default function MissedCancelled() {
               </TableHeader>
               <TableBody>
                 {filteredTrips.map((trip) => {
-                  const statusConfig = getStatusConfig(trip.status);
+                  const statusConfig = getStatusConfig(trip);
                   const StatusIcon = statusConfig.icon;
                   return (
                     <TableRow key={trip.id}>
@@ -549,9 +579,9 @@ export default function MissedCancelled() {
                         </div>
                       </TableCell>
                       <TableCell>
-                        {trip.driver ? (
+                        {assignedDriver(trip) ? (
                           <div className="text-sm">
-                            {trip.driver.first_name} {trip.driver.last_name}
+                            {assignedDriver(trip)!.first_name} {assignedDriver(trip)!.last_name}
                           </div>
                         ) : (
                           <span className="text-muted-foreground text-sm">No driver</span>
@@ -620,7 +650,7 @@ export default function MissedCancelled() {
 
       {/* View Details Dialog */}
       <Dialog open={isViewOpen} onOpenChange={setIsViewOpen}>
-        <DialogContent className="max-w-md">
+        <DialogContent className="max-w-lg">
           <DialogHeader>
             <DialogTitle>Trip Details</DialogTitle>
             <DialogDescription>
@@ -631,7 +661,7 @@ export default function MissedCancelled() {
             <div className="space-y-4">
               <div className="flex items-center gap-2">
                 {(() => {
-                  const config = getStatusConfig(selectedTrip.status);
+                  const config = getStatusConfig(selectedTrip);
                   const Icon = config.icon;
                   return (
                     <Badge variant="outline" className={config.color}>
@@ -683,15 +713,29 @@ export default function MissedCancelled() {
                 <p className="text-sm">{selectedTrip.dropoff_address}</p>
               </div>
 
-              {selectedTrip.driver && (
+              {assignedDriver(selectedTrip) && (
                 <div>
                   <Label className="text-muted-foreground">Assigned Driver</Label>
                   <p className="font-medium">
-                    {selectedTrip.driver.first_name} {selectedTrip.driver.last_name}
+                    {assignedDriver(selectedTrip)!.first_name} {assignedDriver(selectedTrip)!.last_name}
                   </p>
-                  <p className="text-sm text-muted-foreground">{selectedTrip.driver.phone}</p>
+                  <p className="text-sm text-muted-foreground">{assignedDriver(selectedTrip)!.phone}</p>
                 </div>
               )}
+
+              {(() => {
+                const terminalOutcome = resolveTripHistoryTerminalOutcomeDisplay(selectedTrip);
+                if (!terminalOutcome) return null;
+                return (
+                  <TripHistoryTerminalOutcomePanel
+                    display={terminalOutcome}
+                    currencySymbol={getCurrencySymbol(resolveTripCurrency(selectedTrip))}
+                    tripId={selectedTrip.id}
+                    tripCode={selectedTrip.trip_code}
+                    tripNumber={selectedTrip.trip_number}
+                  />
+                );
+              })()}
 
               <div>
                 <Label className="text-muted-foreground">Cancelled by</Label>

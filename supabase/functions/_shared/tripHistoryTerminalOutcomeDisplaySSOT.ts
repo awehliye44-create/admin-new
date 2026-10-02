@@ -28,6 +28,9 @@ export type TripHistoryTerminalOutcomeTrip = TerminalTripRow & {
   final_customer_fare_pence?: number | null;
   cancellation_reason?: string | null;
   terminal_disposition_reason?: string | null;
+  arrival_cancellation_applied?: boolean | null;
+  arrival_cancellation_reason?: string | null;
+  late_cancel_fee_pence?: number | null;
   payment_disposition?: {
     captured_amount_pence?: number | null;
     released_amount_pence?: number | null;
@@ -75,10 +78,32 @@ function terminalReasonIsNoShow(trip: TripHistoryTerminalOutcomeTrip): boolean {
   return reason === "no_show" || reason.includes("customer_no_show");
 }
 
+function dispositionReason(trip: TripHistoryTerminalOutcomeTrip): string {
+  return String(
+    trip.terminal_disposition_reason
+      ?? trip.payment_disposition?.terminal_disposition_reason
+      ?? "",
+  ).trim().toUpperCase();
+}
+
+/** Display classification. Uses explicit outcome or arrival/no-show/late evidence. CANCELLED_WITH_FEE alone is not late. */
 export function resolveTripHistoryTerminalOutcomeKind(
   trip: TripHistoryTerminalOutcomeTrip | null | undefined,
 ): TerminalOutcomeKind | null {
   if (!trip) return null;
+  const outcome = String(trip.financial_outcome ?? "").toUpperCase();
+  const reason = String(trip.arrival_cancellation_reason ?? "").trim().toUpperCase();
+  const disposition = dispositionReason(trip);
+
+  if (
+    outcome === "ARRIVAL_CANCELLATION"
+    || trip.arrival_cancellation_applied === true
+    || reason === "ARRIVAL_CANCELLATION_FEE"
+    || disposition === "ARRIVAL_CANCELLATION_FEE"
+  ) {
+    return "ARRIVAL_CANCELLATION";
+  }
+
   const fromSsot = resolveTerminalOutcomeKind(trip);
   if (fromSsot) return fromSsot;
 
@@ -87,19 +112,14 @@ export function resolveTripHistoryTerminalOutcomeKind(
     || positivePence(trip.capture_amount_pence) > 0
     || terminalReasonIsNoShow(trip)
     || String(trip.status ?? "").toLowerCase() === "no_show"
-    || String(trip.financial_outcome ?? "").toUpperCase() === "NO_SHOW"
+    || outcome === "NO_SHOW"
   )) {
     return "NO_SHOW";
   }
 
-  const cancelFee = positivePence(trip.cancellation_fee_pence);
   if (
-    cancelFee > 0
-    && (
-      String(trip.financial_outcome ?? "").toUpperCase() === "LATE_PASSENGER_CANCELLATION"
-      || positivePence(trip.capture_amount_pence) > 0
-      || positivePence(trip.payment_disposition?.captured_amount_pence) > 0
-    )
+    outcome === "LATE_PASSENGER_CANCELLATION"
+    || disposition === "LATE_PASSENGER_CANCELLATION"
   ) {
     return "LATE_PASSENGER_CANCELLATION";
   }
@@ -185,7 +205,9 @@ export function resolveTripHistoryTerminalOutcomeDisplay(
 
   const customerChargeLabel = outcomeKind === "NO_SHOW"
     ? (customerCharge > 0 ? "No-show fee captured" : "No-show — no charge")
-    : (customerCharge > 0 ? "Cancellation fee charged" : "Cancellation — no charge");
+    : outcomeKind === "ARRIVAL_CANCELLATION"
+      ? (customerCharge > 0 ? "Arrival cancellation fee captured" : "Arrival cancellation — no charge")
+      : (customerCharge > 0 ? "Late passenger cancellation fee charged" : "Late passenger cancellation — no charge");
 
   const originalQuote = resolveOriginalQuotePence(trip);
   const originalNotCharged = originalQuote != null && customerCharge > 0 && originalQuote > customerCharge
