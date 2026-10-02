@@ -54,6 +54,8 @@ export interface RevolutOrder {
     authentication_challenge?: {
       type?: string;
       acs_url?: string;
+      /** 2026-04-20 three_ds_fingerprint page (base64). Render on device only; never log or persist. */
+      fingerprint_html?: string;
     };
     payment_method?: {
       type?: string;
@@ -84,6 +86,8 @@ export type RevolutOrderPayment = {
   authentication_challenge?: {
     type?: string;
     acs_url?: string;
+    /** 2026-04-20 three_ds_fingerprint page (base64). Render on device only; never log or persist. */
+    fingerprint_html?: string;
   };
   payment_method?: {
     type?: string;

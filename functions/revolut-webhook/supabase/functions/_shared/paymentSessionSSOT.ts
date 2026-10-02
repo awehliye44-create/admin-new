@@ -21,6 +21,7 @@ import {
   shouldSkipResidualReleasePersist,
 } from "./paymentSessionReleaseEvidenceSSOT.ts";
 import { extractConfirmedReleaseAmountPence } from "./paymentHoldProviderTerminalPure.ts";
+import type { ProviderReadAuthorisedVerifier } from "./bookingDirectFinalizeSSOT.ts";
 import {
   ADDITIONAL_AUTH_SOURCE,
   ADDITIONAL_AUTH_STATUS,
@@ -134,6 +135,12 @@ export async function markPaymentSessionAuthorised(
     clientActionId?: string | null;
     providerPaymentId?: string | null;
     authorisedAt?: string;
+    /**
+     * Only pass when the caller just read the Revolut order AUTHORISED with authorised
+     * total covering the full hold (see bookingDirectFinalizeSSOT). Other callers keep
+     * the generic label, which create-trip-after-payment never trusts without a GET.
+     */
+    verifiedBy?: ProviderReadAuthorisedVerifier;
   },
 ): Promise<void> {
   const now = args.authorisedAt ?? new Date().toISOString();
@@ -141,11 +148,9 @@ export async function markPaymentSessionAuthorised(
     status: toDbPaymentSessionStatus("authorised_hold"),
     provider_order_id: args.providerOrderId,
     authorised_at: now,
-    // Stamp provider_state so create-trip can trust the session without a
-    // second Revolut retrieve when create-preauth just authorised the hold.
     provider_state: "AUTHORISED",
     provider_state_verified_at: now,
-    provider_state_verified_by: "markPaymentSessionAuthorised",
+    provider_state_verified_by: args.verifiedBy ?? "markPaymentSessionAuthorised",
     // Clear stale incompatible terminal reasons (e.g. REVOLUT_CANCELLED) after usable auth.
     failure_reason: null,
   };

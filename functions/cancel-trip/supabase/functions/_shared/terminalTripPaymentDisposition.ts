@@ -474,6 +474,26 @@ async function markDispositionFinal(
   });
 }
 
+export const TRIP_FEE_PATCH_FAILED = "TRIP_FEE_PATCH_FAILED";
+
+/**
+ * Legacy arrival-cancellation compatibility metadata. The canonical outcome is
+ * financial_outcome / cancellation_fee_pence; these columns must agree with it.
+ * trips.arrival_cancellation_fee is integer pence (column comment:
+ * "Arrival cancellation fee charged (pence)").
+ */
+export function arrivalCancellationLegacyPatch(
+  feePence: number,
+  decidedAtIso: string,
+): Record<string, unknown> {
+  return {
+    arrival_cancellation_applied: true,
+    arrival_cancellation_fee: Math.max(0, Math.round(Number(feePence) || 0)),
+    arrival_cancellation_applied_at: decidedAtIso,
+    arrival_cancellation_reason: "ARRIVAL_CANCELLATION_FEE",
+  };
+}
+
 export async function disposeTerminalTripPayment(
   supabase: SupabaseClient,
   args: {
@@ -902,17 +922,36 @@ export async function disposeTerminalTripPayment(
     tripFeePatch.cancellation_fee_pence = decision.fee_amount_pence;
   }
   if (decision.disposition_reason === "ARRIVAL_CANCELLATION_FEE") {
-    tripFeePatch.arrival_cancellation_applied = true;
-    tripFeePatch.arrival_cancellation_fee = decision.fee_amount_pence / 100;
-    tripFeePatch.arrival_cancellation_applied_at = new Date().toISOString();
-    tripFeePatch.arrival_cancellation_reason = "ARRIVAL_CANCELLATION_FEE";
+    Object.assign(
+      tripFeePatch,
+      arrivalCancellationLegacyPatch(
+        decision.fee_amount_pence,
+        (trip.cancelled_at as string | null) ?? decisionAtIso,
+      ),
+    );
     tripFeePatch.cancellation_fee_pence = decision.fee_amount_pence;
   }
   if (decision.disposition_reason === "LATE_PASSENGER_CANCELLATION") {
     tripFeePatch.late_cancel_fee_pence = decision.fee_amount_pence;
     tripFeePatch.cancellation_fee_pence = decision.fee_amount_pence;
   }
-  await supabase.from("trips").update(tripFeePatch).eq("id", args.tripId);
+  const { error: feePatchErr } = await supabase.from("trips").update(tripFeePatch).eq("id", args.tripId);
+  if (feePatchErr) {
+    console.error("[terminalDisposition] TRIP_FEE_PATCH_FAILED — hold kept, no provider mutation", {
+      trip_id: args.tripId,
+      disposition_key: dispositionKey,
+      disposition_reason: decision.disposition_reason,
+      error: feePatchErr.message,
+    });
+    return {
+      outcome: "SKIPPED_SAFETY_CHECK",
+      trip_id: args.tripId,
+      disposition_key: dispositionKey,
+      decision,
+      message: `${TRIP_FEE_PATCH_FAILED}:${feePatchErr.message}`,
+      provider_order_id_mask: maskOrderId(orderId),
+    };
+  }
 
   if (paymentSession?.id) {
     await transitionPaymentSession(supabase, {
@@ -932,7 +971,9 @@ export async function disposeTerminalTripPayment(
 
   let dispositionLockOwner: string | null = null;
   if (paymentSession?.id) {
-    dispositionLockOwner = `terminal_disposition:${dispositionKey}`;
+    // Per-invocation owner: cancel-trip and the trips trigger can dispose the
+    // same decision concurrently; a shared owner would let both re-enter the lock.
+    dispositionLockOwner = `terminal_disposition:${dispositionKey}:${crypto.randomUUID()}`;
     const claim = await claimPaymentSessionFinancialLock(supabase, {
       paymentSessionId: String(paymentSession.id),
       owner: dispositionLockOwner,
