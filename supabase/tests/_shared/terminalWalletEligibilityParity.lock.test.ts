@@ -19,7 +19,12 @@ import { createFakeDb, type FakeRow } from "./waitingSsotFakeDb.ts";
 
 type Scenario = {
   id: string;
-  trip: Record<string, unknown> & { owner: string; cancelled_age_s?: number | null; completed_age_s?: number | null };
+  trip: Record<string, unknown> & {
+    owner: string;
+    cancelled_age_s?: number | null;
+    completed_age_s?: number | null;
+    provider_available_age_s?: number | null;
+  };
   session: (Record<string, unknown> & { captured_age_s?: number | null }) | null;
   ledger: Array<{ type: string; amount_pence: number; age_s: number }>;
   expect: { pending: number; eligible: number };
@@ -73,7 +78,7 @@ function seedFor(s: Scenario, i: number, withVerifiedDestination = false) {
     cancelled_at: ago(s.trip.cancelled_age_s),
     completed_at: ago(s.trip.completed_age_s),
     settlement_formula_version: null,
-    provider_available_on: null,
+    provider_available_on: ago(s.trip.provider_available_age_s as number | null | undefined),
     driver_id: owner === "driver" ? ids.driver : null,
     confirmed_driver_id: null,
     previous_driver_id: owner === "previous" ? ids.driver : owner === "other" ? OTHER_DRIVER : null,
@@ -232,6 +237,65 @@ Deno.test("terminal withdraw hard gate: 26:59:59 No-Show is not withdrawable, 27
     assertEquals(quote.withdrawable_pence, expected, id);
   }
 });
+
+/** Strict 27h grid per outcome: [1 minute, 26:59:59, 27:00:00]. */
+const STRICT_27H_GRID: Record<string, readonly [string, string, string]> = {
+  COMPLETED: [
+    "strict27h_completed_pending_1min",
+    "strict27h_completed_boundary_26h59m59s_pending",
+    "strict27h_completed_boundary_27h00m00s_available",
+  ],
+  ARRIVAL_CANCELLATION: [
+    "mk261002014_arrival_pending_1min",
+    "boundary_26h59m59s_pending",
+    "boundary_27h00m00s_available",
+  ],
+  NO_SHOW: [
+    "mk261002015_no_show_pending_1min",
+    "mk261002015_no_show_boundary_26h59m59s_pending",
+    "mk261002015_no_show_boundary_27h00m00s_available",
+  ],
+  LATE_PASSENGER_CANCELLATION: [
+    "late_passenger_cancellation_pending_1min",
+    "strict27h_late_boundary_26h59m59s_pending",
+    "strict27h_late_boundary_27h00m00s_available",
+  ],
+};
+
+for (const [outcome, [m1, b265959, b270000]] of Object.entries(STRICT_27H_GRID)) {
+  Deno.test(`strict 27h withdraw grid: ${outcome} 1m / 26:59:59 Pending, 27:00:00 Available + withdrawable`, async () => {
+    for (const id of [m1, b265959]) {
+      const i = fixture.scenarios.findIndex((s) => s.id === id);
+      const s = fixture.scenarios[i]!;
+      assertEquals(s.trip.financial_outcome, outcome, id);
+      const { eligibility, quote, lineage } = await withdrawFor(s, i);
+      assertEquals(eligibility.pending_balance_pence, s.ledger[0]!.amount_pence, id);
+      assertEquals(eligibility.available_balance_pence, 0, id);
+      assertEquals(quote.withdrawable_pence, 0, id);
+      assertEquals(quote.blocking_reason_code, "FUNDS_CLEARING", id);
+      assertEquals(lineage, null, id);
+    }
+    const i = fixture.scenarios.findIndex((s) => s.id === b270000);
+    const s = fixture.scenarios[i]!;
+    assertEquals(s.trip.financial_outcome, outcome, b270000);
+    const { eligibility, quote, lineage } = await withdrawFor(s, i);
+    assertEquals(eligibility.pending_balance_pence, 0, b270000);
+    assertEquals(eligibility.available_balance_pence, s.ledger[0]!.amount_pence, b270000);
+    assertEquals(quote.withdrawable_pence, s.ledger[0]!.amount_pence, b270000);
+    assertEquals(lineage?.allocations.map((a) => a.ledger_entry_id), [scenarioIds(i).ledger(0)], b270000);
+  });
+}
+
+for (const s of fixture.scenarios.filter((x) => /^strict27h_.*_provider_.*_pending$/.test(x.id))) {
+  Deno.test(`strict 27h withdraw: ${s.id} → not withdrawable before 27h`, async () => {
+    const i = fixture.scenarios.indexOf(s);
+    const { eligibility, quote, lineage } = await withdrawFor(s, i);
+    assertEquals(eligibility.available_balance_pence, 0);
+    assertEquals(quote.withdrawable_pence, 0);
+    assertEquals(quote.blocking_reason_code, "FUNDS_CLEARING");
+    assertEquals(lineage, null);
+  });
+}
 
 Deno.test("terminal wallet: SQL migration carries the same terminal rule", () => {
   const sql = Deno.readTextFileSync(

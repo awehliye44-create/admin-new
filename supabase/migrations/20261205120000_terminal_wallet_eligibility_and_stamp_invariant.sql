@@ -6,6 +6,10 @@
 --    ACTUAL, amount = captured − fee, commission 0, not reversed. It is never
 --    rejected for status cancelled / cancelled_at. Same 27h clearing as every
 --    platform-collected earning (Pending first, Available after the delay).
+--    Strict clearing for every platform-collected earning (completed and
+--    terminal): stable clearing origin + payout_clearing_delay_hours. Provider
+--    available_on / settlement states (SETTLE, AVAILABLE, PAID_OUT,
+--    FUNDS_AVAILABLE, BALANCE_AVAILABLE) no longer clear early.
 -- 2. driver_wallet_resolve_economic_date: the unused buffer release after a
 --    terminal partial capture no longer marks the earning CAPTURE_RELEASED, so
 --    Today's earnings counts it at capture time.
@@ -157,7 +161,6 @@ BEGIN
       t.driver_net_pence,
       t.tip_pence,
       t.tip_amount_pence,
-      t.provider_available_on AS trip_provider_available_on,
       t.financial_outcome::text AS trip_financial_outcome,
       t.payment_status::text AS trip_payment_status,
       t.no_show_charge_pence AS trip_no_show_charge_pence,
@@ -176,7 +179,6 @@ BEGIN
       ps.payment_method AS session_payment_method,
       des.settled_at,
       des.settlement_status,
-      des.provider_available_on AS des_provider_available_on,
       des.capture_time,
       des.allocated_to_payout,
       des.allocated_amount_pence,
@@ -363,36 +365,31 @@ BEGIN
     v_requires_clearing := (v_model NOT LIKE '%DRIVER_COLLECTED%')
       AND v_method NOT LIKE '%cash%';
 
+    -- Strict clearing: stable origin + configured delay (27h), no exception.
+    -- Provider availability / settlement state never clears early and never delays.
     v_cleared := NOT v_requires_clearing;
     IF v_requires_clearing THEN
-      IF COALESCE(r.des_provider_available_on, r.trip_provider_available_on) IS NOT NULL
-         AND COALESCE(r.des_provider_available_on, r.trip_provider_available_on) <= now() THEN
-        v_cleared := true;
-      ELSIF public.driver_wallet_provider_funds_cleared(r.provider_state) THEN
-        v_cleared := true;
-      ELSE
-        v_first_captured := NULL;
-        IF r.session_metadata IS NOT NULL
-           AND jsonb_typeof(r.session_metadata) = 'object'
-           AND NULLIF(btrim(r.session_metadata->>'first_captured_at'), '') IS NOT NULL THEN
-          BEGIN
-            v_first_captured := (r.session_metadata->>'first_captured_at')::timestamptz;
-          EXCEPTION WHEN OTHERS THEN
-            v_first_captured := NULL;
-          END;
-        END IF;
+      v_first_captured := NULL;
+      IF r.session_metadata IS NOT NULL
+         AND jsonb_typeof(r.session_metadata) = 'object'
+         AND NULLIF(btrim(r.session_metadata->>'first_captured_at'), '') IS NOT NULL THEN
+        BEGIN
+          v_first_captured := (r.session_metadata->>'first_captured_at')::timestamptz;
+        EXCEPTION WHEN OTHERS THEN
+          v_first_captured := NULL;
+        END;
+      END IF;
 
-        v_origin := public.driver_wallet_stable_clearing_origin(
-          r.captured_at,
-          r.trip_completed_at,
-          r.capture_time,
-          r.created_at,
-          v_first_captured
-        );
-        IF v_origin IS NOT NULL
-           AND (v_origin + (v_delay_hours * interval '1 hour')) <= now() THEN
-          v_cleared := true;
-        END IF;
+      v_origin := public.driver_wallet_stable_clearing_origin(
+        r.captured_at,
+        r.trip_completed_at,
+        r.capture_time,
+        r.created_at,
+        v_first_captured
+      );
+      IF v_origin IS NOT NULL
+         AND (v_origin + (v_delay_hours * interval '1 hour')) <= now() THEN
+        v_cleared := true;
       END IF;
     END IF;
 
