@@ -43,6 +43,11 @@ import {
   invokeFinalizePaidBookingSession,
   linkSameBookingTripIfMatch,
 } from "../_shared/bookingDirectFinalizeSSOT.ts";
+import {
+  isRevolutIncrementWebhookEvent,
+  type RevolutIncrementWebhookEvent,
+} from "../_shared/revolutIncrementEvidenceSSOT.ts";
+import { handleRevolutIncrementWebhookEvidence } from "../_shared/revolutIncrementWebhookEvidence.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -190,6 +195,26 @@ Deno.serve(async (req) => {
   const orderId = event.order_id ?? null;
   const extRef = event.merchant_order_ext_ref ?? null;
   const eventName = event.event ?? null;
+
+  // Increment events are evidence-only: they must never reach the order
+  // lifecycle below (which would treat INCREMENTAL_AUTHORISATION_* as an order state).
+  if (isRevolutIncrementWebhookEvent(eventName)) {
+    const outcome = await handleRevolutIncrementWebhookEvidence({
+      supabase,
+      eventName: String(eventName).trim().toUpperCase() as RevolutIncrementWebhookEvent,
+      orderId,
+      merchantOrderExtRef: extRef,
+      requestTimestamp: tsHeader,
+      retrieveOrder: (id) => {
+        const { secretKey, environment } = getRevolutMerchantConfig();
+        return retrieveRevolutOrder(environment, secretKey, id);
+      },
+    });
+    return new Response(JSON.stringify(outcome.body), {
+      status: outcome.httpStatus,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
+  }
 
   // === Recovery-path detection ===
   // Recovery orders use ext_ref = `recover:<trip_id>:<sessionUuid>` and are

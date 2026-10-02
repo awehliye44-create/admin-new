@@ -70,6 +70,10 @@ export interface RevolutOrder {
     state?: string;
     created_at?: string;
     reference?: string;
+    /** Documented: present only when state is declined or failed. */
+    reason?: string;
+    /** Undocumented legacy spelling; read only as a fallback. */
+    decline_reason?: string;
   }>;
   /** Present when increment POST returns the increment object instead of a full order. */
   new_amount?: number;
