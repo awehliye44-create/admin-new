@@ -17,6 +17,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 import { formatNullablePence } from '@/lib/formatNullablePence';
 import { useDriverFinancialRepairHistory } from '@/hooks/useDriverFinancialRepairHistory';
+import { toDriverFinancialRepairInvokeError } from '@/lib/driverFinancialRepairInvokeError';
 import {
   DRIVER_FINANCIAL_REPAIR_ACTION,
   DRIVER_FINANCIAL_REPAIR_BLOCK,
@@ -173,12 +174,8 @@ export function DriverWalletReviewRepairPanel({
           driver_credit_status: driverCreditStatus ?? undefined,
         },
       });
-      if (error) throw error;
-      if (data?.error) {
-        const err = new Error(String(data.error));
-        (err as Error & { code?: string }).code = data.error_code;
-        throw err;
-      }
+      const invokeError = await toDriverFinancialRepairInvokeError(error, data, 'preview');
+      if (invokeError) throw invokeError;
       return data as { preview: DriverFinancialRepairPreview };
     },
     onSuccess: (data) => {
@@ -216,12 +213,8 @@ export function DriverWalletReviewRepairPanel({
           reason: reason.trim(),
         },
       });
-      if (error) throw error;
-      if (data?.error) {
-        const err = new Error(String(data.error));
-        (err as Error & { code?: string }).code = data.error_code;
-        throw err;
-      }
+      const invokeError = await toDriverFinancialRepairInvokeError(error, data, 'apply');
+      if (invokeError) throw invokeError;
       return data as {
         result?: { messages?: string[]; correction_pence?: number; freeze_cleared_derived?: boolean };
         copy?: { evidence_only?: string | null; wallet_correction?: string | null; freeze?: string | null };
