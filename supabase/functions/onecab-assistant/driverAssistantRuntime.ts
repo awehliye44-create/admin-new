@@ -11,6 +11,13 @@ import {
 } from "./driverBusyGate.ts";
 import type { AuthenticateDriver, DriverAuthResult } from "./driverAuth.ts";
 import { readInstallationId } from "./driverAuth.ts";
+import {
+  readDocumentStateHint,
+  readOnlineHint,
+  resolveDriverFinancialModel,
+  type DriverReadContext,
+  type DriverWorkflowHint,
+} from "./driverReadContext.ts";
 
 const DRIVER_TRIP_SELECT =
   "id, status, booking_type, trip_type, is_scheduled, scheduled_status, dispatch_mode, scheduled_at, scheduled_broadcast_at, scheduled_convert_at, driver_id, confirmed_driver_id";
@@ -98,6 +105,8 @@ export function createDriverAuthenticator(admin: SupabaseClient): AuthenticateDr
     });
     if (isDriverAssistantBusy(busy)) return { ok: false, reason: "busy_workflow" };
 
+    const context = await loadDriverReadContext(admin, driverId, workflowHint(busy));
+
     const firstName =
       typeof resolved.driver.first_name === "string" && resolved.driver.first_name.trim()
         ? resolved.driver.first_name.trim()
@@ -112,7 +121,68 @@ export function createDriverAuthenticator(admin: SupabaseClient): AuthenticateDr
         driverId,
         firstName,
         installationId,
+        context,
       },
     };
   };
+}
+
+function workflowHint(snapshot: {
+  stackedTrip: boolean;
+  assignedOrActiveTrip: boolean;
+  completionUnfinished: boolean;
+}): DriverWorkflowHint {
+  const active = snapshot.assignedOrActiveTrip || snapshot.completionUnfinished;
+  if (snapshot.stackedTrip && active) return "active_with_queue";
+  if (snapshot.stackedTrip) return "queued_next";
+  if (active) return "active_trip";
+  return "idle";
+}
+
+async function loadDriverReadContext(
+  admin: SupabaseClient,
+  driverId: string,
+  workflow: DriverWorkflowHint,
+): Promise<DriverReadContext> {
+  let financialModel: DriverReadContext["financialModel"] = "UNKNOWN";
+  let online: boolean | null = null;
+  let documentState: DriverReadContext["documentState"] = null;
+  try {
+    const { data: extra } = await admin
+      .from("drivers")
+      .select("service_area_id, is_online")
+      .eq("id", driverId)
+      .maybeSingle();
+    online = readOnlineHint(extra?.is_online);
+    const serviceAreaId =
+      typeof extra?.service_area_id === "string" ? extra.service_area_id : "";
+    if (serviceAreaId) {
+      const { data: area } = await admin
+        .from("service_areas")
+        .select("financial_model, commission_wallet_enabled")
+        .eq("id", serviceAreaId)
+        .maybeSingle();
+      financialModel = resolveDriverFinancialModel(
+        area?.financial_model,
+        area?.commission_wallet_enabled,
+      );
+    }
+  } catch {
+    financialModel = "UNKNOWN";
+    online = null;
+  }
+  try {
+    const { data } = await admin.rpc("get_driver_document_eligibility", {
+      p_driver_id: driverId,
+    });
+    const payload = typeof data === "string" ? JSON.parse(data) : data;
+    const state =
+      payload && typeof payload === "object"
+        ? (payload as { document_state?: unknown }).document_state
+        : null;
+    documentState = readDocumentStateHint(state);
+  } catch {
+    documentState = null;
+  }
+  return { financialModel, online, documentState, workflow };
 }
