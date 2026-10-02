@@ -159,7 +159,7 @@ export async function verifyRevolutHoldForTripCreateFast(
       merchant.environment,
       merchant.secretKey,
       args.orderId,
-      { maxWaitMs: IN_FLIGHT_MAX_WAIT_MS, pollIntervalMs: IN_FLIGHT_POLL_MS },
+      { maxWaitMs: IN_FLIGHT_MAX_WAIT_MS, pollIntervalMs: IN_FLIGHT_POLL_MS, caller: "ctap_verify_fast" },
     );
     if (shortPoll.ok) {
       return {
@@ -180,7 +180,7 @@ export async function verifyRevolutHoldForTripCreateFast(
     merchant.environment,
     merchant.secretKey,
     args.orderId,
-    { maxWaitMs: IN_FLIGHT_MAX_WAIT_MS, pollIntervalMs: IN_FLIGHT_POLL_MS },
+    { maxWaitMs: IN_FLIGHT_MAX_WAIT_MS, pollIntervalMs: IN_FLIGHT_POLL_MS, caller: "ctap_verify_fast" },
   );
   if (polled.ok) {
     return {

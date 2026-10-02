@@ -5,7 +5,6 @@ import { finalizeRevolutTokenCapture } from "../_shared/revolutSavedCardWalletLi
 import {
   isRevolutAuthorisedState,
   isRevolutInFlightState,
-  markRevolutAuthLedgerFailed,
   verifyRevolutOrderConfirmedForBooking,
 } from "../_shared/revolutPaymentConfirmation.ts";
 import { markPaymentSessionAuthorised, markCardSetupOrphaned } from "../_shared/paymentSessionSSOT.ts";
@@ -61,6 +60,7 @@ serveWithEdgeTiming("confirm-revolut-payment", corsHeaders, async (req) => {
     provider_error_type?: string | null;
     expect_saved_card_token?: boolean;
     max_wait_ms?: number | null;
+    client_request_seq?: number | null;
   };
 
   const orderId = String(body.order_id ?? body.payment_intent_id ?? "").trim();
@@ -79,6 +79,8 @@ serveWithEdgeTiming("confirm-revolut-payment", corsHeaders, async (req) => {
       {
         maxWaitMs: wait.maxWaitMs,
         pollIntervalMs: wait.pollIntervalMs,
+        caller: "confirm-revolut-payment",
+        clientRequestSeq: parseClientRequestSeq(body.client_request_seq),
       },
     );
 
@@ -117,20 +119,27 @@ serveWithEdgeTiming("confirm-revolut-payment", corsHeaders, async (req) => {
         const bookingClientActionId = body.client_action_id ?? order.metadata?.client_action_id ?? null;
         const coversHold = providerOrderCoversHold(order, Number(order.amount ?? 0));
         // Card-save bookings keep the generic label: CTAP must GET the order for token-capture metadata.
-        await markPaymentSessionAuthorised(supabase, {
+        const { audit: holdAuthorisedAudit } = await markPaymentSessionAuthorised(supabase, {
           providerOrderId: order.id,
           clientActionId: bookingClientActionId,
           ...(coversHold && !saveCardEligible ? { verifiedBy: "confirm_provider_read" as const } : {}),
+          deferAudit: true,
         });
-        const directFinalize = coversHold && bookingClientActionId
-          ? await directFinalizeAfterProviderAuthorised(supabase, {
-            clientActionId: bookingClientActionId,
-            providerOrderId: order.id,
-            order,
-            userId,
-            logStep: (step, details) => console.info(`[confirm-revolut-payment] ${step}`, details ?? {}),
-          })
-          : null;
+        // The audit insert is independent of finalize; both settle before the response.
+        const [finalizeSettled] = await Promise.allSettled([
+          coversHold && bookingClientActionId
+            ? directFinalizeAfterProviderAuthorised(supabase, {
+              clientActionId: bookingClientActionId,
+              providerOrderId: order.id,
+              order,
+              userId,
+              logStep: (step, details) => console.info(`[confirm-revolut-payment] ${step}`, details ?? {}),
+            })
+            : Promise.resolve(null),
+          holdAuthorisedAudit,
+        ]);
+        if (finalizeSettled.status === "rejected") throw finalizeSettled.reason;
+        const directFinalize = finalizeSettled.value;
         if (saveCardEligible) {
           // Save-eligible booking: keep Finding unblocked, but use setup poll +
           // durable retry in waitUntil (booking ~0.85s was missing Revolut SPM id).
@@ -284,14 +293,6 @@ serveWithEdgeTiming("confirm-revolut-payment", corsHeaders, async (req) => {
             verifiedBy: "confirm",
           });
           if (mapping.terminal) {
-            await markRevolutAuthLedgerFailed(supabase, {
-              orderId,
-              clientActionId: body.client_action_id,
-              orderState: mapping.lifecycle_provider_state,
-              providerErrorMessage: mapping.failure_reason ?? mapping.decline_reason,
-              providerErrorType: mapping.decline_reason,
-              source: "confirm-revolut-payment",
-            }).catch(() => {});
             return json({
               confirmed: false,
               failed: true,
@@ -319,14 +320,6 @@ serveWithEdgeTiming("confirm-revolut-payment", corsHeaders, async (req) => {
             });
           }
         } else if (mapping.terminal) {
-          await markRevolutAuthLedgerFailed(supabase, {
-            orderId,
-            clientActionId: body.client_action_id,
-            orderState: mapping.lifecycle_provider_state,
-            providerErrorMessage: mapping.failure_reason ?? mapping.decline_reason,
-            providerErrorType: mapping.decline_reason,
-            source: "confirm-revolut-payment",
-          }).catch(() => {});
           return json({
             confirmed: false,
             failed: true,
@@ -354,14 +347,6 @@ serveWithEdgeTiming("confirm-revolut-payment", corsHeaders, async (req) => {
     }
 
     if (FAILED_STATES.has(state)) {
-      await markRevolutAuthLedgerFailed(supabase, {
-        orderId,
-        clientActionId: body.client_action_id,
-        orderState: state,
-        providerErrorMessage: body.provider_error_message ?? confirmation.reason,
-        providerErrorType: body.provider_error_type,
-        source: "confirm-revolut-payment",
-      });
       // Align with webhook: terminalize payment_sessions out of pending_payment.
       const { data: sessionRow } = await supabase
         .from("payment_sessions")
@@ -448,6 +433,11 @@ serveWithEdgeTiming("confirm-revolut-payment", corsHeaders, async (req) => {
     return json({ confirmed: false, failed: false, in_flight: true, reason: message }, 503);
   }
 });
+
+function parseClientRequestSeq(raw: unknown): number | null {
+  const n = typeof raw === "number" ? raw : Number(raw);
+  return Number.isInteger(n) && n > 0 && n < 10_000 ? n : null;
+}
 
 function json(body: Record<string, unknown>, status = 200): Response {
   return new Response(JSON.stringify(body), {
