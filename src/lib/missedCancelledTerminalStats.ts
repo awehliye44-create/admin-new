@@ -41,6 +41,14 @@ export type MissedCancelledStats = {
 
 const MISSED_EXPIRED_STATUSES = new Set(['missed', 'expired', 'expired_no_driver']);
 
+/**
+ * Range stats cover the Missed & Cancelled statuses plus status `no_show`. No-show rows
+ * are listed in Trip History, never in this list, but the No-Show counter must include
+ * every no-show in range — including ones stamped `no_show` rather than `cancelled`.
+ * Each trip is still counted once, in one bucket.
+ */
+export const MISSED_CANCELLED_STATS_EXTRA_STATUSES = ['no_show'] as const;
+
 function positivePence(value: unknown): number {
   const n = Number(value);
   if (!Number.isFinite(n) || n <= 0) return 0;
