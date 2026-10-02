@@ -71,7 +71,7 @@ export async function fetchDriverPayoutEligibilityContext(
       .maybeSingle(),
     supabase
       .from("driver_wallet_ledger")
-      .select("id, type, amount_pence, related_trip_id, created_at, metadata")
+      .select("id, driver_id, type, amount_pence, related_trip_id, created_at, metadata")
       .eq("driver_id", args.driver_id),
     supabase
       .from("driver_early_cashouts")
@@ -122,6 +122,15 @@ export async function fetchDriverPayoutEligibilityContext(
   const tripIds = [...new Set(
     earningRows.map((r) => String(r.related_trip_id ?? "")).filter(Boolean),
   )];
+  const commissionTripIds = new Set<string>();
+  const reversalTripIds = new Set<string>();
+  for (const r of ledger) {
+    const tripId = String(r.related_trip_id ?? "");
+    if (!tripId) continue;
+    const type = String(r.type ?? "").toUpperCase();
+    if (type === "PLATFORM_COMMISSION" && Number(r.amount_pence ?? 0) !== 0) commissionTripIds.add(tripId);
+    if (type === "LEDGER_REVERSAL" || type === "REFUND_DEBIT") reversalTripIds.add(tripId);
+  }
   const ledgerIds = earningRows.map((r) => String(r.id));
 
   const tripById = new Map<string, Record<string, unknown>>();
@@ -136,7 +145,7 @@ export async function fetchDriverPayoutEligibilityContext(
         ? supabase
           .from("trips")
           .select(
-            "id, payment_session_id, driver_net_pence, tip_pence, tip_amount_pence, payment_status, payment_method, payment_provider, status, cancelled_at, completed_at, settlement_formula_version, payment_collection_model, financial_model, provider_available_on",
+            "id, payment_session_id, driver_net_pence, tip_pence, tip_amount_pence, payment_status, payment_method, payment_provider, status, cancelled_at, completed_at, settlement_formula_version, payment_collection_model, financial_model, provider_available_on, financial_outcome, no_show_charge_pence, driver_id, confirmed_driver_id, previous_driver_id",
           )
           .in("id", tripIds)
         : Promise.resolve({ data: [] as Record<string, unknown>[] }),
@@ -144,7 +153,7 @@ export async function fetchDriverPayoutEligibilityContext(
         ? supabase
           .from("payment_sessions")
           .select(
-            "id, trip_id, captured_amount_pence, refunded_amount_pence, status, captured_at, provider_state, payment_method, metadata",
+            "id, trip_id, captured_amount_pence, refunded_amount_pence, status, captured_at, provider_state, payment_method, metadata, provider_processing_fee_pence, fee_status",
           )
           .in("trip_id", tripIds)
         : Promise.resolve({ data: [] as Record<string, unknown>[] }),
@@ -177,7 +186,7 @@ export async function fetchDriverPayoutEligibilityContext(
     if (sessionIdsFromTrips.length > 0) {
       const { data: sessionsById } = await supabase
         .from("payment_sessions")
-        .select("id, trip_id, captured_amount_pence, refunded_amount_pence, status, captured_at, provider_state, payment_method, metadata")
+        .select("id, trip_id, captured_amount_pence, refunded_amount_pence, status, captured_at, provider_state, payment_method, metadata, provider_processing_fee_pence, fee_status")
         .in("id", sessionIdsFromTrips);
       for (const s of sessionsById ?? []) {
         sessionById.set(String(s.id), s as Record<string, unknown>);
@@ -321,6 +330,23 @@ export async function fetchDriverPayoutEligibilityContext(
       capture_time: (des?.capture_time as string | null) ?? null,
       trip_completed_at: trip?.completed_at ? String(trip.completed_at) : null,
       earning_credited_at: (row as { created_at?: string | null }).created_at ?? null,
+      provider_processing_fee_pence: session?.provider_processing_fee_pence == null
+        ? null
+        : Number(session.provider_processing_fee_pence),
+      fee_status: session?.fee_status ? String(session.fee_status) : null,
+      ledger_driver_id: (row as { driver_id?: string | null }).driver_id
+        ? String((row as { driver_id?: string | null }).driver_id)
+        : null,
+      trip_financial_outcome: trip?.financial_outcome ? String(trip.financial_outcome) : null,
+      trip_payment_status: trip?.payment_status ? String(trip.payment_status) : null,
+      trip_no_show_charge_pence: trip?.no_show_charge_pence == null
+        ? null
+        : Number(trip.no_show_charge_pence),
+      trip_driver_id: trip?.driver_id ? String(trip.driver_id) : null,
+      trip_confirmed_driver_id: trip?.confirmed_driver_id ? String(trip.confirmed_driver_id) : null,
+      trip_previous_driver_id: trip?.previous_driver_id ? String(trip.previous_driver_id) : null,
+      trip_commission_ledger_present: tripId ? commissionTripIds.has(tripId) : false,
+      trip_reversal_ledger_present: tripId ? reversalTripIds.has(tripId) : false,
     };
   });
 
