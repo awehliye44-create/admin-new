@@ -76,12 +76,12 @@ export function tripHistoryNoShowDisplayLabel(
   row: AdminTripClassificationRow | null | undefined,
 ): string | null {
   if (!row) return null;
-  if (isAdminNoShowTrip(row)) return "No-show";
-  if (String(row.status ?? "").trim().toLowerCase() === "no_show") return "No-show";
-  if (String(row.financial_outcome ?? "").trim().toUpperCase() === "NO_SHOW") return "No-show";
-  if (blobIncludesNoShow(row.payment_status)) return "No-show";
-  if (blobIncludesNoShow(row.cancellation_reason)) return "No-show";
-  if (row.payment_disposition?.is_no_show_outcome) return "No-show";
+  if (isAdminNoShowTrip(row)) return "No-Show";
+  if (String(row.status ?? "").trim().toLowerCase() === "no_show") return "No-Show";
+  if (String(row.financial_outcome ?? "").trim().toUpperCase() === "NO_SHOW") return "No-Show";
+  if (blobIncludesNoShow(row.payment_status)) return "No-Show";
+  if (blobIncludesNoShow(row.cancellation_reason)) return "No-Show";
+  if (row.payment_disposition?.is_no_show_outcome) return "No-Show";
   return null;
 }
 
@@ -95,7 +95,7 @@ export function belongsInMissedCancelled(
   return (MISSED_CANCELLED_STATUSES as readonly string[]).includes(status);
 }
 
-/** Trip History bucket — completed + no-show terminal outcomes. */
+/** Trip History bucket — completed + chargeable terminal outcomes. */
 export function belongsInTripHistory(
   row: AdminTripClassificationRow | null | undefined,
 ): boolean {
@@ -104,14 +104,16 @@ export function belongsInTripHistory(
   const status = String(row.status ?? "").trim().toLowerCase();
   if (status === "completed") return true;
   const outcome = String(row.financial_outcome ?? "").trim().toUpperCase();
-  return outcome === "COMPLETED" || outcome === "LATE_PASSENGER_CANCELLATION";
+  return outcome === "COMPLETED"
+    || outcome === "ARRIVAL_CANCELLATION"
+    || outcome === "LATE_PASSENGER_CANCELLATION";
 }
 
 export function adminNoShowStatusLabel(
   row: AdminTripClassificationRow | null | undefined,
 ): string | null {
   if (!isAdminNoShowTrip(row)) return null;
-  return "No-show";
+  return "No-Show";
 }
 
 export function resolveAdminCapturedPenceForNoShowLabel(
@@ -140,13 +142,22 @@ export function adminNoShowPaymentLabel(
   return captured > 0 ? "No-show fee captured" : "No-show - no charge";
 }
 
-/** Prefer completed_at; for no-show without it, fall back to cancelled_at then created_at. */
+function isChargeableTerminalOutcome(row: AdminTripClassificationRow): boolean {
+  const outcome = String(row.financial_outcome ?? "").trim().toUpperCase();
+  return outcome === "ARRIVAL_CANCELLATION"
+    || outcome === "NO_SHOW"
+    || outcome === "LATE_PASSENGER_CANCELLATION";
+}
+
+/**
+ * Prefer completed_at; chargeable terminal outcomes (and legacy no-show) keep it NULL,
+ * so fall back to cancelled_at then created_at.
+ */
 export function adminTripHistoryDisplayAt(
   row: AdminTripClassificationRow | null | undefined,
 ): string | null {
   if (!row) return null;
   if (row.completed_at) return row.completed_at;
-  if (isAdminNoShowTrip(row) && row.cancelled_at) return row.cancelled_at;
-  if (isAdminNoShowTrip(row) && row.created_at) return row.created_at;
-  return row.completed_at ?? null;
+  if (!isAdminNoShowTrip(row) && !isChargeableTerminalOutcome(row)) return null;
+  return row.cancelled_at ?? row.created_at ?? null;
 }

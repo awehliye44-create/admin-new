@@ -38,7 +38,7 @@ describe('admin NO_SHOW page ownership', () => {
     expect(isAdminNoShowTrip(MK_260824_002)).toBe(true);
     expect(belongsInTripHistory(MK_260824_002)).toBe(true);
     expect(belongsInMissedCancelled(MK_260824_002)).toBe(false);
-    expect(adminNoShowStatusLabel(MK_260824_002)).toBe('No-show');
+    expect(adminNoShowStatusLabel(MK_260824_002)).toBe('No-Show');
     expect(adminNoShowPaymentLabel(MK_260824_002)).toBe('No-show fee captured');
     expect(adminTripHistoryDisplayAt(MK_260824_002)).toBe(MK_260824_002.cancelled_at);
   });
@@ -91,7 +91,7 @@ describe('admin NO_SHOW page ownership', () => {
       payment_status: null,
     };
     expect(isAdminNoShowTrip(row)).toBe(true);
-    expect(tripHistoryNoShowDisplayLabel(row)).toBe('No-show');
+    expect(tripHistoryNoShowDisplayLabel(row)).toBe('No-Show');
     expect(belongsInTripHistory(row)).toBe(true);
   });
 
@@ -100,7 +100,7 @@ describe('admin NO_SHOW page ownership', () => {
       status: 'cancelled',
       payment_status: 'no_show_company_compensated',
     };
-    expect(tripHistoryNoShowDisplayLabel(row)).toBe('No-show');
+    expect(tripHistoryNoShowDisplayLabel(row)).toBe('No-Show');
   });
 
   it('keeps normal customer cancellation in Missed & Cancelled only', () => {
@@ -171,7 +171,9 @@ describe('admin NO_SHOW page ownership', () => {
     const filter = tripHistoryDateOrFilter(start, end);
     expect(filter).toContain('completed_at.gte.');
     expect(filter).toContain('status.eq.no_show');
-    expect(filter).toContain('financial_outcome.eq.NO_SHOW');
+    expect(filter).toContain(
+      'and(completed_at.is.null,financial_outcome.in.(ARRIVAL_CANCELLATION,NO_SHOW,LATE_PASSENGER_CANCELLATION),cancelled_at.gte.',
+    );
     expect(filter).toContain('cancelled_at.gte.');
     expect(filter).toContain('completed_at.is.null');
   });

@@ -351,7 +351,7 @@ export default function MissedCancelled() {
     if (label === 'Late Passenger Cancellation') {
       return { label, color: 'bg-orange-100 text-orange-800', icon: XCircle };
     }
-    if (label === 'No-show') {
+    if (label === 'No-Show') {
       return { label, color: 'bg-amber-100 text-amber-700', icon: AlertTriangle };
     }
     switch (trip.status) {

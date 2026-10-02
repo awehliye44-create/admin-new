@@ -38,7 +38,8 @@ describe('trip history — no hard 500/2000 history cap', () => {
     expect(src).not.toMatch(/\.limit\(\s*2000\s*\)/);
     expect(src).not.toMatch(/\.limit\(\s*500\s*\)/);
     expect(src).toMatch(/ilike\(\s*['"]trip_code['"]/);
-    expect(src).toContain("eq('driver_id'");
+    expect(src).toContain('query.or(tripHistoryDriverOrFilter(args.driverId))');
+    expect(src).toContain('driver_id.eq.${driverId},and(driver_id.is.null,previous_driver_id.eq.${driverId})');
     expect(src).toContain("eq('passenger_id'");
   });
 

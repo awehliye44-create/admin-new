@@ -4,6 +4,14 @@ import { fetchPassengerDirectory, hydratePassengerIdentity } from '@/lib/tripPas
 /** Terminal trips — aligned with Financial Reconciliation COUNTABLE_FINANCIAL_OUTCOMES. */
 export const TRIP_HISTORY_FINANCIAL_OUTCOMES = [
   'COMPLETED',
+  'ARRIVAL_CANCELLATION',
+  'NO_SHOW',
+  'LATE_PASSENGER_CANCELLATION',
+] as const;
+
+/** Chargeable terminal outcomes stay cancelled / no_show with completed_at NULL. */
+export const TRIP_HISTORY_CHARGEABLE_TERMINAL_OUTCOMES = [
+  'ARRIVAL_CANCELLATION',
   'NO_SHOW',
   'LATE_PASSENGER_CANCELLATION',
 ] as const;
@@ -35,6 +43,9 @@ export function tripHistoryTerminalOrFilter(
       'cancellation_reason.eq.no_show',
     ].join(',');
   }
+  if (status === 'arrival_cancellation') {
+    return 'financial_outcome.eq.ARRIVAL_CANCELLATION';
+  }
   if (status === 'late_cancellation') {
     return 'financial_outcome.eq.LATE_PASSENGER_CANCELLATION';
   }
@@ -49,17 +60,19 @@ export function tripHistoryTerminalOrFilter(
 /**
  * Date window for Trip History.
  * Primary: completed_at in range.
- * No-show often has completed_at NULL — include via cancelled_at (then created_at).
+ * Chargeable terminal outcomes (Arrival Cancellation / No-Show / Late Passenger
+ * Cancellation) keep completed_at NULL — include via cancelled_at (then created_at).
  */
 export function tripHistoryDateOrFilter(start: Date, end: Date): string {
   const s = start.toISOString();
   const e = end.toISOString();
+  const terminalOutcomes = `financial_outcome.in.(${TRIP_HISTORY_CHARGEABLE_TERMINAL_OUTCOMES.join(',')})`;
   return [
     `and(completed_at.gte.${s},completed_at.lte.${e})`,
     `and(completed_at.is.null,status.eq.no_show,cancelled_at.gte.${s},cancelled_at.lte.${e})`,
-    `and(completed_at.is.null,financial_outcome.eq.NO_SHOW,cancelled_at.gte.${s},cancelled_at.lte.${e})`,
+    `and(completed_at.is.null,${terminalOutcomes},cancelled_at.gte.${s},cancelled_at.lte.${e})`,
     `and(completed_at.is.null,cancelled_at.is.null,status.eq.no_show,created_at.gte.${s},created_at.lte.${e})`,
-    `and(completed_at.is.null,cancelled_at.is.null,financial_outcome.eq.NO_SHOW,created_at.gte.${s},created_at.lte.${e})`,
+    `and(completed_at.is.null,cancelled_at.is.null,${terminalOutcomes},created_at.gte.${s},created_at.lte.${e})`,
     `and(completed_at.is.null,no_show_charge_pence.gt.0,cancelled_at.gte.${s},cancelled_at.lte.${e})`,
     `and(completed_at.is.null,cancelled_at.is.null,no_show_charge_pence.gt.0,created_at.gte.${s},created_at.lte.${e})`,
     `and(completed_at.is.null,cancellation_reason.eq.no_show,cancelled_at.gte.${s},cancelled_at.lte.${e})`,
@@ -122,6 +135,7 @@ export type TripHistoryStatusFilter =
   | 'all'
   | 'completed'
   | 'no_show'
+  | 'arrival_cancellation'
   | 'late_cancellation';
 
 export type TripHistoryCursor = {
@@ -234,6 +248,11 @@ export function attributeTripHistoryDriver<T extends Record<string, unknown>>(ro
   return { ...row, driver: previous };
 }
 
+/** Server-side driver filter with the same precedence as attributeTripHistoryDriver. */
+export function tripHistoryDriverOrFilter(driverId: string): string {
+  return `driver_id.eq.${driverId},and(driver_id.is.null,previous_driver_id.eq.${driverId})`;
+}
+
 export type FetchTripHistoryPageArgs = {
   start: Date;
   end: Date;
@@ -278,7 +297,7 @@ export async function fetchTripHistoryPage(
     query = await applyTripHistoryLocationFilter(query, args);
     query = applyTripHistoryCursorFilter(query, args.cursor);
 
-    if (args.driverId) query = query.eq('driver_id', args.driverId);
+    if (args.driverId) query = query.or(tripHistoryDriverOrFilter(args.driverId));
     if (args.passengerId) query = query.eq('passenger_id', args.passengerId);
     if (args.tripCode && args.tripCode.trim()) {
       const code = args.tripCode.trim();

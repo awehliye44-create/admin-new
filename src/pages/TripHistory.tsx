@@ -81,7 +81,6 @@ import {
 import {
   adminNoShowPaymentLabel,
   adminTripHistoryDisplayAt,
-  tripHistoryNoShowDisplayLabel,
 } from '@/lib/adminTripNoShowClassification';
 import {
   attachTripPaymentDisposition,
@@ -89,6 +88,7 @@ import {
 } from '@/lib/adminTripPaymentDisposition';
 import type { AdminTripPaymentDispositionRead } from '../../shared/adminTripPaymentDispositionSSOT';
 import { tripHistoryStatusLabel, pickPrimaryPaymentSession } from '../../shared/adminTripPaymentDispositionSSOT';
+import { tripHistoryOutcomeBadge } from '@/lib/tripHistoryOutcomeBadge';
 
 function getTripMapCenter(trip: CompletedTrip): [number, number] {
   const lng = trip.pickup_longitude ?? trip.dropoff_longitude ?? -0.7594;
@@ -1270,7 +1270,8 @@ export default function TripHistory() {
               <SelectContent>
                 <SelectItem value="all">All statuses</SelectItem>
                 <SelectItem value="completed">Completed</SelectItem>
-                <SelectItem value="no_show">No-show</SelectItem>
+                <SelectItem value="arrival_cancellation">Arrival Cancellation</SelectItem>
+                <SelectItem value="no_show">No-Show</SelectItem>
                 <SelectItem value="late_cancellation">Late cancel</SelectItem>
               </SelectContent>
             </Select>
@@ -1426,13 +1427,13 @@ export default function TripHistory() {
                         {getTripDisplayId(trip)}
                       </div>
                       {(() => {
-                        const noShowLabel = tripHistoryNoShowDisplayLabel(trip);
-                        return noShowLabel ? (
+                        const outcomeBadge = tripHistoryOutcomeBadge(trip);
+                        return outcomeBadge ? (
                           <Badge
                             variant="outline"
-                            className="mt-1 text-[10px] w-fit bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400"
+                            className={`mt-1 text-[10px] w-fit ${outcomeBadge.className}`}
                           >
-                            {noShowLabel}
+                            {outcomeBadge.label}
                           </Badge>
                         ) : null;
                       })()}
@@ -1647,11 +1648,10 @@ export default function TripHistory() {
               {/* Status Badges Row */}
               <div className="flex flex-wrap items-center gap-2">
                 <Badge variant="outline" className={
-                  tripHistoryNoShowDisplayLabel(selectedTrip)
-                    ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400'
-                    : selectedTrip.status === 'cancelled'
+                  tripHistoryOutcomeBadge(selectedTrip)?.className
+                    ?? (selectedTrip.status === 'cancelled'
                       ? 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400'
-                      : 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400'
+                      : 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400')
                 }>
                   <CheckCircle className="h-3 w-3 mr-1" />
                   {getTripStatusLabel(selectedTrip)}

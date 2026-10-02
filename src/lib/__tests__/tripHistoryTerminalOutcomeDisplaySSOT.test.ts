@@ -145,7 +145,7 @@ describe('tripHistoryTerminalOutcomeDisplaySSOT', () => {
       financial_outcome: 'ARRIVAL_CANCELLATION',
       arrival_cancellation_applied: true,
     })).toBe('Arrival Cancellation');
-    expect(tripHistoryStatusLabel({ status: 'no_show', financial_outcome: 'NO_SHOW' })).toBe('No-show');
+    expect(tripHistoryStatusLabel({ status: 'no_show', financial_outcome: 'NO_SHOW' })).toBe('No-Show');
     expect(tripHistoryStatusLabel({
       status: 'cancelled',
       financial_outcome: 'LATE_PASSENGER_CANCELLATION',

@@ -373,7 +373,7 @@ export function buildAdminTripPaymentDispositionRead(args: {
 export function tripHistoryStatusLabel(trip: AdminTripPaymentDispositionTrip): string {
   const kind = resolveTripHistoryTerminalOutcomeKind(trip);
   if (kind === "ARRIVAL_CANCELLATION") return "Arrival Cancellation";
-  if (kind === "NO_SHOW") return "No-show";
+  if (kind === "NO_SHOW") return "No-Show";
   if (kind === "LATE_PASSENGER_CANCELLATION") return "Late Passenger Cancellation";
   const status = String(trip.status ?? "").trim().toLowerCase();
   const outcome = String(trip.financial_outcome ?? "").trim().toUpperCase();

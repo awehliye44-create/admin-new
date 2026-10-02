@@ -76,8 +76,8 @@ const MK_261002_015 = {
 };
 
 describe('MK-261002-015 Admin routing', () => {
-  it('badge is No-show', () => {
-    expect(tripHistoryStatusLabel(MK_261002_015)).toBe('No-show');
+  it('badge is No-Show', () => {
+    expect(tripHistoryStatusLabel(MK_261002_015)).toBe('No-Show');
   });
 
   it('is owned by Trip History, never the Missed & Cancelled list', () => {
