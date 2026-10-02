@@ -6,7 +6,8 @@
  * - Customer App channel only (WhatsApp / guest / corporate excluded)
  * - Only after status=completed and within tip window
  * - Exactly one trigger owns finalisation via claim_tip_window_trigger mutex
- * - tip>0 + tip auth decline → TIP_AUTHORISATION_DECLINED; no fare capture; window stays OPEN
+ * - tip>0 + tip not authorised → no fare capture; window stays OPEN. Customer code is
+ *   TIP_AUTHORISATION_DECLINED only for a provider decline, else CAPTURE_FAILED (neutral)
  * - tip>0 + fare already captured / tip_shortfall → TIP_NOT_COLLECTED; never seal tip=0 under WITH_TIP; close window (MK-260926-001)
  * - Capture fare (+ tip when tip > 0) then seal CLOSED
  * - On capture failure / decline: release claim (except provider UNKNOWN retains claim)
@@ -16,8 +17,11 @@ import { createClient } from "npm:@supabase/supabase-js@2.57.2";
 import { invokeFinalizeTripCapture } from "../_shared/invokeFinalizeTripCapture.ts";
 import { isCustomerAppTipChannelEligible } from "../_shared/tipChannelEligibilitySSOT.ts";
 import {
-  TIP_AUTHORISATION_DECLINED,
-  TIP_AUTHORISATION_DECLINED_CUSTOMER_MESSAGE,
+  normalizeTipAuthorisationOutcome,
+  tipAuthorisationCustomerCopy,
+  tipAuthorisationCustomerErrorCode,
+} from "../_shared/tipAuthorisationOutcomeSSOT.ts";
+import {
   TIP_NOT_COLLECTED,
   TIP_NOT_COLLECTED_CUSTOMER_MESSAGE,
   TIP_WINDOW_STATUS,
@@ -365,10 +369,16 @@ Deno.serve(async (req) => {
           clearTip: true,
           nowIso: new Date().toISOString(),
         });
+        // Bank wording only when finalize reports a provider decline; a provider
+        // failure or a missing/unknown outcome gets neutral copy.
+        const tipAuthorisationOutcome = normalizeTipAuthorisationOutcome(
+          rec.body?.tip_authorisation_outcome,
+        );
         return json({
           success: false,
-          error: TIP_AUTHORISATION_DECLINED_CUSTOMER_MESSAGE,
-          error_code: TIP_AUTHORISATION_DECLINED,
+          error: tipAuthorisationCustomerCopy(tipAuthorisationOutcome),
+          error_code: tipAuthorisationCustomerErrorCode(tipAuthorisationOutcome),
+          tip_authorisation_outcome: tipAuthorisationOutcome,
           tip_window_status: TIP_WINDOW_STATUS.OPEN,
           fare_captured: false,
         }, 402);

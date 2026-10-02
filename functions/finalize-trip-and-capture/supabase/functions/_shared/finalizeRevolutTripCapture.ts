@@ -22,6 +22,7 @@ export type FinalizeRevolutCaptureResult = {
   wallet_posting_status?: "SUCCEEDED" | "FAILED";
   reconciliation_status?: "BALANCED" | "WALLET_MISMATCH";
   retry_provider_capture?: false;
+  tip_authorisation_outcome?: "declined" | "provider_failed" | "unknown";
 };
 
 export async function finalizeRevolutTripCapture(args: {
