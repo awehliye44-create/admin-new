@@ -3,7 +3,7 @@ export const DRIVER_APP_URL_SCHEME = "onecab-driver";
 export const ADMIN_APP_URL_SCHEME = "onecabadmin";
 
 /** Canonical Android applicationIds — required for Gmail/Chrome intent:// handoff. */
-export const CUSTOMER_ANDROID_PACKAGE = "com.onecab.customer";
+export const CUSTOMER_ANDROID_PACKAGE = "com.onecab.customer.app";
 export const DRIVER_ANDROID_PACKAGE = "com.onecab.driver.app";
 
 export type VerificationAppType = "customer" | "driver" | "admin";

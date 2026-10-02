@@ -28,7 +28,7 @@ Deno.test("Driver scheme matches native app.config (onecab-driver)", () => {
 
 Deno.test("Driver Android intent targets com.onecab.driver.app", () => {
   assertEquals(DRIVER_ANDROID_PACKAGE, "com.onecab.driver.app");
-  assertEquals(CUSTOMER_ANDROID_PACKAGE, "com.onecab.customer");
+  assertEquals(CUSTOMER_ANDROID_PACKAGE, "com.onecab.customer.app");
 
   const intent = accountEmailVerificationAndroidIntentUrl("driver", TOKEN);
   assertEquals(typeof intent, "string");
