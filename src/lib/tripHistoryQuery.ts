@@ -1,5 +1,15 @@
 import { supabase } from '@/integrations/supabase/client';
 import { fetchPassengerDirectory, hydratePassengerIdentity } from '@/lib/tripPassengerDisplay';
+import {
+  ADMIN_SORT_ORDER_DEFAULT,
+  applyEventBand,
+  eventCursorOrFilter,
+  eventKeyForBands,
+  mergeEventBandPages,
+  type AdminEventBand,
+  type AdminEventCursor,
+  type AdminSortOrder,
+} from '@/lib/adminEventOrder';
 
 /** Terminal trips — aligned with Financial Reconciliation COUNTABLE_FINANCIAL_OUTCOMES. */
 export const TRIP_HISTORY_FINANCIAL_OUTCOMES = [
@@ -138,10 +148,17 @@ export type TripHistoryStatusFilter =
   | 'arrival_cancellation'
   | 'late_cancellation';
 
-export type TripHistoryCursor = {
-  completedAt: string | null;
-  id: string;
-};
+export type TripHistoryCursor = AdminEventCursor;
+
+/**
+ * Trip History event date: completed_at for completed trips; chargeable terminal
+ * outcomes keep completed_at NULL and date from cancelled_at, else created_at.
+ */
+export const TRIP_HISTORY_EVENT_BANDS: readonly AdminEventBand[] = [
+  { column: 'completed_at', nullColumns: [] },
+  { column: 'cancelled_at', nullColumns: ['completed_at'] },
+  { column: 'created_at', nullColumns: ['completed_at', 'cancelled_at'] },
+];
 
 export type TripHistoryPage = {
   rows: TripHistoryRow[];
@@ -169,10 +186,14 @@ export function sortTripHistoryRows<T extends Record<string, unknown>>(rows: T[]
   return [...rows].sort((a, b) => at(b) - at(a));
 }
 
+export function tripHistoryEventKey(row: TripHistoryRow): TripHistoryCursor | null {
+  return eventKeyForBands(row, TRIP_HISTORY_EVENT_BANDS);
+}
+
 export function encodeTripHistoryCursor(cursor: TripHistoryCursor | null | undefined): string | null {
-  if (!cursor?.id) return null;
+  if (!cursor?.id || !cursor.eventAt) return null;
   return JSON.stringify({
-    completedAt: cursor.completedAt,
+    eventAt: cursor.eventAt,
     id: cursor.id,
   });
 }
@@ -180,23 +201,25 @@ export function encodeTripHistoryCursor(cursor: TripHistoryCursor | null | undef
 export function decodeTripHistoryCursor(raw: string | null | undefined): TripHistoryCursor | null {
   if (!raw) return null;
   try {
-    const parsed = JSON.parse(raw) as { completedAt?: unknown; id?: unknown };
+    const parsed = JSON.parse(raw) as { eventAt?: unknown; id?: unknown };
     if (typeof parsed.id !== 'string' || !parsed.id) return null;
-    return {
-      id: parsed.id,
-      completedAt: typeof parsed.completedAt === 'string' ? parsed.completedAt : null,
-    };
+    if (typeof parsed.eventAt !== 'string' || !parsed.eventAt) return null;
+    return { id: parsed.id, eventAt: parsed.eventAt };
   } catch {
     return null;
   }
 }
 
-async function applyTripHistoryLocationFilter(
-  query: any,
+type TripHistoryLocation =
+  | { kind: 'none' }
+  | { kind: 'service_area'; serviceAreaId: string }
+  | { kind: 'region'; regionId: string; areaIds: string[] };
+
+async function resolveTripHistoryLocation(
   args: { regionId?: string; serviceAreaId?: string },
-): Promise<any> {
+): Promise<TripHistoryLocation> {
   if (args.serviceAreaId && args.serviceAreaId !== 'all') {
-    return query.eq('service_area_id', args.serviceAreaId);
+    return { kind: 'service_area', serviceAreaId: args.serviceAreaId };
   }
   if (args.regionId && args.regionId !== 'all') {
     const { data: areas } = await supabase
@@ -204,34 +227,20 @@ async function applyTripHistoryLocationFilter(
       .select('id')
       .eq('region_id', args.regionId);
     const areaIds = (areas ?? []).map((row: any) => row.id as string).filter(Boolean);
-    if (areaIds.length > 0) {
-      return query.or(`region_id.eq.${args.regionId},service_area_id.in.(${areaIds.join(',')})`);
+    return { kind: 'region', regionId: args.regionId, areaIds };
+  }
+  return { kind: 'none' };
+}
+
+function applyTripHistoryLocationFilter(query: any, location: TripHistoryLocation): any {
+  if (location.kind === 'service_area') return query.eq('service_area_id', location.serviceAreaId);
+  if (location.kind === 'region') {
+    if (location.areaIds.length > 0) {
+      return query.or(`region_id.eq.${location.regionId},service_area_id.in.(${location.areaIds.join(',')})`);
     }
-    return query.eq('region_id', args.regionId);
+    return query.eq('region_id', location.regionId);
   }
   return query;
-}
-
-/**
- * Keyset continuation for `completed_at DESC NULLS LAST, id DESC`.
- * The null completed_at band (terminal no-shows) ranks after every non-null row,
- * so a non-null cursor must still admit it — otherwise those trips are unreachable
- * whenever completed trips fill more than one page.
- */
-export function tripHistoryCursorOrFilter(cursor: TripHistoryCursor): string {
-  if (cursor.completedAt) {
-    return [
-      `completed_at.lt.${cursor.completedAt}`,
-      `and(completed_at.eq.${cursor.completedAt},id.lt.${cursor.id})`,
-      'completed_at.is.null',
-    ].join(',');
-  }
-  return `and(completed_at.is.null,id.lt.${cursor.id})`;
-}
-
-function applyTripHistoryCursorFilter(query: any, cursor: TripHistoryCursor | null | undefined): any {
-  if (!cursor?.id) return query;
-  return query.or(tripHistoryCursorOrFilter(cursor));
 }
 
 type TripHistoryDriverJoin = Record<string, unknown> | null | undefined;
@@ -261,6 +270,8 @@ export type FetchTripHistoryPageArgs = {
   /** Page size — default 100. Not a history retention cap. */
   pageSize?: number;
   cursor?: TripHistoryCursor | null;
+  /** Event-date order — newest first by default. */
+  sortOrder?: AdminSortOrder;
   status?: TripHistoryStatusFilter;
   driverId?: string | null;
   passengerId?: string | null;
@@ -282,58 +293,64 @@ export async function fetchTripHistoryPage(
     TRIP_HISTORY_SELECT_BASE,
   ];
 
+  const order = args.sortOrder ?? ADMIN_SORT_ORDER_DEFAULT;
+  const ascending = order === 'oldest';
+  const location = await resolveTripHistoryLocation(args);
+
   let lastError: { message?: string; code?: string } | null = null;
 
   for (const select of selectVariants) {
-    let query = supabase
-      .from('trips')
-      .select(select)
-      .or(tripHistoryTerminalOrFilter(args.status ?? 'all'))
-      .or(tripHistoryDateOrFilter(args.start, args.end))
-      .order('completed_at', { ascending: false, nullsFirst: false })
-      .order('id', { ascending: false })
-      .limit(pageSize + 1);
+    const bandResults = await Promise.all(TRIP_HISTORY_EVENT_BANDS.map((band) => {
+      let query: any = supabase
+        .from('trips')
+        .select(select)
+        .or(tripHistoryTerminalOrFilter(args.status ?? 'all'))
+        .or(tripHistoryDateOrFilter(args.start, args.end));
 
-    query = await applyTripHistoryLocationFilter(query, args);
-    query = applyTripHistoryCursorFilter(query, args.cursor);
+      query = applyEventBand(query, band);
+      query = applyTripHistoryLocationFilter(query, location);
+      if (args.cursor?.id) query = query.or(eventCursorOrFilter(band.column, args.cursor, order));
 
-    if (args.driverId) query = query.or(tripHistoryDriverOrFilter(args.driverId));
-    if (args.passengerId) query = query.eq('passenger_id', args.passengerId);
-    if (args.tripCode && args.tripCode.trim()) {
-      const code = args.tripCode.trim();
-      // Prefer exact / prefix so indexes on trip_code remain useful.
-      query = query.ilike('trip_code', `${code}%`);
-    }
+      if (args.driverId) query = query.or(tripHistoryDriverOrFilter(args.driverId));
+      if (args.passengerId) query = query.eq('passenger_id', args.passengerId);
+      if (args.tripCode && args.tripCode.trim()) {
+        const code = args.tripCode.trim();
+        // Prefer exact / prefix so indexes on trip_code remain useful.
+        query = query.ilike('trip_code', `${code}%`);
+      }
 
-    const { data, error } = await query;
-    if (!error) {
-      const raw = (data ?? []) as unknown as TripHistoryRow[];
-      const hasMore = raw.length > pageSize;
-      const pageRows = hasMore ? raw.slice(0, pageSize) : raw;
+      return query
+        .order(band.column, { ascending })
+        .order('id', { ascending })
+        .limit(pageSize + 1) as Promise<{
+          data: unknown[] | null;
+          error: { message?: string; code?: string } | null;
+        }>;
+    }));
+
+    const failed = bandResults.find((result) => result.error);
+    if (!failed) {
+      const bandRows = bandResults.map((result) => (result.data ?? []) as unknown as TripHistoryRow[]);
+      const page = mergeEventBandPages(
+        bandRows,
+        (row) => tripHistoryEventKey(row) as TripHistoryCursor,
+        order,
+        pageSize,
+      );
       const directory = await fetchPassengerDirectory(
-        pageRows.map((row) => (row as { passenger_id?: string | null }).passenger_id),
+        page.rows.map((row) => (row as { passenger_id?: string | null }).passenger_id),
       );
       const rows = hydratePassengerIdentity(
-        pageRows as unknown as Array<Record<string, unknown>>,
+        page.rows as unknown as Array<Record<string, unknown>>,
         directory,
       ).map(attributeTripHistoryDriver) as TripHistoryRow[];
 
-      const last = rows[rows.length - 1];
-      const nextCursor: TripHistoryCursor | null =
-        hasMore && last
-          ? {
-              id: last.id,
-              completedAt:
-                typeof last.completed_at === 'string' ? last.completed_at : null,
-            }
-          : null;
-
-      return { rows, nextCursor, hasMore, pageSize };
+      return { rows, nextCursor: page.nextCursor, hasMore: page.hasMore, pageSize };
     }
 
-    lastError = error;
-    if (!isRecoverableTripHistoryQueryError(error)) {
-      throw error;
+    lastError = failed.error;
+    if (!isRecoverableTripHistoryQueryError(failed.error!)) {
+      throw failed.error;
     }
   }
 

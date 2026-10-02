@@ -7,12 +7,12 @@ import { adminTripHistoryDisplayAt, belongsInTripHistory } from '../adminTripNoS
 import { tripHistoryOutcomeBadge } from '../tripHistoryOutcomeBadge';
 import {
   attributeTripHistoryDriver,
-  tripHistoryCursorOrFilter,
+  TRIP_HISTORY_EVENT_BANDS,
   tripHistoryDateOrFilter,
   tripHistoryDriverOrFilter,
   tripHistoryTerminalOrFilter,
-  type TripHistoryCursor,
 } from '../tripHistoryQuery';
+import { matchesOr, simulateAllPages, type SimRow } from './helpers/postgrestSim';
 
 const DRIVER_014 = {
   id: 'c40dd8a6-f422-40bc-9534-bae7be88b93e',
@@ -118,73 +118,10 @@ const MK_261002_015 = {
   },
 };
 
-type Row = Record<string, unknown> & { id: string; completed_at: string | null };
+type Row = SimRow & { completed_at: string | null };
 
-function splitTopLevel(filter: string): string[] {
-  const parts: string[] = [];
-  let depth = 0;
-  let buf = '';
-  for (const ch of filter) {
-    if (ch === '(') depth += 1;
-    if (ch === ')') depth -= 1;
-    if (ch === ',' && depth === 0) {
-      parts.push(buf);
-      buf = '';
-    } else {
-      buf += ch;
-    }
-  }
-  if (buf) parts.push(buf);
-  return parts;
-}
-
-/** Minimal PostgREST logic-tree evaluator for the operators Trip History emits. */
-function evalTerm(row: Row, term: string): boolean {
-  if (term.startsWith('and(') && term.endsWith(')')) {
-    return splitTopLevel(term.slice(4, -1)).every((t) => evalTerm(row, t));
-  }
-  const firstDot = term.indexOf('.');
-  const secondDot = term.indexOf('.', firstDot + 1);
-  const col = term.slice(0, firstDot);
-  const op = term.slice(firstDot + 1, secondDot);
-  const value = term.slice(secondDot + 1);
-  const cell = row[col] as string | number | null | undefined;
-  if (op === 'is' && value === 'null') return cell === null || cell === undefined;
-  if (cell === null || cell === undefined) return false;
-  if (op === 'eq') return String(cell) === value;
-  if (op === 'in') return value.slice(1, -1).split(',').includes(String(cell));
-  if (op === 'gt') return Number(cell) > Number(value);
-  if (op === 'lt') return String(cell) < value;
-  if (op === 'gte') return String(cell) >= value;
-  if (op === 'lte') return String(cell) <= value;
-  throw new Error(`unsupported term ${term}`);
-}
-
-const matchesOr = (row: Row, filter: string) => splitTopLevel(filter).some((t) => evalTerm(row, t));
-
-function orderDesc(rows: Row[]): Row[] {
-  return [...rows].sort((a, b) => {
-    if (a.completed_at === null && b.completed_at !== null) return 1;
-    if (a.completed_at !== null && b.completed_at === null) return -1;
-    if (a.completed_at !== b.completed_at) return String(b.completed_at) < String(a.completed_at) ? -1 : 1;
-    return b.id < a.id ? -1 : 1;
-  });
-}
-
-function paginate(rows: Row[], pageSize: number): string[] {
-  const seen: string[] = [];
-  let cursor: TripHistoryCursor | null = null;
-  for (let guard = 0; guard < 100; guard += 1) {
-    const filtered = cursor ? rows.filter((row) => matchesOr(row, tripHistoryCursorOrFilter(cursor!))) : rows;
-    const page = orderDesc(filtered).slice(0, pageSize + 1);
-    const pageRows = page.slice(0, pageSize);
-    seen.push(...pageRows.map((r) => r.id));
-    if (page.length <= pageSize) break;
-    const last = pageRows[pageRows.length - 1];
-    cursor = { id: last.id, completedAt: last.completed_at };
-  }
-  return seen;
-}
+const paginate = (rows: Row[], pageSize: number): string[] =>
+  simulateAllPages(rows, TRIP_HISTORY_EVENT_BANDS, () => true, 'newest', pageSize);
 
 const WINDOW_START = new Date('2026-09-25T00:00:00.000Z');
 const WINDOW_END = new Date('2026-10-02T23:59:59.999Z');

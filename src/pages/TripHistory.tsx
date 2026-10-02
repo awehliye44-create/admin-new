@@ -78,6 +78,7 @@ import {
   type TripHistoryRow,
   type TripHistoryStatusFilter,
 } from '@/lib/tripHistoryQuery';
+import { ADMIN_SORT_ORDER_DEFAULT, type AdminSortOrder } from '@/lib/adminEventOrder';
 import {
   adminNoShowPaymentLabel,
   adminTripHistoryDisplayAt,
@@ -411,6 +412,7 @@ export default function TripHistory() {
   const [dateFilter, setDateFilter] = useState('7days');
   const [statusFilter, setStatusFilter] = useState<TripHistoryStatusFilter>('all');
   const [pageSize, setPageSize] = useState(TRIP_HISTORY_PAGE_SIZE_DEFAULT);
+  const [sortOrder, setSortOrder] = useState<AdminSortOrder>(ADMIN_SORT_ORDER_DEFAULT);
   const [appendedRows, setAppendedRows] = useState<CompletedTrip[]>([]);
   const [nextCursor, setNextCursor] = useState<TripHistoryCursor | null>(null);
   const [hasMore, setHasMore] = useState(false);
@@ -505,6 +507,7 @@ export default function TripHistory() {
       selectedServiceAreaId,
       statusFilter,
       pageSize,
+      sortOrder,
       serverTripCode ?? '',
       session?.access_token,
     ],
@@ -518,6 +521,7 @@ export default function TripHistory() {
         serviceAreaId: selectedServiceAreaId !== 'all' ? selectedServiceAreaId : undefined,
         pageSize,
         cursor: null,
+        sortOrder,
         status: statusFilter,
         tripCode: serverTripCode,
       });
@@ -603,6 +607,7 @@ export default function TripHistory() {
         serviceAreaId: selectedServiceAreaId !== 'all' ? selectedServiceAreaId : undefined,
         pageSize,
         cursor: nextCursor,
+        sortOrder,
         status: statusFilter,
         tripCode: serverTripCode,
       });
@@ -625,6 +630,7 @@ export default function TripHistory() {
     selectedRegionId,
     selectedServiceAreaId,
     serverTripCode,
+    sortOrder,
     statusFilter,
   ]);
 
@@ -1273,6 +1279,18 @@ export default function TripHistory() {
                 <SelectItem value="arrival_cancellation">Arrival Cancellation</SelectItem>
                 <SelectItem value="no_show">No-Show</SelectItem>
                 <SelectItem value="late_cancellation">Late cancel</SelectItem>
+              </SelectContent>
+            </Select>
+            <Select
+              value={sortOrder}
+              onValueChange={(v) => setSortOrder(v as AdminSortOrder)}
+            >
+              <SelectTrigger className="w-full md:w-[140px]">
+                <SelectValue placeholder="Sort" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="newest">Newest first</SelectItem>
+                <SelectItem value="oldest">Oldest first</SelectItem>
               </SelectContent>
             </Select>
             <Select

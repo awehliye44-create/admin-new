@@ -54,11 +54,11 @@ describe('trip history — no hard 500/2000 history cap', () => {
 
   it('cursor encode/decode round-trips', () => {
     const encoded = encodeTripHistoryCursor({
-      completedAt: '2026-08-01T12:00:00.000Z',
+      eventAt: '2026-08-01T12:00:00.000Z',
       id: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee',
     });
     expect(decodeTripHistoryCursor(encoded)).toEqual({
-      completedAt: '2026-08-01T12:00:00.000Z',
+      eventAt: '2026-08-01T12:00:00.000Z',
       id: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee',
     });
     expect(decodeTripHistoryCursor(null)).toBeNull();

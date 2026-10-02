@@ -56,11 +56,28 @@ import { TripHistoryTerminalOutcomePanel } from '@/components/trips/TripHistoryT
 import {
   classifyMissedCancelledBucket,
   isChargeableTerminalBucket,
-  MISSED_CANCELLED_STATS_EXTRA_STATUSES,
   missedCancelledQuotedFareImpactPence,
   resolveAdminArrivalCancellationFeePence,
   summarizeMissedCancelledStats,
 } from '@/lib/missedCancelledTerminalStats';
+import {
+  applyMissedCancelledOwnership,
+  MISSED_CANCELLED_CANCELLED_STATUSES,
+  MISSED_CANCELLED_EVENT_BANDS,
+  MISSED_CANCELLED_MISSED_STATUSES,
+  missedCancelledEventAt,
+  missedCancelledEventWindowOrFilter,
+  missedCancelledStatusList,
+} from '@/lib/adminTerminalPageOwnership';
+import {
+  ADMIN_SORT_ORDER_DEFAULT,
+  applyEventBand,
+  eventCursorOrFilter,
+  eventKeyForBands,
+  mergeEventBandPages,
+  type AdminEventCursor,
+  type AdminSortOrder,
+} from '@/lib/adminEventOrder';
 
 interface CancelledTrip {
   id: string;
@@ -152,7 +169,15 @@ export default function MissedCancelled() {
   const [statusFilter, setStatusFilter] = useState('all');
   const [dateFilter, setDateFilter] = useState('7days');
   const [serviceFilter, setServiceFilter] = useState<ServiceAreaFinanceSelection>(DEFAULT_SERVICE_AREA_SELECTION);
+  const [sortOrder, setSortOrder] = useState<AdminSortOrder>(ADMIN_SORT_ORDER_DEFAULT);
   const [listPage, setListPage] = useState(0);
+  // pageCursors[n] is the keyset cursor that starts page n (page 0 has none).
+  const [pageCursors, setPageCursors] = useState<Array<AdminEventCursor | null>>([null]);
+  const pageCursor = pageCursors[listPage] ?? null;
+  const resetPaging = useCallback(() => {
+    setListPage(0);
+    setPageCursors([null]);
+  }, []);
 
   // Dialog states
   const [isViewOpen, setIsViewOpen] = useState(false);
@@ -179,10 +204,10 @@ export default function MissedCancelled() {
   useEffect(() => {
     const t = setTimeout(() => {
       setDebouncedSearch(searchQuery.trim());
-      setListPage(0);
+      resetPaging();
     }, 300);
     return () => clearTimeout(t);
-  }, [searchQuery]);
+  }, [searchQuery, resetPaging]);
 
   const fetchRegionServiceAreaIds = useCallback(async (regionId: string): Promise<string[]> => {
     const { data, error } = await supabase
@@ -194,11 +219,57 @@ export default function MissedCancelled() {
   }, []);
 
   const { data: missedPage, isLoading, isError, error, refetch } = useQuery({
-    queryKey: ['missed-cancelled', dateFilter, listPage, statusFilter, serviceFilter.regionId, debouncedSearch],
+    queryKey: [
+      'missed-cancelled',
+      dateFilter,
+      listPage,
+      pageCursor?.eventAt ?? '',
+      pageCursor?.id ?? '',
+      sortOrder,
+      statusFilter,
+      serviceFilter.regionId,
+      debouncedSearch,
+    ],
     queryFn: async () => {
       const { start, end } = getDateRange();
+      const statuses = missedCancelledStatusList(statusFilter);
+      const ascending = sortOrder === 'oldest';
 
-      let query = supabase
+      let saIds: string[] | null = null;
+      if (serviceFilter.regionId) {
+        saIds = await fetchRegionServiceAreaIds(serviceFilter.regionId);
+        if (saIds.length === 0) {
+          return { rows: [] as CancelledTrip[], totalCount: 0, hasMore: false, nextCursor: null };
+        }
+      }
+
+      const term = debouncedSearch.replace(/[%(),.\\"]/g, ' ').trim();
+      const like = term ? `%${term}%` : null;
+      // Ownership, status, region and search scope — shared by every band and the count,
+      // so Trip History-owned outcomes never reach pagination, totals or sorting.
+      // Untyped builder: the generated trips types hit TS2589 when shared across bands.
+      const scope = (q: any): any => {
+        let scoped = applyMissedCancelledOwnership(q.in('status', statuses));
+        if (saIds) scoped = scoped.in('service_area_id', saIds);
+        if (like) {
+          scoped = scoped.or(
+            `trip_number.ilike.${like},trip_code.ilike.${like},passenger_name.ilike.${like},passenger_phone.ilike.${like},pickup_address.ilike.${like}`,
+          );
+        }
+        return scoped;
+      };
+
+      const countQ = scope(
+        (supabase as any)
+          .from('trips')
+          .select('id', { count: 'exact', head: true })
+          .or(missedCancelledEventWindowOrFilter(start, end)),
+      );
+
+      const from = 0;
+      const to = ADMIN_MISSED_CANCELLED_PAGE_SIZE;
+      const bandQueries = MISSED_CANCELLED_EVENT_BANDS.map((band) => {
+        let query = scope(applyEventBand((supabase as any)
         .from('trips')
         .select(`
           id, trip_number, trip_code, status, passenger_id, passenger_name, passenger_phone,
@@ -215,46 +286,40 @@ export default function MissedCancelled() {
           driver:drivers!trips_driver_id_fkey(id, first_name, last_name, phone, region_id),
           previous_driver:drivers!trips_previous_driver_id_fkey(id, first_name, last_name, phone, region_id),
           service_area:service_areas!trips_service_area_id_fkey(id, name, region_id, region:regions(currency_code))
-        `, { count: 'exact' })
-        .gte('created_at', start.toISOString())
-        .lte('created_at', end.toISOString());
+        `), band))
+          .gte(band.column, start.toISOString())
+          .lte(band.column, end.toISOString());
+        if (pageCursor) query = query.or(eventCursorOrFilter(band.column, pageCursor, sortOrder));
+        // `to` is inclusive: one row past the page tells the merge whether more remain.
+        return query
+          .order(band.column, { ascending })
+          .order('id', { ascending })
+          .range(from, to);
+      });
 
-      if (statusFilter === 'all') {
-        query = query.in('status', [...MISSED_CANCELLED_STATUSES]);
-      } else if (statusFilter === 'expired') {
-        query = query.in('status', ['expired', 'expired_no_driver']);
-      } else {
-        query = query.eq('status', statusFilter);
-      }
+      type ListResult = { data: unknown[] | null; count: number | null; error: Error | null };
+      const [countRes, ...bandRes] = (await Promise.all([countQ, ...bandQueries])) as ListResult[];
+      if (countRes.error) throw countRes.error;
+      for (const res of bandRes) if (res.error) throw res.error;
 
-      if (serviceFilter.regionId) {
-        const saIds = await fetchRegionServiceAreaIds(serviceFilter.regionId);
-        if (saIds.length === 0) return { rows: [] as CancelledTrip[], totalCount: 0 };
-        query = query.in('service_area_id', saIds);
-      }
-
-      const term = debouncedSearch.replace(/[%(),.\\"]/g, ' ').trim();
-      if (term) {
-        const like = `%${term}%`;
-        query = query.or(
-          `trip_number.ilike.${like},trip_code.ilike.${like},passenger_name.ilike.${like},passenger_phone.ilike.${like},pickup_address.ilike.${like}`,
-        );
-      }
-
-      const from = listPage * ADMIN_MISSED_CANCELLED_PAGE_SIZE;
-      const to = from + ADMIN_MISSED_CANCELLED_PAGE_SIZE - 1;
-      const { data, error, count } = await query
-        .order('created_at', { ascending: false })
-        .range(from, to);
-
-      if (error) throw error;
-      const rows = (data || []) as unknown as CancelledTrip[];
-      const directory = await fetchPassengerDirectory(rows.map((row) => row.passenger_id));
-      const withDisposition = await enrichTripsWithPaymentDisposition(rows, 'missed_cancelled');
-      // Defense in depth: never surface no-show outcomes here (Trip History owns them).
-      const filtered = hydratePassengerIdentity(withDisposition, directory).filter((row) => belongsInMissedCancelled(row));
-      return { rows: filtered, totalCount: count ?? filtered.length };
-
+      const keyOf = (row: CancelledTrip) =>
+        eventKeyForBands(row as unknown as Record<string, unknown> & { id: string }, MISSED_CANCELLED_EVENT_BANDS) as AdminEventCursor;
+      const page = mergeEventBandPages(
+        bandRes.map((res) => (res.data || []) as unknown as CancelledTrip[]),
+        keyOf,
+        sortOrder,
+        ADMIN_MISSED_CANCELLED_PAGE_SIZE,
+      );
+      const directory = await fetchPassengerDirectory(page.rows.map((row) => row.passenger_id));
+      const withDisposition = await enrichTripsWithPaymentDisposition(page.rows, 'missed_cancelled');
+      // Rows are already ownership-scoped server-side; this only re-asserts the same SSOT.
+      const rows = hydratePassengerIdentity(withDisposition, directory).filter((row) => belongsInMissedCancelled(row));
+      return {
+        rows,
+        totalCount: countRes.count ?? rows.length,
+        hasMore: page.hasMore,
+        nextCursor: page.nextCursor,
+      };
     },
     staleTime: 30_000,
   });
@@ -270,28 +335,21 @@ export default function MissedCancelled() {
       if (serviceFilter.regionId) {
         saIds = await fetchRegionServiceAreaIds(serviceFilter.regionId);
         if (saIds.length === 0) {
-          return { cancelled: 0, missed: 0, noShowStatus: 0, fareRows: [] as CancelledTrip[] };
+          return { cancelled: 0, missed: 0, fareRows: [] as CancelledTrip[] };
         }
       }
-      let noShowStatusQ = supabase
+      const eventWindow = missedCancelledEventWindowOrFilter(start, end);
+      let cancelledQ = applyMissedCancelledOwnership(supabase
         .from('trips')
         .select('id', { count: 'exact', head: true })
-        .in('status', [...MISSED_CANCELLED_STATS_EXTRA_STATUSES])
-        .gte('created_at', start.toISOString())
-        .lte('created_at', end.toISOString());
-      let cancelledQ = supabase
+        .in('status', [...MISSED_CANCELLED_CANCELLED_STATUSES])
+        .or(eventWindow));
+      let missedQ = applyMissedCancelledOwnership(supabase
         .from('trips')
         .select('id', { count: 'exact', head: true })
-        .in('status', ['cancelled', 'customer_cancelled'])
-        .gte('created_at', start.toISOString())
-        .lte('created_at', end.toISOString());
-      let missedQ = supabase
-        .from('trips')
-        .select('id', { count: 'exact', head: true })
-        .in('status', ['missed', 'expired', 'expired_no_driver'])
-        .gte('created_at', start.toISOString())
-        .lte('created_at', end.toISOString());
-      let fareQ = supabase
+        .in('status', [...MISSED_CANCELLED_MISSED_STATUSES])
+        .or(eventWindow));
+      let fareQ = applyMissedCancelledOwnership(supabase
         .from('trips')
         .select(`
           id, currency_code, status, financial_outcome, payment_status, cancellation_reason,
@@ -302,31 +360,26 @@ export default function MissedCancelled() {
           fare, estimated_fare, fare_snapshot_json,
           service_area:service_areas!trips_service_area_id_fkey(region:regions(currency_code))
         `)
-        .in('status', [...MISSED_CANCELLED_STATUSES, ...MISSED_CANCELLED_STATS_EXTRA_STATUSES])
-        .gte('created_at', start.toISOString())
-        .lte('created_at', end.toISOString())
+        .in('status', [...MISSED_CANCELLED_STATUSES])
+        .or(eventWindow))
         .order('created_at', { ascending: false })
         .limit(ADMIN_MISSED_CANCELLED_STATS_ROW_CAP);
       if (saIds) {
         cancelledQ = cancelledQ.in('service_area_id', saIds);
         missedQ = missedQ.in('service_area_id', saIds);
-        noShowStatusQ = noShowStatusQ.in('service_area_id', saIds);
         fareQ = fareQ.in('service_area_id', saIds);
       }
-      const [cancelledRes, missedRes, noShowStatusRes, fareRes] = await Promise.all([
+      const [cancelledRes, missedRes, fareRes] = await Promise.all([
         cancelledQ,
         missedQ,
-        noShowStatusQ,
         fareQ,
       ]);
       if (cancelledRes.error) throw cancelledRes.error;
       if (missedRes.error) throw missedRes.error;
-      if (noShowStatusRes.error) throw noShowStatusRes.error;
       if (fareRes.error) throw fareRes.error;
       return {
         cancelled: cancelledRes.count ?? 0,
         missed: missedRes.count ?? 0,
-        noShowStatus: noShowStatusRes.count ?? 0,
         fareRows: (fareRes.data || []) as unknown as CancelledTrip[],
       };
     },
@@ -335,6 +388,8 @@ export default function MissedCancelled() {
 
   const allTrips = missedPage?.rows ?? [];
   const totalCount = missedPage?.totalCount ?? 0;
+  const pageHasMore = missedPage?.hasMore ?? false;
+  const pageNextCursor = missedPage?.nextCursor ?? null;
   const statsFareRows = rangeStats?.fareRows ?? [];
 
   const statsCurrencies = statsFareRows
@@ -376,8 +431,7 @@ export default function MissedCancelled() {
   // Range-wide counters from head-count stats — never derived from the loaded page.
   const cancelledCount = rangeStats?.cancelled ?? 0;
   const missedCount = rangeStats?.missed ?? 0;
-  const noShowStatusCount = rangeStats?.noShowStatus ?? 0;
-  const totalIssues = cancelledCount + missedCount + noShowStatusCount;
+  const totalIssues = cancelledCount + missedCount;
   const quotedFareImpactPence = (trip: CancelledTrip) =>
     missedCancelledQuotedFareImpactPence(trip, resolveAdminCommittedCustomerFarePence);
   const bucketStats = summarizeMissedCancelledStats(statsFareRows);
@@ -411,11 +465,15 @@ export default function MissedCancelled() {
   return (
     <AdminLayout 
       title="Missed & Cancelled" 
-      description="Review cancelled, missed, and expired trips (no-shows live in Trip History)"
+      description="Review cancelled, missed, and expired trips (Arrival Cancellation, No-Show and Late Passenger Cancellation live in Trip History)"
     >
       {/* Service Area Filter */}
       <div className="flex items-center gap-3 mb-6">
-        <ServiceAreaFinanceFilter financialModel="ALL_OPERATIONAL" value={serviceFilter} onChange={setServiceFilter} />
+        <ServiceAreaFinanceFilter
+          financialModel="ALL_OPERATIONAL"
+          value={serviceFilter}
+          onChange={(next) => { setServiceFilter(next); resetPaging(); }}
+        />
         {isMixedCurrency && (
           <Badge variant="outline" className="text-amber-600 border-amber-300">
             <AlertTriangle className="h-3 w-3 mr-1" /> Mixed currencies — select a service for totals
@@ -424,13 +482,21 @@ export default function MissedCancelled() {
       </div>
 
       {/* Stats Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-5 gap-4 mb-6">
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
         <Card>
           <CardContent className="pt-6">
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-muted-foreground">Total Issues</p>
                 <p className="text-2xl font-bold">{totalIssues}</p>
+                <p className="text-[10px] text-muted-foreground">
+                  Arrival Cancellation, No-Show and Late Passenger Cancellation are in Trip History
+                </p>
+                {bucketStats.chargeable_total > 0 && (
+                  <p className="text-[10px] text-muted-foreground">
+                    {bucketStats.chargeable_total} with legacy arrival-fee flags (no canonical outcome)
+                  </p>
+                )}
                 {bucketStatsPartial && (
                   <p className="text-[10px] text-muted-foreground">
                     Breakdown from latest {statsFareRows.length} trips
@@ -438,22 +504,6 @@ export default function MissedCancelled() {
                 )}
               </div>
               <AlertTriangle className="h-8 w-8 text-muted-foreground opacity-80" />
-            </div>
-          </CardContent>
-        </Card>
-        <Card className="border-rose-500/30 bg-rose-500/5">
-          <CardContent className="pt-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-muted-foreground">Chargeable outcomes</p>
-                <p className="text-2xl font-bold text-rose-600">{bucketStats.chargeable_total}</p>
-                <div className="mt-1 space-y-0.5 text-[11px] text-muted-foreground">
-                  <p>Arrival Cancellation: {bucketStats.arrival_cancellation}</p>
-                  <p>No-Show: {bucketStats.no_show} (listed in Trip History)</p>
-                  <p>Late Passenger Cancellation: {bucketStats.late_passenger_cancellation}</p>
-                </div>
-              </div>
-              <XCircle className="h-8 w-8 text-rose-500" />
             </div>
           </CardContent>
         </Card>
@@ -490,7 +540,7 @@ export default function MissedCancelled() {
               <div>
                 <p className="text-sm text-muted-foreground">Quoted fare impact</p>
                 <p className="text-[10px] text-muted-foreground">
-                  Not charged / not revenue · excludes chargeable outcomes
+                  Not charged / not revenue · excludes fee-bearing cancellations
                 </p>
                 {isMixedCurrency ? (
                   <CurrencyGroupedStats
@@ -533,7 +583,7 @@ export default function MissedCancelled() {
                 onChange={(e) => setSearchQuery(e.target.value)}
               />
             </div>
-            <Select value={statusFilter} onValueChange={setStatusFilter}>
+            <Select value={statusFilter} onValueChange={(v) => { setStatusFilter(v); resetPaging(); }}>
               <SelectTrigger className="w-full md:w-[130px]">
                 <SelectValue placeholder="All Status" />
               </SelectTrigger>
@@ -545,7 +595,16 @@ export default function MissedCancelled() {
                 <SelectItem value="expired">Expired</SelectItem>
               </SelectContent>
             </Select>
-            <Select value={dateFilter} onValueChange={(v) => { setDateFilter(v); setListPage(0); }}>
+            <Select value={sortOrder} onValueChange={(v) => { setSortOrder(v as AdminSortOrder); resetPaging(); }}>
+              <SelectTrigger className="w-full md:w-[140px]">
+                <SelectValue placeholder="Sort" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="newest">Newest first</SelectItem>
+                <SelectItem value="oldest">Oldest first</SelectItem>
+              </SelectContent>
+            </Select>
+            <Select value={dateFilter} onValueChange={(v) => { setDateFilter(v); resetPaging(); }}>
               <SelectTrigger className="w-full md:w-[130px]">
                 <SelectValue placeholder="Date Range" />
               </SelectTrigger>
@@ -661,7 +720,7 @@ export default function MissedCancelled() {
                         {formatPaymentDisposition(trip)}
                       </TableCell>
                       <TableCell className="text-muted-foreground text-sm">
-                        {formatFinanceDateSafe(trip.created_at, 'MMM d, HH:mm')}
+                        {formatFinanceDateSafe(missedCancelledEventAt(trip), 'MMM d, HH:mm')}
                       </TableCell>
                       <TableCell className="text-right">
                         <Button 
@@ -695,8 +754,16 @@ export default function MissedCancelled() {
                 <Button
                   variant="outline"
                   size="sm"
-                  disabled={isLoading || allTrips.length < ADMIN_MISSED_CANCELLED_PAGE_SIZE}
-                  onClick={() => setListPage((p) => p + 1)}
+                  disabled={isLoading || !pageHasMore || !pageNextCursor}
+                  onClick={() => {
+                    const next = listPage + 1;
+                    setPageCursors((cursors) => {
+                      const kept = cursors.slice(0, next);
+                      kept[next] = pageNextCursor;
+                      return kept;
+                    });
+                    setListPage(next);
+                  }}
                 >
                   Next
                 </Button>

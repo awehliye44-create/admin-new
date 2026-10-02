@@ -13,11 +13,12 @@ import {
 } from '../missedCancelledTerminalStats';
 import {
   attributeTripHistoryDriver,
-  tripHistoryCursorOrFilter,
+  TRIP_HISTORY_EVENT_BANDS,
   tripHistoryDateOrFilter,
   tripHistoryTerminalOrFilter,
-  type TripHistoryCursor,
 } from '../tripHistoryQuery';
+import { eventCursorOrFilter } from '../adminEventOrder';
+import { simulateAllPages, type SimRow } from './helpers/postgrestSim';
 
 const DRIVER_015 = {
   id: '56136f5f-1a3a-4a14-bb23-439b3951415a',
@@ -132,97 +133,43 @@ describe('MK-261002-015 Admin financial display', () => {
   });
 });
 
-type PageRow = { id: string; completed_at: string | null };
-
-function splitTopLevel(filter: string): string[] {
-  const parts: string[] = [];
-  let depth = 0;
-  let buf = '';
-  for (const ch of filter) {
-    if (ch === '(') depth += 1;
-    if (ch === ')') depth -= 1;
-    if (ch === ',' && depth === 0) {
-      parts.push(buf);
-      buf = '';
-    } else {
-      buf += ch;
-    }
-  }
-  if (buf) parts.push(buf);
-  return parts;
-}
-
-function evalTerm(row: PageRow, term: string): boolean {
-  if (term.startsWith('and(') && term.endsWith(')')) {
-    return splitTopLevel(term.slice(4, -1)).every((t) => evalTerm(row, t));
-  }
-  const [col, op, ...rest] = term.split('.');
-  const value = rest.join('.');
-  const cell = row[col as keyof PageRow];
-  if (op === 'is' && value === 'null') return cell === null;
-  if (cell === null) return false;
-  if (op === 'eq') return cell === value;
-  if (op === 'lt') return String(cell) < value;
-  throw new Error(`unsupported term ${term}`);
-}
-
-function orderDesc(rows: PageRow[]): PageRow[] {
-  return [...rows].sort((a, b) => {
-    if (a.completed_at === null && b.completed_at !== null) return 1;
-    if (a.completed_at !== null && b.completed_at === null) return -1;
-    if (a.completed_at !== b.completed_at) return String(b.completed_at) < String(a.completed_at) ? -1 : 1;
-    return b.id < a.id ? -1 : 1;
-  });
-}
-
-function paginate(rows: PageRow[], pageSize: number, cursorFilter: (c: TripHistoryCursor) => string): string[] {
-  const seen: string[] = [];
-  let cursor: TripHistoryCursor | null = null;
-  for (let guard = 0; guard < 100; guard += 1) {
-    const filtered = cursor
-      ? rows.filter((row) => splitTopLevel(cursorFilter(cursor!)).some((t) => evalTerm(row, t)))
-      : rows;
-    const page = orderDesc(filtered).slice(0, pageSize + 1);
-    const pageRows = page.slice(0, pageSize);
-    seen.push(...pageRows.map((r) => r.id));
-    if (page.length <= pageSize) break;
-    const last = pageRows[pageRows.length - 1];
-    cursor = { id: last.id, completedAt: last.completed_at };
-  }
-  return seen;
-}
-
-describe('Trip History keyset pagination reaches the null completed_at band', () => {
-  const completed: PageRow[] = Array.from({ length: 130 }, (_, i) => ({
+describe('Trip History keyset pagination reaches every event band', () => {
+  const completed: SimRow[] = Array.from({ length: 130 }, (_, i) => ({
     id: `c-${String(i).padStart(3, '0')}`,
     completed_at: new Date(Date.UTC(2026, 8, 1, 0, i)).toISOString(),
+    cancelled_at: null,
+    created_at: new Date(Date.UTC(2026, 8, 1, 0, i)).toISOString(),
   }));
-  const noShows: PageRow[] = [
-    { id: MK_261002_015.id, completed_at: null },
-    { id: '00000000-0000-0000-0000-000000000001', completed_at: null },
+  const noShows: SimRow[] = [
+    { id: MK_261002_015.id, completed_at: null, cancelled_at: MK_261002_015.cancelled_at, created_at: MK_261002_015.created_at },
+    { id: '00000000-0000-0000-0000-000000000001', completed_at: null, cancelled_at: null, created_at: '2026-08-31T23:00:00.000Z' },
   ];
   const rows = [...completed, ...noShows];
+  const all = () => true;
 
-  it('every row (including MK-261002-015) is reachable across pages of 50 and 100', () => {
-    for (const size of [50, 100]) {
-      const seen = paginate(rows, size, tripHistoryCursorOrFilter);
-      expect(new Set(seen).size).toBe(rows.length);
-      expect(seen).toContain(MK_261002_015.id);
+  it('every row (including MK-261002-015) is reachable across pages of 50 and 100, both orders', () => {
+    for (const order of ['newest', 'oldest'] as const) {
+      for (const size of [50, 100]) {
+        const seen = simulateAllPages(rows, TRIP_HISTORY_EVENT_BANDS, all, order, size);
+        expect(seen.length).toBe(rows.length);
+        expect(new Set(seen).size).toBe(rows.length);
+        expect(seen).toContain(MK_261002_015.id);
+      }
     }
   });
 
-  it('the pre-fix continuation filter lost the whole null band', () => {
-    const legacy = (c: TripHistoryCursor) =>
-      c.completedAt
-        ? `completed_at.lt.${c.completedAt},and(completed_at.eq.${c.completedAt},id.lt.${c.id})`
-        : `and(completed_at.is.null,id.lt.${c.id})`;
-    const seen = paginate(rows, 100, legacy);
-    expect(seen).not.toContain(MK_261002_015.id);
-    expect(seen.length).toBe(130);
+  it('MK-261002-015 sorts by its cancellation time instead of trailing every completed trip', () => {
+    const newest = simulateAllPages(rows, TRIP_HISTORY_EVENT_BANDS, all, 'newest', 50);
+    expect(newest[0]).toBe(MK_261002_015.id);
+    expect(newest[newest.length - 1]).toBe('00000000-0000-0000-0000-000000000001');
   });
 
-  it('null-band continuation stays inside the band', () => {
-    expect(tripHistoryCursorOrFilter({ completedAt: null, id: 'x' })).toBe('and(completed_at.is.null,id.lt.x)');
+  it('band continuation stays inside its own column', () => {
+    const cursor = { eventAt: '2026-10-02T12:43:36.989+00:00', id: 'x' };
+    expect(eventCursorOrFilter('cancelled_at', cursor, 'newest'))
+      .toBe('cancelled_at.lt.2026-10-02T12:43:36.989+00:00,and(cancelled_at.eq.2026-10-02T12:43:36.989+00:00,id.lt.x)');
+    expect(eventCursorOrFilter('completed_at', cursor, 'oldest'))
+      .toBe('completed_at.gt.2026-10-02T12:43:36.989+00:00,and(completed_at.eq.2026-10-02T12:43:36.989+00:00,id.gt.x)');
   });
 });
 
@@ -231,6 +178,13 @@ describe('Trip History wiring lock', () => {
   it('selects previous_driver and attributes rows', () => {
     expect(src).toContain('previous_driver:drivers!trips_previous_driver_id_fkey(');
     expect(src).toContain('.map(attributeTripHistoryDriver)');
-    expect(src).toContain('query.or(tripHistoryCursorOrFilter(cursor))');
+  });
+  it('pages each event band with its own keyset before merging', () => {
+    expect(src).toContain('TRIP_HISTORY_EVENT_BANDS.map((band)');
+    expect(src).toContain('query = applyEventBand(query, band)');
+    expect(src).toContain('query.or(eventCursorOrFilter(band.column, args.cursor, order))');
+    expect(src).toContain(".order(band.column, { ascending })");
+    expect(src).toContain('mergeEventBandPages(');
+    expect(src).not.toContain("order('completed_at', { ascending: false, nullsFirst: false })");
   });
 });

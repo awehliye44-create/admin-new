@@ -15,6 +15,14 @@ export const MISSED_CANCELLED_STATUSES = [
   "expired_no_driver",
 ] as const;
 
+/** Canonical outcomes owned by Trip History — never listed in Missed & Cancelled, whatever the status. */
+export const TRIP_HISTORY_OWNED_FINANCIAL_OUTCOMES = [
+  "COMPLETED",
+  "ARRIVAL_CANCELLATION",
+  "NO_SHOW",
+  "LATE_PASSENGER_CANCELLATION",
+] as const;
+
 export type AdminTripClassificationRow = {
   status?: string | null;
   financial_outcome?: string | null;
@@ -85,12 +93,14 @@ export function tripHistoryNoShowDisplayLabel(
   return null;
 }
 
-/** Missed & Cancelled bucket — cancels/missed/expired only; never no-show. */
+/** Missed & Cancelled bucket — cancels/missed/expired only; never a Trip History-owned outcome. */
 export function belongsInMissedCancelled(
   row: AdminTripClassificationRow | null | undefined,
 ): boolean {
   if (!row) return false;
   if (isAdminNoShowTrip(row)) return false;
+  const outcome = String(row.financial_outcome ?? "").trim().toUpperCase();
+  if ((TRIP_HISTORY_OWNED_FINANCIAL_OUTCOMES as readonly string[]).includes(outcome)) return false;
   const status = String(row.status ?? "").trim().toLowerCase();
   return (MISSED_CANCELLED_STATUSES as readonly string[]).includes(status);
 }
