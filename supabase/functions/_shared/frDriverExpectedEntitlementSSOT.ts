@@ -2,13 +2,15 @@
  * FR Drivers tab — canonical expected driver entitlement (read-only).
  *
  * Never use raw trips.driver_net_pence alone for terminal-fee outcomes.
- * Provider processing fee is platform-owned on terminal captures unless an
- * explicit approved policy says the driver pays it. Do not subtract provider
- * fee from expected driver entitlement by default.
+ * Canonical ARRIVAL_CANCELLATION / NO_SHOW / LATE_PASSENGER_CANCELLATION:
+ * captured − ACTUAL provider fee, commission 0 (terminal settlement posting).
+ * Historical CANCELLED_WITH_FEE keeps capture − commission (provider fee
+ * platform-owned on that formula).
  */
 
 import { TERMINAL_FEE_TRIP_STATUSES } from "./driverCreditMonitoringSSOT.ts";
 import { isCapturedAtRestampSuspect } from "./paymentSessionCaptureTimestampSSOT.ts";
+import { resolveTerminalEntitledDriverId } from "./terminalOutcomeKindSSOT.ts";
 
 export const FR_EXPECTED_STAMP_STATUS = {
   OK: "OK",
@@ -48,6 +50,17 @@ export type FrDriverEntitlementTripInput = {
   settlement_amount_pence?: number | null;
   captured_amount_pence?: number | null;
   provider_processing_fee_pence?: number | null;
+  /** payment_sessions.fee_status — canonical terminal entitlement requires "ACTUAL". */
+  provider_fee_status?: string | null;
+  /**
+   * Terminal beneficiary inputs. driver_id / confirmed_driver_id are nulled by the
+   * terminal cancel trigger; previous_driver_id is the preserved entitled driver.
+   */
+  driver_id?: string | null;
+  confirmed_driver_id?: string | null;
+  previous_driver_id?: string | null;
+  /** Driver whose wallet is being reconciled (scope owner). */
+  evaluated_driver_id?: string | null;
   /** e.g. partial_capture_only — customer shortfall lineage, never haircuts driver expected. */
   payment_hold_status?: string | null;
   /**
@@ -77,6 +90,8 @@ export type FrDriverEntitlementTripInput = {
 export const FR_FINANCIAL_OUTCOME_CLASS = {
   FARE_SETTLEMENT: "FARE_SETTLEMENT",
   TERMINAL_FEE: "TERMINAL_FEE",
+  /** CANCELLED_NO_FEE — canonical outcome with no driver entitlement. */
+  NO_ENTITLEMENT: "NO_ENTITLEMENT",
   UNKNOWN: "UNKNOWN",
 } as const;
 
@@ -88,11 +103,83 @@ export type FrFinancialOutcomeClassification = {
   reason: string;
 };
 
-const TERMINAL_FINANCIAL_OUTCOMES = new Set([
+/**
+ * Canonical chargeable terminal outcomes. Entitlement = captured − ACTUAL provider
+ * fee, commission 0 — the same amount the terminal settlement posts as
+ * TRIP_EARNING_NET. Booking-time driver_net / commission / fare stamps survive on
+ * these rows and must never win classification as fare settlement.
+ */
+export const CANONICAL_TERMINAL_FINANCIAL_OUTCOMES: ReadonlySet<string> = new Set([
+  "ARRIVAL_CANCELLATION",
   "NO_SHOW",
-  "CANCELLED_WITH_FEE",
   "LATE_PASSENGER_CANCELLATION",
 ]);
+
+/** Canonical outcomes whose driver entitlement is explicitly £0 (not missing). */
+const NO_ENTITLEMENT_SOURCE_BY_OUTCOME: ReadonlyMap<string, string> = new Map([
+  ["CANCELLED_NO_FEE", "cancelled_no_fee_no_entitlement"],
+  // Distinguishes "no commission applies" from a genuine 0% commission rate.
+  ["CERTIFICATION_NON_PAYABLE", "certification_non_payable"],
+]);
+
+/** CANCELLED_WITH_FEE stays on the historical capture − commission formula. */
+const TERMINAL_FINANCIAL_OUTCOMES = new Set([
+  ...CANONICAL_TERMINAL_FINANCIAL_OUTCOMES,
+  "CANCELLED_WITH_FEE",
+]);
+
+function canonicalOutcome(trip: { financial_outcome?: string | null }): string {
+  return String(trip.financial_outcome ?? "").trim().toUpperCase();
+}
+
+export function isCanonicalTerminalFinancialOutcome(
+  trip: { financial_outcome?: string | null },
+): boolean {
+  return CANONICAL_TERMINAL_FINANCIAL_OUTCOMES.has(canonicalOutcome(trip));
+}
+
+export type CanonicalTerminalEntitlement = {
+  entitlement_pence: number | null;
+  commission_pence: 0;
+  reason:
+    | "terminal_fee_capture_minus_provider_fee"
+    | "terminal_fee_capture_missing"
+    | "terminal_fee_provider_fee_not_actual";
+};
+
+/**
+ * Canonical terminal entitlement from authoritative payment-session evidence.
+ * Mirrors terminal settlement posting (computeTerminalOutcomeEntitlement +
+ * loadTerminalCaptureEvidence): capture > 0 and fee_status ACTUAL with a fee
+ * amount, else null. Never substitutes the trip stamp or a zero fee.
+ */
+export function resolveCanonicalTerminalEntitlement(args: {
+  captured_pence: number | null | undefined;
+  provider_fee_pence: number | null | undefined;
+  provider_fee_status: string | null | undefined;
+}): CanonicalTerminalEntitlement {
+  const captured = nonNegOrNull(args.captured_pence);
+  if (captured == null || captured <= 0) {
+    return { entitlement_pence: null, commission_pence: 0, reason: "terminal_fee_capture_missing" };
+  }
+  const feeActual = String(args.provider_fee_status ?? "").trim().toUpperCase() === "ACTUAL";
+  const feeRaw = args.provider_fee_pence;
+  if (!feeActual || feeRaw == null || !Number.isFinite(Number(feeRaw)) || Number(feeRaw) < 0) {
+    return { entitlement_pence: null, commission_pence: 0, reason: "terminal_fee_provider_fee_not_actual" };
+  }
+  return {
+    entitlement_pence: resolveTerminalFeeDriverTenPence({
+      captured_pence: captured,
+      provider_fee_pence: Math.round(Number(feeRaw)),
+      commission_pence: 0,
+    }),
+    commission_pence: 0,
+    reason: "terminal_fee_capture_minus_provider_fee",
+  };
+}
+
+/** Terminal beneficiary — the settlement poster's rule, never a second copy. */
+export const resolveFrTerminalBeneficiaryDriverId = resolveTerminalEntitledDriverId;
 
 function nonNegOrNull(value: unknown): number | null {
   if (value == null || !Number.isFinite(Number(value))) return null;
@@ -174,6 +261,10 @@ export function hasExplicitTerminalFeeEvidence(
 
 /**
  * Precedence:
+ * 0. Canonical financial_outcome — ARRIVAL_CANCELLATION / NO_SHOW /
+ *    LATE_PASSENGER_CANCELLATION → TERMINAL_FEE; CANCELLED_NO_FEE /
+ *    CERTIFICATION_NON_PAYABLE → NO_ENTITLEMENT.
+ *    Evaluated before fare-settlement stamps, which are stale on these rows.
  * 1. Canonical fare-settlement evidence
  * 2. Explicit cancellation/no-show fee evidence
  * 3. Lifecycle status only as a weak signal → UNKNOWN (never silent zero / terminal haircut)
@@ -182,6 +273,20 @@ export function hasExplicitTerminalFeeEvidence(
 export function classifyFrDriverFinancialOutcome(
   trip: FrDriverEntitlementTripInput,
 ): FrFinancialOutcomeClassification {
+  const outcome = canonicalOutcome(trip);
+  if (CANONICAL_TERMINAL_FINANCIAL_OUTCOMES.has(outcome)) {
+    return {
+      class: FR_FINANCIAL_OUTCOME_CLASS.TERMINAL_FEE,
+      reason: "canonical_terminal_financial_outcome",
+    };
+  }
+  const noEntitlementSource = NO_ENTITLEMENT_SOURCE_BY_OUTCOME.get(outcome);
+  if (noEntitlementSource) {
+    return {
+      class: FR_FINANCIAL_OUTCOME_CLASS.NO_ENTITLEMENT,
+      reason: noEntitlementSource,
+    };
+  }
   if (hasCanonicalFareSettlementEvidence(trip)) {
     return {
       class: FR_FINANCIAL_OUTCOME_CLASS.FARE_SETTLEMENT,
@@ -258,17 +363,17 @@ export function resolveTerminalFeeDriverTenPence(args: {
   const captured = Math.max(0, Math.round(Number(args.captured_pence)));
   const providerFee = Math.max(0, Math.round(Number(args.provider_fee_pence)));
   const commission = Math.max(0, Math.round(Number(args.commission_pence ?? 0)));
-  // Settlement / wallet credit path (legacy): capture − fee − commission.
-  // FR expected entitlement uses resolveFrTerminalFeeExpectedEntitlementPence instead
-  // (provider fee is platform-owned for FR credit variance).
+  // Terminal settlement posting and canonical FR expected (commission 0) share this.
+  // Historical CANCELLED_WITH_FEE FR expected uses resolveFrTerminalFeeExpectedEntitlementPence.
   if (commission > 0) return Math.max(0, captured - providerFee - commission);
   return Math.max(0, captured - providerFee);
 }
 
 /**
- * FR expected entitlement for terminal-fee outcomes.
- * Provider processing fee is platform-owned — do not deduct from driver expected.
- * Matches live cancel-fee TEN practice: capture − commission (e.g. 500 − 65 = 435).
+ * FR expected entitlement for historical CANCELLED_WITH_FEE only.
+ * Provider processing fee is platform-owned on this formula: capture − commission
+ * (e.g. 500 − 65 = 435). Canonical terminal outcomes use
+ * resolveCanonicalTerminalEntitlement.
  */
 export function resolveFrTerminalFeeExpectedEntitlementPence(args: {
   captured_pence: number;
@@ -387,8 +492,11 @@ function otherDriverEntitlementPence(trip: FrDriverEntitlementTripInput): number
  * Returns null entitlement + EXPECTED_STAMP_MISSING when authoritative stamp absent.
  *
  * Precedence (lifecycle status alone never decides):
+ * 0. Canonical terminal outcome → captured − ACTUAL provider fee (beneficiary only);
+ *    missing capture / non-ACTUAL fee → EXPECTED_STAMP_MISSING.
+ *    CANCELLED_NO_FEE / CERTIFICATION_NON_PAYABLE → 0.
  * 1. Canonical fare-settlement → driver_net (customer shortfall / receivable ignored)
- * 2. Explicit terminal-fee evidence → capture − commission
+ * 2. Historical terminal-fee evidence → capture − commission
  * 3. UNKNOWN → fail closed (null), never silent zero
  */
 export function resolveFrDriverExpectedEntitlement(
@@ -427,7 +535,53 @@ export function resolveFrDriverExpectedEntitlement(
     };
   }
 
-  // Terminal fee FR expected: capture − commission (provider fee platform-owned).
+  if (classification.class === FR_FINANCIAL_OUTCOME_CLASS.NO_ENTITLEMENT) {
+    return {
+      expected_entitlement_pence: 0,
+      expected_stamp_status: FR_EXPECTED_STAMP_STATUS.OK,
+      entitlement_source: classification.reason,
+      financial_settled_at: financialSettledAt,
+      is_terminal_fee_outcome: false,
+    };
+  }
+
+  if (isCanonicalTerminalFinancialOutcome(trip)) {
+    const beneficiary = resolveFrTerminalBeneficiaryDriverId(trip);
+    const evaluated = String(trip.evaluated_driver_id ?? "").trim();
+    if (beneficiary && evaluated && beneficiary !== evaluated) {
+      return {
+        expected_entitlement_pence: 0,
+        expected_stamp_status: FR_EXPECTED_STAMP_STATUS.OK,
+        entitlement_source: "terminal_fee_other_beneficiary",
+        financial_settled_at: financialSettledAt,
+        is_terminal_fee_outcome: true,
+      };
+    }
+    const terminal = resolveCanonicalTerminalEntitlement({
+      captured_pence: trip.captured_amount_pence,
+      provider_fee_pence: trip.provider_processing_fee_pence,
+      provider_fee_status: trip.provider_fee_status,
+    });
+    if (terminal.entitlement_pence == null) {
+      return {
+        expected_entitlement_pence: null,
+        expected_stamp_status: FR_EXPECTED_STAMP_STATUS.EXPECTED_STAMP_MISSING,
+        entitlement_source: terminal.reason,
+        financial_settled_at: financialSettledAt,
+        is_terminal_fee_outcome: true,
+      };
+    }
+    return {
+      expected_entitlement_pence: terminal.entitlement_pence + tipsPence(trip),
+      expected_stamp_status: FR_EXPECTED_STAMP_STATUS.OK,
+      entitlement_source: terminal.reason,
+      financial_settled_at: financialSettledAt,
+      is_terminal_fee_outcome: true,
+    };
+  }
+
+  // Historical CANCELLED_WITH_FEE / legacy fee evidence: capture − commission
+  // (provider fee platform-owned on that formula, MK-260916-030 = 435).
   // Requires explicit fee evidence — not status=cancelled alone.
   if (classification.class === FR_FINANCIAL_OUTCOME_CLASS.TERMINAL_FEE) {
     if (captured != null && captured > 0) {
@@ -572,6 +726,8 @@ export function buildFrDriverSettlementTripRow(args: {
   fare_trip_earning_net_pence?: number | null;
   /** Customer receivable status — lineage only; never alters expected entitlement. */
   customer_receivable_status?: string | null;
+  /** Driver whose wallet is being reconciled — terminal beneficiary check. */
+  evaluated_driver_id?: string | null;
 }): FrDriverSettlementTripForReconciliation {
   const trip = args.trip;
   const session = args.session ?? null;
@@ -640,6 +796,11 @@ export function buildFrDriverSettlementTripRow(args: {
     provider_processing_fee_pence: session?.provider_processing_fee_pence == null
       ? null
       : Number(session.provider_processing_fee_pence),
+    provider_fee_status: (session?.fee_status as string | null) ?? null,
+    driver_id: trip.driver_id == null ? null : String(trip.driver_id),
+    confirmed_driver_id: trip.confirmed_driver_id == null ? null : String(trip.confirmed_driver_id),
+    previous_driver_id: trip.previous_driver_id == null ? null : String(trip.previous_driver_id),
+    evaluated_driver_id: args.evaluated_driver_id ?? null,
     payment_hold_status: (trip.payment_hold_status as string | null) ?? null,
     customer_receivable_status: args.customer_receivable_status ?? null,
     fare_trip_earning_net_count: args.fare_trip_earning_net_count ?? null,

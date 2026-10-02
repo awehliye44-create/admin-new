@@ -24,6 +24,7 @@ Deno.test("1. no-show 400p capture + 24p provider fee => expected 376", () => {
     financial_model: "PLATFORM_COLLECTED",
     captured_amount_pence: 400,
     provider_processing_fee_pence: 24,
+    provider_fee_status: "ACTUAL",
     commission_pence: 0,
     driver_net_pence: 376,
   });
@@ -43,6 +44,7 @@ Deno.test("1b. arrival cancellation 400/24 => expected 376, not the quote net", 
     financial_model: "PLATFORM_COLLECTED",
     captured_amount_pence: 400,
     provider_processing_fee_pence: 24,
+    provider_fee_status: "ACTUAL",
     commission_pence: 75,
     driver_net_pence: 425,
   });
@@ -58,6 +60,7 @@ Deno.test("1c. arrival cancellation keeps booking fare stamps (425 + 75 = 500) =
       financial_model: "PLATFORM_COLLECTED",
       captured_amount_pence: 400,
       provider_processing_fee_pence: 24,
+      provider_fee_status: "ACTUAL",
       commission_pence: 75,
       driver_net_pence: 425,
       commissionable_fare_pence: 500,

@@ -17,7 +17,12 @@ import {
   type ProviderAccountBalanceStatus,
 } from "./frDriverReconciliationSSOT.ts";
 import { normalizeFinancePeriodParam } from "./financeLondonDay.ts";
-import { buildFrDriverSettlementTripRow } from "./frDriverExpectedEntitlementSSOT.ts";
+import {
+  buildFrDriverSettlementTripRow,
+  CANONICAL_TERMINAL_FINANCIAL_OUTCOMES,
+  isCanonicalTerminalFinancialOutcome,
+  resolveFrTerminalBeneficiaryDriverId,
+} from "./frDriverExpectedEntitlementSSOT.ts";
 import {
   buildDriverWalletPeriodKpis,
   type DriverWalletPeriodKpis,
@@ -248,7 +253,7 @@ export async function fetchDriverWalletPayoutSnapshot(
       supabase
         .from("trips")
         .select(
-          "id, trip_code, completed_at, passenger_name, payment_status, status, financial_outcome, final_customer_fare_pence, final_fare_pence, commissionable_fare_pence, gross_fare_pence, locked_base_fare_pence, customer_modification_charge_pence, no_show_charge_pence, airport_charge_pence, pickup_waiting_charge_pence, stop_waiting_charge_pence, other_pass_through_charges_pence, payment_method, payment_provider, provider_fee_pence, commission_pence, platform_commission_amount, accepted_commission_percent, driver_tier_commission_percent, driver_net_pence, tip_pence, tip_amount_pence, payment_hold_status, payment_session_id, provider_payment_id, service_area_id, financial_model, commission_wallet_enabled",
+          "id, trip_code, completed_at, passenger_name, payment_status, status, financial_outcome, driver_id, confirmed_driver_id, previous_driver_id, final_customer_fare_pence, final_fare_pence, commissionable_fare_pence, gross_fare_pence, locked_base_fare_pence, customer_modification_charge_pence, no_show_charge_pence, airport_charge_pence, pickup_waiting_charge_pence, stop_waiting_charge_pence, other_pass_through_charges_pence, payment_method, payment_provider, provider_fee_pence, commission_pence, platform_commission_amount, accepted_commission_percent, driver_tier_commission_percent, driver_net_pence, tip_pence, tip_amount_pence, payment_hold_status, payment_session_id, provider_payment_id, service_area_id, financial_model, commission_wallet_enabled",
         )
         .in("id", tripIdsForFr),
       supabase
@@ -495,6 +500,7 @@ export async function fetchDriverWalletPayoutSnapshot(
       trip,
       session: sessionByTripId.get(tripId) ?? null,
       settlement: settlementByTripId.get(tripId) ?? null,
+      evaluated_driver_id: args.driverId,
       actual_wallet_trip_credit_pence: walletCreditByTripId.get(tripId) ?? null,
       ledger_created_at: walletCreditLedgerCreatedAtByTripId.get(tripId) ?? null,
       fare_trip_earning_net_count: fareTenCountByTripId.get(tripId) ?? 0,
@@ -513,6 +519,7 @@ export async function fetchDriverWalletPayoutSnapshot(
         trip,
         session: sessionByTripId.get(tripId) ?? null,
         settlement: s as Record<string, unknown>,
+        evaluated_driver_id: args.driverId,
         actual_wallet_trip_credit_pence: walletCreditByTripId.get(tripId) ?? null,
         ledger_created_at: walletCreditLedgerCreatedAtByTripId.get(tripId) ?? null,
         fare_trip_earning_net_count: fareTenCountByTripId.get(tripId) ?? 0,
@@ -532,14 +539,59 @@ export async function fetchDriverWalletPayoutSnapshot(
   const periodScoped = Boolean(periodFromIso && periodToIso);
 
   if (periodScoped) {
-    const { data: driverTripRows } = await supabase
-      .from("trips")
-      .select(
-        "id, trip_code, completed_at, status, financial_outcome, final_customer_fare_pence, final_fare_pence, commissionable_fare_pence, gross_fare_pence, locked_base_fare_pence, customer_modification_charge_pence, no_show_charge_pence, airport_charge_pence, pickup_waiting_charge_pence, stop_waiting_charge_pence, other_pass_through_charges_pence, payment_method, payment_provider, provider_fee_pence, commission_pence, platform_commission_amount, accepted_commission_percent, driver_tier_commission_percent, driver_net_pence, tip_pence, tip_amount_pence, payment_hold_status, payment_session_id, provider_payment_id, service_area_id, financial_model, commission_wallet_enabled",
-      )
-      .eq("driver_id", args.driverId)
-      .eq("financial_model", "PLATFORM_COLLECTED");
-    for (const row of driverTripRows ?? []) {
+    const periodTripSelect =
+      "id, trip_code, completed_at, status, financial_outcome, driver_id, confirmed_driver_id, previous_driver_id, final_customer_fare_pence, final_fare_pence, commissionable_fare_pence, gross_fare_pence, locked_base_fare_pence, customer_modification_charge_pence, no_show_charge_pence, airport_charge_pence, pickup_waiting_charge_pence, stop_waiting_charge_pence, other_pass_through_charges_pence, payment_method, payment_provider, provider_fee_pence, commission_pence, platform_commission_amount, accepted_commission_percent, driver_tier_commission_percent, driver_net_pence, tip_pence, tip_amount_pence, payment_hold_status, payment_session_id, provider_payment_id, service_area_id, financial_model, commission_wallet_enabled";
+    const [{ data: assignedTripRows }, { data: terminalBeneficiaryRows }] = await Promise.all([
+      supabase
+        .from("trips")
+        .select(periodTripSelect)
+        .eq("driver_id", args.driverId)
+        .eq("financial_model", "PLATFORM_COLLECTED"),
+      // Terminal cancel nulls driver_id; the preserved beneficiary still owns the fee.
+      supabase
+        .from("trips")
+        .select(periodTripSelect)
+        .eq("previous_driver_id", args.driverId)
+        .is("driver_id", null)
+        .in("financial_outcome", [...CANONICAL_TERMINAL_FINANCIAL_OUTCOMES])
+        .eq("financial_model", "PLATFORM_COLLECTED"),
+    ]);
+    const driverTripRows = [
+      ...(assignedTripRows ?? []),
+      ...(terminalBeneficiaryRows ?? []).filter((row) =>
+        resolveFrTerminalBeneficiaryDriverId(row as {
+          driver_id?: string | null;
+          confirmed_driver_id?: string | null;
+          previous_driver_id?: string | null;
+        }) === args.driverId
+      ),
+    ];
+    const periodSessionByTripId = new Map<string, Record<string, unknown>>();
+    // Only canonical terminal rows need session capture/fee evidence here; fare rows
+    // keep their existing period-origin inputs.
+    const periodTripIdsWithoutSession = [...new Set(
+      driverTripRows
+        .filter((row) => isCanonicalTerminalFinancialOutcome(row as { financial_outcome?: string | null }))
+        .map((row) => String(row.id))
+        .filter((id) => !sessionByTripId.has(id)),
+    )];
+    if (periodTripIdsWithoutSession.length > 0) {
+      const { data: periodSessionRows } = await supabase
+        .from("payment_sessions")
+        .select(
+          "id, trip_id, purpose, captured_amount_pence, payment_provider, payment_method, provider_processing_fee_pence, fee_status, provider_state, captured_at, released_amount_pence, refunded_amount_pence, provider_order_id, provider_payment_id, metadata",
+        )
+        .in("trip_id", periodTripIdsWithoutSession);
+      for (const s of periodSessionRows ?? []) {
+        const tripId = String(s.trip_id ?? "");
+        if (!tripId) continue;
+        const existing = periodSessionByTripId.get(tripId);
+        if (!existing || Number(s.captured_amount_pence ?? 0) > Number(existing.captured_amount_pence ?? 0)) {
+          periodSessionByTripId.set(tripId, s as Record<string, unknown>);
+        }
+      }
+    }
+    for (const row of driverTripRows) {
       if (!classifyTripForPlatformCollectedAdminPage(row as {
         financial_model?: unknown;
         commission_wallet_enabled?: unknown;
@@ -549,8 +601,9 @@ export async function fetchDriverWalletPayoutSnapshot(
       const tripId = String(row.id);
       const built = buildFrDriverSettlementTripRow({
         trip: row as Record<string, unknown>,
-        session: sessionByTripId.get(tripId) ?? null,
+        session: sessionByTripId.get(tripId) ?? periodSessionByTripId.get(tripId) ?? null,
         settlement: settlementByTripId.get(tripId) ?? null,
+        evaluated_driver_id: args.driverId,
         actual_wallet_trip_credit_pence: walletCreditByTripId.get(tripId) ?? null,
         ledger_created_at: walletCreditLedgerCreatedAtByTripId.get(tripId) ?? null,
         fare_trip_earning_net_count: fareTenCountByTripId.get(tripId) ?? 0,
