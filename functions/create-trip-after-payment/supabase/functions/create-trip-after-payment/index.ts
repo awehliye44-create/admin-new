@@ -10,6 +10,12 @@ import { findPassengerScheduleOverlap } from "../_shared/passengerScheduleOverla
 import { buildBookingPostCommitTasks } from "../_shared/bookingPostCommit.ts";
 import { verifyRevolutHoldForTripCreateFast } from "../_shared/bookingPaymentVerifyFast.ts";
 import {
+  CTAP_EXISTING_TRIP_COLUMNS,
+  type CtapExistingTripRow,
+  lookupCallerOwnedBookingTrip,
+  pickCallerOwnedBookingTrip,
+} from "../_shared/ctapExistenceFirstSSOT.ts";
+import {
   assertCanBookRide,
   logPassengerBookingBlocked,
   passengerNotEligibleResponse,
@@ -310,6 +316,59 @@ serveWithEdgeTiming("create-trip-after-payment", corsHeaders, async (req) => {
       log("User authenticated", { userId: user.id });
     }
 
+    const existenceStartedAt = Date.now();
+    const existing = await lookupCallerOwnedBookingTrip(supabase, {
+      userId: user.id,
+      clientActionId: body.client_action_id ?? null,
+      providerOrderId: body.payment_intent_id ?? null,
+    });
+    if (existing.kind === "owned") {
+      log("Idempotent — existence-first trip already exists", {
+        tripId: existing.trip.id,
+        by: existing.by,
+        ms: Date.now() - existenceStartedAt,
+      });
+      const existenceNote = String(body.special_instructions ?? "").trim();
+      if (existenceNote && !String(existing.trip.special_instructions ?? "").trim()) {
+        const tripId = existing.trip.id;
+        EdgeRuntime.waitUntil(
+          Promise.resolve(
+            supabase
+              .from("trips")
+              .update({ special_instructions: existenceNote.slice(0, 1000) })
+              .eq("id", tripId)
+              .or("special_instructions.is.null,special_instructions.eq."),
+          ).then(({ error }) => {
+            if (error) {
+              log("Existence-first special_instructions backfill failed", {
+                tripId,
+                error: error.message,
+              });
+            }
+          }),
+        );
+      }
+      schedulePaymentSessionTripLinkRepair({
+        supabase,
+        clientActionId: body.client_action_id,
+        tripId: String(existing.trip.id),
+        providerOrderId: body.payment_intent_id ?? null,
+        source: "ctap.existence_first",
+      });
+      return new Response(JSON.stringify({
+        success: true,
+        ride_id: existing.trip.id,
+        trip_code: existing.trip.trip_code ?? null,
+        trip_reference: existing.trip.trip_code ?? null,
+        status: existing.trip.status ?? null,
+        idempotent: true,
+        existence_first: true,
+      }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+    if (existing.kind === "foreign") {
+      log("Existence-first match not owned by caller — full path", { by: existing.by });
+    }
+
     const bookingEligibility = await assertCanBookRide(supabase, user.id);
     if (!bookingEligibility.allowed) {
       logPassengerBookingBlocked("create-trip-after-payment", user.id, bookingEligibility);
@@ -479,14 +538,14 @@ serveWithEdgeTiming("create-trip-after-payment", corsHeaders, async (req) => {
       await Promise.allSettled([
       supabase
         .from("trips")
-        .select("id, trip_code, status, special_instructions, customer_id")
+        .select(CTAP_EXISTING_TRIP_COLUMNS)
         .eq("client_action_id", body.client_action_id)
         .limit(1),
       skipPlatformPreauth || !body.payment_intent_id
-        ? Promise.resolve({ data: [] as { id: string; trip_code: string; status: string; special_instructions?: string | null; customer_id?: string | null }[] })
+        ? Promise.resolve({ data: [] as CtapExistingTripRow[] })
         : supabase
           .from("trips")
-          .select("id, trip_code, status, special_instructions, customer_id")
+          .select(CTAP_EXISTING_TRIP_COLUMNS)
           .eq("provider_order_id", body.payment_intent_id)
           .limit(1),
       skipPlatformPreauth
@@ -495,6 +554,7 @@ serveWithEdgeTiming("create-trip-after-payment", corsHeaders, async (req) => {
           orderId: body.payment_intent_id!,
           clientActionId: body.client_action_id,
           preloadedSession: session,
+          userId: user.id,
         })),
       // 8. Customer record
       supabase.from("customers").select("id, first_name, last_name, phone").eq("user_id", user.id).limit(1),
@@ -506,30 +566,30 @@ serveWithEdgeTiming("create-trip-after-payment", corsHeaders, async (req) => {
       paymentSessionPromise,
     ]);
 
-    // 3. Idempotency short-circuit (client_action_id or payment ref)
-    const idempotentTrip =
-      (existingTripsRes.status === "fulfilled" ? existingTripsRes.value.data?.[0] : null)
-      ?? (existingTripByPaymentRes.status === "fulfilled" ? existingTripByPaymentRes.value.data?.[0] : null);
-    if (idempotentTrip) {
+    // 3. Idempotency short-circuit (client_action_id or payment ref) — caller's own trip only.
+    const callerCustomerIds =
+      customerRowsRes.status === "fulfilled"
+        ? ((customerRowsRes.value.data ?? []) as Array<{ id: string }>).map((r) => String(r.id))
+        : [];
+    const idempotentPick = pickCallerOwnedBookingTrip({
+      byClientAction: existingTripsRes.status === "fulfilled"
+        ? (existingTripsRes.value.data as CtapExistingTripRow[] | null)?.[0] ?? null
+        : null,
+      byProviderOrder: existingTripByPaymentRes.status === "fulfilled"
+        ? (existingTripByPaymentRes.value.data as CtapExistingTripRow[] | null)?.[0] ?? null
+        : null,
+      callerCustomerIds,
+    });
+    if (idempotentPick.kind === "owned") {
+      const idempotentTrip = idempotentPick.trip;
       log("Idempotent — trip already exists", {
         tripId: idempotentTrip.id,
-        by: existingTripsRes.status === "fulfilled" && existingTripsRes.value.data?.[0]
-          ? "client_action_id"
-          : "payment_ref",
+        by: idempotentPick.by === "client_action_id" ? "client_action_id" : "payment_ref",
       });
       // Webhook finalize often wins Apple Pay races. If the stored trip has no
       // pickup note but CTAP body / session snapshot still has one, backfill it.
       // (create-preauth must also preserve snapshot.special_instructions.)
-      const callerCustomerId =
-        customerRowsRes.status === "fulfilled" ? (customerRowsRes.value.data?.[0]?.id ?? null) : null;
-      const tripOwnedByCaller = Boolean(
-        callerCustomerId
-        && (idempotentTrip as { customer_id?: string | null }).customer_id === callerCustomerId,
-      );
-      if (
-        tripOwnedByCaller
-        && !String((idempotentTrip as { special_instructions?: string | null }).special_instructions ?? "").trim()
-      ) {
+      if (!String(idempotentTrip.special_instructions ?? "").trim()) {
         let note = String(body.special_instructions ?? "").trim();
         if (!note) {
           const session =

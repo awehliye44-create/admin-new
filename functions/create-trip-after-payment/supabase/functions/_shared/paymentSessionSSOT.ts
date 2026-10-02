@@ -21,6 +21,7 @@ import {
   shouldSkipResidualReleasePersist,
 } from "./paymentSessionReleaseEvidenceSSOT.ts";
 import { extractConfirmedReleaseAmountPence } from "./paymentHoldProviderTerminalPure.ts";
+import type { ProviderReadAuthorisedVerifier } from "./bookingDirectFinalizeSSOT.ts";
 import {
   ADDITIONAL_AUTH_SOURCE,
   ADDITIONAL_AUTH_STATUS,
@@ -134,18 +135,28 @@ export async function markPaymentSessionAuthorised(
     clientActionId?: string | null;
     providerPaymentId?: string | null;
     authorisedAt?: string;
+    /**
+     * Only pass when the caller just read the Revolut order AUTHORISED with authorised
+     * total covering the full hold (see bookingDirectFinalizeSSOT). Other callers keep
+     * the generic label, which create-trip-after-payment never trusts without a GET.
+     */
+    verifiedBy?: ProviderReadAuthorisedVerifier;
+    /**
+     * Return the HOLD_AUTHORISED audit write instead of awaiting it, so the caller can
+     * overlap it with independent work. The caller MUST await `audit` before responding;
+     * it never rejects (failures are warned, as in the awaited path).
+     */
+    deferAudit?: boolean;
   },
-): Promise<void> {
+): Promise<{ audit: Promise<void> }> {
   const now = args.authorisedAt ?? new Date().toISOString();
   const patch: Record<string, unknown> = {
     status: toDbPaymentSessionStatus("authorised_hold"),
     provider_order_id: args.providerOrderId,
     authorised_at: now,
-    // Stamp provider_state so create-trip can trust the session without a
-    // second Revolut retrieve when create-preauth just authorised the hold.
     provider_state: "AUTHORISED",
     provider_state_verified_at: now,
-    provider_state_verified_by: "markPaymentSessionAuthorised",
+    provider_state_verified_by: args.verifiedBy ?? "markPaymentSessionAuthorised",
     // Clear stale incompatible terminal reasons (e.g. REVOLUT_CANCELLED) after usable auth.
     failure_reason: null,
   };
@@ -156,12 +167,26 @@ export async function markPaymentSessionAuthorised(
     providerOrderId: args.providerOrderId,
   }, patch);
 
-  const { emitHoldTelemetry } = await import("./holdTelemetrySSOT.ts");
-  await emitHoldTelemetry(supabase, "HOLD_AUTHORISED", {
-    providerOrderId: args.providerOrderId,
-    clientActionId: args.clientActionId ?? null,
-    source: "markPaymentSessionAuthorised",
-  });
+  const audit = (async () => {
+    const { emitHoldTelemetry } = await import("./holdTelemetrySSOT.ts");
+    await emitHoldTelemetry(supabase, "HOLD_AUTHORISED", {
+      providerOrderId: args.providerOrderId,
+      clientActionId: args.clientActionId ?? null,
+      source: "markPaymentSessionAuthorised",
+    });
+  })();
+  if (args.deferAudit) {
+    return {
+      audit: audit.catch((err) => {
+        console.warn("[paymentSessionSSOT] HOLD_AUTHORISED audit failed", {
+          provider_order_id: args.providerOrderId,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }),
+    };
+  }
+  await audit;
+  return { audit: Promise.resolve() };
 }
 
 export async function markPaymentSessionAuthorising(

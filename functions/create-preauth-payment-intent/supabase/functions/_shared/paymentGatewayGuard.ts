@@ -11,6 +11,7 @@ import {
   gatewayStatusToPaymentGatewayPayload,
   resolveGatewayBlockCode,
   resolveProviderGatewayStatus,
+  startProviderConfigRead,
   type GatewayResolveTiming,
   type GatewayRole,
   type GatewayStatusSnapshot,
@@ -157,6 +158,9 @@ export async function checkServiceAreaGatewayForBooking(
   role: GatewayRole = "customer",
 ): Promise<ServiceAreaBookingGatewayBundle> {
   const saStarted = Date.now();
+  // Revolut is the only live adapter. Its config read does not depend on the service-area
+  // row, so it overlaps that read; it is used only if the service area resolves to Revolut.
+  const speculativeConfig = startProviderConfigRead(supabase, "revolut");
   const { data, error } = await supabase
     .from("service_areas")
     .select(
@@ -191,6 +195,7 @@ export async function checkServiceAreaGatewayForBooking(
   const status = await resolveProviderGatewayStatus(supabase, providerId, role, {
     deferLiveProbe: true,
     timing,
+    prefetchedConfig: speculativeConfig,
   });
   const financialRow = {
     financial_model: data.financial_model != null ? String(data.financial_model) : null,

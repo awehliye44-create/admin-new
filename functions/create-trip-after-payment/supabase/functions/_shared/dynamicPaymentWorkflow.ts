@@ -10,6 +10,7 @@ import {
   resolveCustomerModificationChargePence,
   resolveStopWaitingChargePence,
 } from "./tripFareSSOT.ts";
+import { classifyPaymentLedgerError, PaymentLedgerWriteError } from "./paymentLedgerDiagnostics.ts";
 
 export type PaymentCoverageStatus =
   | "not_required"
@@ -235,10 +236,16 @@ export async function hasSucceededCapture(
   return Boolean(data);
 }
 
+/**
+ * Owner rules match payment_authorization_ledger_owner_chk: a real trip, or (initial_auth only)
+ * the payment session before the trip exists. Never pass a client_action_id or placeholder as tripId.
+ * Throws PaymentLedgerWriteError (classified, no row values) on failure; 23505 is idempotent.
+ */
 export async function recordPaymentAuthorizationEvent(
   supabase: SupabaseClient,
   args: {
-    tripId: string;
+    tripId: string | null;
+    paymentSessionId?: string | null;
     fareRevisionNumber: number;
     operation: PaymentAuthOperation;
     idempotencyKey: string;
@@ -249,6 +256,17 @@ export async function recordPaymentAuthorizationEvent(
     metadata?: Record<string, unknown>;
   },
 ): Promise<{ duplicate: boolean }> {
+  const tripId = args.tripId?.trim() || null;
+  const paymentSessionId = args.paymentSessionId?.trim() || null;
+  if (!tripId && !(args.operation === "initial_auth" && paymentSessionId)) {
+    throw new PaymentLedgerWriteError({
+      error_code: null,
+      error_category: "owner_missing",
+      constraint: "payment_authorization_ledger_owner_chk",
+      column: null,
+    });
+  }
+
   const metadata: Record<string, unknown> = {
     ...(args.metadata ?? {}),
   };
@@ -256,8 +274,8 @@ export async function recordPaymentAuthorizationEvent(
     metadata.provider_order_id = args.providerOrderId;
   }
 
-  const { error } = await supabase.from("payment_authorization_ledger").insert({
-    trip_id: args.tripId,
+  const row: Record<string, unknown> = {
+    trip_id: tripId,
     fare_revision_number: args.fareRevisionNumber,
     operation: args.operation,
     idempotency_key: args.idempotencyKey,
@@ -266,13 +284,20 @@ export async function recordPaymentAuthorizationEvent(
     error_message: args.errorMessage ?? null,
     metadata,
     updated_at: new Date().toISOString(),
-  });
+  };
+  // Session columns exist only after 20261208120000; trip-owned writers stay schema-agnostic.
+  if (paymentSessionId) {
+    row.payment_session_id = paymentSessionId;
+    row.provider_order_id = args.providerOrderId ?? null;
+  }
+
+  const { error } = await supabase.from("payment_authorization_ledger").insert(row);
 
   if (error) {
     if (error.code === "23505") {
       return { duplicate: true };
     }
-    throw error;
+    throw new PaymentLedgerWriteError(classifyPaymentLedgerError(error));
   }
 
   return { duplicate: false };

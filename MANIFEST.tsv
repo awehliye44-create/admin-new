@@ -120,10 +120,10 @@ create-lost-property-case	v487	ACTIVE	verify_jwt=false	updated_at=2026-09-16T22:
 create-onboarding-auth-user	v335	ACTIVE	verify_jwt=false	updated_at=2026-09-16T22:38:49Z	entrypoint=index.ts
 create-payment-intent	v621	ACTIVE	verify_jwt=false	updated_at=2026-09-16T22:38:49Z	entrypoint=index.ts
 create-payment-recovery	v232	ACTIVE	verify_jwt=false	updated_at=2026-09-16T22:38:49Z	entrypoint=index.ts
-create-preauth-payment-intent	v513	ACTIVE	verify_jwt=false	updated_at=2026-10-02T09:45:04Z	entrypoint=index.ts
+create-preauth-payment-intent	v516	ACTIVE	verify_jwt=false	updated_at=2026-10-02T21:34:32Z	entrypoint=index.ts
 create-ride	v864	ACTIVE	verify_jwt=false	updated_at=2026-09-22T13:45:39Z	entrypoint=index.ts
 create-trip	v530	ACTIVE	verify_jwt=false	updated_at=2026-09-16T22:38:49Z	entrypoint=index.ts
-create-trip-after-payment	v505	ACTIVE	verify_jwt=false	updated_at=2026-09-26T20:04:49Z	entrypoint=index.ts
+create-trip-after-payment	v507	ACTIVE	verify_jwt=false	updated_at=2026-10-02T21:33:27Z	entrypoint=index.ts
 create-trip-request	v595	ACTIVE	verify_jwt=false	updated_at=2026-09-16T22:38:49Z	entrypoint=index.ts
 customer-counter-offer	v236	ACTIVE	verify_jwt=false	updated_at=2026-09-16T22:38:49Z	entrypoint=index.ts
 customer-decision	v461	ACTIVE	verify_jwt=false	updated_at=2026-09-16T22:38:49Z	entrypoint=index.ts
@@ -242,7 +242,7 @@ revolut-capture-order	v262	ACTIVE	verify_jwt=false	updated_at=2026-09-16T22:38:4
 revolut-merchant-payment-details	v258	ACTIVE	verify_jwt=false	updated_at=2026-09-16T22:38:49Z	entrypoint=index.ts
 revolut-merchant-payouts-sync	v259	ACTIVE	verify_jwt=false	updated_at=2026-09-16T22:38:49Z	entrypoint=index.ts
 revolut-refund-order	v257	ACTIVE	verify_jwt=false	updated_at=2026-09-16T22:38:49Z	entrypoint=index.ts
-revolut-webhook	v306	ACTIVE	verify_jwt=false	updated_at=2026-10-02T13:59:18Z	entrypoint=index.ts
+revolut-webhook	v307	ACTIVE	verify_jwt=false	updated_at=2026-10-02T19:42:15Z	entrypoint=index.ts
 ride-offer-reminders	v310	ACTIVE	verify_jwt=false	updated_at=2026-09-26T14:04:44Z	entrypoint=index.ts
 ride-transition	v620	ACTIVE	verify_jwt=false	updated_at=2026-09-16T22:38:49Z	entrypoint=index.ts
 save-customer-push-token	v519	ACTIVE	verify_jwt=false	updated_at=2026-10-02T13:24:40Z	entrypoint=index.ts

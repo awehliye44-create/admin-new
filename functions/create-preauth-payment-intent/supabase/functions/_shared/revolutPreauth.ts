@@ -1,5 +1,11 @@
-import type { CreateOrderParams } from "./revolutOrders.ts";
+import type { CreateOrderParams, RevolutOrder } from "./revolutOrders.ts";
 import type { SupabaseClient } from "npm:@supabase/supabase-js@2.57.2";
+import {
+  directFinalizeAfterProviderAuthorised,
+  directFinalizeResponseFields,
+  providerOrderCoversHold,
+  type DirectFinalizeResult,
+} from "./bookingDirectFinalizeSSOT.ts";
 import {
   buildPreauthIdempotencyKey,
   recordPaymentAuthorizationEvent,
@@ -13,10 +19,8 @@ import {
   shouldAttachRevolutCustomerForPreauth,
 } from "./revolutPreauthCustomerAttach.ts";
 import { resolveRevolutMerchantContext } from "./revolutMerchantContext.ts";
-import {
-  isRevolutAuthorisedState,
-  isRevolutInFlightState,
-} from "./revolutPaymentConfirmation.ts";
+import { isRevolutAuthorisedState } from "./revolutPaymentConfirmation.ts";
+import { reportPaymentLedgerWriteFailure } from "./paymentLedgerDiagnostics.ts";
 import {
   createRevolutOrder,
   isRevolutPaymentAuthenticationChallenge,
@@ -153,6 +157,8 @@ export type RevolutPreauthInput = {
    * run. A second SELECT is skipped when the id matches.
    */
   preloadedBookingPaymentQuote?: BookingPaymentQuoteRow | null;
+  /** Customer Book capabilities (e.g. three_ds_fingerprint_v1). Absent on older builds. */
+  clientCapabilities?: unknown;
 };
 
 export async function createRevolutPreauthResponse(
@@ -184,7 +190,9 @@ export async function createRevolutPreauthResponse(
     edgeTiming: edgeTimingInput,
     receivableConsent: receivableConsentInput,
     preloadedBookingPaymentQuote,
+    clientCapabilities,
   } = input;
+  const fingerprintCapable = clientSupportsThreeDsFingerprint(clientCapabilities);
   /** May grow after durable receivable reservation (ride + buffer + debt). */
   let authorisedAmountPence = authorisedAmountPenceInput;
   /** Opaque path replaces every money key with the validated quote's values. */
@@ -489,10 +497,24 @@ export async function createRevolutPreauthResponse(
               status: 409,
             });
           }
+          const reuseCoversHold = providerOrderCoversHold(existing, authorisedAmountPence);
+          const reuseSaveEligible = saveCardEligible || existing.metadata?.save_card_eligible === "true";
           await markPaymentSessionAuthorised(supabase, {
             providerOrderId: existing.id,
             clientActionId,
+            ...(reuseCoversHold && !reuseSaveEligible
+              ? { verifiedBy: "create_preauth_provider_read" as const }
+              : {}),
           });
+          const reuseFinalize = reuseCoversHold
+            ? await directFinalizeAfterProviderAuthorised(supabase, {
+              clientActionId,
+              providerOrderId: existing.id,
+              order: existing,
+              userId,
+              logStep,
+            })
+            : null;
           bookingWaterfall.completeStep(
             "revolut_order_created",
             "revolutPreauth.ts:retrieveRevolutOrder(idempotent)",
@@ -522,6 +544,7 @@ export async function createRevolutPreauthResponse(
             holdStartedAt,
             waterfallFragment: bookingWaterfall.toResponseFragment(),
             edgeTiming,
+            directFinalize: reuseFinalize,
           });
         }
 
@@ -544,6 +567,7 @@ export async function createRevolutPreauthResponse(
             holdStartedAt,
             browserEnvironment: validatedBrowserEnv!,
             edgeTiming,
+            fingerprintCapable,
           });
           if (savedAttempt) return savedAttempt;
         }
@@ -1249,24 +1273,37 @@ export async function createRevolutPreauthResponse(
 
   if (clientActionId || tripId) {
     const authEventStarted = Date.now();
-    await recordPaymentAuthorizationEvent(supabase, {
-      tripId: tripId ?? clientActionId ?? "pending",
-      fareRevisionNumber: 0,
-      operation: "initial_auth",
-      idempotencyKey,
-      providerOrderId: order.id,
-      amountPence: authorisedAmountPence,
-      status: isRevolutAuthorisedState(order.state) || isRevolutInFlightState(order.state)
-        ? "pending"
-        : "pending",
-      metadata: {
-        provider: "revolut",
-        client_action_id: clientActionId,
-        provider_order_id: order.id,
-      },
-    }).catch((err) => {
-      logStep("Revolut auth ledger warning", { error: String(err) });
-    });
+    // Payment-first: owned by the payment session (no trip yet). A failure here does not
+    // block the booking — trg_payment_session_ledger_sync records the row atomically with
+    // the authorised session (and aborts that write if it cannot).
+    try {
+      await recordPaymentAuthorizationEvent(supabase, {
+        tripId: tripId ?? null,
+        paymentSessionId: paymentSessionId ?? null,
+        fareRevisionNumber: 0,
+        operation: "initial_auth",
+        idempotencyKey,
+        providerOrderId: order.id,
+        amountPence: authorisedAmountPence,
+        status: "pending",
+        metadata: {
+          provider: "revolut",
+          client_action_id: clientActionId,
+          provider_order_id: order.id,
+          payment_session_id: paymentSessionId ?? null,
+        },
+      });
+    } catch (err) {
+      reportPaymentLedgerWriteFailure({
+        operation: "initial_auth",
+        stage: "create_preauth_pending",
+        paymentSessionId: paymentSessionId ?? null,
+        clientActionId: clientActionId ?? null,
+        tripId: tripId ?? null,
+        providerOrderId: order.id,
+        consequence: "booking_continues_session_trigger_backstop",
+      }, err);
+    }
     edgeTiming.recordSpan("edge_auth_event_ms", authEventStarted, Date.now());
   }
 
@@ -1290,6 +1327,8 @@ export async function createRevolutPreauthResponse(
         holdStartedAt,
         browserEnvironment: validatedBrowserEnv!,
         edgeTiming,
+        fingerprintCapable,
+        preloadedTokenRow: tokenRow,
       });
       if (savedAttempt) return savedAttempt;
       logStep("Revolut saved-card charge failed despite provider token", {
@@ -1362,12 +1401,17 @@ async function attemptRevolutSavedCardCharge(args: {
   /** Pre-validated CIT browser environment — never invent defaults. */
   browserEnvironment: RevolutCitBrowserEnvironment;
   edgeTiming: PreauthEdgeTiming;
+  fingerprintCapable?: boolean;
+  /** Token row this request already read for the same user + platform PM. Omitted → read here. */
+  preloadedTokenRow?: Awaited<ReturnType<typeof lookupProviderPaymentMethodToken>>;
 }): Promise<Response | null> {
-  const tokenRow = await lookupProviderPaymentMethodToken(args.supabase, {
-    userId: args.userId,
-    platformPaymentMethodId: args.platformPaymentMethodId,
-    paymentProvider: "revolut",
-  });
+  const tokenRow = args.preloadedTokenRow !== undefined
+    ? args.preloadedTokenRow
+    : await lookupProviderPaymentMethodToken(args.supabase, {
+      userId: args.userId,
+      platformPaymentMethodId: args.platformPaymentMethodId,
+      paymentProvider: "revolut",
+    });
   if (!tokenRow?.provider_payment_method_id) {
     args.logStep("Revolut saved-card token missing for platform PM", {
       orderId: args.orderId,
@@ -1415,6 +1459,7 @@ async function attemptRevolutSavedCardCharge(args: {
       orderId: args.orderId,
       payment,
       logStep: args.logStep,
+      fingerprintCapable: args.fingerprintCapable === true,
     });
     args.edgeTiming.markRevolutResponseEnd();
     if (resolved.kind === "authorised") {
@@ -1444,13 +1489,25 @@ async function attemptRevolutSavedCardCharge(args: {
           status: 500,
         });
       }
+      let directFinalize: DirectFinalizeResult | null = null;
       if (args.clientActionId) {
+        const coversHold = providerOrderCoversHold(resolved.order, args.authorisedAmountPence);
         args.edgeTiming.markPersistStart();
         await markPaymentSessionAuthorised(args.supabase, {
           providerOrderId: args.orderId,
           clientActionId: args.clientActionId,
+          ...(coversHold ? { verifiedBy: "create_preauth_provider_read" as const } : {}),
         });
         args.edgeTiming.markPersistEnd();
+        if (coversHold) {
+          directFinalize = await directFinalizeAfterProviderAuthorised(args.supabase, {
+            clientActionId: args.clientActionId,
+            providerOrderId: args.orderId,
+            order: resolved.order,
+            userId: args.userId,
+            logStep: args.logStep,
+          });
+        }
       }
       return revolutSavedCardAuthorisedResponse({
         orderId: args.orderId,
@@ -1462,7 +1519,31 @@ async function attemptRevolutSavedCardCharge(args: {
         corsHeaders: args.corsHeaders,
         holdStartedAt: args.holdStartedAt,
         edgeTiming: args.edgeTiming,
+        directFinalize,
       });
+    }
+    if (resolved.kind === "requires_fingerprint") {
+      // fingerprint_html goes to the device only: never logged, persisted or telemetered.
+      return jsonResponseWithPreauthTiming({
+        success: true,
+        provider: "revolut",
+        payment_intent_id: args.orderId,
+        provider_order_id: args.orderId,
+        payment_session_id: args.paymentSessionId ?? null,
+        client_action_id: args.clientActionId ?? null,
+        revolut_public_key: args.publicKey,
+        authorised_amount_pence: args.authorisedAmountPence,
+        estimated_total_pence: args.estimatedTotalPence,
+        buffer_pence: args.bufferPence,
+        status: "authentication_challenge",
+        saved_card_flow: true,
+        requires_3ds: false,
+        requires_fingerprint: true,
+        challenge_type: "three_ds_fingerprint",
+        provider_payment_id: resolved.paymentId,
+        three_ds_fingerprint: { fingerprint_html: resolved.fingerprintHtml },
+        fingerprint_returned_after_ms: resolved.settleMs,
+      }, args.corsHeaders, 200, args.edgeTiming);
     }
     if (resolved.kind === "requires_3ds") {
       return jsonResponseWithPreauthTiming({
@@ -1630,7 +1711,31 @@ async function attemptRevolutSavedCardCharge(args: {
   }
 }
 
-async function resolveSavedCardPaymentOutcome(args: {
+export type SavedCardPaymentOutcome =
+  | { kind: "authorised"; order: RevolutOrder }
+  | { kind: "requires_3ds"; paymentId: string; acsUrl: string }
+  | { kind: "requires_fingerprint"; paymentId: string; fingerprintHtml: string; settleMs: number }
+  | { kind: "failed"; reason?: string }
+  | { kind: "in_flight"; paymentState?: string };
+
+/** Customer Book capability: device can run Revolut's three_ds_fingerprint page. */
+export const CLIENT_CAPABILITY_THREE_DS_FINGERPRINT = "three_ds_fingerprint_v1";
+
+export function clientSupportsThreeDsFingerprint(capabilities: unknown): boolean {
+  return Array.isArray(capabilities) &&
+    capabilities.some((c) => String(c) === CLIENT_CAPABILITY_THREE_DS_FINGERPRINT);
+}
+
+/** Non-empty base64 fingerprint page from a 2026-04-20 payment challenge, else null. Never log the value. */
+export function actionableFingerprintHtml(
+  challenge: { type?: string; fingerprint_html?: string } | null | undefined,
+): string | null {
+  if (!challenge || challenge.type !== "three_ds_fingerprint") return null;
+  const html = typeof challenge.fingerprint_html === "string" ? challenge.fingerprint_html.trim() : "";
+  return html.length > 0 ? html : null;
+}
+
+export async function resolveSavedCardPaymentOutcome(args: {
   environment: ProviderEnvironment;
   secretKey: string;
   orderId: string;
@@ -1638,15 +1743,19 @@ async function resolveSavedCardPaymentOutcome(args: {
     id: string;
     state?: string;
     decline_reason?: string;
-    authentication_challenge?: { acs_url?: string };
+    authentication_challenge?: { type?: string; acs_url?: string; fingerprint_html?: string };
   };
   logStep: (step: string, details?: unknown) => void;
-}): Promise<
-  | { kind: "authorised" }
-  | { kind: "requires_3ds"; paymentId: string; acsUrl: string }
-  | { kind: "failed"; reason?: string }
-  | { kind: "in_flight"; paymentState?: string }
-> {
+  /** Return three_ds_fingerprint to the device instead of polling Revolut's silent window. */
+  fingerprintCapable?: boolean;
+  /** Test seam. */
+  retrievePayment?: typeof retrieveRevolutOrderPayment;
+  retrieveOrder?: typeof retrieveRevolutOrder;
+  sleep?: (ms: number) => Promise<void>;
+}): Promise<SavedCardPaymentOutcome> {
+  const retrievePayment = args.retrievePayment ?? retrieveRevolutOrderPayment;
+  const retrieveOrder = args.retrieveOrder ?? retrieveRevolutOrder;
+  const sleep = args.sleep ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
   /**
    * Bolt/Uber-class: keep polling Revolut on Edge while payment is processing /
    * challenge-without-ACS. Device samples showed ~5–7s client reconcile after a
@@ -1663,16 +1772,20 @@ async function resolveSavedCardPaymentOutcome(args: {
   let iteration = 0;
   while (Date.now() - settleStartedAt <= SAVED_CARD_PREAUTH_SETTLE_MAX_MS) {
     if (iteration > 0) {
-      await new Promise((resolve) => setTimeout(resolve, SAVED_CARD_PREAUTH_SETTLE_POLL_MS));
+      await sleep(SAVED_CARD_PREAUTH_SETTLE_POLL_MS);
     }
     iteration += 1;
-    latest = await retrieveRevolutOrderPayment(args.environment, args.secretKey, latest.id);
+    latest = await retrievePayment(args.environment, args.secretKey, latest.id);
     const state = String(latest.state ?? "");
+    const challenge = latest.authentication_challenge;
     args.logStep("Revolut saved-card payment poll", {
       paymentId: latest.id,
       state,
       elapsed_ms: Date.now() - settleStartedAt,
       iteration,
+      // Field names only — challenge payloads (ACS URL, fingerprint HTML) are never logged.
+      challenge_type: challenge?.type ?? null,
+      challenge_fields: challenge && typeof challenge === "object" ? Object.keys(challenge).sort() : null,
     });
 
     if (isRevolutPaymentFailedState(state)) {
@@ -1683,10 +1796,25 @@ async function resolveSavedCardPaymentOutcome(args: {
       if (acsUrl) {
         return { kind: "requires_3ds", paymentId: latest.id, acsUrl };
       }
+      const fingerprintHtml = args.fingerprintCapable
+        ? actionableFingerprintHtml(latest.authentication_challenge)
+        : null;
+      if (fingerprintHtml) {
+        const settleMs = Date.now() - settleStartedAt;
+        args.logStep("THREE_DS_FINGERPRINT_RETURNED_TO_DEVICE", {
+          paymentId: latest.id,
+          orderId: args.orderId,
+          challenge_type: "three_ds_fingerprint",
+          fingerprint_present: true,
+          elapsed_ms: settleMs,
+          iteration,
+        });
+        return { kind: "requires_fingerprint", paymentId: latest.id, fingerprintHtml, settleMs };
+      }
       // Challenge without ACS — keep polling (frictionless / ACS URL pending).
     }
     if (isRevolutPaymentAuthorisedState(state)) {
-      const order = await retrieveRevolutOrder(args.environment, args.secretKey, args.orderId);
+      const order = await retrieveOrder(args.environment, args.secretKey, args.orderId);
       const orderState = String(order.state ?? "").toUpperCase();
       args.logStep("Revolut saved-card order confirm", {
         orderId: args.orderId,
@@ -1695,7 +1823,7 @@ async function resolveSavedCardPaymentOutcome(args: {
         elapsed_ms: Date.now() - settleStartedAt,
       });
       if (isRevolutAuthorisedState(orderState)) {
-        return { kind: "authorised" };
+        return { kind: "authorised", order };
       }
       if (["FAILED", "CANCELLED", "CANCELED", "DECLINED"].includes(orderState)) {
         return { kind: "failed", reason: orderState };
@@ -1716,10 +1844,10 @@ async function resolveSavedCardPaymentOutcome(args: {
     };
   }
   if (isRevolutPaymentAuthorisedState(finalState)) {
-    const order = await retrieveRevolutOrder(args.environment, args.secretKey, args.orderId);
+    const order = await retrieveOrder(args.environment, args.secretKey, args.orderId);
     const orderState = String(order.state ?? "").toUpperCase();
     if (isRevolutAuthorisedState(orderState)) {
-      return { kind: "authorised" };
+      return { kind: "authorised", order };
     }
     return { kind: "in_flight", paymentState: `${finalState}/order:${orderState}` };
   }
@@ -1751,6 +1879,7 @@ function revolutSavedCardAuthorisedResponse(args: {
   waterfallFragment?: { booking_waterfall: import("./bookingWaterfallSSOT.ts").BookingWaterfallServerStepInput[] };
   holdStartedAt?: number;
   edgeTiming?: PreauthEdgeTiming | null;
+  directFinalize?: DirectFinalizeResult | null;
 }): Response {
   return jsonResponseWithPreauthTiming({
     success: true,
@@ -1766,6 +1895,7 @@ function revolutSavedCardAuthorisedResponse(args: {
     saved_card_flow: true,
     saved_card_authorised: true,
     idempotent: args.idempotent === true,
+    ...(args.directFinalize ? directFinalizeResponseFields(args.directFinalize) : {}),
     ...(args.holdStartedAt ? revolutPreauthMilestones(args.holdStartedAt) : {}),
     ...(args.waterfallFragment ?? {}),
   }, args.corsHeaders, 200, args.edgeTiming);

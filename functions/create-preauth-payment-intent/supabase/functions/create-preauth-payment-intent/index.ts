@@ -10,11 +10,7 @@ import {
   resolveCustomerPreauthBasePence,
   tripHasLockedCustomerFare,
 } from "../_shared/customerDisplayFare.ts";
-import {
-  buildPreauthIdempotencyKey,
-  buildTripPaymentSyncPatch,
-  recordPaymentAuthorizationEvent,
-} from "../_shared/dynamicPaymentWorkflow.ts";
+import { buildTripPaymentSyncPatch } from "../_shared/dynamicPaymentWorkflow.ts";
 import {
   assertCanBookRide,
   logPassengerBookingBlocked,
@@ -104,6 +100,25 @@ async function resolveRegionCurrency(
   throw new Error("Region configuration incomplete — cannot resolve currency. Please contact support.");
 }
 
+type RegionCurrencySettled = { ok: true; currency: string } | { ok: false; error: unknown };
+
+/** Starts the currency read early. Never rejects; takeRegionCurrency re-throws at the gate. */
+function startRegionCurrencyRead(
+  supabaseClient: any,
+  serviceAreaId: string | null,
+): Promise<RegionCurrencySettled> {
+  return resolveRegionCurrency(supabaseClient, null, serviceAreaId).then(
+    (currency) => ({ ok: true as const, currency }),
+    (error) => ({ ok: false as const, error }),
+  );
+}
+
+async function takeRegionCurrency(settled: Promise<RegionCurrencySettled>): Promise<string> {
+  const r = await settled;
+  if (!r.ok) throw r.error;
+  return r.currency;
+}
+
 serveWithEdgeTiming("create-preauth-payment-intent", corsHeaders, async (req) => {
   const edgeTiming = createPreauthEdgeTiming();
   const supabaseClient = createClient(
@@ -178,6 +193,7 @@ serveWithEdgeTiming("create-preauth-payment-intent", corsHeaders, async (req) =>
     let preloadedOpaqueQuote: Awaited<ReturnType<typeof loadBookingPaymentQuote>> = null;
     let deferredOfferMetadata: (() => Promise<void>) | null = null;
     let prefetchedBookingGateway: ServiceAreaBookingGatewayBundle | null = null;
+    let regionCurrencyPrefetch: Promise<RegionCurrencySettled> | null = null;
 
     if (body.trip_id) {
       // Legacy path: trip already exists. Eligibility stays ahead of trip reads.
@@ -307,6 +323,9 @@ serveWithEdgeTiming("create-preauth-payment-intent", corsHeaders, async (req) =>
         );
         return { bundle, ms: Date.now() - started };
       })();
+      // Same inputs as the currency gate below (no trip; service area from the body).
+      // Read-only; the result is applied at that gate, before any provider call.
+      regionCurrencyPrefetch = startRegionCurrencyRead(supabaseClient, body.service_area_id || null);
       // Offer needs the fare and customer id. On the opaque path the quote
       // total is the charge, so this read must not hold the response.
       const hasPersonalVoucher = Boolean(body.personal_voucher_code?.trim());
@@ -699,11 +718,13 @@ serveWithEdgeTiming("create-preauth-payment-intent", corsHeaders, async (req) =>
         config_table: "booking_payment_quotes",
       };
       edgeTiming.markBufferEnd();
-      regionCurrency = await resolveRegionCurrency(
-        supabaseClient,
-        tripId,
-        body.service_area_id || metadataExtra.service_area_id || null,
-      );
+      regionCurrency = regionCurrencyPrefetch
+        ? await takeRegionCurrency(regionCurrencyPrefetch)
+        : await resolveRegionCurrency(
+          supabaseClient,
+          tripId,
+          body.service_area_id || metadataExtra.service_area_id || null,
+        );
       edgeTiming.markCurrencyEnd();
     } else {
       const resolved = await Promise.all([
@@ -713,11 +734,13 @@ serveWithEdgeTiming("create-preauth-payment-intent", corsHeaders, async (req) =>
           resolvedServiceAreaId,
           { skipMinHoldWhenDiscounted: offerDiscountPenceForBuffer > 0 },
         ),
-        resolveRegionCurrency(
-          supabaseClient,
-          tripId,
-          body.service_area_id || metadataExtra.service_area_id || null,
-        ),
+        regionCurrencyPrefetch
+          ? takeRegionCurrency(regionCurrencyPrefetch)
+          : resolveRegionCurrency(
+            supabaseClient,
+            tripId,
+            body.service_area_id || metadataExtra.service_area_id || null,
+          ),
       ]);
       bufferPence = resolved[0].bufferPence;
       bufferSource = resolved[0].source;
@@ -817,6 +840,7 @@ serveWithEdgeTiming("create-preauth-payment-intent", corsHeaders, async (req) =>
         receivableConsent: extractReceivableConsentFromPreauthBody(
           body as Record<string, unknown>,
         ),
+        clientCapabilities: body.client_capabilities ?? null,
         corsHeaders,
         logStep,
         edgeTiming,

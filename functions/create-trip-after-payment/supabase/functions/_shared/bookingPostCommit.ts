@@ -31,6 +31,7 @@ import {
   buildPreauthIdempotencyKey,
   recordPaymentAuthorizationEvent,
 } from "./dynamicPaymentWorkflow.ts";
+import { reportPaymentLedgerWriteFailure } from "./paymentLedgerDiagnostics.ts";
 import { finalizeRevolutTokenCapture } from "./revolutSavedCardWalletLink.ts";
 import { resolveRevolutMerchantContext } from "./revolutMerchantContext.ts";
 import {
@@ -462,23 +463,35 @@ export function buildBookingPostCommitTasks(ctx: BookingPostCommitContext): Prom
         ctx.log("post-commit payments warning", { error: error.message });
       }
     }),
+    // Same key as the payment session (preauth_<client_action_id>) so this row and the
+    // session-owned row converge: duplicate when the session already owns it, adopted
+    // by trg_payment_session_ledger_sync otherwise.
     recordPaymentAuthorizationEvent(ctx.supabase, {
       tripId: ctx.tripId,
       fareRevisionNumber: 0,
       operation: "initial_auth",
-      idempotencyKey: buildPreauthIdempotencyKey({
-        tripId: ctx.tripId,
-        clientActionId: ctx.body.client_action_id,
-      }),
+      idempotencyKey: buildPreauthIdempotencyKey(
+        ctx.body.client_action_id
+          ? { clientActionId: ctx.body.client_action_id }
+          : { tripId: ctx.tripId },
+      ),
       providerOrderId: ctx.paymentRefId,
       amountPence: ctx.preauthAmountPence,
       status: "succeeded",
       metadata: {
         provider: "revolut",
         provider_order_id: ctx.paymentRefId,
+        client_action_id: ctx.body.client_action_id ?? null,
       },
     }).catch((e) => {
-      ctx.log("post-commit auth ledger warning", { error: String(e) });
+      reportPaymentLedgerWriteFailure({
+        operation: "initial_auth",
+        stage: "ctap_post_commit",
+        clientActionId: ctx.body.client_action_id ?? null,
+        tripId: ctx.tripId,
+        providerOrderId: ctx.paymentRefId,
+        consequence: "trip_continues_session_trigger_backstop",
+      }, e);
     }),
     ctx.supabase.from("trip_stops").insert(tripStops).then(({ error }) => {
       if (error) ctx.log("post-commit trip_stops warning", { error: error.message });
