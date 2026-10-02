@@ -28,6 +28,11 @@ export type SpecResolveInput = {
   created_at?: string | null;
   financial_model?: string | null;
   sessions?: SpecPaymentSession[] | null;
+  /**
+   * SQL: trip_chargeable_terminal_outcome_kind(...) IS NOT NULL. The unused
+   * buffer released after a terminal partial capture is not a capture release.
+   */
+  chargeable_terminal?: boolean | null;
 };
 
 export type SpecResolveResult = {
@@ -108,11 +113,15 @@ export function specResolveEconomicDate(input: SpecResolveInput): SpecResolveRes
     };
   }
 
+  const terminal = input.chargeable_terminal === true;
+  const releaseBlocks = (s: SpecPaymentSession) =>
+    upper(s.status) === "RELEASED"
+    || (isReleased(s) && !(terminal && upper(s.status) === "CAPTURED"));
   const live = booking.filter((s) =>
     Boolean(s.captured_at)
     && Math.round(Number(s.captured_amount_pence ?? 0)) > 0
     && !isRefunded(s)
-    && !isReleased(s)
+    && !releaseBlocks(s)
     && isVerifiedTerminal(s),
   );
   if (live.length === 1) {

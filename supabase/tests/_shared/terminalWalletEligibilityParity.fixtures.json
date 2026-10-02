@@ -1,0 +1,3887 @@
+{
+  "_doc": "Shared SQL↔TS wallet eligibility fixtures. Ages are seconds before NOW. Evaluated by terminalWalletEligibilityParity.lock.test.ts (TS: fetchDriverPayoutEligibility) and by the disposable-PostgreSQL certification (SQL: driver_wallet_eligibility_balances). clearing_delay_hours = 27.",
+  "clearing_delay_hours": 27,
+  "scenarios": [
+    {
+      "id": "mk261002014_arrival_pending_1h",
+      "note": "MK-261002-014 shape: cancelled, cancelled_at set, completed_at null, stale stamp 500/75/425, capture 450, buffer release 300, fee 24 ACTUAL, TEN 426, owner via previous_driver_id",
+      "trip": {
+        "status": "cancelled",
+        "financial_outcome": "ARRIVAL_CANCELLATION",
+        "payment_status": "captured",
+        "owner": "previous",
+        "gross_fare_pence": 500,
+        "commission_pence": 75,
+        "driver_net_pence": 425,
+        "provider_fee_pence": 24,
+        "capture_amount_pence": 450,
+        "cancellation_fee_pence": 450,
+        "cancelled_age_s": 3602
+      },
+      "session": {
+        "status": "captured",
+        "provider_state": "COMPLETED",
+        "hold_release_state": "released",
+        "captured_amount_pence": 450,
+        "released_amount_pence": 300,
+        "authorised_amount_pence": 450,
+        "fee_status": "ACTUAL",
+        "provider_processing_fee_pence": 24,
+        "captured_age_s": 3600
+      },
+      "ledger": [
+        {
+          "type": "TRIP_EARNING_NET",
+          "amount_pence": 426,
+          "age_s": 3598
+        }
+      ],
+      "expect": {
+        "pending": 426,
+        "eligible": 0
+      }
+    },
+    {
+      "id": "mk261002014_arrival_available_28h",
+      "trip": {
+        "status": "cancelled",
+        "financial_outcome": "ARRIVAL_CANCELLATION",
+        "payment_status": "captured",
+        "owner": "previous",
+        "gross_fare_pence": 500,
+        "commission_pence": 75,
+        "driver_net_pence": 425,
+        "provider_fee_pence": 24,
+        "capture_amount_pence": 450,
+        "cancellation_fee_pence": 450,
+        "cancelled_age_s": 100802
+      },
+      "session": {
+        "status": "captured",
+        "provider_state": "COMPLETED",
+        "hold_release_state": "released",
+        "captured_amount_pence": 450,
+        "released_amount_pence": 300,
+        "authorised_amount_pence": 450,
+        "fee_status": "ACTUAL",
+        "provider_processing_fee_pence": 24,
+        "captured_age_s": 100800
+      },
+      "ledger": [
+        {
+          "type": "TRIP_EARNING_NET",
+          "amount_pence": 426,
+          "age_s": 100798
+        }
+      ],
+      "expect": {
+        "pending": 0,
+        "eligible": 426
+      }
+    },
+    {
+      "id": "boundary_26h59m59s_pending",
+      "trip": {
+        "status": "cancelled",
+        "financial_outcome": "ARRIVAL_CANCELLATION",
+        "payment_status": "captured",
+        "owner": "previous",
+        "gross_fare_pence": 450,
+        "commission_pence": 0,
+        "driver_net_pence": 426,
+        "provider_fee_pence": 24,
+        "capture_amount_pence": 450,
+        "cancellation_fee_pence": 450,
+        "cancelled_age_s": 97200
+      },
+      "session": {
+        "status": "captured",
+        "provider_state": "COMPLETED",
+        "hold_release_state": "released",
+        "captured_amount_pence": 450,
+        "released_amount_pence": 300,
+        "authorised_amount_pence": 450,
+        "fee_status": "ACTUAL",
+        "provider_processing_fee_pence": 24,
+        "captured_age_s": 97199
+      },
+      "ledger": [
+        {
+          "type": "TRIP_EARNING_NET",
+          "amount_pence": 426,
+          "age_s": 97199
+        }
+      ],
+      "expect": {
+        "pending": 426,
+        "eligible": 0
+      }
+    },
+    {
+      "id": "boundary_27h00m00s_available",
+      "trip": {
+        "status": "cancelled",
+        "financial_outcome": "ARRIVAL_CANCELLATION",
+        "payment_status": "captured",
+        "owner": "previous",
+        "gross_fare_pence": 450,
+        "commission_pence": 0,
+        "driver_net_pence": 426,
+        "provider_fee_pence": 24,
+        "capture_amount_pence": 450,
+        "cancellation_fee_pence": 450,
+        "cancelled_age_s": 97201
+      },
+      "session": {
+        "status": "captured",
+        "provider_state": "COMPLETED",
+        "hold_release_state": "released",
+        "captured_amount_pence": 450,
+        "released_amount_pence": 300,
+        "authorised_amount_pence": 450,
+        "fee_status": "ACTUAL",
+        "provider_processing_fee_pence": 24,
+        "captured_age_s": 97200
+      },
+      "ledger": [
+        {
+          "type": "TRIP_EARNING_NET",
+          "amount_pence": 426,
+          "age_s": 97200
+        }
+      ],
+      "expect": {
+        "pending": 0,
+        "eligible": 426
+      }
+    },
+    {
+      "id": "mk261002015_no_show_available",
+      "trip": {
+        "status": "no_show",
+        "financial_outcome": "NO_SHOW",
+        "payment_status": "captured",
+        "owner": "previous",
+        "gross_fare_pence": 500,
+        "commission_pence": 75,
+        "driver_net_pence": 425,
+        "provider_fee_pence": 24,
+        "capture_amount_pence": 450,
+        "no_show_charge_pence": 450,
+        "cancelled_age_s": 100802
+      },
+      "session": {
+        "status": "captured",
+        "provider_state": "COMPLETED",
+        "hold_release_state": "released",
+        "captured_amount_pence": 450,
+        "released_amount_pence": 300,
+        "authorised_amount_pence": 450,
+        "fee_status": "ACTUAL",
+        "provider_processing_fee_pence": 24,
+        "captured_age_s": 100800
+      },
+      "ledger": [
+        {
+          "type": "TRIP_EARNING_NET",
+          "amount_pence": 426,
+          "age_s": 100798
+        }
+      ],
+      "expect": {
+        "pending": 0,
+        "eligible": 426
+      }
+    },
+    {
+      "id": "mk260824002_no_show_owned_available",
+      "note": "MK-260824-002 shape with a provable owner: capture 400, release 80, fee 24, TEN 376",
+      "trip": {
+        "status": "no_show",
+        "financial_outcome": "NO_SHOW",
+        "payment_status": "captured",
+        "owner": "driver",
+        "gross_fare_pence": 400,
+        "commission_pence": 0,
+        "driver_net_pence": 400,
+        "provider_fee_pence": null,
+        "capture_amount_pence": 400,
+        "no_show_charge_pence": 400,
+        "cancelled_age_s": 200000
+      },
+      "session": {
+        "status": "captured",
+        "provider_state": "CAPTURED",
+        "hold_release_state": null,
+        "captured_amount_pence": 400,
+        "released_amount_pence": 80,
+        "authorised_amount_pence": 480,
+        "fee_status": "ACTUAL",
+        "provider_processing_fee_pence": 24,
+        "captured_age_s": 200000
+      },
+      "ledger": [
+        {
+          "type": "TRIP_EARNING_NET",
+          "amount_pence": 376,
+          "age_s": 199990
+        }
+      ],
+      "expect": {
+        "pending": 0,
+        "eligible": 376
+      }
+    },
+    {
+      "id": "mk260824002_no_show_owner_unprovable_excluded",
+      "note": "Production MK-260824-002: all driver id columns null — ownership unprovable, fail closed",
+      "trip": {
+        "status": "no_show",
+        "financial_outcome": "NO_SHOW",
+        "payment_status": "captured",
+        "owner": "none",
+        "gross_fare_pence": 400,
+        "commission_pence": 0,
+        "driver_net_pence": 400,
+        "provider_fee_pence": null,
+        "capture_amount_pence": 400,
+        "no_show_charge_pence": 400,
+        "cancelled_age_s": 200000
+      },
+      "session": {
+        "status": "captured",
+        "provider_state": "CAPTURED",
+        "hold_release_state": null,
+        "captured_amount_pence": 400,
+        "released_amount_pence": 80,
+        "authorised_amount_pence": 480,
+        "fee_status": "ACTUAL",
+        "provider_processing_fee_pence": 24,
+        "captured_age_s": 200000
+      },
+      "ledger": [
+        {
+          "type": "TRIP_EARNING_NET",
+          "amount_pence": 376,
+          "age_s": 199990
+        }
+      ],
+      "expect": {
+        "pending": 0,
+        "eligible": 0
+      }
+    },
+    {
+      "id": "late_passenger_cancellation_available",
+      "trip": {
+        "status": "cancelled",
+        "financial_outcome": "LATE_PASSENGER_CANCELLATION",
+        "payment_status": "captured",
+        "owner": "previous",
+        "gross_fare_pence": 450,
+        "commission_pence": 0,
+        "driver_net_pence": 426,
+        "provider_fee_pence": 24,
+        "capture_amount_pence": 450,
+        "late_cancel_fee_pence": 450,
+        "cancellation_fee_pence": 450,
+        "cancelled_age_s": 100802
+      },
+      "session": {
+        "status": "captured",
+        "provider_state": "COMPLETED",
+        "hold_release_state": "released",
+        "captured_amount_pence": 450,
+        "released_amount_pence": 300,
+        "authorised_amount_pence": 450,
+        "fee_status": "ACTUAL",
+        "provider_processing_fee_pence": 24,
+        "captured_age_s": 100800
+      },
+      "ledger": [
+        {
+          "type": "TRIP_EARNING_NET",
+          "amount_pence": 426,
+          "age_s": 100798
+        }
+      ],
+      "expect": {
+        "pending": 0,
+        "eligible": 426
+      }
+    },
+    {
+      "id": "late_passenger_cancellation_pending",
+      "trip": {
+        "status": "cancelled",
+        "financial_outcome": "LATE_PASSENGER_CANCELLATION",
+        "payment_status": "captured",
+        "owner": "previous",
+        "gross_fare_pence": 450,
+        "commission_pence": 0,
+        "driver_net_pence": 426,
+        "provider_fee_pence": 24,
+        "capture_amount_pence": 450,
+        "late_cancel_fee_pence": 450,
+        "cancellation_fee_pence": 450,
+        "cancelled_age_s": 602
+      },
+      "session": {
+        "status": "captured",
+        "provider_state": "COMPLETED",
+        "hold_release_state": "released",
+        "captured_amount_pence": 450,
+        "released_amount_pence": 300,
+        "authorised_amount_pence": 450,
+        "fee_status": "ACTUAL",
+        "provider_processing_fee_pence": 24,
+        "captured_age_s": 600
+      },
+      "ledger": [
+        {
+          "type": "TRIP_EARNING_NET",
+          "amount_pence": 426,
+          "age_s": 598
+        }
+      ],
+      "expect": {
+        "pending": 426,
+        "eligible": 0
+      }
+    },
+    {
+      "id": "cancelled_no_fee_never_payable",
+      "note": "MK-260927-013 shape: CANCELLED_NO_FEE with a stray stamp 425 and an erroneous TEN — never payable",
+      "trip": {
+        "status": "cancelled",
+        "financial_outcome": "CANCELLED_NO_FEE",
+        "payment_status": "released",
+        "owner": "previous",
+        "gross_fare_pence": 500,
+        "commission_pence": 75,
+        "driver_net_pence": 425,
+        "provider_fee_pence": null,
+        "capture_amount_pence": null,
+        "cancelled_age_s": 200000
+      },
+      "session": {
+        "status": "released",
+        "provider_state": "CANCELLED",
+        "hold_release_state": "released",
+        "captured_amount_pence": 0,
+        "released_amount_pence": 750,
+        "authorised_amount_pence": 750,
+        "fee_status": null,
+        "provider_processing_fee_pence": null,
+        "captured_age_s": null
+      },
+      "ledger": [
+        {
+          "type": "TRIP_EARNING_NET",
+          "amount_pence": 425,
+          "age_s": 199990
+        }
+      ],
+      "expect": {
+        "pending": 0,
+        "eligible": 0
+      }
+    },
+    {
+      "id": "cancelled_with_fee_legacy_unchanged",
+      "note": "CANCELLED_WITH_FEE is not a chargeable terminal kind — stays excluded",
+      "trip": {
+        "status": "cancelled",
+        "financial_outcome": "CANCELLED_WITH_FEE",
+        "payment_status": "captured",
+        "owner": "driver",
+        "gross_fare_pence": 400,
+        "commission_pence": 0,
+        "driver_net_pence": 400,
+        "provider_fee_pence": null,
+        "capture_amount_pence": 400,
+        "cancellation_fee_pence": 400,
+        "cancelled_age_s": 200000
+      },
+      "session": {
+        "status": "captured",
+        "provider_state": "COMPLETED",
+        "hold_release_state": null,
+        "captured_amount_pence": 400,
+        "released_amount_pence": 0,
+        "authorised_amount_pence": 400,
+        "fee_status": "ACTUAL",
+        "provider_processing_fee_pence": 24,
+        "captured_age_s": 200000
+      },
+      "ledger": [
+        {
+          "type": "TRIP_EARNING_NET",
+          "amount_pence": 376,
+          "age_s": 199990
+        }
+      ],
+      "expect": {
+        "pending": 0,
+        "eligible": 0
+      }
+    },
+    {
+      "id": "terminal_fee_estimated_excluded",
+      "trip": {
+        "status": "cancelled",
+        "financial_outcome": "ARRIVAL_CANCELLATION",
+        "payment_status": "fee_pending_settlement",
+        "owner": "previous",
+        "gross_fare_pence": 500,
+        "commission_pence": 75,
+        "driver_net_pence": 425,
+        "provider_fee_pence": null,
+        "capture_amount_pence": 450,
+        "cancellation_fee_pence": 450,
+        "cancelled_age_s": 100802
+      },
+      "session": {
+        "status": "captured",
+        "provider_state": "COMPLETED",
+        "hold_release_state": "released",
+        "captured_amount_pence": 450,
+        "released_amount_pence": 300,
+        "authorised_amount_pence": 450,
+        "fee_status": "ESTIMATED",
+        "provider_processing_fee_pence": 24,
+        "captured_age_s": 100800
+      },
+      "ledger": [
+        {
+          "type": "TRIP_EARNING_NET",
+          "amount_pence": 426,
+          "age_s": 100798
+        }
+      ],
+      "expect": {
+        "pending": 0,
+        "eligible": 0
+      }
+    },
+    {
+      "id": "terminal_amount_mismatch_excluded",
+      "trip": {
+        "status": "cancelled",
+        "financial_outcome": "ARRIVAL_CANCELLATION",
+        "payment_status": "captured",
+        "owner": "previous",
+        "gross_fare_pence": 500,
+        "commission_pence": 75,
+        "driver_net_pence": 425,
+        "provider_fee_pence": 24,
+        "capture_amount_pence": 450,
+        "cancellation_fee_pence": 450,
+        "cancelled_age_s": 100802
+      },
+      "session": {
+        "status": "captured",
+        "provider_state": "COMPLETED",
+        "hold_release_state": "released",
+        "captured_amount_pence": 450,
+        "released_amount_pence": 300,
+        "authorised_amount_pence": 450,
+        "fee_status": "ACTUAL",
+        "provider_processing_fee_pence": 24,
+        "captured_age_s": 100800
+      },
+      "ledger": [
+        {
+          "type": "TRIP_EARNING_NET",
+          "amount_pence": 425,
+          "age_s": 100798
+        }
+      ],
+      "expect": {
+        "pending": 0,
+        "eligible": 0
+      }
+    },
+    {
+      "id": "terminal_owner_mismatch_excluded",
+      "trip": {
+        "status": "cancelled",
+        "financial_outcome": "ARRIVAL_CANCELLATION",
+        "payment_status": "captured",
+        "owner": "other",
+        "gross_fare_pence": 500,
+        "commission_pence": 75,
+        "driver_net_pence": 425,
+        "provider_fee_pence": 24,
+        "capture_amount_pence": 450,
+        "cancellation_fee_pence": 450,
+        "cancelled_age_s": 100802
+      },
+      "session": {
+        "status": "captured",
+        "provider_state": "COMPLETED",
+        "hold_release_state": "released",
+        "captured_amount_pence": 450,
+        "released_amount_pence": 300,
+        "authorised_amount_pence": 450,
+        "fee_status": "ACTUAL",
+        "provider_processing_fee_pence": 24,
+        "captured_age_s": 100800
+      },
+      "ledger": [
+        {
+          "type": "TRIP_EARNING_NET",
+          "amount_pence": 426,
+          "age_s": 100798
+        }
+      ],
+      "expect": {
+        "pending": 0,
+        "eligible": 0
+      }
+    },
+    {
+      "id": "terminal_commission_row_excluded",
+      "trip": {
+        "status": "cancelled",
+        "financial_outcome": "ARRIVAL_CANCELLATION",
+        "payment_status": "captured",
+        "owner": "previous",
+        "gross_fare_pence": 500,
+        "commission_pence": 75,
+        "driver_net_pence": 425,
+        "provider_fee_pence": 24,
+        "capture_amount_pence": 450,
+        "cancellation_fee_pence": 450,
+        "cancelled_age_s": 100802
+      },
+      "session": {
+        "status": "captured",
+        "provider_state": "COMPLETED",
+        "hold_release_state": "released",
+        "captured_amount_pence": 450,
+        "released_amount_pence": 300,
+        "authorised_amount_pence": 450,
+        "fee_status": "ACTUAL",
+        "provider_processing_fee_pence": 24,
+        "captured_age_s": 100800
+      },
+      "ledger": [
+        {
+          "type": "TRIP_EARNING_NET",
+          "amount_pence": 426,
+          "age_s": 100798
+        },
+        {
+          "type": "PLATFORM_COMMISSION",
+          "amount_pence": -68,
+          "age_s": 100798
+        }
+      ],
+      "expect": {
+        "pending": 0,
+        "eligible": 0
+      }
+    },
+    {
+      "id": "terminal_reversed_excluded",
+      "trip": {
+        "status": "cancelled",
+        "financial_outcome": "ARRIVAL_CANCELLATION",
+        "payment_status": "captured",
+        "owner": "previous",
+        "gross_fare_pence": 500,
+        "commission_pence": 75,
+        "driver_net_pence": 425,
+        "provider_fee_pence": 24,
+        "capture_amount_pence": 450,
+        "cancellation_fee_pence": 450,
+        "cancelled_age_s": 100802
+      },
+      "session": {
+        "status": "captured",
+        "provider_state": "COMPLETED",
+        "hold_release_state": "released",
+        "captured_amount_pence": 450,
+        "released_amount_pence": 300,
+        "authorised_amount_pence": 450,
+        "fee_status": "ACTUAL",
+        "provider_processing_fee_pence": 24,
+        "captured_age_s": 100800
+      },
+      "ledger": [
+        {
+          "type": "TRIP_EARNING_NET",
+          "amount_pence": 426,
+          "age_s": 100798
+        },
+        {
+          "type": "LEDGER_REVERSAL",
+          "amount_pence": -426,
+          "age_s": 50000
+        }
+      ],
+      "expect": {
+        "pending": 0,
+        "eligible": 0
+      }
+    },
+    {
+      "id": "terminal_refunded_excluded",
+      "trip": {
+        "status": "cancelled",
+        "financial_outcome": "ARRIVAL_CANCELLATION",
+        "payment_status": "refunded",
+        "owner": "previous",
+        "gross_fare_pence": 500,
+        "commission_pence": 75,
+        "driver_net_pence": 425,
+        "provider_fee_pence": 24,
+        "capture_amount_pence": 450,
+        "cancellation_fee_pence": 450,
+        "cancelled_age_s": 100802
+      },
+      "session": {
+        "status": "captured",
+        "provider_state": "COMPLETED",
+        "hold_release_state": "released",
+        "captured_amount_pence": 450,
+        "released_amount_pence": 300,
+        "refunded_amount_pence": 450,
+        "authorised_amount_pence": 450,
+        "fee_status": "ACTUAL",
+        "provider_processing_fee_pence": 24,
+        "captured_age_s": 100800
+      },
+      "ledger": [
+        {
+          "type": "TRIP_EARNING_NET",
+          "amount_pence": 426,
+          "age_s": 100798
+        }
+      ],
+      "expect": {
+        "pending": 0,
+        "eligible": 0
+      }
+    },
+    {
+      "id": "terminal_full_release_voided_excluded",
+      "trip": {
+        "status": "cancelled",
+        "financial_outcome": "ARRIVAL_CANCELLATION",
+        "payment_status": "released",
+        "owner": "previous",
+        "gross_fare_pence": 500,
+        "commission_pence": 75,
+        "driver_net_pence": 425,
+        "provider_fee_pence": 24,
+        "capture_amount_pence": 450,
+        "cancellation_fee_pence": 450,
+        "cancelled_age_s": 100802
+      },
+      "session": {
+        "status": "released",
+        "provider_state": "COMPLETED",
+        "hold_release_state": "released",
+        "captured_amount_pence": 450,
+        "released_amount_pence": 750,
+        "authorised_amount_pence": 750,
+        "fee_status": "ACTUAL",
+        "provider_processing_fee_pence": 24,
+        "captured_age_s": 100800
+      },
+      "ledger": [
+        {
+          "type": "TRIP_EARNING_NET",
+          "amount_pence": 426,
+          "age_s": 100798
+        }
+      ],
+      "expect": {
+        "pending": 0,
+        "eligible": 0
+      }
+    },
+    {
+      "id": "terminal_driver_collected_excluded",
+      "trip": {
+        "status": "cancelled",
+        "financial_outcome": "ARRIVAL_CANCELLATION",
+        "payment_status": "captured",
+        "owner": "previous",
+        "financial_model": "DRIVER_COLLECTED_COMMISSION_WALLET",
+        "gross_fare_pence": 500,
+        "commission_pence": 75,
+        "driver_net_pence": 425,
+        "provider_fee_pence": 24,
+        "capture_amount_pence": 450,
+        "cancellation_fee_pence": 450,
+        "cancelled_age_s": 100802
+      },
+      "session": {
+        "status": "captured",
+        "provider_state": "COMPLETED",
+        "hold_release_state": "released",
+        "captured_amount_pence": 450,
+        "released_amount_pence": 300,
+        "authorised_amount_pence": 450,
+        "fee_status": "ACTUAL",
+        "provider_processing_fee_pence": 24,
+        "captured_age_s": 100800
+      },
+      "ledger": [
+        {
+          "type": "TRIP_EARNING_NET",
+          "amount_pence": 426,
+          "age_s": 100798
+        }
+      ],
+      "expect": {
+        "pending": 0,
+        "eligible": 0
+      }
+    },
+    {
+      "id": "completed_trip_available_unchanged",
+      "trip": {
+        "status": "completed",
+        "financial_outcome": "COMPLETED",
+        "payment_status": "captured",
+        "owner": "driver",
+        "gross_fare_pence": 1000,
+        "commission_pence": 150,
+        "driver_net_pence": 850,
+        "provider_fee_pence": null,
+        "capture_amount_pence": 1000,
+        "completed_age_s": 100900,
+        "cancelled_age_s": null
+      },
+      "session": {
+        "status": "captured",
+        "provider_state": "COMPLETED",
+        "hold_release_state": null,
+        "captured_amount_pence": 1000,
+        "released_amount_pence": 0,
+        "authorised_amount_pence": 1000,
+        "fee_status": "ACTUAL",
+        "provider_processing_fee_pence": 30,
+        "captured_age_s": 100800
+      },
+      "ledger": [
+        {
+          "type": "TRIP_EARNING_NET",
+          "amount_pence": 850,
+          "age_s": 100798
+        }
+      ],
+      "expect": {
+        "pending": 0,
+        "eligible": 850
+      }
+    },
+    {
+      "id": "completed_trip_pending_unchanged",
+      "trip": {
+        "status": "completed",
+        "financial_outcome": "COMPLETED",
+        "payment_status": "captured",
+        "owner": "driver",
+        "gross_fare_pence": 1000,
+        "commission_pence": 150,
+        "driver_net_pence": 850,
+        "provider_fee_pence": null,
+        "capture_amount_pence": 1000,
+        "completed_age_s": 3700,
+        "cancelled_age_s": null
+      },
+      "session": {
+        "status": "captured",
+        "provider_state": "COMPLETED",
+        "hold_release_state": null,
+        "captured_amount_pence": 1000,
+        "released_amount_pence": 0,
+        "authorised_amount_pence": 1000,
+        "fee_status": "ACTUAL",
+        "provider_processing_fee_pence": 30,
+        "captured_age_s": 3600
+      },
+      "ledger": [
+        {
+          "type": "TRIP_EARNING_NET",
+          "amount_pence": 850,
+          "age_s": 3598
+        }
+      ],
+      "expect": {
+        "pending": 850,
+        "eligible": 0
+      }
+    },
+    {
+      "id": "completed_trip_stamp_mismatch_unchanged",
+      "note": "Completed trips keep the trip-stamp equality gate",
+      "trip": {
+        "status": "completed",
+        "financial_outcome": "COMPLETED",
+        "payment_status": "captured",
+        "owner": "driver",
+        "gross_fare_pence": 1000,
+        "commission_pence": 150,
+        "driver_net_pence": 850,
+        "provider_fee_pence": null,
+        "capture_amount_pence": 1000,
+        "completed_age_s": 100900,
+        "cancelled_age_s": null
+      },
+      "session": {
+        "status": "captured",
+        "provider_state": "COMPLETED",
+        "hold_release_state": null,
+        "captured_amount_pence": 1000,
+        "released_amount_pence": 0,
+        "authorised_amount_pence": 1000,
+        "fee_status": "ACTUAL",
+        "provider_processing_fee_pence": 30,
+        "captured_age_s": 100800
+      },
+      "ledger": [
+        {
+          "type": "TRIP_EARNING_NET",
+          "amount_pence": 820,
+          "age_s": 100798
+        }
+      ],
+      "expect": {
+        "pending": 0,
+        "eligible": 0
+      }
+    }
+  ],
+  "outcome_kind_cases": [
+    {
+      "financial_outcome": null,
+      "status": null,
+      "payment_status": null,
+      "no_show_charge_pence": null,
+      "expect": null
+    },
+    {
+      "financial_outcome": null,
+      "status": null,
+      "payment_status": null,
+      "no_show_charge_pence": 0,
+      "expect": null
+    },
+    {
+      "financial_outcome": null,
+      "status": null,
+      "payment_status": null,
+      "no_show_charge_pence": 450,
+      "expect": null
+    },
+    {
+      "financial_outcome": null,
+      "status": null,
+      "payment_status": "captured",
+      "no_show_charge_pence": null,
+      "expect": null
+    },
+    {
+      "financial_outcome": null,
+      "status": null,
+      "payment_status": "captured",
+      "no_show_charge_pence": 0,
+      "expect": null
+    },
+    {
+      "financial_outcome": null,
+      "status": null,
+      "payment_status": "captured",
+      "no_show_charge_pence": 450,
+      "expect": null
+    },
+    {
+      "financial_outcome": null,
+      "status": null,
+      "payment_status": "fee_pending_settlement",
+      "no_show_charge_pence": null,
+      "expect": null
+    },
+    {
+      "financial_outcome": null,
+      "status": null,
+      "payment_status": "fee_pending_settlement",
+      "no_show_charge_pence": 0,
+      "expect": null
+    },
+    {
+      "financial_outcome": null,
+      "status": null,
+      "payment_status": "fee_pending_settlement",
+      "no_show_charge_pence": 450,
+      "expect": "NO_SHOW"
+    },
+    {
+      "financial_outcome": null,
+      "status": null,
+      "payment_status": "no_show_customer_debt",
+      "no_show_charge_pence": null,
+      "expect": null
+    },
+    {
+      "financial_outcome": null,
+      "status": null,
+      "payment_status": "no_show_customer_debt",
+      "no_show_charge_pence": 0,
+      "expect": null
+    },
+    {
+      "financial_outcome": null,
+      "status": null,
+      "payment_status": "no_show_customer_debt",
+      "no_show_charge_pence": 450,
+      "expect": "NO_SHOW"
+    },
+    {
+      "financial_outcome": null,
+      "status": "cancelled",
+      "payment_status": null,
+      "no_show_charge_pence": null,
+      "expect": null
+    },
+    {
+      "financial_outcome": null,
+      "status": "cancelled",
+      "payment_status": null,
+      "no_show_charge_pence": 0,
+      "expect": null
+    },
+    {
+      "financial_outcome": null,
+      "status": "cancelled",
+      "payment_status": null,
+      "no_show_charge_pence": 450,
+      "expect": null
+    },
+    {
+      "financial_outcome": null,
+      "status": "cancelled",
+      "payment_status": "captured",
+      "no_show_charge_pence": null,
+      "expect": null
+    },
+    {
+      "financial_outcome": null,
+      "status": "cancelled",
+      "payment_status": "captured",
+      "no_show_charge_pence": 0,
+      "expect": null
+    },
+    {
+      "financial_outcome": null,
+      "status": "cancelled",
+      "payment_status": "captured",
+      "no_show_charge_pence": 450,
+      "expect": null
+    },
+    {
+      "financial_outcome": null,
+      "status": "cancelled",
+      "payment_status": "fee_pending_settlement",
+      "no_show_charge_pence": null,
+      "expect": null
+    },
+    {
+      "financial_outcome": null,
+      "status": "cancelled",
+      "payment_status": "fee_pending_settlement",
+      "no_show_charge_pence": 0,
+      "expect": null
+    },
+    {
+      "financial_outcome": null,
+      "status": "cancelled",
+      "payment_status": "fee_pending_settlement",
+      "no_show_charge_pence": 450,
+      "expect": "NO_SHOW"
+    },
+    {
+      "financial_outcome": null,
+      "status": "cancelled",
+      "payment_status": "no_show_customer_debt",
+      "no_show_charge_pence": null,
+      "expect": null
+    },
+    {
+      "financial_outcome": null,
+      "status": "cancelled",
+      "payment_status": "no_show_customer_debt",
+      "no_show_charge_pence": 0,
+      "expect": null
+    },
+    {
+      "financial_outcome": null,
+      "status": "cancelled",
+      "payment_status": "no_show_customer_debt",
+      "no_show_charge_pence": 450,
+      "expect": "NO_SHOW"
+    },
+    {
+      "financial_outcome": null,
+      "status": "no_show",
+      "payment_status": null,
+      "no_show_charge_pence": null,
+      "expect": "NO_SHOW"
+    },
+    {
+      "financial_outcome": null,
+      "status": "no_show",
+      "payment_status": null,
+      "no_show_charge_pence": 0,
+      "expect": "NO_SHOW"
+    },
+    {
+      "financial_outcome": null,
+      "status": "no_show",
+      "payment_status": null,
+      "no_show_charge_pence": 450,
+      "expect": "NO_SHOW"
+    },
+    {
+      "financial_outcome": null,
+      "status": "no_show",
+      "payment_status": "captured",
+      "no_show_charge_pence": null,
+      "expect": "NO_SHOW"
+    },
+    {
+      "financial_outcome": null,
+      "status": "no_show",
+      "payment_status": "captured",
+      "no_show_charge_pence": 0,
+      "expect": "NO_SHOW"
+    },
+    {
+      "financial_outcome": null,
+      "status": "no_show",
+      "payment_status": "captured",
+      "no_show_charge_pence": 450,
+      "expect": "NO_SHOW"
+    },
+    {
+      "financial_outcome": null,
+      "status": "no_show",
+      "payment_status": "fee_pending_settlement",
+      "no_show_charge_pence": null,
+      "expect": "NO_SHOW"
+    },
+    {
+      "financial_outcome": null,
+      "status": "no_show",
+      "payment_status": "fee_pending_settlement",
+      "no_show_charge_pence": 0,
+      "expect": "NO_SHOW"
+    },
+    {
+      "financial_outcome": null,
+      "status": "no_show",
+      "payment_status": "fee_pending_settlement",
+      "no_show_charge_pence": 450,
+      "expect": "NO_SHOW"
+    },
+    {
+      "financial_outcome": null,
+      "status": "no_show",
+      "payment_status": "no_show_customer_debt",
+      "no_show_charge_pence": null,
+      "expect": "NO_SHOW"
+    },
+    {
+      "financial_outcome": null,
+      "status": "no_show",
+      "payment_status": "no_show_customer_debt",
+      "no_show_charge_pence": 0,
+      "expect": "NO_SHOW"
+    },
+    {
+      "financial_outcome": null,
+      "status": "no_show",
+      "payment_status": "no_show_customer_debt",
+      "no_show_charge_pence": 450,
+      "expect": "NO_SHOW"
+    },
+    {
+      "financial_outcome": null,
+      "status": "completed",
+      "payment_status": null,
+      "no_show_charge_pence": null,
+      "expect": null
+    },
+    {
+      "financial_outcome": null,
+      "status": "completed",
+      "payment_status": null,
+      "no_show_charge_pence": 0,
+      "expect": null
+    },
+    {
+      "financial_outcome": null,
+      "status": "completed",
+      "payment_status": null,
+      "no_show_charge_pence": 450,
+      "expect": null
+    },
+    {
+      "financial_outcome": null,
+      "status": "completed",
+      "payment_status": "captured",
+      "no_show_charge_pence": null,
+      "expect": null
+    },
+    {
+      "financial_outcome": null,
+      "status": "completed",
+      "payment_status": "captured",
+      "no_show_charge_pence": 0,
+      "expect": null
+    },
+    {
+      "financial_outcome": null,
+      "status": "completed",
+      "payment_status": "captured",
+      "no_show_charge_pence": 450,
+      "expect": null
+    },
+    {
+      "financial_outcome": null,
+      "status": "completed",
+      "payment_status": "fee_pending_settlement",
+      "no_show_charge_pence": null,
+      "expect": null
+    },
+    {
+      "financial_outcome": null,
+      "status": "completed",
+      "payment_status": "fee_pending_settlement",
+      "no_show_charge_pence": 0,
+      "expect": null
+    },
+    {
+      "financial_outcome": null,
+      "status": "completed",
+      "payment_status": "fee_pending_settlement",
+      "no_show_charge_pence": 450,
+      "expect": "NO_SHOW"
+    },
+    {
+      "financial_outcome": null,
+      "status": "completed",
+      "payment_status": "no_show_customer_debt",
+      "no_show_charge_pence": null,
+      "expect": null
+    },
+    {
+      "financial_outcome": null,
+      "status": "completed",
+      "payment_status": "no_show_customer_debt",
+      "no_show_charge_pence": 0,
+      "expect": null
+    },
+    {
+      "financial_outcome": null,
+      "status": "completed",
+      "payment_status": "no_show_customer_debt",
+      "no_show_charge_pence": 450,
+      "expect": "NO_SHOW"
+    },
+    {
+      "financial_outcome": "COMPLETED",
+      "status": null,
+      "payment_status": null,
+      "no_show_charge_pence": null,
+      "expect": null
+    },
+    {
+      "financial_outcome": "COMPLETED",
+      "status": null,
+      "payment_status": null,
+      "no_show_charge_pence": 0,
+      "expect": null
+    },
+    {
+      "financial_outcome": "COMPLETED",
+      "status": null,
+      "payment_status": null,
+      "no_show_charge_pence": 450,
+      "expect": null
+    },
+    {
+      "financial_outcome": "COMPLETED",
+      "status": null,
+      "payment_status": "captured",
+      "no_show_charge_pence": null,
+      "expect": null
+    },
+    {
+      "financial_outcome": "COMPLETED",
+      "status": null,
+      "payment_status": "captured",
+      "no_show_charge_pence": 0,
+      "expect": null
+    },
+    {
+      "financial_outcome": "COMPLETED",
+      "status": null,
+      "payment_status": "captured",
+      "no_show_charge_pence": 450,
+      "expect": null
+    },
+    {
+      "financial_outcome": "COMPLETED",
+      "status": null,
+      "payment_status": "fee_pending_settlement",
+      "no_show_charge_pence": null,
+      "expect": null
+    },
+    {
+      "financial_outcome": "COMPLETED",
+      "status": null,
+      "payment_status": "fee_pending_settlement",
+      "no_show_charge_pence": 0,
+      "expect": null
+    },
+    {
+      "financial_outcome": "COMPLETED",
+      "status": null,
+      "payment_status": "fee_pending_settlement",
+      "no_show_charge_pence": 450,
+      "expect": null
+    },
+    {
+      "financial_outcome": "COMPLETED",
+      "status": null,
+      "payment_status": "no_show_customer_debt",
+      "no_show_charge_pence": null,
+      "expect": null
+    },
+    {
+      "financial_outcome": "COMPLETED",
+      "status": null,
+      "payment_status": "no_show_customer_debt",
+      "no_show_charge_pence": 0,
+      "expect": null
+    },
+    {
+      "financial_outcome": "COMPLETED",
+      "status": null,
+      "payment_status": "no_show_customer_debt",
+      "no_show_charge_pence": 450,
+      "expect": null
+    },
+    {
+      "financial_outcome": "COMPLETED",
+      "status": "cancelled",
+      "payment_status": null,
+      "no_show_charge_pence": null,
+      "expect": null
+    },
+    {
+      "financial_outcome": "COMPLETED",
+      "status": "cancelled",
+      "payment_status": null,
+      "no_show_charge_pence": 0,
+      "expect": null
+    },
+    {
+      "financial_outcome": "COMPLETED",
+      "status": "cancelled",
+      "payment_status": null,
+      "no_show_charge_pence": 450,
+      "expect": null
+    },
+    {
+      "financial_outcome": "COMPLETED",
+      "status": "cancelled",
+      "payment_status": "captured",
+      "no_show_charge_pence": null,
+      "expect": null
+    },
+    {
+      "financial_outcome": "COMPLETED",
+      "status": "cancelled",
+      "payment_status": "captured",
+      "no_show_charge_pence": 0,
+      "expect": null
+    },
+    {
+      "financial_outcome": "COMPLETED",
+      "status": "cancelled",
+      "payment_status": "captured",
+      "no_show_charge_pence": 450,
+      "expect": null
+    },
+    {
+      "financial_outcome": "COMPLETED",
+      "status": "cancelled",
+      "payment_status": "fee_pending_settlement",
+      "no_show_charge_pence": null,
+      "expect": null
+    },
+    {
+      "financial_outcome": "COMPLETED",
+      "status": "cancelled",
+      "payment_status": "fee_pending_settlement",
+      "no_show_charge_pence": 0,
+      "expect": null
+    },
+    {
+      "financial_outcome": "COMPLETED",
+      "status": "cancelled",
+      "payment_status": "fee_pending_settlement",
+      "no_show_charge_pence": 450,
+      "expect": null
+    },
+    {
+      "financial_outcome": "COMPLETED",
+      "status": "cancelled",
+      "payment_status": "no_show_customer_debt",
+      "no_show_charge_pence": null,
+      "expect": null
+    },
+    {
+      "financial_outcome": "COMPLETED",
+      "status": "cancelled",
+      "payment_status": "no_show_customer_debt",
+      "no_show_charge_pence": 0,
+      "expect": null
+    },
+    {
+      "financial_outcome": "COMPLETED",
+      "status": "cancelled",
+      "payment_status": "no_show_customer_debt",
+      "no_show_charge_pence": 450,
+      "expect": null
+    },
+    {
+      "financial_outcome": "COMPLETED",
+      "status": "no_show",
+      "payment_status": null,
+      "no_show_charge_pence": null,
+      "expect": null
+    },
+    {
+      "financial_outcome": "COMPLETED",
+      "status": "no_show",
+      "payment_status": null,
+      "no_show_charge_pence": 0,
+      "expect": null
+    },
+    {
+      "financial_outcome": "COMPLETED",
+      "status": "no_show",
+      "payment_status": null,
+      "no_show_charge_pence": 450,
+      "expect": null
+    },
+    {
+      "financial_outcome": "COMPLETED",
+      "status": "no_show",
+      "payment_status": "captured",
+      "no_show_charge_pence": null,
+      "expect": null
+    },
+    {
+      "financial_outcome": "COMPLETED",
+      "status": "no_show",
+      "payment_status": "captured",
+      "no_show_charge_pence": 0,
+      "expect": null
+    },
+    {
+      "financial_outcome": "COMPLETED",
+      "status": "no_show",
+      "payment_status": "captured",
+      "no_show_charge_pence": 450,
+      "expect": null
+    },
+    {
+      "financial_outcome": "COMPLETED",
+      "status": "no_show",
+      "payment_status": "fee_pending_settlement",
+      "no_show_charge_pence": null,
+      "expect": null
+    },
+    {
+      "financial_outcome": "COMPLETED",
+      "status": "no_show",
+      "payment_status": "fee_pending_settlement",
+      "no_show_charge_pence": 0,
+      "expect": null
+    },
+    {
+      "financial_outcome": "COMPLETED",
+      "status": "no_show",
+      "payment_status": "fee_pending_settlement",
+      "no_show_charge_pence": 450,
+      "expect": null
+    },
+    {
+      "financial_outcome": "COMPLETED",
+      "status": "no_show",
+      "payment_status": "no_show_customer_debt",
+      "no_show_charge_pence": null,
+      "expect": null
+    },
+    {
+      "financial_outcome": "COMPLETED",
+      "status": "no_show",
+      "payment_status": "no_show_customer_debt",
+      "no_show_charge_pence": 0,
+      "expect": null
+    },
+    {
+      "financial_outcome": "COMPLETED",
+      "status": "no_show",
+      "payment_status": "no_show_customer_debt",
+      "no_show_charge_pence": 450,
+      "expect": null
+    },
+    {
+      "financial_outcome": "COMPLETED",
+      "status": "completed",
+      "payment_status": null,
+      "no_show_charge_pence": null,
+      "expect": null
+    },
+    {
+      "financial_outcome": "COMPLETED",
+      "status": "completed",
+      "payment_status": null,
+      "no_show_charge_pence": 0,
+      "expect": null
+    },
+    {
+      "financial_outcome": "COMPLETED",
+      "status": "completed",
+      "payment_status": null,
+      "no_show_charge_pence": 450,
+      "expect": null
+    },
+    {
+      "financial_outcome": "COMPLETED",
+      "status": "completed",
+      "payment_status": "captured",
+      "no_show_charge_pence": null,
+      "expect": null
+    },
+    {
+      "financial_outcome": "COMPLETED",
+      "status": "completed",
+      "payment_status": "captured",
+      "no_show_charge_pence": 0,
+      "expect": null
+    },
+    {
+      "financial_outcome": "COMPLETED",
+      "status": "completed",
+      "payment_status": "captured",
+      "no_show_charge_pence": 450,
+      "expect": null
+    },
+    {
+      "financial_outcome": "COMPLETED",
+      "status": "completed",
+      "payment_status": "fee_pending_settlement",
+      "no_show_charge_pence": null,
+      "expect": null
+    },
+    {
+      "financial_outcome": "COMPLETED",
+      "status": "completed",
+      "payment_status": "fee_pending_settlement",
+      "no_show_charge_pence": 0,
+      "expect": null
+    },
+    {
+      "financial_outcome": "COMPLETED",
+      "status": "completed",
+      "payment_status": "fee_pending_settlement",
+      "no_show_charge_pence": 450,
+      "expect": null
+    },
+    {
+      "financial_outcome": "COMPLETED",
+      "status": "completed",
+      "payment_status": "no_show_customer_debt",
+      "no_show_charge_pence": null,
+      "expect": null
+    },
+    {
+      "financial_outcome": "COMPLETED",
+      "status": "completed",
+      "payment_status": "no_show_customer_debt",
+      "no_show_charge_pence": 0,
+      "expect": null
+    },
+    {
+      "financial_outcome": "COMPLETED",
+      "status": "completed",
+      "payment_status": "no_show_customer_debt",
+      "no_show_charge_pence": 450,
+      "expect": null
+    },
+    {
+      "financial_outcome": "CANCELLED_NO_FEE",
+      "status": null,
+      "payment_status": null,
+      "no_show_charge_pence": null,
+      "expect": null
+    },
+    {
+      "financial_outcome": "CANCELLED_NO_FEE",
+      "status": null,
+      "payment_status": null,
+      "no_show_charge_pence": 0,
+      "expect": null
+    },
+    {
+      "financial_outcome": "CANCELLED_NO_FEE",
+      "status": null,
+      "payment_status": null,
+      "no_show_charge_pence": 450,
+      "expect": null
+    },
+    {
+      "financial_outcome": "CANCELLED_NO_FEE",
+      "status": null,
+      "payment_status": "captured",
+      "no_show_charge_pence": null,
+      "expect": null
+    },
+    {
+      "financial_outcome": "CANCELLED_NO_FEE",
+      "status": null,
+      "payment_status": "captured",
+      "no_show_charge_pence": 0,
+      "expect": null
+    },
+    {
+      "financial_outcome": "CANCELLED_NO_FEE",
+      "status": null,
+      "payment_status": "captured",
+      "no_show_charge_pence": 450,
+      "expect": null
+    },
+    {
+      "financial_outcome": "CANCELLED_NO_FEE",
+      "status": null,
+      "payment_status": "fee_pending_settlement",
+      "no_show_charge_pence": null,
+      "expect": null
+    },
+    {
+      "financial_outcome": "CANCELLED_NO_FEE",
+      "status": null,
+      "payment_status": "fee_pending_settlement",
+      "no_show_charge_pence": 0,
+      "expect": null
+    },
+    {
+      "financial_outcome": "CANCELLED_NO_FEE",
+      "status": null,
+      "payment_status": "fee_pending_settlement",
+      "no_show_charge_pence": 450,
+      "expect": null
+    },
+    {
+      "financial_outcome": "CANCELLED_NO_FEE",
+      "status": null,
+      "payment_status": "no_show_customer_debt",
+      "no_show_charge_pence": null,
+      "expect": null
+    },
+    {
+      "financial_outcome": "CANCELLED_NO_FEE",
+      "status": null,
+      "payment_status": "no_show_customer_debt",
+      "no_show_charge_pence": 0,
+      "expect": null
+    },
+    {
+      "financial_outcome": "CANCELLED_NO_FEE",
+      "status": null,
+      "payment_status": "no_show_customer_debt",
+      "no_show_charge_pence": 450,
+      "expect": null
+    },
+    {
+      "financial_outcome": "CANCELLED_NO_FEE",
+      "status": "cancelled",
+      "payment_status": null,
+      "no_show_charge_pence": null,
+      "expect": null
+    },
+    {
+      "financial_outcome": "CANCELLED_NO_FEE",
+      "status": "cancelled",
+      "payment_status": null,
+      "no_show_charge_pence": 0,
+      "expect": null
+    },
+    {
+      "financial_outcome": "CANCELLED_NO_FEE",
+      "status": "cancelled",
+      "payment_status": null,
+      "no_show_charge_pence": 450,
+      "expect": null
+    },
+    {
+      "financial_outcome": "CANCELLED_NO_FEE",
+      "status": "cancelled",
+      "payment_status": "captured",
+      "no_show_charge_pence": null,
+      "expect": null
+    },
+    {
+      "financial_outcome": "CANCELLED_NO_FEE",
+      "status": "cancelled",
+      "payment_status": "captured",
+      "no_show_charge_pence": 0,
+      "expect": null
+    },
+    {
+      "financial_outcome": "CANCELLED_NO_FEE",
+      "status": "cancelled",
+      "payment_status": "captured",
+      "no_show_charge_pence": 450,
+      "expect": null
+    },
+    {
+      "financial_outcome": "CANCELLED_NO_FEE",
+      "status": "cancelled",
+      "payment_status": "fee_pending_settlement",
+      "no_show_charge_pence": null,
+      "expect": null
+    },
+    {
+      "financial_outcome": "CANCELLED_NO_FEE",
+      "status": "cancelled",
+      "payment_status": "fee_pending_settlement",
+      "no_show_charge_pence": 0,
+      "expect": null
+    },
+    {
+      "financial_outcome": "CANCELLED_NO_FEE",
+      "status": "cancelled",
+      "payment_status": "fee_pending_settlement",
+      "no_show_charge_pence": 450,
+      "expect": null
+    },
+    {
+      "financial_outcome": "CANCELLED_NO_FEE",
+      "status": "cancelled",
+      "payment_status": "no_show_customer_debt",
+      "no_show_charge_pence": null,
+      "expect": null
+    },
+    {
+      "financial_outcome": "CANCELLED_NO_FEE",
+      "status": "cancelled",
+      "payment_status": "no_show_customer_debt",
+      "no_show_charge_pence": 0,
+      "expect": null
+    },
+    {
+      "financial_outcome": "CANCELLED_NO_FEE",
+      "status": "cancelled",
+      "payment_status": "no_show_customer_debt",
+      "no_show_charge_pence": 450,
+      "expect": null
+    },
+    {
+      "financial_outcome": "CANCELLED_NO_FEE",
+      "status": "no_show",
+      "payment_status": null,
+      "no_show_charge_pence": null,
+      "expect": null
+    },
+    {
+      "financial_outcome": "CANCELLED_NO_FEE",
+      "status": "no_show",
+      "payment_status": null,
+      "no_show_charge_pence": 0,
+      "expect": null
+    },
+    {
+      "financial_outcome": "CANCELLED_NO_FEE",
+      "status": "no_show",
+      "payment_status": null,
+      "no_show_charge_pence": 450,
+      "expect": null
+    },
+    {
+      "financial_outcome": "CANCELLED_NO_FEE",
+      "status": "no_show",
+      "payment_status": "captured",
+      "no_show_charge_pence": null,
+      "expect": null
+    },
+    {
+      "financial_outcome": "CANCELLED_NO_FEE",
+      "status": "no_show",
+      "payment_status": "captured",
+      "no_show_charge_pence": 0,
+      "expect": null
+    },
+    {
+      "financial_outcome": "CANCELLED_NO_FEE",
+      "status": "no_show",
+      "payment_status": "captured",
+      "no_show_charge_pence": 450,
+      "expect": null
+    },
+    {
+      "financial_outcome": "CANCELLED_NO_FEE",
+      "status": "no_show",
+      "payment_status": "fee_pending_settlement",
+      "no_show_charge_pence": null,
+      "expect": null
+    },
+    {
+      "financial_outcome": "CANCELLED_NO_FEE",
+      "status": "no_show",
+      "payment_status": "fee_pending_settlement",
+      "no_show_charge_pence": 0,
+      "expect": null
+    },
+    {
+      "financial_outcome": "CANCELLED_NO_FEE",
+      "status": "no_show",
+      "payment_status": "fee_pending_settlement",
+      "no_show_charge_pence": 450,
+      "expect": null
+    },
+    {
+      "financial_outcome": "CANCELLED_NO_FEE",
+      "status": "no_show",
+      "payment_status": "no_show_customer_debt",
+      "no_show_charge_pence": null,
+      "expect": null
+    },
+    {
+      "financial_outcome": "CANCELLED_NO_FEE",
+      "status": "no_show",
+      "payment_status": "no_show_customer_debt",
+      "no_show_charge_pence": 0,
+      "expect": null
+    },
+    {
+      "financial_outcome": "CANCELLED_NO_FEE",
+      "status": "no_show",
+      "payment_status": "no_show_customer_debt",
+      "no_show_charge_pence": 450,
+      "expect": null
+    },
+    {
+      "financial_outcome": "CANCELLED_NO_FEE",
+      "status": "completed",
+      "payment_status": null,
+      "no_show_charge_pence": null,
+      "expect": null
+    },
+    {
+      "financial_outcome": "CANCELLED_NO_FEE",
+      "status": "completed",
+      "payment_status": null,
+      "no_show_charge_pence": 0,
+      "expect": null
+    },
+    {
+      "financial_outcome": "CANCELLED_NO_FEE",
+      "status": "completed",
+      "payment_status": null,
+      "no_show_charge_pence": 450,
+      "expect": null
+    },
+    {
+      "financial_outcome": "CANCELLED_NO_FEE",
+      "status": "completed",
+      "payment_status": "captured",
+      "no_show_charge_pence": null,
+      "expect": null
+    },
+    {
+      "financial_outcome": "CANCELLED_NO_FEE",
+      "status": "completed",
+      "payment_status": "captured",
+      "no_show_charge_pence": 0,
+      "expect": null
+    },
+    {
+      "financial_outcome": "CANCELLED_NO_FEE",
+      "status": "completed",
+      "payment_status": "captured",
+      "no_show_charge_pence": 450,
+      "expect": null
+    },
+    {
+      "financial_outcome": "CANCELLED_NO_FEE",
+      "status": "completed",
+      "payment_status": "fee_pending_settlement",
+      "no_show_charge_pence": null,
+      "expect": null
+    },
+    {
+      "financial_outcome": "CANCELLED_NO_FEE",
+      "status": "completed",
+      "payment_status": "fee_pending_settlement",
+      "no_show_charge_pence": 0,
+      "expect": null
+    },
+    {
+      "financial_outcome": "CANCELLED_NO_FEE",
+      "status": "completed",
+      "payment_status": "fee_pending_settlement",
+      "no_show_charge_pence": 450,
+      "expect": null
+    },
+    {
+      "financial_outcome": "CANCELLED_NO_FEE",
+      "status": "completed",
+      "payment_status": "no_show_customer_debt",
+      "no_show_charge_pence": null,
+      "expect": null
+    },
+    {
+      "financial_outcome": "CANCELLED_NO_FEE",
+      "status": "completed",
+      "payment_status": "no_show_customer_debt",
+      "no_show_charge_pence": 0,
+      "expect": null
+    },
+    {
+      "financial_outcome": "CANCELLED_NO_FEE",
+      "status": "completed",
+      "payment_status": "no_show_customer_debt",
+      "no_show_charge_pence": 450,
+      "expect": null
+    },
+    {
+      "financial_outcome": "CANCELLED_WITH_FEE",
+      "status": null,
+      "payment_status": null,
+      "no_show_charge_pence": null,
+      "expect": null
+    },
+    {
+      "financial_outcome": "CANCELLED_WITH_FEE",
+      "status": null,
+      "payment_status": null,
+      "no_show_charge_pence": 0,
+      "expect": null
+    },
+    {
+      "financial_outcome": "CANCELLED_WITH_FEE",
+      "status": null,
+      "payment_status": null,
+      "no_show_charge_pence": 450,
+      "expect": null
+    },
+    {
+      "financial_outcome": "CANCELLED_WITH_FEE",
+      "status": null,
+      "payment_status": "captured",
+      "no_show_charge_pence": null,
+      "expect": null
+    },
+    {
+      "financial_outcome": "CANCELLED_WITH_FEE",
+      "status": null,
+      "payment_status": "captured",
+      "no_show_charge_pence": 0,
+      "expect": null
+    },
+    {
+      "financial_outcome": "CANCELLED_WITH_FEE",
+      "status": null,
+      "payment_status": "captured",
+      "no_show_charge_pence": 450,
+      "expect": null
+    },
+    {
+      "financial_outcome": "CANCELLED_WITH_FEE",
+      "status": null,
+      "payment_status": "fee_pending_settlement",
+      "no_show_charge_pence": null,
+      "expect": null
+    },
+    {
+      "financial_outcome": "CANCELLED_WITH_FEE",
+      "status": null,
+      "payment_status": "fee_pending_settlement",
+      "no_show_charge_pence": 0,
+      "expect": null
+    },
+    {
+      "financial_outcome": "CANCELLED_WITH_FEE",
+      "status": null,
+      "payment_status": "fee_pending_settlement",
+      "no_show_charge_pence": 450,
+      "expect": null
+    },
+    {
+      "financial_outcome": "CANCELLED_WITH_FEE",
+      "status": null,
+      "payment_status": "no_show_customer_debt",
+      "no_show_charge_pence": null,
+      "expect": null
+    },
+    {
+      "financial_outcome": "CANCELLED_WITH_FEE",
+      "status": null,
+      "payment_status": "no_show_customer_debt",
+      "no_show_charge_pence": 0,
+      "expect": null
+    },
+    {
+      "financial_outcome": "CANCELLED_WITH_FEE",
+      "status": null,
+      "payment_status": "no_show_customer_debt",
+      "no_show_charge_pence": 450,
+      "expect": null
+    },
+    {
+      "financial_outcome": "CANCELLED_WITH_FEE",
+      "status": "cancelled",
+      "payment_status": null,
+      "no_show_charge_pence": null,
+      "expect": null
+    },
+    {
+      "financial_outcome": "CANCELLED_WITH_FEE",
+      "status": "cancelled",
+      "payment_status": null,
+      "no_show_charge_pence": 0,
+      "expect": null
+    },
+    {
+      "financial_outcome": "CANCELLED_WITH_FEE",
+      "status": "cancelled",
+      "payment_status": null,
+      "no_show_charge_pence": 450,
+      "expect": null
+    },
+    {
+      "financial_outcome": "CANCELLED_WITH_FEE",
+      "status": "cancelled",
+      "payment_status": "captured",
+      "no_show_charge_pence": null,
+      "expect": null
+    },
+    {
+      "financial_outcome": "CANCELLED_WITH_FEE",
+      "status": "cancelled",
+      "payment_status": "captured",
+      "no_show_charge_pence": 0,
+      "expect": null
+    },
+    {
+      "financial_outcome": "CANCELLED_WITH_FEE",
+      "status": "cancelled",
+      "payment_status": "captured",
+      "no_show_charge_pence": 450,
+      "expect": null
+    },
+    {
+      "financial_outcome": "CANCELLED_WITH_FEE",
+      "status": "cancelled",
+      "payment_status": "fee_pending_settlement",
+      "no_show_charge_pence": null,
+      "expect": null
+    },
+    {
+      "financial_outcome": "CANCELLED_WITH_FEE",
+      "status": "cancelled",
+      "payment_status": "fee_pending_settlement",
+      "no_show_charge_pence": 0,
+      "expect": null
+    },
+    {
+      "financial_outcome": "CANCELLED_WITH_FEE",
+      "status": "cancelled",
+      "payment_status": "fee_pending_settlement",
+      "no_show_charge_pence": 450,
+      "expect": null
+    },
+    {
+      "financial_outcome": "CANCELLED_WITH_FEE",
+      "status": "cancelled",
+      "payment_status": "no_show_customer_debt",
+      "no_show_charge_pence": null,
+      "expect": null
+    },
+    {
+      "financial_outcome": "CANCELLED_WITH_FEE",
+      "status": "cancelled",
+      "payment_status": "no_show_customer_debt",
+      "no_show_charge_pence": 0,
+      "expect": null
+    },
+    {
+      "financial_outcome": "CANCELLED_WITH_FEE",
+      "status": "cancelled",
+      "payment_status": "no_show_customer_debt",
+      "no_show_charge_pence": 450,
+      "expect": null
+    },
+    {
+      "financial_outcome": "CANCELLED_WITH_FEE",
+      "status": "no_show",
+      "payment_status": null,
+      "no_show_charge_pence": null,
+      "expect": null
+    },
+    {
+      "financial_outcome": "CANCELLED_WITH_FEE",
+      "status": "no_show",
+      "payment_status": null,
+      "no_show_charge_pence": 0,
+      "expect": null
+    },
+    {
+      "financial_outcome": "CANCELLED_WITH_FEE",
+      "status": "no_show",
+      "payment_status": null,
+      "no_show_charge_pence": 450,
+      "expect": null
+    },
+    {
+      "financial_outcome": "CANCELLED_WITH_FEE",
+      "status": "no_show",
+      "payment_status": "captured",
+      "no_show_charge_pence": null,
+      "expect": null
+    },
+    {
+      "financial_outcome": "CANCELLED_WITH_FEE",
+      "status": "no_show",
+      "payment_status": "captured",
+      "no_show_charge_pence": 0,
+      "expect": null
+    },
+    {
+      "financial_outcome": "CANCELLED_WITH_FEE",
+      "status": "no_show",
+      "payment_status": "captured",
+      "no_show_charge_pence": 450,
+      "expect": null
+    },
+    {
+      "financial_outcome": "CANCELLED_WITH_FEE",
+      "status": "no_show",
+      "payment_status": "fee_pending_settlement",
+      "no_show_charge_pence": null,
+      "expect": null
+    },
+    {
+      "financial_outcome": "CANCELLED_WITH_FEE",
+      "status": "no_show",
+      "payment_status": "fee_pending_settlement",
+      "no_show_charge_pence": 0,
+      "expect": null
+    },
+    {
+      "financial_outcome": "CANCELLED_WITH_FEE",
+      "status": "no_show",
+      "payment_status": "fee_pending_settlement",
+      "no_show_charge_pence": 450,
+      "expect": null
+    },
+    {
+      "financial_outcome": "CANCELLED_WITH_FEE",
+      "status": "no_show",
+      "payment_status": "no_show_customer_debt",
+      "no_show_charge_pence": null,
+      "expect": null
+    },
+    {
+      "financial_outcome": "CANCELLED_WITH_FEE",
+      "status": "no_show",
+      "payment_status": "no_show_customer_debt",
+      "no_show_charge_pence": 0,
+      "expect": null
+    },
+    {
+      "financial_outcome": "CANCELLED_WITH_FEE",
+      "status": "no_show",
+      "payment_status": "no_show_customer_debt",
+      "no_show_charge_pence": 450,
+      "expect": null
+    },
+    {
+      "financial_outcome": "CANCELLED_WITH_FEE",
+      "status": "completed",
+      "payment_status": null,
+      "no_show_charge_pence": null,
+      "expect": null
+    },
+    {
+      "financial_outcome": "CANCELLED_WITH_FEE",
+      "status": "completed",
+      "payment_status": null,
+      "no_show_charge_pence": 0,
+      "expect": null
+    },
+    {
+      "financial_outcome": "CANCELLED_WITH_FEE",
+      "status": "completed",
+      "payment_status": null,
+      "no_show_charge_pence": 450,
+      "expect": null
+    },
+    {
+      "financial_outcome": "CANCELLED_WITH_FEE",
+      "status": "completed",
+      "payment_status": "captured",
+      "no_show_charge_pence": null,
+      "expect": null
+    },
+    {
+      "financial_outcome": "CANCELLED_WITH_FEE",
+      "status": "completed",
+      "payment_status": "captured",
+      "no_show_charge_pence": 0,
+      "expect": null
+    },
+    {
+      "financial_outcome": "CANCELLED_WITH_FEE",
+      "status": "completed",
+      "payment_status": "captured",
+      "no_show_charge_pence": 450,
+      "expect": null
+    },
+    {
+      "financial_outcome": "CANCELLED_WITH_FEE",
+      "status": "completed",
+      "payment_status": "fee_pending_settlement",
+      "no_show_charge_pence": null,
+      "expect": null
+    },
+    {
+      "financial_outcome": "CANCELLED_WITH_FEE",
+      "status": "completed",
+      "payment_status": "fee_pending_settlement",
+      "no_show_charge_pence": 0,
+      "expect": null
+    },
+    {
+      "financial_outcome": "CANCELLED_WITH_FEE",
+      "status": "completed",
+      "payment_status": "fee_pending_settlement",
+      "no_show_charge_pence": 450,
+      "expect": null
+    },
+    {
+      "financial_outcome": "CANCELLED_WITH_FEE",
+      "status": "completed",
+      "payment_status": "no_show_customer_debt",
+      "no_show_charge_pence": null,
+      "expect": null
+    },
+    {
+      "financial_outcome": "CANCELLED_WITH_FEE",
+      "status": "completed",
+      "payment_status": "no_show_customer_debt",
+      "no_show_charge_pence": 0,
+      "expect": null
+    },
+    {
+      "financial_outcome": "CANCELLED_WITH_FEE",
+      "status": "completed",
+      "payment_status": "no_show_customer_debt",
+      "no_show_charge_pence": 450,
+      "expect": null
+    },
+    {
+      "financial_outcome": "ARRIVAL_CANCELLATION",
+      "status": null,
+      "payment_status": null,
+      "no_show_charge_pence": null,
+      "expect": "ARRIVAL_CANCELLATION"
+    },
+    {
+      "financial_outcome": "ARRIVAL_CANCELLATION",
+      "status": null,
+      "payment_status": null,
+      "no_show_charge_pence": 0,
+      "expect": "ARRIVAL_CANCELLATION"
+    },
+    {
+      "financial_outcome": "ARRIVAL_CANCELLATION",
+      "status": null,
+      "payment_status": null,
+      "no_show_charge_pence": 450,
+      "expect": "ARRIVAL_CANCELLATION"
+    },
+    {
+      "financial_outcome": "ARRIVAL_CANCELLATION",
+      "status": null,
+      "payment_status": "captured",
+      "no_show_charge_pence": null,
+      "expect": "ARRIVAL_CANCELLATION"
+    },
+    {
+      "financial_outcome": "ARRIVAL_CANCELLATION",
+      "status": null,
+      "payment_status": "captured",
+      "no_show_charge_pence": 0,
+      "expect": "ARRIVAL_CANCELLATION"
+    },
+    {
+      "financial_outcome": "ARRIVAL_CANCELLATION",
+      "status": null,
+      "payment_status": "captured",
+      "no_show_charge_pence": 450,
+      "expect": "ARRIVAL_CANCELLATION"
+    },
+    {
+      "financial_outcome": "ARRIVAL_CANCELLATION",
+      "status": null,
+      "payment_status": "fee_pending_settlement",
+      "no_show_charge_pence": null,
+      "expect": "ARRIVAL_CANCELLATION"
+    },
+    {
+      "financial_outcome": "ARRIVAL_CANCELLATION",
+      "status": null,
+      "payment_status": "fee_pending_settlement",
+      "no_show_charge_pence": 0,
+      "expect": "ARRIVAL_CANCELLATION"
+    },
+    {
+      "financial_outcome": "ARRIVAL_CANCELLATION",
+      "status": null,
+      "payment_status": "fee_pending_settlement",
+      "no_show_charge_pence": 450,
+      "expect": "ARRIVAL_CANCELLATION"
+    },
+    {
+      "financial_outcome": "ARRIVAL_CANCELLATION",
+      "status": null,
+      "payment_status": "no_show_customer_debt",
+      "no_show_charge_pence": null,
+      "expect": "ARRIVAL_CANCELLATION"
+    },
+    {
+      "financial_outcome": "ARRIVAL_CANCELLATION",
+      "status": null,
+      "payment_status": "no_show_customer_debt",
+      "no_show_charge_pence": 0,
+      "expect": "ARRIVAL_CANCELLATION"
+    },
+    {
+      "financial_outcome": "ARRIVAL_CANCELLATION",
+      "status": null,
+      "payment_status": "no_show_customer_debt",
+      "no_show_charge_pence": 450,
+      "expect": "ARRIVAL_CANCELLATION"
+    },
+    {
+      "financial_outcome": "ARRIVAL_CANCELLATION",
+      "status": "cancelled",
+      "payment_status": null,
+      "no_show_charge_pence": null,
+      "expect": "ARRIVAL_CANCELLATION"
+    },
+    {
+      "financial_outcome": "ARRIVAL_CANCELLATION",
+      "status": "cancelled",
+      "payment_status": null,
+      "no_show_charge_pence": 0,
+      "expect": "ARRIVAL_CANCELLATION"
+    },
+    {
+      "financial_outcome": "ARRIVAL_CANCELLATION",
+      "status": "cancelled",
+      "payment_status": null,
+      "no_show_charge_pence": 450,
+      "expect": "ARRIVAL_CANCELLATION"
+    },
+    {
+      "financial_outcome": "ARRIVAL_CANCELLATION",
+      "status": "cancelled",
+      "payment_status": "captured",
+      "no_show_charge_pence": null,
+      "expect": "ARRIVAL_CANCELLATION"
+    },
+    {
+      "financial_outcome": "ARRIVAL_CANCELLATION",
+      "status": "cancelled",
+      "payment_status": "captured",
+      "no_show_charge_pence": 0,
+      "expect": "ARRIVAL_CANCELLATION"
+    },
+    {
+      "financial_outcome": "ARRIVAL_CANCELLATION",
+      "status": "cancelled",
+      "payment_status": "captured",
+      "no_show_charge_pence": 450,
+      "expect": "ARRIVAL_CANCELLATION"
+    },
+    {
+      "financial_outcome": "ARRIVAL_CANCELLATION",
+      "status": "cancelled",
+      "payment_status": "fee_pending_settlement",
+      "no_show_charge_pence": null,
+      "expect": "ARRIVAL_CANCELLATION"
+    },
+    {
+      "financial_outcome": "ARRIVAL_CANCELLATION",
+      "status": "cancelled",
+      "payment_status": "fee_pending_settlement",
+      "no_show_charge_pence": 0,
+      "expect": "ARRIVAL_CANCELLATION"
+    },
+    {
+      "financial_outcome": "ARRIVAL_CANCELLATION",
+      "status": "cancelled",
+      "payment_status": "fee_pending_settlement",
+      "no_show_charge_pence": 450,
+      "expect": "ARRIVAL_CANCELLATION"
+    },
+    {
+      "financial_outcome": "ARRIVAL_CANCELLATION",
+      "status": "cancelled",
+      "payment_status": "no_show_customer_debt",
+      "no_show_charge_pence": null,
+      "expect": "ARRIVAL_CANCELLATION"
+    },
+    {
+      "financial_outcome": "ARRIVAL_CANCELLATION",
+      "status": "cancelled",
+      "payment_status": "no_show_customer_debt",
+      "no_show_charge_pence": 0,
+      "expect": "ARRIVAL_CANCELLATION"
+    },
+    {
+      "financial_outcome": "ARRIVAL_CANCELLATION",
+      "status": "cancelled",
+      "payment_status": "no_show_customer_debt",
+      "no_show_charge_pence": 450,
+      "expect": "ARRIVAL_CANCELLATION"
+    },
+    {
+      "financial_outcome": "ARRIVAL_CANCELLATION",
+      "status": "no_show",
+      "payment_status": null,
+      "no_show_charge_pence": null,
+      "expect": "ARRIVAL_CANCELLATION"
+    },
+    {
+      "financial_outcome": "ARRIVAL_CANCELLATION",
+      "status": "no_show",
+      "payment_status": null,
+      "no_show_charge_pence": 0,
+      "expect": "ARRIVAL_CANCELLATION"
+    },
+    {
+      "financial_outcome": "ARRIVAL_CANCELLATION",
+      "status": "no_show",
+      "payment_status": null,
+      "no_show_charge_pence": 450,
+      "expect": "ARRIVAL_CANCELLATION"
+    },
+    {
+      "financial_outcome": "ARRIVAL_CANCELLATION",
+      "status": "no_show",
+      "payment_status": "captured",
+      "no_show_charge_pence": null,
+      "expect": "ARRIVAL_CANCELLATION"
+    },
+    {
+      "financial_outcome": "ARRIVAL_CANCELLATION",
+      "status": "no_show",
+      "payment_status": "captured",
+      "no_show_charge_pence": 0,
+      "expect": "ARRIVAL_CANCELLATION"
+    },
+    {
+      "financial_outcome": "ARRIVAL_CANCELLATION",
+      "status": "no_show",
+      "payment_status": "captured",
+      "no_show_charge_pence": 450,
+      "expect": "ARRIVAL_CANCELLATION"
+    },
+    {
+      "financial_outcome": "ARRIVAL_CANCELLATION",
+      "status": "no_show",
+      "payment_status": "fee_pending_settlement",
+      "no_show_charge_pence": null,
+      "expect": "ARRIVAL_CANCELLATION"
+    },
+    {
+      "financial_outcome": "ARRIVAL_CANCELLATION",
+      "status": "no_show",
+      "payment_status": "fee_pending_settlement",
+      "no_show_charge_pence": 0,
+      "expect": "ARRIVAL_CANCELLATION"
+    },
+    {
+      "financial_outcome": "ARRIVAL_CANCELLATION",
+      "status": "no_show",
+      "payment_status": "fee_pending_settlement",
+      "no_show_charge_pence": 450,
+      "expect": "ARRIVAL_CANCELLATION"
+    },
+    {
+      "financial_outcome": "ARRIVAL_CANCELLATION",
+      "status": "no_show",
+      "payment_status": "no_show_customer_debt",
+      "no_show_charge_pence": null,
+      "expect": "ARRIVAL_CANCELLATION"
+    },
+    {
+      "financial_outcome": "ARRIVAL_CANCELLATION",
+      "status": "no_show",
+      "payment_status": "no_show_customer_debt",
+      "no_show_charge_pence": 0,
+      "expect": "ARRIVAL_CANCELLATION"
+    },
+    {
+      "financial_outcome": "ARRIVAL_CANCELLATION",
+      "status": "no_show",
+      "payment_status": "no_show_customer_debt",
+      "no_show_charge_pence": 450,
+      "expect": "ARRIVAL_CANCELLATION"
+    },
+    {
+      "financial_outcome": "ARRIVAL_CANCELLATION",
+      "status": "completed",
+      "payment_status": null,
+      "no_show_charge_pence": null,
+      "expect": "ARRIVAL_CANCELLATION"
+    },
+    {
+      "financial_outcome": "ARRIVAL_CANCELLATION",
+      "status": "completed",
+      "payment_status": null,
+      "no_show_charge_pence": 0,
+      "expect": "ARRIVAL_CANCELLATION"
+    },
+    {
+      "financial_outcome": "ARRIVAL_CANCELLATION",
+      "status": "completed",
+      "payment_status": null,
+      "no_show_charge_pence": 450,
+      "expect": "ARRIVAL_CANCELLATION"
+    },
+    {
+      "financial_outcome": "ARRIVAL_CANCELLATION",
+      "status": "completed",
+      "payment_status": "captured",
+      "no_show_charge_pence": null,
+      "expect": "ARRIVAL_CANCELLATION"
+    },
+    {
+      "financial_outcome": "ARRIVAL_CANCELLATION",
+      "status": "completed",
+      "payment_status": "captured",
+      "no_show_charge_pence": 0,
+      "expect": "ARRIVAL_CANCELLATION"
+    },
+    {
+      "financial_outcome": "ARRIVAL_CANCELLATION",
+      "status": "completed",
+      "payment_status": "captured",
+      "no_show_charge_pence": 450,
+      "expect": "ARRIVAL_CANCELLATION"
+    },
+    {
+      "financial_outcome": "ARRIVAL_CANCELLATION",
+      "status": "completed",
+      "payment_status": "fee_pending_settlement",
+      "no_show_charge_pence": null,
+      "expect": "ARRIVAL_CANCELLATION"
+    },
+    {
+      "financial_outcome": "ARRIVAL_CANCELLATION",
+      "status": "completed",
+      "payment_status": "fee_pending_settlement",
+      "no_show_charge_pence": 0,
+      "expect": "ARRIVAL_CANCELLATION"
+    },
+    {
+      "financial_outcome": "ARRIVAL_CANCELLATION",
+      "status": "completed",
+      "payment_status": "fee_pending_settlement",
+      "no_show_charge_pence": 450,
+      "expect": "ARRIVAL_CANCELLATION"
+    },
+    {
+      "financial_outcome": "ARRIVAL_CANCELLATION",
+      "status": "completed",
+      "payment_status": "no_show_customer_debt",
+      "no_show_charge_pence": null,
+      "expect": "ARRIVAL_CANCELLATION"
+    },
+    {
+      "financial_outcome": "ARRIVAL_CANCELLATION",
+      "status": "completed",
+      "payment_status": "no_show_customer_debt",
+      "no_show_charge_pence": 0,
+      "expect": "ARRIVAL_CANCELLATION"
+    },
+    {
+      "financial_outcome": "ARRIVAL_CANCELLATION",
+      "status": "completed",
+      "payment_status": "no_show_customer_debt",
+      "no_show_charge_pence": 450,
+      "expect": "ARRIVAL_CANCELLATION"
+    },
+    {
+      "financial_outcome": "NO_SHOW",
+      "status": null,
+      "payment_status": null,
+      "no_show_charge_pence": null,
+      "expect": "NO_SHOW"
+    },
+    {
+      "financial_outcome": "NO_SHOW",
+      "status": null,
+      "payment_status": null,
+      "no_show_charge_pence": 0,
+      "expect": "NO_SHOW"
+    },
+    {
+      "financial_outcome": "NO_SHOW",
+      "status": null,
+      "payment_status": null,
+      "no_show_charge_pence": 450,
+      "expect": "NO_SHOW"
+    },
+    {
+      "financial_outcome": "NO_SHOW",
+      "status": null,
+      "payment_status": "captured",
+      "no_show_charge_pence": null,
+      "expect": "NO_SHOW"
+    },
+    {
+      "financial_outcome": "NO_SHOW",
+      "status": null,
+      "payment_status": "captured",
+      "no_show_charge_pence": 0,
+      "expect": "NO_SHOW"
+    },
+    {
+      "financial_outcome": "NO_SHOW",
+      "status": null,
+      "payment_status": "captured",
+      "no_show_charge_pence": 450,
+      "expect": "NO_SHOW"
+    },
+    {
+      "financial_outcome": "NO_SHOW",
+      "status": null,
+      "payment_status": "fee_pending_settlement",
+      "no_show_charge_pence": null,
+      "expect": "NO_SHOW"
+    },
+    {
+      "financial_outcome": "NO_SHOW",
+      "status": null,
+      "payment_status": "fee_pending_settlement",
+      "no_show_charge_pence": 0,
+      "expect": "NO_SHOW"
+    },
+    {
+      "financial_outcome": "NO_SHOW",
+      "status": null,
+      "payment_status": "fee_pending_settlement",
+      "no_show_charge_pence": 450,
+      "expect": "NO_SHOW"
+    },
+    {
+      "financial_outcome": "NO_SHOW",
+      "status": null,
+      "payment_status": "no_show_customer_debt",
+      "no_show_charge_pence": null,
+      "expect": "NO_SHOW"
+    },
+    {
+      "financial_outcome": "NO_SHOW",
+      "status": null,
+      "payment_status": "no_show_customer_debt",
+      "no_show_charge_pence": 0,
+      "expect": "NO_SHOW"
+    },
+    {
+      "financial_outcome": "NO_SHOW",
+      "status": null,
+      "payment_status": "no_show_customer_debt",
+      "no_show_charge_pence": 450,
+      "expect": "NO_SHOW"
+    },
+    {
+      "financial_outcome": "NO_SHOW",
+      "status": "cancelled",
+      "payment_status": null,
+      "no_show_charge_pence": null,
+      "expect": "NO_SHOW"
+    },
+    {
+      "financial_outcome": "NO_SHOW",
+      "status": "cancelled",
+      "payment_status": null,
+      "no_show_charge_pence": 0,
+      "expect": "NO_SHOW"
+    },
+    {
+      "financial_outcome": "NO_SHOW",
+      "status": "cancelled",
+      "payment_status": null,
+      "no_show_charge_pence": 450,
+      "expect": "NO_SHOW"
+    },
+    {
+      "financial_outcome": "NO_SHOW",
+      "status": "cancelled",
+      "payment_status": "captured",
+      "no_show_charge_pence": null,
+      "expect": "NO_SHOW"
+    },
+    {
+      "financial_outcome": "NO_SHOW",
+      "status": "cancelled",
+      "payment_status": "captured",
+      "no_show_charge_pence": 0,
+      "expect": "NO_SHOW"
+    },
+    {
+      "financial_outcome": "NO_SHOW",
+      "status": "cancelled",
+      "payment_status": "captured",
+      "no_show_charge_pence": 450,
+      "expect": "NO_SHOW"
+    },
+    {
+      "financial_outcome": "NO_SHOW",
+      "status": "cancelled",
+      "payment_status": "fee_pending_settlement",
+      "no_show_charge_pence": null,
+      "expect": "NO_SHOW"
+    },
+    {
+      "financial_outcome": "NO_SHOW",
+      "status": "cancelled",
+      "payment_status": "fee_pending_settlement",
+      "no_show_charge_pence": 0,
+      "expect": "NO_SHOW"
+    },
+    {
+      "financial_outcome": "NO_SHOW",
+      "status": "cancelled",
+      "payment_status": "fee_pending_settlement",
+      "no_show_charge_pence": 450,
+      "expect": "NO_SHOW"
+    },
+    {
+      "financial_outcome": "NO_SHOW",
+      "status": "cancelled",
+      "payment_status": "no_show_customer_debt",
+      "no_show_charge_pence": null,
+      "expect": "NO_SHOW"
+    },
+    {
+      "financial_outcome": "NO_SHOW",
+      "status": "cancelled",
+      "payment_status": "no_show_customer_debt",
+      "no_show_charge_pence": 0,
+      "expect": "NO_SHOW"
+    },
+    {
+      "financial_outcome": "NO_SHOW",
+      "status": "cancelled",
+      "payment_status": "no_show_customer_debt",
+      "no_show_charge_pence": 450,
+      "expect": "NO_SHOW"
+    },
+    {
+      "financial_outcome": "NO_SHOW",
+      "status": "no_show",
+      "payment_status": null,
+      "no_show_charge_pence": null,
+      "expect": "NO_SHOW"
+    },
+    {
+      "financial_outcome": "NO_SHOW",
+      "status": "no_show",
+      "payment_status": null,
+      "no_show_charge_pence": 0,
+      "expect": "NO_SHOW"
+    },
+    {
+      "financial_outcome": "NO_SHOW",
+      "status": "no_show",
+      "payment_status": null,
+      "no_show_charge_pence": 450,
+      "expect": "NO_SHOW"
+    },
+    {
+      "financial_outcome": "NO_SHOW",
+      "status": "no_show",
+      "payment_status": "captured",
+      "no_show_charge_pence": null,
+      "expect": "NO_SHOW"
+    },
+    {
+      "financial_outcome": "NO_SHOW",
+      "status": "no_show",
+      "payment_status": "captured",
+      "no_show_charge_pence": 0,
+      "expect": "NO_SHOW"
+    },
+    {
+      "financial_outcome": "NO_SHOW",
+      "status": "no_show",
+      "payment_status": "captured",
+      "no_show_charge_pence": 450,
+      "expect": "NO_SHOW"
+    },
+    {
+      "financial_outcome": "NO_SHOW",
+      "status": "no_show",
+      "payment_status": "fee_pending_settlement",
+      "no_show_charge_pence": null,
+      "expect": "NO_SHOW"
+    },
+    {
+      "financial_outcome": "NO_SHOW",
+      "status": "no_show",
+      "payment_status": "fee_pending_settlement",
+      "no_show_charge_pence": 0,
+      "expect": "NO_SHOW"
+    },
+    {
+      "financial_outcome": "NO_SHOW",
+      "status": "no_show",
+      "payment_status": "fee_pending_settlement",
+      "no_show_charge_pence": 450,
+      "expect": "NO_SHOW"
+    },
+    {
+      "financial_outcome": "NO_SHOW",
+      "status": "no_show",
+      "payment_status": "no_show_customer_debt",
+      "no_show_charge_pence": null,
+      "expect": "NO_SHOW"
+    },
+    {
+      "financial_outcome": "NO_SHOW",
+      "status": "no_show",
+      "payment_status": "no_show_customer_debt",
+      "no_show_charge_pence": 0,
+      "expect": "NO_SHOW"
+    },
+    {
+      "financial_outcome": "NO_SHOW",
+      "status": "no_show",
+      "payment_status": "no_show_customer_debt",
+      "no_show_charge_pence": 450,
+      "expect": "NO_SHOW"
+    },
+    {
+      "financial_outcome": "NO_SHOW",
+      "status": "completed",
+      "payment_status": null,
+      "no_show_charge_pence": null,
+      "expect": "NO_SHOW"
+    },
+    {
+      "financial_outcome": "NO_SHOW",
+      "status": "completed",
+      "payment_status": null,
+      "no_show_charge_pence": 0,
+      "expect": "NO_SHOW"
+    },
+    {
+      "financial_outcome": "NO_SHOW",
+      "status": "completed",
+      "payment_status": null,
+      "no_show_charge_pence": 450,
+      "expect": "NO_SHOW"
+    },
+    {
+      "financial_outcome": "NO_SHOW",
+      "status": "completed",
+      "payment_status": "captured",
+      "no_show_charge_pence": null,
+      "expect": "NO_SHOW"
+    },
+    {
+      "financial_outcome": "NO_SHOW",
+      "status": "completed",
+      "payment_status": "captured",
+      "no_show_charge_pence": 0,
+      "expect": "NO_SHOW"
+    },
+    {
+      "financial_outcome": "NO_SHOW",
+      "status": "completed",
+      "payment_status": "captured",
+      "no_show_charge_pence": 450,
+      "expect": "NO_SHOW"
+    },
+    {
+      "financial_outcome": "NO_SHOW",
+      "status": "completed",
+      "payment_status": "fee_pending_settlement",
+      "no_show_charge_pence": null,
+      "expect": "NO_SHOW"
+    },
+    {
+      "financial_outcome": "NO_SHOW",
+      "status": "completed",
+      "payment_status": "fee_pending_settlement",
+      "no_show_charge_pence": 0,
+      "expect": "NO_SHOW"
+    },
+    {
+      "financial_outcome": "NO_SHOW",
+      "status": "completed",
+      "payment_status": "fee_pending_settlement",
+      "no_show_charge_pence": 450,
+      "expect": "NO_SHOW"
+    },
+    {
+      "financial_outcome": "NO_SHOW",
+      "status": "completed",
+      "payment_status": "no_show_customer_debt",
+      "no_show_charge_pence": null,
+      "expect": "NO_SHOW"
+    },
+    {
+      "financial_outcome": "NO_SHOW",
+      "status": "completed",
+      "payment_status": "no_show_customer_debt",
+      "no_show_charge_pence": 0,
+      "expect": "NO_SHOW"
+    },
+    {
+      "financial_outcome": "NO_SHOW",
+      "status": "completed",
+      "payment_status": "no_show_customer_debt",
+      "no_show_charge_pence": 450,
+      "expect": "NO_SHOW"
+    },
+    {
+      "financial_outcome": "LATE_PASSENGER_CANCELLATION",
+      "status": null,
+      "payment_status": null,
+      "no_show_charge_pence": null,
+      "expect": "LATE_PASSENGER_CANCELLATION"
+    },
+    {
+      "financial_outcome": "LATE_PASSENGER_CANCELLATION",
+      "status": null,
+      "payment_status": null,
+      "no_show_charge_pence": 0,
+      "expect": "LATE_PASSENGER_CANCELLATION"
+    },
+    {
+      "financial_outcome": "LATE_PASSENGER_CANCELLATION",
+      "status": null,
+      "payment_status": null,
+      "no_show_charge_pence": 450,
+      "expect": "LATE_PASSENGER_CANCELLATION"
+    },
+    {
+      "financial_outcome": "LATE_PASSENGER_CANCELLATION",
+      "status": null,
+      "payment_status": "captured",
+      "no_show_charge_pence": null,
+      "expect": "LATE_PASSENGER_CANCELLATION"
+    },
+    {
+      "financial_outcome": "LATE_PASSENGER_CANCELLATION",
+      "status": null,
+      "payment_status": "captured",
+      "no_show_charge_pence": 0,
+      "expect": "LATE_PASSENGER_CANCELLATION"
+    },
+    {
+      "financial_outcome": "LATE_PASSENGER_CANCELLATION",
+      "status": null,
+      "payment_status": "captured",
+      "no_show_charge_pence": 450,
+      "expect": "LATE_PASSENGER_CANCELLATION"
+    },
+    {
+      "financial_outcome": "LATE_PASSENGER_CANCELLATION",
+      "status": null,
+      "payment_status": "fee_pending_settlement",
+      "no_show_charge_pence": null,
+      "expect": "LATE_PASSENGER_CANCELLATION"
+    },
+    {
+      "financial_outcome": "LATE_PASSENGER_CANCELLATION",
+      "status": null,
+      "payment_status": "fee_pending_settlement",
+      "no_show_charge_pence": 0,
+      "expect": "LATE_PASSENGER_CANCELLATION"
+    },
+    {
+      "financial_outcome": "LATE_PASSENGER_CANCELLATION",
+      "status": null,
+      "payment_status": "fee_pending_settlement",
+      "no_show_charge_pence": 450,
+      "expect": "LATE_PASSENGER_CANCELLATION"
+    },
+    {
+      "financial_outcome": "LATE_PASSENGER_CANCELLATION",
+      "status": null,
+      "payment_status": "no_show_customer_debt",
+      "no_show_charge_pence": null,
+      "expect": "LATE_PASSENGER_CANCELLATION"
+    },
+    {
+      "financial_outcome": "LATE_PASSENGER_CANCELLATION",
+      "status": null,
+      "payment_status": "no_show_customer_debt",
+      "no_show_charge_pence": 0,
+      "expect": "LATE_PASSENGER_CANCELLATION"
+    },
+    {
+      "financial_outcome": "LATE_PASSENGER_CANCELLATION",
+      "status": null,
+      "payment_status": "no_show_customer_debt",
+      "no_show_charge_pence": 450,
+      "expect": "LATE_PASSENGER_CANCELLATION"
+    },
+    {
+      "financial_outcome": "LATE_PASSENGER_CANCELLATION",
+      "status": "cancelled",
+      "payment_status": null,
+      "no_show_charge_pence": null,
+      "expect": "LATE_PASSENGER_CANCELLATION"
+    },
+    {
+      "financial_outcome": "LATE_PASSENGER_CANCELLATION",
+      "status": "cancelled",
+      "payment_status": null,
+      "no_show_charge_pence": 0,
+      "expect": "LATE_PASSENGER_CANCELLATION"
+    },
+    {
+      "financial_outcome": "LATE_PASSENGER_CANCELLATION",
+      "status": "cancelled",
+      "payment_status": null,
+      "no_show_charge_pence": 450,
+      "expect": "LATE_PASSENGER_CANCELLATION"
+    },
+    {
+      "financial_outcome": "LATE_PASSENGER_CANCELLATION",
+      "status": "cancelled",
+      "payment_status": "captured",
+      "no_show_charge_pence": null,
+      "expect": "LATE_PASSENGER_CANCELLATION"
+    },
+    {
+      "financial_outcome": "LATE_PASSENGER_CANCELLATION",
+      "status": "cancelled",
+      "payment_status": "captured",
+      "no_show_charge_pence": 0,
+      "expect": "LATE_PASSENGER_CANCELLATION"
+    },
+    {
+      "financial_outcome": "LATE_PASSENGER_CANCELLATION",
+      "status": "cancelled",
+      "payment_status": "captured",
+      "no_show_charge_pence": 450,
+      "expect": "LATE_PASSENGER_CANCELLATION"
+    },
+    {
+      "financial_outcome": "LATE_PASSENGER_CANCELLATION",
+      "status": "cancelled",
+      "payment_status": "fee_pending_settlement",
+      "no_show_charge_pence": null,
+      "expect": "LATE_PASSENGER_CANCELLATION"
+    },
+    {
+      "financial_outcome": "LATE_PASSENGER_CANCELLATION",
+      "status": "cancelled",
+      "payment_status": "fee_pending_settlement",
+      "no_show_charge_pence": 0,
+      "expect": "LATE_PASSENGER_CANCELLATION"
+    },
+    {
+      "financial_outcome": "LATE_PASSENGER_CANCELLATION",
+      "status": "cancelled",
+      "payment_status": "fee_pending_settlement",
+      "no_show_charge_pence": 450,
+      "expect": "LATE_PASSENGER_CANCELLATION"
+    },
+    {
+      "financial_outcome": "LATE_PASSENGER_CANCELLATION",
+      "status": "cancelled",
+      "payment_status": "no_show_customer_debt",
+      "no_show_charge_pence": null,
+      "expect": "LATE_PASSENGER_CANCELLATION"
+    },
+    {
+      "financial_outcome": "LATE_PASSENGER_CANCELLATION",
+      "status": "cancelled",
+      "payment_status": "no_show_customer_debt",
+      "no_show_charge_pence": 0,
+      "expect": "LATE_PASSENGER_CANCELLATION"
+    },
+    {
+      "financial_outcome": "LATE_PASSENGER_CANCELLATION",
+      "status": "cancelled",
+      "payment_status": "no_show_customer_debt",
+      "no_show_charge_pence": 450,
+      "expect": "LATE_PASSENGER_CANCELLATION"
+    },
+    {
+      "financial_outcome": "LATE_PASSENGER_CANCELLATION",
+      "status": "no_show",
+      "payment_status": null,
+      "no_show_charge_pence": null,
+      "expect": "NO_SHOW"
+    },
+    {
+      "financial_outcome": "LATE_PASSENGER_CANCELLATION",
+      "status": "no_show",
+      "payment_status": null,
+      "no_show_charge_pence": 0,
+      "expect": "NO_SHOW"
+    },
+    {
+      "financial_outcome": "LATE_PASSENGER_CANCELLATION",
+      "status": "no_show",
+      "payment_status": null,
+      "no_show_charge_pence": 450,
+      "expect": "NO_SHOW"
+    },
+    {
+      "financial_outcome": "LATE_PASSENGER_CANCELLATION",
+      "status": "no_show",
+      "payment_status": "captured",
+      "no_show_charge_pence": null,
+      "expect": "NO_SHOW"
+    },
+    {
+      "financial_outcome": "LATE_PASSENGER_CANCELLATION",
+      "status": "no_show",
+      "payment_status": "captured",
+      "no_show_charge_pence": 0,
+      "expect": "NO_SHOW"
+    },
+    {
+      "financial_outcome": "LATE_PASSENGER_CANCELLATION",
+      "status": "no_show",
+      "payment_status": "captured",
+      "no_show_charge_pence": 450,
+      "expect": "NO_SHOW"
+    },
+    {
+      "financial_outcome": "LATE_PASSENGER_CANCELLATION",
+      "status": "no_show",
+      "payment_status": "fee_pending_settlement",
+      "no_show_charge_pence": null,
+      "expect": "NO_SHOW"
+    },
+    {
+      "financial_outcome": "LATE_PASSENGER_CANCELLATION",
+      "status": "no_show",
+      "payment_status": "fee_pending_settlement",
+      "no_show_charge_pence": 0,
+      "expect": "NO_SHOW"
+    },
+    {
+      "financial_outcome": "LATE_PASSENGER_CANCELLATION",
+      "status": "no_show",
+      "payment_status": "fee_pending_settlement",
+      "no_show_charge_pence": 450,
+      "expect": "NO_SHOW"
+    },
+    {
+      "financial_outcome": "LATE_PASSENGER_CANCELLATION",
+      "status": "no_show",
+      "payment_status": "no_show_customer_debt",
+      "no_show_charge_pence": null,
+      "expect": "NO_SHOW"
+    },
+    {
+      "financial_outcome": "LATE_PASSENGER_CANCELLATION",
+      "status": "no_show",
+      "payment_status": "no_show_customer_debt",
+      "no_show_charge_pence": 0,
+      "expect": "NO_SHOW"
+    },
+    {
+      "financial_outcome": "LATE_PASSENGER_CANCELLATION",
+      "status": "no_show",
+      "payment_status": "no_show_customer_debt",
+      "no_show_charge_pence": 450,
+      "expect": "NO_SHOW"
+    },
+    {
+      "financial_outcome": "LATE_PASSENGER_CANCELLATION",
+      "status": "completed",
+      "payment_status": null,
+      "no_show_charge_pence": null,
+      "expect": "LATE_PASSENGER_CANCELLATION"
+    },
+    {
+      "financial_outcome": "LATE_PASSENGER_CANCELLATION",
+      "status": "completed",
+      "payment_status": null,
+      "no_show_charge_pence": 0,
+      "expect": "LATE_PASSENGER_CANCELLATION"
+    },
+    {
+      "financial_outcome": "LATE_PASSENGER_CANCELLATION",
+      "status": "completed",
+      "payment_status": null,
+      "no_show_charge_pence": 450,
+      "expect": "LATE_PASSENGER_CANCELLATION"
+    },
+    {
+      "financial_outcome": "LATE_PASSENGER_CANCELLATION",
+      "status": "completed",
+      "payment_status": "captured",
+      "no_show_charge_pence": null,
+      "expect": "LATE_PASSENGER_CANCELLATION"
+    },
+    {
+      "financial_outcome": "LATE_PASSENGER_CANCELLATION",
+      "status": "completed",
+      "payment_status": "captured",
+      "no_show_charge_pence": 0,
+      "expect": "LATE_PASSENGER_CANCELLATION"
+    },
+    {
+      "financial_outcome": "LATE_PASSENGER_CANCELLATION",
+      "status": "completed",
+      "payment_status": "captured",
+      "no_show_charge_pence": 450,
+      "expect": "LATE_PASSENGER_CANCELLATION"
+    },
+    {
+      "financial_outcome": "LATE_PASSENGER_CANCELLATION",
+      "status": "completed",
+      "payment_status": "fee_pending_settlement",
+      "no_show_charge_pence": null,
+      "expect": "LATE_PASSENGER_CANCELLATION"
+    },
+    {
+      "financial_outcome": "LATE_PASSENGER_CANCELLATION",
+      "status": "completed",
+      "payment_status": "fee_pending_settlement",
+      "no_show_charge_pence": 0,
+      "expect": "LATE_PASSENGER_CANCELLATION"
+    },
+    {
+      "financial_outcome": "LATE_PASSENGER_CANCELLATION",
+      "status": "completed",
+      "payment_status": "fee_pending_settlement",
+      "no_show_charge_pence": 450,
+      "expect": "LATE_PASSENGER_CANCELLATION"
+    },
+    {
+      "financial_outcome": "LATE_PASSENGER_CANCELLATION",
+      "status": "completed",
+      "payment_status": "no_show_customer_debt",
+      "no_show_charge_pence": null,
+      "expect": "LATE_PASSENGER_CANCELLATION"
+    },
+    {
+      "financial_outcome": "LATE_PASSENGER_CANCELLATION",
+      "status": "completed",
+      "payment_status": "no_show_customer_debt",
+      "no_show_charge_pence": 0,
+      "expect": "LATE_PASSENGER_CANCELLATION"
+    },
+    {
+      "financial_outcome": "LATE_PASSENGER_CANCELLATION",
+      "status": "completed",
+      "payment_status": "no_show_customer_debt",
+      "no_show_charge_pence": 450,
+      "expect": "LATE_PASSENGER_CANCELLATION"
+    },
+    {
+      "financial_outcome": "arrival_cancellation",
+      "status": null,
+      "payment_status": null,
+      "no_show_charge_pence": null,
+      "expect": "ARRIVAL_CANCELLATION"
+    },
+    {
+      "financial_outcome": "arrival_cancellation",
+      "status": null,
+      "payment_status": null,
+      "no_show_charge_pence": 0,
+      "expect": "ARRIVAL_CANCELLATION"
+    },
+    {
+      "financial_outcome": "arrival_cancellation",
+      "status": null,
+      "payment_status": null,
+      "no_show_charge_pence": 450,
+      "expect": "ARRIVAL_CANCELLATION"
+    },
+    {
+      "financial_outcome": "arrival_cancellation",
+      "status": null,
+      "payment_status": "captured",
+      "no_show_charge_pence": null,
+      "expect": "ARRIVAL_CANCELLATION"
+    },
+    {
+      "financial_outcome": "arrival_cancellation",
+      "status": null,
+      "payment_status": "captured",
+      "no_show_charge_pence": 0,
+      "expect": "ARRIVAL_CANCELLATION"
+    },
+    {
+      "financial_outcome": "arrival_cancellation",
+      "status": null,
+      "payment_status": "captured",
+      "no_show_charge_pence": 450,
+      "expect": "ARRIVAL_CANCELLATION"
+    },
+    {
+      "financial_outcome": "arrival_cancellation",
+      "status": null,
+      "payment_status": "fee_pending_settlement",
+      "no_show_charge_pence": null,
+      "expect": "ARRIVAL_CANCELLATION"
+    },
+    {
+      "financial_outcome": "arrival_cancellation",
+      "status": null,
+      "payment_status": "fee_pending_settlement",
+      "no_show_charge_pence": 0,
+      "expect": "ARRIVAL_CANCELLATION"
+    },
+    {
+      "financial_outcome": "arrival_cancellation",
+      "status": null,
+      "payment_status": "fee_pending_settlement",
+      "no_show_charge_pence": 450,
+      "expect": "ARRIVAL_CANCELLATION"
+    },
+    {
+      "financial_outcome": "arrival_cancellation",
+      "status": null,
+      "payment_status": "no_show_customer_debt",
+      "no_show_charge_pence": null,
+      "expect": "ARRIVAL_CANCELLATION"
+    },
+    {
+      "financial_outcome": "arrival_cancellation",
+      "status": null,
+      "payment_status": "no_show_customer_debt",
+      "no_show_charge_pence": 0,
+      "expect": "ARRIVAL_CANCELLATION"
+    },
+    {
+      "financial_outcome": "arrival_cancellation",
+      "status": null,
+      "payment_status": "no_show_customer_debt",
+      "no_show_charge_pence": 450,
+      "expect": "ARRIVAL_CANCELLATION"
+    },
+    {
+      "financial_outcome": "arrival_cancellation",
+      "status": "cancelled",
+      "payment_status": null,
+      "no_show_charge_pence": null,
+      "expect": "ARRIVAL_CANCELLATION"
+    },
+    {
+      "financial_outcome": "arrival_cancellation",
+      "status": "cancelled",
+      "payment_status": null,
+      "no_show_charge_pence": 0,
+      "expect": "ARRIVAL_CANCELLATION"
+    },
+    {
+      "financial_outcome": "arrival_cancellation",
+      "status": "cancelled",
+      "payment_status": null,
+      "no_show_charge_pence": 450,
+      "expect": "ARRIVAL_CANCELLATION"
+    },
+    {
+      "financial_outcome": "arrival_cancellation",
+      "status": "cancelled",
+      "payment_status": "captured",
+      "no_show_charge_pence": null,
+      "expect": "ARRIVAL_CANCELLATION"
+    },
+    {
+      "financial_outcome": "arrival_cancellation",
+      "status": "cancelled",
+      "payment_status": "captured",
+      "no_show_charge_pence": 0,
+      "expect": "ARRIVAL_CANCELLATION"
+    },
+    {
+      "financial_outcome": "arrival_cancellation",
+      "status": "cancelled",
+      "payment_status": "captured",
+      "no_show_charge_pence": 450,
+      "expect": "ARRIVAL_CANCELLATION"
+    },
+    {
+      "financial_outcome": "arrival_cancellation",
+      "status": "cancelled",
+      "payment_status": "fee_pending_settlement",
+      "no_show_charge_pence": null,
+      "expect": "ARRIVAL_CANCELLATION"
+    },
+    {
+      "financial_outcome": "arrival_cancellation",
+      "status": "cancelled",
+      "payment_status": "fee_pending_settlement",
+      "no_show_charge_pence": 0,
+      "expect": "ARRIVAL_CANCELLATION"
+    },
+    {
+      "financial_outcome": "arrival_cancellation",
+      "status": "cancelled",
+      "payment_status": "fee_pending_settlement",
+      "no_show_charge_pence": 450,
+      "expect": "ARRIVAL_CANCELLATION"
+    },
+    {
+      "financial_outcome": "arrival_cancellation",
+      "status": "cancelled",
+      "payment_status": "no_show_customer_debt",
+      "no_show_charge_pence": null,
+      "expect": "ARRIVAL_CANCELLATION"
+    },
+    {
+      "financial_outcome": "arrival_cancellation",
+      "status": "cancelled",
+      "payment_status": "no_show_customer_debt",
+      "no_show_charge_pence": 0,
+      "expect": "ARRIVAL_CANCELLATION"
+    },
+    {
+      "financial_outcome": "arrival_cancellation",
+      "status": "cancelled",
+      "payment_status": "no_show_customer_debt",
+      "no_show_charge_pence": 450,
+      "expect": "ARRIVAL_CANCELLATION"
+    },
+    {
+      "financial_outcome": "arrival_cancellation",
+      "status": "no_show",
+      "payment_status": null,
+      "no_show_charge_pence": null,
+      "expect": "ARRIVAL_CANCELLATION"
+    },
+    {
+      "financial_outcome": "arrival_cancellation",
+      "status": "no_show",
+      "payment_status": null,
+      "no_show_charge_pence": 0,
+      "expect": "ARRIVAL_CANCELLATION"
+    },
+    {
+      "financial_outcome": "arrival_cancellation",
+      "status": "no_show",
+      "payment_status": null,
+      "no_show_charge_pence": 450,
+      "expect": "ARRIVAL_CANCELLATION"
+    },
+    {
+      "financial_outcome": "arrival_cancellation",
+      "status": "no_show",
+      "payment_status": "captured",
+      "no_show_charge_pence": null,
+      "expect": "ARRIVAL_CANCELLATION"
+    },
+    {
+      "financial_outcome": "arrival_cancellation",
+      "status": "no_show",
+      "payment_status": "captured",
+      "no_show_charge_pence": 0,
+      "expect": "ARRIVAL_CANCELLATION"
+    },
+    {
+      "financial_outcome": "arrival_cancellation",
+      "status": "no_show",
+      "payment_status": "captured",
+      "no_show_charge_pence": 450,
+      "expect": "ARRIVAL_CANCELLATION"
+    },
+    {
+      "financial_outcome": "arrival_cancellation",
+      "status": "no_show",
+      "payment_status": "fee_pending_settlement",
+      "no_show_charge_pence": null,
+      "expect": "ARRIVAL_CANCELLATION"
+    },
+    {
+      "financial_outcome": "arrival_cancellation",
+      "status": "no_show",
+      "payment_status": "fee_pending_settlement",
+      "no_show_charge_pence": 0,
+      "expect": "ARRIVAL_CANCELLATION"
+    },
+    {
+      "financial_outcome": "arrival_cancellation",
+      "status": "no_show",
+      "payment_status": "fee_pending_settlement",
+      "no_show_charge_pence": 450,
+      "expect": "ARRIVAL_CANCELLATION"
+    },
+    {
+      "financial_outcome": "arrival_cancellation",
+      "status": "no_show",
+      "payment_status": "no_show_customer_debt",
+      "no_show_charge_pence": null,
+      "expect": "ARRIVAL_CANCELLATION"
+    },
+    {
+      "financial_outcome": "arrival_cancellation",
+      "status": "no_show",
+      "payment_status": "no_show_customer_debt",
+      "no_show_charge_pence": 0,
+      "expect": "ARRIVAL_CANCELLATION"
+    },
+    {
+      "financial_outcome": "arrival_cancellation",
+      "status": "no_show",
+      "payment_status": "no_show_customer_debt",
+      "no_show_charge_pence": 450,
+      "expect": "ARRIVAL_CANCELLATION"
+    },
+    {
+      "financial_outcome": "arrival_cancellation",
+      "status": "completed",
+      "payment_status": null,
+      "no_show_charge_pence": null,
+      "expect": "ARRIVAL_CANCELLATION"
+    },
+    {
+      "financial_outcome": "arrival_cancellation",
+      "status": "completed",
+      "payment_status": null,
+      "no_show_charge_pence": 0,
+      "expect": "ARRIVAL_CANCELLATION"
+    },
+    {
+      "financial_outcome": "arrival_cancellation",
+      "status": "completed",
+      "payment_status": null,
+      "no_show_charge_pence": 450,
+      "expect": "ARRIVAL_CANCELLATION"
+    },
+    {
+      "financial_outcome": "arrival_cancellation",
+      "status": "completed",
+      "payment_status": "captured",
+      "no_show_charge_pence": null,
+      "expect": "ARRIVAL_CANCELLATION"
+    },
+    {
+      "financial_outcome": "arrival_cancellation",
+      "status": "completed",
+      "payment_status": "captured",
+      "no_show_charge_pence": 0,
+      "expect": "ARRIVAL_CANCELLATION"
+    },
+    {
+      "financial_outcome": "arrival_cancellation",
+      "status": "completed",
+      "payment_status": "captured",
+      "no_show_charge_pence": 450,
+      "expect": "ARRIVAL_CANCELLATION"
+    },
+    {
+      "financial_outcome": "arrival_cancellation",
+      "status": "completed",
+      "payment_status": "fee_pending_settlement",
+      "no_show_charge_pence": null,
+      "expect": "ARRIVAL_CANCELLATION"
+    },
+    {
+      "financial_outcome": "arrival_cancellation",
+      "status": "completed",
+      "payment_status": "fee_pending_settlement",
+      "no_show_charge_pence": 0,
+      "expect": "ARRIVAL_CANCELLATION"
+    },
+    {
+      "financial_outcome": "arrival_cancellation",
+      "status": "completed",
+      "payment_status": "fee_pending_settlement",
+      "no_show_charge_pence": 450,
+      "expect": "ARRIVAL_CANCELLATION"
+    },
+    {
+      "financial_outcome": "arrival_cancellation",
+      "status": "completed",
+      "payment_status": "no_show_customer_debt",
+      "no_show_charge_pence": null,
+      "expect": "ARRIVAL_CANCELLATION"
+    },
+    {
+      "financial_outcome": "arrival_cancellation",
+      "status": "completed",
+      "payment_status": "no_show_customer_debt",
+      "no_show_charge_pence": 0,
+      "expect": "ARRIVAL_CANCELLATION"
+    },
+    {
+      "financial_outcome": "arrival_cancellation",
+      "status": "completed",
+      "payment_status": "no_show_customer_debt",
+      "no_show_charge_pence": 450,
+      "expect": "ARRIVAL_CANCELLATION"
+    },
+    {
+      "financial_outcome": "OTHER",
+      "status": null,
+      "payment_status": null,
+      "no_show_charge_pence": null,
+      "expect": null
+    },
+    {
+      "financial_outcome": "OTHER",
+      "status": null,
+      "payment_status": null,
+      "no_show_charge_pence": 0,
+      "expect": null
+    },
+    {
+      "financial_outcome": "OTHER",
+      "status": null,
+      "payment_status": null,
+      "no_show_charge_pence": 450,
+      "expect": null
+    },
+    {
+      "financial_outcome": "OTHER",
+      "status": null,
+      "payment_status": "captured",
+      "no_show_charge_pence": null,
+      "expect": null
+    },
+    {
+      "financial_outcome": "OTHER",
+      "status": null,
+      "payment_status": "captured",
+      "no_show_charge_pence": 0,
+      "expect": null
+    },
+    {
+      "financial_outcome": "OTHER",
+      "status": null,
+      "payment_status": "captured",
+      "no_show_charge_pence": 450,
+      "expect": null
+    },
+    {
+      "financial_outcome": "OTHER",
+      "status": null,
+      "payment_status": "fee_pending_settlement",
+      "no_show_charge_pence": null,
+      "expect": null
+    },
+    {
+      "financial_outcome": "OTHER",
+      "status": null,
+      "payment_status": "fee_pending_settlement",
+      "no_show_charge_pence": 0,
+      "expect": null
+    },
+    {
+      "financial_outcome": "OTHER",
+      "status": null,
+      "payment_status": "fee_pending_settlement",
+      "no_show_charge_pence": 450,
+      "expect": "NO_SHOW"
+    },
+    {
+      "financial_outcome": "OTHER",
+      "status": null,
+      "payment_status": "no_show_customer_debt",
+      "no_show_charge_pence": null,
+      "expect": null
+    },
+    {
+      "financial_outcome": "OTHER",
+      "status": null,
+      "payment_status": "no_show_customer_debt",
+      "no_show_charge_pence": 0,
+      "expect": null
+    },
+    {
+      "financial_outcome": "OTHER",
+      "status": null,
+      "payment_status": "no_show_customer_debt",
+      "no_show_charge_pence": 450,
+      "expect": "NO_SHOW"
+    },
+    {
+      "financial_outcome": "OTHER",
+      "status": "cancelled",
+      "payment_status": null,
+      "no_show_charge_pence": null,
+      "expect": null
+    },
+    {
+      "financial_outcome": "OTHER",
+      "status": "cancelled",
+      "payment_status": null,
+      "no_show_charge_pence": 0,
+      "expect": null
+    },
+    {
+      "financial_outcome": "OTHER",
+      "status": "cancelled",
+      "payment_status": null,
+      "no_show_charge_pence": 450,
+      "expect": null
+    },
+    {
+      "financial_outcome": "OTHER",
+      "status": "cancelled",
+      "payment_status": "captured",
+      "no_show_charge_pence": null,
+      "expect": null
+    },
+    {
+      "financial_outcome": "OTHER",
+      "status": "cancelled",
+      "payment_status": "captured",
+      "no_show_charge_pence": 0,
+      "expect": null
+    },
+    {
+      "financial_outcome": "OTHER",
+      "status": "cancelled",
+      "payment_status": "captured",
+      "no_show_charge_pence": 450,
+      "expect": null
+    },
+    {
+      "financial_outcome": "OTHER",
+      "status": "cancelled",
+      "payment_status": "fee_pending_settlement",
+      "no_show_charge_pence": null,
+      "expect": null
+    },
+    {
+      "financial_outcome": "OTHER",
+      "status": "cancelled",
+      "payment_status": "fee_pending_settlement",
+      "no_show_charge_pence": 0,
+      "expect": null
+    },
+    {
+      "financial_outcome": "OTHER",
+      "status": "cancelled",
+      "payment_status": "fee_pending_settlement",
+      "no_show_charge_pence": 450,
+      "expect": "NO_SHOW"
+    },
+    {
+      "financial_outcome": "OTHER",
+      "status": "cancelled",
+      "payment_status": "no_show_customer_debt",
+      "no_show_charge_pence": null,
+      "expect": null
+    },
+    {
+      "financial_outcome": "OTHER",
+      "status": "cancelled",
+      "payment_status": "no_show_customer_debt",
+      "no_show_charge_pence": 0,
+      "expect": null
+    },
+    {
+      "financial_outcome": "OTHER",
+      "status": "cancelled",
+      "payment_status": "no_show_customer_debt",
+      "no_show_charge_pence": 450,
+      "expect": "NO_SHOW"
+    },
+    {
+      "financial_outcome": "OTHER",
+      "status": "no_show",
+      "payment_status": null,
+      "no_show_charge_pence": null,
+      "expect": "NO_SHOW"
+    },
+    {
+      "financial_outcome": "OTHER",
+      "status": "no_show",
+      "payment_status": null,
+      "no_show_charge_pence": 0,
+      "expect": "NO_SHOW"
+    },
+    {
+      "financial_outcome": "OTHER",
+      "status": "no_show",
+      "payment_status": null,
+      "no_show_charge_pence": 450,
+      "expect": "NO_SHOW"
+    },
+    {
+      "financial_outcome": "OTHER",
+      "status": "no_show",
+      "payment_status": "captured",
+      "no_show_charge_pence": null,
+      "expect": "NO_SHOW"
+    },
+    {
+      "financial_outcome": "OTHER",
+      "status": "no_show",
+      "payment_status": "captured",
+      "no_show_charge_pence": 0,
+      "expect": "NO_SHOW"
+    },
+    {
+      "financial_outcome": "OTHER",
+      "status": "no_show",
+      "payment_status": "captured",
+      "no_show_charge_pence": 450,
+      "expect": "NO_SHOW"
+    },
+    {
+      "financial_outcome": "OTHER",
+      "status": "no_show",
+      "payment_status": "fee_pending_settlement",
+      "no_show_charge_pence": null,
+      "expect": "NO_SHOW"
+    },
+    {
+      "financial_outcome": "OTHER",
+      "status": "no_show",
+      "payment_status": "fee_pending_settlement",
+      "no_show_charge_pence": 0,
+      "expect": "NO_SHOW"
+    },
+    {
+      "financial_outcome": "OTHER",
+      "status": "no_show",
+      "payment_status": "fee_pending_settlement",
+      "no_show_charge_pence": 450,
+      "expect": "NO_SHOW"
+    },
+    {
+      "financial_outcome": "OTHER",
+      "status": "no_show",
+      "payment_status": "no_show_customer_debt",
+      "no_show_charge_pence": null,
+      "expect": "NO_SHOW"
+    },
+    {
+      "financial_outcome": "OTHER",
+      "status": "no_show",
+      "payment_status": "no_show_customer_debt",
+      "no_show_charge_pence": 0,
+      "expect": "NO_SHOW"
+    },
+    {
+      "financial_outcome": "OTHER",
+      "status": "no_show",
+      "payment_status": "no_show_customer_debt",
+      "no_show_charge_pence": 450,
+      "expect": "NO_SHOW"
+    },
+    {
+      "financial_outcome": "OTHER",
+      "status": "completed",
+      "payment_status": null,
+      "no_show_charge_pence": null,
+      "expect": null
+    },
+    {
+      "financial_outcome": "OTHER",
+      "status": "completed",
+      "payment_status": null,
+      "no_show_charge_pence": 0,
+      "expect": null
+    },
+    {
+      "financial_outcome": "OTHER",
+      "status": "completed",
+      "payment_status": null,
+      "no_show_charge_pence": 450,
+      "expect": null
+    },
+    {
+      "financial_outcome": "OTHER",
+      "status": "completed",
+      "payment_status": "captured",
+      "no_show_charge_pence": null,
+      "expect": null
+    },
+    {
+      "financial_outcome": "OTHER",
+      "status": "completed",
+      "payment_status": "captured",
+      "no_show_charge_pence": 0,
+      "expect": null
+    },
+    {
+      "financial_outcome": "OTHER",
+      "status": "completed",
+      "payment_status": "captured",
+      "no_show_charge_pence": 450,
+      "expect": null
+    },
+    {
+      "financial_outcome": "OTHER",
+      "status": "completed",
+      "payment_status": "fee_pending_settlement",
+      "no_show_charge_pence": null,
+      "expect": null
+    },
+    {
+      "financial_outcome": "OTHER",
+      "status": "completed",
+      "payment_status": "fee_pending_settlement",
+      "no_show_charge_pence": 0,
+      "expect": null
+    },
+    {
+      "financial_outcome": "OTHER",
+      "status": "completed",
+      "payment_status": "fee_pending_settlement",
+      "no_show_charge_pence": 450,
+      "expect": "NO_SHOW"
+    },
+    {
+      "financial_outcome": "OTHER",
+      "status": "completed",
+      "payment_status": "no_show_customer_debt",
+      "no_show_charge_pence": null,
+      "expect": null
+    },
+    {
+      "financial_outcome": "OTHER",
+      "status": "completed",
+      "payment_status": "no_show_customer_debt",
+      "no_show_charge_pence": 0,
+      "expect": null
+    },
+    {
+      "financial_outcome": "OTHER",
+      "status": "completed",
+      "payment_status": "no_show_customer_debt",
+      "no_show_charge_pence": 450,
+      "expect": "NO_SHOW"
+    }
+  ]
+}
