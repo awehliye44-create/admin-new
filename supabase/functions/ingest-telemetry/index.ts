@@ -11,7 +11,7 @@ const corsHeaders = {
 const MAX_BODY_BYTES = 65_536;
 const MAX_EVENTS_PER_REQUEST = 50;
 /** Book tap → Finding residual closure needs many flat segment keys. */
-const MAX_METADATA_KEYS = 120;
+const MAX_METADATA_KEYS = 140;
 const MAX_METADATA_VALUE_LEN = 512;
 const MAX_SCREEN_NAME_LEN = 120;
 
@@ -138,6 +138,18 @@ const ALLOWED_METADATA_KEYS = new Set([
   "client_preauth_invoke_ms",
   "client_preauth_map_ms",
   "client_preauth_outside_handler_ms",
+  "client_preauth_headers_ms",
+  "client_preauth_body_ms",
+  "client_preauth_parse_ms",
+  "client_preauth_server_duration_ms",
+  "client_preauth_pre_response_residual_ms",
+  "client_preauth_post_header_body_ms",
+  "client_preauth_invoke_unsplit_ms",
+  "client_preauth_fetch_attempts",
+  "client_preauth_fetch_transport_error",
+  "client_preauth_fetch_retry_delay_ms",
+  "client_preauth_fetch_winning_attempt",
+  "client_preauth_fetch_attempt1_ms",
   "edge_offer_deferred",
   "edge_prewrite_reads_wall_ms",
   "edge_prewrite_reads_critical_ms",
