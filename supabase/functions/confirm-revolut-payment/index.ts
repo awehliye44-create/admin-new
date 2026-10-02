@@ -9,6 +9,11 @@ import {
   verifyRevolutOrderConfirmedForBooking,
 } from "../_shared/revolutPaymentConfirmation.ts";
 import { markPaymentSessionAuthorised, markCardSetupOrphaned } from "../_shared/paymentSessionSSOT.ts";
+import {
+  directFinalizeAfterProviderAuthorised,
+  directFinalizeResponseFields,
+  providerOrderCoversHold,
+} from "../_shared/bookingDirectFinalizeSSOT.ts";
 import { listRevolutOrderPayments, retrieveRevolutOrder } from "../_shared/revolutOrders.ts";
 import { applySavedCardOrderReconcile } from "../_shared/applySavedCardOrderReconcile.ts";
 import { mapSavedCardProviderOrderToReconcileState } from "../_shared/savedCardPaymentReconcileSSOT.ts";
@@ -109,10 +114,23 @@ serveWithEdgeTiming("confirm-revolut-payment", corsHeaders, async (req) => {
       // Booking holds: mark authorised + return immediately. Token capture must not
       // gate Finding (old poll ladder was ~82s). Post-commit / waitUntil finishes save.
       if (!isSaveCardPurpose) {
+        const bookingClientActionId = body.client_action_id ?? order.metadata?.client_action_id ?? null;
+        const coversHold = providerOrderCoversHold(order, Number(order.amount ?? 0));
+        // Card-save bookings keep the generic label: CTAP must GET the order for token-capture metadata.
         await markPaymentSessionAuthorised(supabase, {
           providerOrderId: order.id,
-          clientActionId: body.client_action_id ?? order.metadata?.client_action_id ?? null,
+          clientActionId: bookingClientActionId,
+          ...(coversHold && !saveCardEligible ? { verifiedBy: "confirm_provider_read" as const } : {}),
         });
+        const directFinalize = coversHold && bookingClientActionId
+          ? await directFinalizeAfterProviderAuthorised(supabase, {
+            clientActionId: bookingClientActionId,
+            providerOrderId: order.id,
+            order,
+            userId,
+            logStep: (step, details) => console.info(`[confirm-revolut-payment] ${step}`, details ?? {}),
+          })
+          : null;
         if (saveCardEligible) {
           // Save-eligible booking: keep Finding unblocked, but use setup poll +
           // durable retry in waitUntil (booking ~0.85s was missing Revolut SPM id).
@@ -160,6 +178,7 @@ serveWithEdgeTiming("confirm-revolut-payment", corsHeaders, async (req) => {
           tokenization_failed: false,
           provider_reference: null,
           platform_payment_method_id: platformPmId,
+          ...directFinalizeResponseFields(directFinalize),
         });
       }
 

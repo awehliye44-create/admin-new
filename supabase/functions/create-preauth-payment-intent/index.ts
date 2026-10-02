@@ -817,6 +817,7 @@ serveWithEdgeTiming("create-preauth-payment-intent", corsHeaders, async (req) =>
         receivableConsent: extractReceivableConsentFromPreauthBody(
           body as Record<string, unknown>,
         ),
+        clientCapabilities: body.client_capabilities ?? null,
         corsHeaders,
         logStep,
         edgeTiming,

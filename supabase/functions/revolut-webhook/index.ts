@@ -38,6 +38,11 @@ import { resolvePaymentSessionCaptureAdvanceExtras } from "../_shared/paymentSes
 import { transitionPaymentSession } from "../_shared/paymentSessionTransitionFacade.ts";
 import { persistProviderFeeAndMaybeResumeTerminalSettlement } from "../_shared/terminalFeeSettlementResumptionSSOT.ts";
 import { mapSavedCardProviderOrderToReconcileState } from "../_shared/savedCardPaymentReconcileSSOT.ts";
+import {
+  classifyAutoFinalizeSession,
+  invokeFinalizePaidBookingSession,
+  linkSameBookingTripIfMatch,
+} from "../_shared/bookingDirectFinalizeSSOT.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -451,7 +456,7 @@ Deno.serve(async (req) => {
       const { data: session } = await supabase
         .from("payment_sessions")
         .select(
-          "id, trip_id, status, authorised_amount_pence, captured_amount_pence, captured_at, provider_state, failure_reason, metadata, financial_operation_state, purpose, refunded_amount_pence, hold_release_state, provider_capture_id, provider_order_id",
+          "id, trip_id, status, authorised_amount_pence, captured_amount_pence, captured_at, provider_state, failure_reason, metadata, financial_operation_state, purpose, refunded_amount_pence, hold_release_state, provider_capture_id, provider_order_id, client_action_id, customer_id, payment_provider",
         )
         .eq("provider_order_id", orderId)
         .eq("purpose", "RIDE_BOOKING")
@@ -678,22 +683,15 @@ Deno.serve(async (req) => {
         }
 
         // P0: never auto-finalise superseded / orphaned / already-trip sessions.
-        const sessionStatus = String(session.status ?? "").toLowerCase();
-        const alreadyOrphaned =
-          sessionStatus === "payment_orphaned" ||
-          sessionStatus === "orphan_authorisation" ||
-          sessionMeta.orphan_reason === "CUSTOMER_ALREADY_HAS_ACTIVE_TRIP" ||
-          sessionMeta.never_capture === true;
+        const { eligible: finalizeEligible, alreadyOrphaned } = classifyAutoFinalizeSession(session);
 
         if (
           ["AUTHORISED", "COMPLETED", "CAPTURED"].includes(effectiveStateUpper) &&
-          !session.trip_id &&
-          !alreadyOrphaned &&
-          !["cancelled", "failed", "released"].includes(sessionStatus)
+          finalizeEligible
         ) {
-          const { data: finaliseData, error: finaliseError } = await supabase.rpc(
-            "finalize_paid_booking_session",
-            { p_payment_session_id: session.id },
+          const { data: finaliseData, error: finaliseError } = await invokeFinalizePaidBookingSession(
+            supabase,
+            session.id,
           );
           if (finaliseError) {
             const msg = String(finaliseError.message || "");
@@ -706,12 +704,22 @@ Deno.serve(async (req) => {
 
             // Idempotent orphan + release: late AUTHORISED after passenger already
             // has a live immediate trip — never create/dispatch/capture.
-            if (duplicateActive) {
-              const existingTripMatch = msg.match(
-                /CUSTOMER_ALREADY_HAS_ACTIVE_TRIP:([0-9a-f-]{36})/i,
+            const existingTripMatch = duplicateActive
+              ? msg.match(/CUSTOMER_ALREADY_HAS_ACTIVE_TRIP:([0-9a-f-]{36})/i)
+              : null;
+            const existingTripId = existingTripMatch?.[1] ?? null;
+            // Same booking (create-preauth / confirm / CTAP won the race): link, never orphan or cancel.
+            const sameBookingTripId = duplicateActive && existingTripId
+              ? await linkSameBookingTripIfMatch(supabase, session, existingTripId, nowIso)
+              : null;
+            if (sameBookingTripId) {
+              tripId = sameBookingTripId;
+              finaliseTripId = sameBookingTripId;
+              console.log(
+                `[revolut-webhook] same-booking trip adopted session=${session.id} trip=${sameBookingTripId}`,
               );
-              const existingTripId = existingTripMatch?.[1] ?? null;
-              await supabase
+            } else if (duplicateActive) {
+              const { data: orphanedRows, error: orphanErr } = await supabase
                 .from("payment_sessions")
                 .update({
                   status: "payment_orphaned",
@@ -730,11 +738,20 @@ Deno.serve(async (req) => {
                   },
                 })
                 .eq("id", session.id)
-                .is("trip_id", null);
+                .is("trip_id", null)
+                .select("id");
+              const orphanApplied = !orphanErr && (orphanedRows?.length ?? 0) > 0;
+              if (!orphanApplied) {
+                console.warn(
+                  `[revolut-webhook] orphan not applied session=${session.id} — hold left for reconciliation`,
+                  orphanErr?.message ?? "session already linked",
+                );
+              }
 
               // Best-effort release of unused authorisation (provider cancel).
               // Do not invent success — log failures; webhook still returns 2xx.
-              if (orderId) {
+              // Never cancel a hold whose session is (now) linked to a trip.
+              if (orderId && orphanApplied) {
                 try {
                   const { secretKey, environment } = getRevolutMerchantConfig();
                   const { cancelRevolutOrder } = await import(

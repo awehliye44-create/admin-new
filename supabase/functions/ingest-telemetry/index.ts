@@ -305,6 +305,17 @@ const ALLOWED_METADATA_KEYS = new Set([
   "cold_start_hint",
   "restore_trigger",
   "restore_reason",
+  // Saved-card Book performance (metadata only — never fingerprint content)
+  "challenge_type",
+  "fingerprint_present",
+  "fingerprint_ms",
+  "fingerprint_outcome",
+  "fingerprint_to_authorised_ms",
+  "preauth_trip_adopted",
+  "edge_direct_finalize_ms",
+  "direct_finalize_outcome",
+  "acs_poll_ticks",
+  "acs_poll_settled_via",
 ]);
 
 interface TelemetryEvent {
