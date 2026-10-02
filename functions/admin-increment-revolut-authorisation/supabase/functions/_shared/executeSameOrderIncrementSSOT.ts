@@ -66,7 +66,16 @@ export type SameOrderIncrementResult =
     providerConfirmedTotalPence: number;
     eligibility: IncrementEligibility | null;
     errorClassification: string;
+    /**
+     * Set only for `declined` when Revolut itself evidenced the decline: an increment
+     * entry in state `declined` matched to this attempt, or an increment POST rejected
+     * as a decline. `declined` without it is only "authorised total still below
+     * target" and must not be presented to a customer as a bank/issuer decline.
+     */
+    providerDeclineEvidence?: ProviderDeclineEvidence | null;
   };
+
+export type ProviderDeclineEvidence = "provider_increment_declined" | "provider_http_declined";
 
 function maskId(id: string | null | undefined): string {
   const s = String(id ?? "");
@@ -669,6 +678,10 @@ export async function executeSameOrderIncrement(args: {
           providerConfirmedTotalPence: providerTotal,
           eligibility,
           errorClassification: "AUTHORISED_TOTAL_BELOW_TARGET",
+          providerDeclineEvidence: providerIncrementOutcome(priorEvidence) === "declined"
+              && isExplicitAttemptMatch(priorEvidence)
+            ? "provider_increment_declined"
+            : null,
         };
       }
       return {
@@ -1140,6 +1153,14 @@ export async function executeSameOrderIncrement(args: {
         ? "unknown"
         : "terminal";
 
+    const providerDeclineEvidence: ProviderDeclineEvidence | null = failKind !== "declined"
+      ? null
+      : providerOutcome === "declined" && isExplicitAttemptMatch(finalEvidence)
+      ? "provider_increment_declined"
+      : failOutcome === "declined"
+      ? "provider_http_declined"
+      : null;
+
     logIncrementEvent(
       failKind === "declined"
         ? "increment_provider_declined"
@@ -1154,6 +1175,7 @@ export async function executeSameOrderIncrement(args: {
         increment_state: finalEvidence.increment_state,
         increment_reason: finalEvidence.increment_reason,
         increment_matched_by: finalEvidence.increment_matched_by,
+        provider_decline_evidence: providerDeclineEvidence,
         post_http_status: postHttpStatus,
         source: args.source,
         elapsed_ms: elapsed,
@@ -1192,6 +1214,7 @@ export async function executeSameOrderIncrement(args: {
             coverage_class: coverage.class,
             fail_outcome: failOutcome,
             fail_kind: failKind,
+            provider_decline_evidence: providerDeclineEvidence,
           },
         }),
       })
@@ -1228,6 +1251,7 @@ export async function executeSameOrderIncrement(args: {
       eligibility,
       errorClassification: failedErrorClassification
         ?? failCode ?? String(failOutcome).toUpperCase(),
+      providerDeclineEvidence,
     };
   } finally {
     await releasePaymentSessionFinancialLock(args.supabase, {

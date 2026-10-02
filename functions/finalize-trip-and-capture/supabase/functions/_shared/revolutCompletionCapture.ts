@@ -611,13 +611,17 @@ export async function executeRevolutTripCompletionCapture(args: {
       // CUSTOMER_SUBMIT_WITH_TIP: tip auth/increment failure must NOT fare-capture.
       // Keep original fare AUTHORISED; caller releases the tip-window claim.
       if (safeTipPence > 0) {
-        const tipAuthorisationOutcome = tipAuthorisationOutcomeFromIncrementKind(incrementResult.kind);
+        const tipAuthorisationOutcome = tipAuthorisationOutcomeFromIncrementKind(
+          incrementResult.kind,
+          incrementResult.providerDeclineEvidence,
+        );
         console.log(JSON.stringify({
           event: "tip_authorisation_declined_no_fare_capture",
           trip_id: tripId,
           provider_order_id: `${orderId.slice(0, 4)}…${orderId.slice(-4)}`,
           tip_pence: safeTipPence,
           increment_kind: incrementResult.kind,
+          provider_decline_evidence: incrementResult.providerDeclineEvidence ?? null,
           tip_authorisation_outcome: tipAuthorisationOutcome,
         }));
         // status/error_code stay TIP_AUTHORISATION_DECLINED: they route the

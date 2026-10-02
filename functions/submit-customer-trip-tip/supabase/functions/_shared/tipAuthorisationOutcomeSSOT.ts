@@ -1,9 +1,10 @@
 /**
  * Customer copy for a tip that could not be authorised (CUSTOMER_SUBMIT_WITH_TIP).
  *
- * Bank/issuer wording is allowed only when Revolut itself declined the increment.
- * A provider (technical) failure or any other/unknown outcome must never be
- * described as a bank decline, and no decline reason is ever inferred.
+ * Bank/issuer wording is allowed only when Revolut itself declined the increment
+ * (providerDeclineEvidence present). An authorised total that merely stayed below
+ * target, a provider (technical) failure, or any other/unknown outcome must never
+ * be described as a bank decline, and no decline reason is ever inferred.
  *
  * The installed Customer App selects its popup copy by error_code, so a non-decline
  * uses CAPTURE_FAILED: neutral copy, and Rate Trip still offers Continue without tip.
@@ -19,8 +20,9 @@ export const TIP_AUTHORISATION_NOT_AUTHORISED_COPY =
 
 export function tipAuthorisationOutcomeFromIncrementKind(
   kind: string | null | undefined,
+  providerDeclineEvidence?: string | null,
 ): TipAuthorisationOutcome {
-  if (kind === "declined") return "declined";
+  if (kind === "declined" && providerDeclineEvidence) return "declined";
   if (kind === "provider_failed") return "provider_failed";
   return "unknown";
 }
