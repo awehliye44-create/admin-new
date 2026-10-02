@@ -1638,7 +1638,7 @@ async function resolveSavedCardPaymentOutcome(args: {
     id: string;
     state?: string;
     decline_reason?: string;
-    authentication_challenge?: { acs_url?: string };
+    authentication_challenge?: { type?: string; acs_url?: string };
   };
   logStep: (step: string, details?: unknown) => void;
 }): Promise<
@@ -1668,11 +1668,15 @@ async function resolveSavedCardPaymentOutcome(args: {
     iteration += 1;
     latest = await retrieveRevolutOrderPayment(args.environment, args.secretKey, latest.id);
     const state = String(latest.state ?? "");
+    const challenge = latest.authentication_challenge;
     args.logStep("Revolut saved-card payment poll", {
       paymentId: latest.id,
       state,
       elapsed_ms: Date.now() - settleStartedAt,
       iteration,
+      // Field names only — challenge payloads (ACS URL, fingerprint HTML) are never logged.
+      challenge_type: challenge?.type ?? null,
+      challenge_fields: challenge && typeof challenge === "object" ? Object.keys(challenge).sort() : null,
     });
 
     if (isRevolutPaymentFailedState(state)) {
