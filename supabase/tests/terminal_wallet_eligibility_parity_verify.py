@@ -137,6 +137,37 @@ for i, s in enumerate(FIX["scenarios"]):
       f"b.pending_balance_pence = {e['pending']} AND b.eligible_earnings_pence = {e['eligible']} "
       f"FROM public.driver_wallet_eligibility_balances('{d['driver']}') b;")
 
+# 1b. Withdrawal side: reserve/summary read Available through the same SSOT.
+for i, s in enumerate(FIX["scenarios"]):
+    d = ids(i)
+    e = s["expect"]
+    w("INSERT INTO cert SELECT 'withdraw_available', " + lit(s["id"]) + f", '{e['eligible']}', "
+      f"public.driver_wallet_available_for_payout_pence('{d['driver']}')::text, "
+      f"public.driver_wallet_available_for_payout_pence('{d['driver']}') = {e['eligible']};")
+for name in [
+    "mk261002015_no_show_pending_1min",
+    "mk261002015_no_show_boundary_26h59m59s_pending",
+    "mk261002015_no_show_boundary_27h00m00s_available",
+    "pickup_no_show_path_completed_at_set_pending_1min",
+    "mk261002014_arrival_pending_1min",
+    "late_passenger_cancellation_pending_1min",
+]:
+    i, s = next((k, x) for k, x in enumerate(FIX["scenarios"]) if x["id"] == name)
+    d = ids(i)
+    e = s["expect"]
+    exp = f"pending={e['pending']} available_for_payout={e['eligible']} early_cash_out_available={e['eligible']}"
+    w("INSERT INTO cert SELECT 'withdraw_summary', " + lit(name) + f", {lit(exp)}, "
+      "format('pending=%s available_for_payout=%s early_cash_out_available=%s', j->>'pending_balance_pence', "
+      "j->>'available_for_payout_pence', j->>'early_cash_out_available_pence'), "
+      f"coalesce((j->>'pending_balance_pence')::bigint = {e['pending']} "
+      f"AND (j->>'available_for_payout_pence')::bigint = {e['eligible']} "
+      f"AND (j->>'early_cash_out_available_pence')::bigint = {e['eligible']}, false) "
+      f"FROM public.driver_wallet_summary_ssot('{d['driver']}', NULL) j;")
+    if (s["session"].get("captured_age_s") or 0) < 3600:
+        w("INSERT INTO cert SELECT 'today_summary', " + lit(name) + ", '426', "
+          "coalesce(j->>'today_trip_earnings_pence', 'NULL'), coalesce((j->>'today_trip_earnings_pence')::bigint = 426, false) "
+          f"FROM public.driver_wallet_summary_ssot('{d['driver']}', NULL) j;")
+
 # 2. Outcome-kind truth table (TS resolveTerminalOutcomeKind).
 vals = []
 for c in FIX["outcome_kind_cases"]:
@@ -161,6 +192,9 @@ def scen(name):
 for name, exp_status, exp_today in [
     ("mk261002014_arrival_pending_1h", "RESOLVED", 426),
     ("late_passenger_cancellation_pending", "RESOLVED", 426),
+    ("mk261002015_no_show_pending_1min", "RESOLVED", 426),
+    ("pickup_no_show_path_completed_at_set_pending_1min", "RESOLVED", 426),
+    ("mk261002014_arrival_pending_1min", "RESOLVED", 426),
     ("completed_trip_pending_unchanged", "RESOLVED", 850),
     ("cancelled_no_fee_never_payable", "CAPTURE_RELEASED", 0),
     ("terminal_full_release_voided_excluded", "CAPTURE_RELEASED", None),
@@ -187,6 +221,8 @@ w("INSERT INTO cert SELECT 'economic_date', 'mk261002014 economic_earned_at = ca
 HIST_CASES = [
     ("mk261002014_arrival_available_28h", None, "426", "terminal_ledger"),
     ("mk261002015_no_show_available", None, "426", "terminal_ledger"),
+    ("mk261002015_no_show_pending_1min", None, "426", "terminal_ledger"),
+    ("pickup_no_show_path_completed_at_set_pending_1min", None, "426", "terminal_ledger"),
     ("completed_trip_available_unchanged", None, "850", "trip_stamp"),
 ]
 for name, _, exp_amt, exp_src in HIST_CASES:
@@ -261,6 +297,6 @@ w("DO $c$ DECLARE r record; BEGIN BEGIN "
   "END; END $c$;")
 
 w("SELECT section, name, expected, actual, CASE WHEN pass THEN 'PASS' ELSE 'FAIL' END AS result FROM cert ORDER BY section, name;")
-w("SELECT count(*) FILTER (WHERE pass) AS passed, count(*) FILTER (WHERE NOT pass) AS failed, count(*) AS total FROM cert;")
+w("SELECT count(*) FILTER (WHERE pass) AS passed, count(*) FILTER (WHERE pass IS NOT TRUE) AS failed, count(*) AS total FROM cert;")
 w("ROLLBACK;")
 print("\n".join(out))

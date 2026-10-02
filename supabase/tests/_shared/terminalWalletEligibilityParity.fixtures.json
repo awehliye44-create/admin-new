@@ -856,6 +856,286 @@
         "pending": 0,
         "eligible": 0
       }
+    },
+    {
+      "id": "mk261002015_no_show_pending_1min",
+      "trip": {
+        "status": "no_show",
+        "financial_outcome": "NO_SHOW",
+        "payment_status": "captured",
+        "owner": "previous",
+        "gross_fare_pence": 500,
+        "commission_pence": 75,
+        "driver_net_pence": 425,
+        "provider_fee_pence": 24,
+        "capture_amount_pence": 450,
+        "no_show_charge_pence": 450,
+        "cancelled_age_s": 63,
+        "cancellation_fee_pence": null
+      },
+      "session": {
+        "status": "captured",
+        "provider_state": "COMPLETED",
+        "hold_release_state": "released",
+        "captured_amount_pence": 450,
+        "released_amount_pence": 300,
+        "authorised_amount_pence": 450,
+        "fee_status": "ACTUAL",
+        "provider_processing_fee_pence": 24,
+        "captured_age_s": 60
+      },
+      "ledger": [
+        {
+          "type": "TRIP_EARNING_NET",
+          "amount_pence": 426,
+          "age_s": 59
+        }
+      ],
+      "expect": {
+        "pending": 426,
+        "eligible": 0
+      },
+      "note": "MK-261002-015 exact production values aged 1 minute: status no_show, cancelled_at set, completed_at NULL, stale stamp 500/75/425, capture 450, release 300, fee 24 ACTUAL, TEN 426, owner via previous_driver_id. Pending yes, Available/withdrawable no."
+    },
+    {
+      "id": "mk261002015_no_show_pending_36min",
+      "trip": {
+        "status": "no_show",
+        "financial_outcome": "NO_SHOW",
+        "payment_status": "captured",
+        "owner": "previous",
+        "gross_fare_pence": 500,
+        "commission_pence": 75,
+        "driver_net_pence": 425,
+        "provider_fee_pence": 24,
+        "capture_amount_pence": 450,
+        "no_show_charge_pence": 450,
+        "cancelled_age_s": 2163,
+        "cancellation_fee_pence": null
+      },
+      "session": {
+        "status": "captured",
+        "provider_state": "COMPLETED",
+        "hold_release_state": "released",
+        "captured_amount_pence": 450,
+        "released_amount_pence": 300,
+        "authorised_amount_pence": 450,
+        "fee_status": "ACTUAL",
+        "provider_processing_fee_pence": 24,
+        "captured_age_s": 2160
+      },
+      "ledger": [
+        {
+          "type": "TRIP_EARNING_NET",
+          "amount_pence": 426,
+          "age_s": 2159
+        }
+      ],
+      "expect": {
+        "pending": 426,
+        "eligible": 0
+      },
+      "note": "MK-261002-015 at the forensic read (ledger ~36 min old): Pending, never Available."
+    },
+    {
+      "id": "mk261002015_no_show_boundary_26h59m59s_pending",
+      "trip": {
+        "status": "no_show",
+        "financial_outcome": "NO_SHOW",
+        "payment_status": "captured",
+        "owner": "previous",
+        "gross_fare_pence": 500,
+        "commission_pence": 75,
+        "driver_net_pence": 425,
+        "provider_fee_pence": 24,
+        "capture_amount_pence": 450,
+        "no_show_charge_pence": 450,
+        "cancelled_age_s": 97202,
+        "cancellation_fee_pence": null
+      },
+      "session": {
+        "status": "captured",
+        "provider_state": "COMPLETED",
+        "hold_release_state": "released",
+        "captured_amount_pence": 450,
+        "released_amount_pence": 300,
+        "authorised_amount_pence": 450,
+        "fee_status": "ACTUAL",
+        "provider_processing_fee_pence": 24,
+        "captured_age_s": 97199
+      },
+      "ledger": [
+        {
+          "type": "TRIP_EARNING_NET",
+          "amount_pence": 426,
+          "age_s": 97198
+        }
+      ],
+      "expect": {
+        "pending": 426,
+        "eligible": 0
+      },
+      "note": "No-Show clearing boundary: 26:59:59 after capture stays Pending."
+    },
+    {
+      "id": "mk261002015_no_show_boundary_27h00m00s_available",
+      "trip": {
+        "status": "no_show",
+        "financial_outcome": "NO_SHOW",
+        "payment_status": "captured",
+        "owner": "previous",
+        "gross_fare_pence": 500,
+        "commission_pence": 75,
+        "driver_net_pence": 425,
+        "provider_fee_pence": 24,
+        "capture_amount_pence": 450,
+        "no_show_charge_pence": 450,
+        "cancelled_age_s": 97203,
+        "cancellation_fee_pence": null
+      },
+      "session": {
+        "status": "captured",
+        "provider_state": "COMPLETED",
+        "hold_release_state": "released",
+        "captured_amount_pence": 450,
+        "released_amount_pence": 300,
+        "authorised_amount_pence": 450,
+        "fee_status": "ACTUAL",
+        "provider_processing_fee_pence": 24,
+        "captured_age_s": 97200
+      },
+      "ledger": [
+        {
+          "type": "TRIP_EARNING_NET",
+          "amount_pence": 426,
+          "age_s": 97199
+        }
+      ],
+      "expect": {
+        "pending": 0,
+        "eligible": 426
+      },
+      "note": "No-Show clearing boundary: 27:00:00 after capture is Available."
+    },
+    {
+      "id": "pickup_no_show_path_completed_at_set_pending_1min",
+      "trip": {
+        "status": "no_show",
+        "financial_outcome": "NO_SHOW",
+        "payment_status": "captured",
+        "owner": "previous",
+        "gross_fare_pence": 500,
+        "commission_pence": 75,
+        "driver_net_pence": 425,
+        "provider_fee_pence": 24,
+        "capture_amount_pence": 450,
+        "no_show_charge_pence": 450,
+        "cancelled_age_s": null,
+        "cancellation_fee_pence": null,
+        "completed_age_s": 61
+      },
+      "session": {
+        "status": "captured",
+        "provider_state": "COMPLETED",
+        "hold_release_state": "released",
+        "captured_amount_pence": 450,
+        "released_amount_pence": 300,
+        "authorised_amount_pence": 450,
+        "fee_status": "ACTUAL",
+        "provider_processing_fee_pence": 24,
+        "captured_age_s": 60
+      },
+      "ledger": [
+        {
+          "type": "TRIP_EARNING_NET",
+          "amount_pence": 426,
+          "age_s": 59
+        }
+      ],
+      "expect": {
+        "pending": 426,
+        "eligible": 0
+      },
+      "note": "pickup-no-show path stamps completed_at = decision time and cancelled_at NULL; completed_at must not bypass the 27h clearing."
+    },
+    {
+      "id": "mk261002014_arrival_pending_1min",
+      "note": "MK-261002-014 shape aged 1 minute: Pending yes, Available/withdrawable no.",
+      "trip": {
+        "status": "cancelled",
+        "financial_outcome": "ARRIVAL_CANCELLATION",
+        "payment_status": "captured",
+        "owner": "previous",
+        "gross_fare_pence": 500,
+        "commission_pence": 75,
+        "driver_net_pence": 425,
+        "provider_fee_pence": 24,
+        "capture_amount_pence": 450,
+        "cancellation_fee_pence": 450,
+        "cancelled_age_s": 62
+      },
+      "session": {
+        "status": "captured",
+        "provider_state": "COMPLETED",
+        "hold_release_state": "released",
+        "captured_amount_pence": 450,
+        "released_amount_pence": 300,
+        "authorised_amount_pence": 450,
+        "fee_status": "ACTUAL",
+        "provider_processing_fee_pence": 24,
+        "captured_age_s": 60
+      },
+      "ledger": [
+        {
+          "type": "TRIP_EARNING_NET",
+          "amount_pence": 426,
+          "age_s": 58
+        }
+      ],
+      "expect": {
+        "pending": 426,
+        "eligible": 0
+      }
+    },
+    {
+      "id": "late_passenger_cancellation_pending_1min",
+      "trip": {
+        "status": "cancelled",
+        "financial_outcome": "LATE_PASSENGER_CANCELLATION",
+        "payment_status": "captured",
+        "owner": "previous",
+        "gross_fare_pence": 450,
+        "commission_pence": 0,
+        "driver_net_pence": 426,
+        "provider_fee_pence": 24,
+        "capture_amount_pence": 450,
+        "late_cancel_fee_pence": 450,
+        "cancellation_fee_pence": 450,
+        "cancelled_age_s": 62
+      },
+      "session": {
+        "status": "captured",
+        "provider_state": "COMPLETED",
+        "hold_release_state": "released",
+        "captured_amount_pence": 450,
+        "released_amount_pence": 300,
+        "authorised_amount_pence": 450,
+        "fee_status": "ACTUAL",
+        "provider_processing_fee_pence": 24,
+        "captured_age_s": 60
+      },
+      "ledger": [
+        {
+          "type": "TRIP_EARNING_NET",
+          "amount_pence": 426,
+          "age_s": 58
+        }
+      ],
+      "expect": {
+        "pending": 426,
+        "eligible": 0
+      },
+      "note": "Late Passenger Cancellation aged 1 minute: Pending yes, Available/withdrawable no."
     }
   ],
   "outcome_kind_cases": [
