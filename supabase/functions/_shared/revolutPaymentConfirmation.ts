@@ -9,28 +9,20 @@ import { buildPreauthIdempotencyKey } from "./dynamicPaymentWorkflow.ts";
 import type { RevolutOrder } from "./revolutOrders.ts";
 import { retrieveRevolutOrder } from "./revolutOrders.ts";
 import type { ProviderEnvironment } from "./paymentProviders/types.ts";
+import { isRevolutBookingPreauthHoldState } from "./revolutBookingHoldState.ts";
 import {
   handleRevolutPaymentInvariantViolation,
   isRevolutWrongCaptureBeforeTripComplete,
 } from "./revolutPreauthReleaseSSOT.ts";
 
 const AUTHORISED_STATES = new Set(["AUTHORISED", "COMPLETED"]);
-/**
- * P0 — Trip create / confirm / CTAP may ONLY treat a true Revolut hold as paid.
- * PENDING/PROCESSING are in-flight checkout states — never trip-authorised.
- * COMPLETED (captured) is handled separately (invariant / capture paths).
- */
-const BOOKING_PREAUTH_HOLD_STATES = new Set(["AUTHORISED"]);
 const IN_FLIGHT_STATES = new Set(["PROCESSING", "PENDING"]);
 
 export function isRevolutAuthorisedState(state: string | undefined): boolean {
   return AUTHORISED_STATES.has(String(state ?? "").toUpperCase());
 }
 
-/** True Revolut AUTHORISED hold only — never PENDING/PROCESSING. */
-export function isRevolutBookingPreauthHoldState(state: string | undefined): boolean {
-  return BOOKING_PREAUTH_HOLD_STATES.has(String(state ?? "").toUpperCase());
-}
+export { isRevolutBookingPreauthHoldState };
 
 export function isRevolutInFlightState(state: string | undefined): boolean {
   return IN_FLIGHT_STATES.has(String(state ?? "").toUpperCase());

@@ -11,7 +11,7 @@
 
 import type { SupabaseClient } from "npm:@supabase/supabase-js@2.57.2";
 import { revolutProviderAuthorisedTotalPence, type RevolutOrder } from "./revolutOrders.ts";
-import { isRevolutBookingPreauthHoldState } from "./revolutPaymentConfirmation.ts";
+import { isRevolutBookingPreauthHoldState } from "./revolutBookingHoldState.ts";
 
 /**
  * provider_state_verified_by values written only when the caller has just read the
