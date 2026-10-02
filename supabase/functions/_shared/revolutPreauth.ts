@@ -61,6 +61,7 @@ import {
   type BookingPaymentQuoteErrorCode,
   type BookingPaymentQuoteRow,
 } from "./bookingPaymentQuoteSSOT.ts";
+import { buildOpaqueQuoteSessionFareSnapshot } from "./serverFareAuthoritySSOT.ts";
 import {
   RECEIVABLE_CONSENT_REFRESH_REQUIRED,
   RECEIVABLE_FOLD_UNAVAILABLE,
@@ -172,7 +173,7 @@ export async function createRevolutPreauthResponse(
     userId,
     platformPaymentMethodId,
     bookingSnapshot: bookingSnapshotInput,
-    fareSnapshot,
+    fareSnapshot: fareSnapshotInput,
     customerId,
     customerEmail,
     customerName,
@@ -186,6 +187,8 @@ export async function createRevolutPreauthResponse(
   } = input;
   /** May grow after durable receivable reservation (ride + buffer + debt). */
   let authorisedAmountPence = authorisedAmountPenceInput;
+  /** Opaque path replaces every money key with the validated quote's values. */
+  let fareSnapshot = fareSnapshotInput;
   const receivableConsent: ReceivableConsentRequest =
     receivableConsentInput
     ?? extractReceivableConsentFromPreauthBody({
@@ -748,6 +751,7 @@ export async function createRevolutPreauthResponse(
         currency: paymentCurrency,
         open_receivable_pence: openRecv,
         gate_enabled: frozenGateEarly.enabled,
+        require_server_fare_artifact: true,
       });
       if (!validated.ok) {
         logStep("OPAQUE_BOOKING_QUOTE_REJECTED", {
@@ -762,6 +766,7 @@ export async function createRevolutPreauthResponse(
       bufferPenceForSession = amounts.buffer_pence;
       authorisedAmountPence = amounts.total_authorisation_pence;
       opaqueQuote = validated.quote;
+      fareSnapshot = buildOpaqueQuoteSessionFareSnapshot(fareSnapshot, opaqueQuote);
       logStep("OPAQUE_BOOKING_QUOTE_FROZEN", {
         quote_id: opaqueQuote.id,
         trip_fare_pence: rideFarePence,

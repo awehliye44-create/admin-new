@@ -115,12 +115,27 @@ const BASE_BODY = {
   stops: [],
 };
 
-async function issueFromBody(body: Record<string, unknown>, cfg: Cfg = MK_FIXED_250) {
+const SERVER_FARE_QUOTE_ID = "5f0c1d2e-3a4b-4c5d-8e6f-7a8b9c0d1e2f";
+
+/**
+ * The trip fare comes from the server fare artifact (771 for MK). Any
+ * trip_fare_pence / buffer_pence in the client body is noise.
+ */
+async function issueFromBody(
+  body: Record<string, unknown>,
+  cfg: Cfg = MK_FIXED_250,
+  opts: { serverTripFarePence?: number; serverDiscountApplied?: boolean } = {},
+) {
   const fake = fakeSupabase(cfg);
   // deno-lint-ignore no-explicit-any
   const supabase = fake.client as any;
   const fields = parseBookingQuoteRequestBody(body);
-  const serverBuffer = await resolveBookingQuoteServerBuffer(supabase, fields);
+  const serverTripFare = opts.serverTripFarePence ?? 771;
+  const serverBuffer = await resolveBookingQuoteServerBuffer(supabase, {
+    service_area_id: fields.service_area_id,
+    server_trip_fare_pence: serverTripFare,
+    server_discount_applied: opts.serverDiscountApplied === true,
+  });
   const issued = await issueBookingPaymentQuote(supabase, {
     customer_id: "cust-1",
     user_id: "user-1",
@@ -129,7 +144,9 @@ async function issueFromBody(body: Record<string, unknown>, cfg: Cfg = MK_FIXED_
     ride_category: fields.ride_category,
     route_fingerprint: fields.route_fingerprint,
     currency: fields.currency,
-    trip_fare_pence: fields.trip_fare_pence,
+    server_trip_fare_pence: serverTripFare,
+    server_fare_quote_id: SERVER_FARE_QUOTE_ID,
+    pricing_fingerprint: `pf-test|t:${serverTripFare}|b:${serverBuffer.bufferPence}`,
     server_buffer: serverBuffer,
     server_outstanding_pence: 0,
     gate: { enabled: false, allowlist: new Set() },
@@ -200,8 +217,11 @@ Deno.test("6. min_hold clamp raises the hold; skipped when discounted (voucher)"
   assertEquals(771 + r.bufferPence, 1500);
   const skipped = computeServiceAreaPreauthBuffer(cfg, 771, MK, { skipMinHoldWhenDiscounted: true });
   assertEquals(skipped.bufferPence, 250);
-  const { quote } = await issueFromBody({ ...BASE_BODY, voucher_id: "v-1" }, cfg);
+  const { quote } = await issueFromBody(BASE_BODY, cfg, { serverDiscountApplied: true });
   assertEquals(quote.buffer_pence, 250);
+  // A client voucher_id is not a server discount and cannot skip min_hold.
+  const { quote: clientVoucher } = await issueFromBody({ ...BASE_BODY, voucher_id: "v-1" }, cfg);
+  assertEquals(clientVoucher.buffer_pence, 729);
   const { quote: noVoucher } = await issueFromBody(BASE_BODY, cfg);
   assertEquals(noVoucher.buffer_pence, 729);
 });
@@ -251,6 +271,11 @@ Deno.test("7c. unexpired quote with a stale buffer is not reused", async () => {
   const fake = fakeSupabase(MK_FIXED_250, stale);
   // deno-lint-ignore no-explicit-any
   const supabase = fake.client as any;
+  const serverBuffer = await resolveBookingQuoteServerBuffer(supabase, {
+    service_area_id: MK,
+    server_trip_fare_pence: 771,
+    server_discount_applied: false,
+  });
   const issued = await issueBookingPaymentQuote(supabase, {
     customer_id: "cust-1",
     user_id: "user-1",
@@ -259,8 +284,10 @@ Deno.test("7c. unexpired quote with a stale buffer is not reused", async () => {
     ride_category: fields.ride_category,
     route_fingerprint: fields.route_fingerprint,
     currency: "gbp",
-    trip_fare_pence: 771,
-    server_buffer: await resolveBookingQuoteServerBuffer(supabase, fields),
+    server_trip_fare_pence: 771,
+    server_fare_quote_id: SERVER_FARE_QUOTE_ID,
+    pricing_fingerprint: `pf-test|t:771|b:${serverBuffer.bufferPence}`,
+    server_buffer: serverBuffer,
     server_outstanding_pence: 0,
     gate: { enabled: false, allowlist: new Set() },
   });
@@ -446,11 +473,15 @@ Deno.test("11c. post-reserve check compares buffer-excluded amounts", () => {
 });
 
 Deno.test("12. quote handler never reads a client buffer and requires a service area", async () => {
-  const src = await Deno.readTextFile(
+  const handler = await Deno.readTextFile(
     new URL("../customer-receivable-booking-quote/index.ts", import.meta.url),
   );
+  assertEquals(/buffer_pence/.test(handler.replace(/\/\*\*[\s\S]*?\*\//, "")), false);
+  assertStringIncludes(handler, "issueServerAuthoritativeBookingQuote(admin, { userId: user.id, body })");
+  const src = await Deno.readTextFile(new URL("./serverBookingQuoteIssue.ts", import.meta.url));
   assertEquals(/body\.buffer_pence/.test(src), false);
-  assertStringIncludes(src, "resolveBookingQuoteServerBuffer(admin, fields)");
+  assertStringIncludes(src, "resolveBookingQuoteServerBuffer(admin, {");
+  assertStringIncludes(src, "server_trip_fare_pence: serverTripFarePence,");
   assertStringIncludes(src, "server_buffer: serverBuffer");
   assertStringIncludes(src, "service_area_id_required");
   assertStringIncludes(src, "service_area_invalid");

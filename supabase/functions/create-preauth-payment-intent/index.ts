@@ -27,9 +27,17 @@ import {
   type ServiceAreaBookingGatewayBundle,
 } from "../_shared/paymentGatewayGuard.ts";
 import {
+  bookingPaymentQuoteErrorPayload,
   extractBookingPaymentQuoteIdFromBody,
+  FARE_QUOTE_CHANGED,
   loadBookingPaymentQuote,
 } from "../_shared/bookingPaymentQuoteSSOT.ts";
+import {
+  buildServerPreauthSessionFareSnapshot,
+  resolveServiceAreaIdForPickup,
+  SERVICE_AREA_MISMATCH,
+} from "../_shared/serverFareAuthoritySSOT.ts";
+import { normalizePersonalVoucherCode } from "../_shared/serverBookingDiscountSSOT.ts";
 import { createRevolutPreauthResponse } from "../_shared/revolutPreauth.ts";
 import { extractReceivableConsentFromPreauthBody } from "../_shared/customerReceivableConsentSSOT.ts";
 import { createPreauthEdgeTiming } from "../_shared/preauthEdgeTimingSSOT.ts";
@@ -257,15 +265,26 @@ serveWithEdgeTiming("create-preauth-payment-intent", corsHeaders, async (req) =>
           const ms = Date.now() - started;
           return { kind: "opaque" as const, row, ms };
         }
-        const serverQuote = await quoteFareServerSide({
-          serviceAreaId: resolvedServiceAreaId,
-          vehicleTypeId: typeof body.vehicle_type_id === "string" ? body.vehicle_type_id : null,
-          bookingSnapshot:
-            body.booking_snapshot && typeof body.booking_snapshot === "object"
-              ? body.booking_snapshot as Record<string, unknown>
-              : null,
-        });
-        return { kind: "estimate" as const, serverQuote, ms: Date.now() - started };
+        const snapForQuote = body.booking_snapshot && typeof body.booking_snapshot === "object"
+          ? body.booking_snapshot as Record<string, unknown>
+          : null;
+        const [serverQuote, pickupServiceArea] = await Promise.all([
+          quoteFareServerSide({
+            serviceAreaId: resolvedServiceAreaId,
+            vehicleTypeId: typeof body.vehicle_type_id === "string" ? body.vehicle_type_id : null,
+            bookingSnapshot: snapForQuote,
+          }),
+          resolveServiceAreaIdForPickup(
+            supabaseClient,
+            (snapForQuote?.pickup ?? null) as { lat?: unknown; lng?: unknown } | null,
+          ),
+        ]);
+        return {
+          kind: "estimate" as const,
+          serverQuote,
+          pickupServiceArea,
+          ms: Date.now() - started,
+        };
       })();
       const customerP = (async () => {
         const started = Date.now();
@@ -389,6 +408,20 @@ serveWithEdgeTiming("create-preauth-payment-intent", corsHeaders, async (req) =>
             error_code: "FARE_QUOTE_UNAVAILABLE",
           }), { status: 422, headers: { ...corsHeaders, "Content-Type": "application/json" } });
         }
+        const pickupSa = fareSettled.pickupServiceArea;
+        if (!pickupSa.ok || pickupSa.serviceAreaId !== resolvedServiceAreaId) {
+          logStep("SERVICE_AREA_PICKUP_MISMATCH", {
+            requested_service_area_id: resolvedServiceAreaId,
+            pickup_service_area_id: pickupSa.ok ? pickupSa.serviceAreaId : null,
+            lookup_error: pickupSa.ok ? null : pickupSa.error,
+          });
+          return new Response(JSON.stringify({
+            error: "We couldn't confirm the fare for this trip. Please refresh and try again.",
+            error_code: SERVICE_AREA_MISMATCH,
+            code: SERVICE_AREA_MISMATCH,
+            charge_state: "no_charge",
+          }), { status: 409, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        }
         grossFarePence = fareSettled.serverQuote.totalFarePence;
         logStep("SERVER_FARE_QUOTE", {
           server_total_pence: grossFarePence,
@@ -458,7 +491,31 @@ serveWithEdgeTiming("create-preauth-payment-intent", corsHeaders, async (req) =>
       let appliedPersonalVoucherId: string | null = null;
       let appliedPersonalVoucherCode: string | null = null;
       let personalVoucherDiscountPence = 0;
-      if (body.personal_voucher_code?.trim()) {
+      if (fareSettled.kind === "opaque" && fareSettled.row) {
+        // The quote's trip fare already carries the server-resolved voucher.
+        // Re-applying here would discount twice; a different voucher than the
+        // one bound into the quote must re-quote.
+        const quoteMeta = fareSettled.row.metadata ?? {};
+        const boundCode = normalizePersonalVoucherCode(quoteMeta.applied_personal_voucher_code);
+        const requestCode = normalizePersonalVoucherCode(body.personal_voucher_code);
+        if (boundCode !== requestCode) {
+          logStep("OPAQUE_QUOTE_VOUCHER_MISMATCH", {
+            quote_id: opaqueQuoteId,
+            quote_has_voucher: boundCode != null,
+            request_has_voucher: requestCode != null,
+          });
+          return new Response(
+            JSON.stringify(bookingPaymentQuoteErrorPayload(FARE_QUOTE_CHANGED, {
+              note: "voucher_not_bound_to_quote",
+            })),
+            { status: 409, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+          );
+        }
+        if (boundCode) {
+          appliedPersonalVoucherId = String(quoteMeta.applied_personal_voucher_id ?? "") || null;
+          appliedPersonalVoucherCode = boundCode;
+        }
+      } else if (body.personal_voucher_code?.trim()) {
         const voucherResult = await resolvePersonalVoucherForTrip({
           admin: supabaseClient,
           code: body.personal_voucher_code,
@@ -747,15 +804,16 @@ serveWithEdgeTiming("create-preauth-payment-intent", corsHeaders, async (req) =>
           body.booking_snapshot && typeof body.booking_snapshot === "object"
             ? body.booking_snapshot as Record<string, unknown>
             : null,
-        fareSnapshot:
-          body.fare_snapshot && typeof body.fare_snapshot === "object"
-            ? body.fare_snapshot as Record<string, unknown>
-            : {
-              estimated_total_pence: estimatedTotalPence,
-              authorised_amount_pence: authorisedAmountPence,
-              buffer_pence: bufferPence,
-              ...metadataExtra,
-            },
+        fareSnapshot: buildServerPreauthSessionFareSnapshot({
+          estimatedTotalPence,
+          authorisedAmountPence,
+          bufferPence,
+          metadataExtra,
+          clientFareSnapshot:
+            body.fare_snapshot && typeof body.fare_snapshot === "object"
+              ? body.fare_snapshot as Record<string, unknown>
+              : null,
+        }),
         receivableConsent: extractReceivableConsentFromPreauthBody(
           body as Record<string, unknown>,
         ),

@@ -1,6 +1,12 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
+import { createClient, type SupabaseClient } from "npm:@supabase/supabase-js@2.57.2";
 import { corsHeaders } from "../_shared/corsHeaders.ts";
 import { requireSignedInOrService } from "../_shared/callerGate.ts";
+import {
+  buildRouteArtifactInsert,
+  persistRouteArtifact,
+  resolveServiceAreaIdForPickup,
+} from "../_shared/serverFareAuthoritySSOT.ts";
 
 interface RouteRequest {
   originLat: number;
@@ -19,6 +25,7 @@ interface RouteTimings {
   mapboxMs: number;
   cacheHit: boolean;
   profile: string | null;
+  artifactMs?: number;
 }
 
 interface RouteResponse {
@@ -33,6 +40,60 @@ interface RouteResponse {
   errorCode?: string;
   mapboxCode?: string;
   timings?: RouteTimings;
+  /** Opaque server route artifact (route_quote_artifacts.id) for calculate-fare. */
+  routeQuoteId?: string | null;
+  routeQuoteExpiresAt?: string | null;
+  /** Server geofence SA for the pickup, bound into the route artifact. */
+  serverServiceAreaId?: string | null;
+}
+
+type RouteArtifactContext = {
+  userId: string;
+  admin: SupabaseClient;
+  serviceAreaP: ReturnType<typeof resolveServiceAreaIdForPickup>;
+};
+
+/**
+ * Bind a Mapbox measurement to its owner, ordered route and server SA.
+ * Haversine estimates are never persisted — they cannot price a booking.
+ */
+async function attachRouteArtifact(
+  ctx: RouteArtifactContext | null,
+  body: RouteRequest,
+  result: RouteResponse,
+  profile: string | null,
+): Promise<RouteResponse> {
+  if (!ctx || result.source !== "mapbox_directions") {
+    return { ...result, routeQuoteId: null, routeQuoteExpiresAt: null };
+  }
+  const started = Date.now();
+  const sa = await ctx.serviceAreaP;
+  if (!sa.ok) {
+    console.error("Route artifact skipped — service area lookup failed:", sa.error);
+    return { ...result, routeQuoteId: null, routeQuoteExpiresAt: null };
+  }
+  const insert = buildRouteArtifactInsert({
+    userId: ctx.userId,
+    pickup: { lat: body.originLat, lng: body.originLng },
+    dropoff: { lat: body.destLat, lng: body.destLng },
+    stops: body.intermediateStops ?? [],
+    distanceMeters: Number(result.distanceMeters),
+    durationSeconds: Number(result.durationSeconds),
+    provider: "mapbox_directions",
+    profile,
+    departureAt: safeDepartAt(body.departureTime),
+    serviceAreaId: sa.serviceAreaId,
+    nowMs: Date.now(),
+  });
+  const persisted = insert ? await persistRouteArtifact(ctx.admin, insert) : null;
+  const artifactMs = Date.now() - started;
+  return {
+    ...result,
+    routeQuoteId: persisted?.id ?? null,
+    routeQuoteExpiresAt: persisted?.expires_at ?? null,
+    serverServiceAreaId: sa.serviceAreaId,
+    timings: result.timings ? { ...result.timings, artifactMs } : undefined,
+  };
 }
 
 /** Short-lived in-isolate cache — identical coords reuse recent Mapbox result. */
@@ -312,6 +373,32 @@ serve(async (req) => {
     }
     const body = norm.body;
 
+    let artifactCtx: RouteArtifactContext | null = null;
+    if (callerGate.userId) {
+      const admin = createClient(
+        Deno.env.get("SUPABASE_URL") ?? "",
+        Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "",
+        { auth: { persistSession: false } },
+      );
+      artifactCtx = {
+        userId: callerGate.userId,
+        admin,
+        // Overlaps Mapbox; never on the critical path of the route itself.
+        serviceAreaP: resolveServiceAreaIdForPickup(admin, {
+          lat: body.originLat,
+          lng: body.originLng,
+        }).catch((err) => ({ ok: false as const, error: String(err) })),
+      };
+    }
+    const respondRoute = async (result: RouteResponse, profile: string | null) => {
+      const out = await attachRouteArtifact(artifactCtx, body, result, profile);
+      if (out.timings) out.timings.totalMs = Date.now() - requestStart;
+      return new Response(
+        JSON.stringify(out),
+        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
+    };
+
     if (!token) {
       console.error("MAPBOX_PUBLIC_TOKEN not configured");
       const fallback = getHaversineFallback(body);
@@ -334,10 +421,7 @@ serve(async (req) => {
         profile: cached.timings?.profile ?? null,
       };
       console.log("Route cache hit:", { cacheKey, totalMs });
-      return new Response(
-        JSON.stringify(cached),
-        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
-      );
+      return await respondRoute(cached, cached.timings.profile);
     }
 
     console.log("Route calculation request:", {
@@ -373,10 +457,7 @@ serve(async (req) => {
       writeRouteCache(cacheKey, result);
     }
 
-    return new Response(
-      JSON.stringify(result),
-      { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
-    );
+    return await respondRoute(result, profile);
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : "Unknown error";
     console.error("Route calculation error:", message);
