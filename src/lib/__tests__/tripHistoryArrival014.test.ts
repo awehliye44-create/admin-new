@@ -7,12 +7,11 @@ import { adminTripHistoryDisplayAt, belongsInTripHistory } from '../adminTripNoS
 import { tripHistoryOutcomeBadge } from '../tripHistoryOutcomeBadge';
 import {
   attributeTripHistoryDriver,
-  tripHistoryCursorOrFilter,
   tripHistoryDateOrFilter,
   tripHistoryDriverOrFilter,
   tripHistoryTerminalOrFilter,
-  type TripHistoryCursor,
 } from '../tripHistoryQuery';
+import { tripHistoryKeysetPages } from '../../test/tripListPostgrestSim';
 
 const DRIVER_014 = {
   id: 'c40dd8a6-f422-40bc-9534-bae7be88b93e',
@@ -162,28 +161,8 @@ function evalTerm(row: Row, term: string): boolean {
 
 const matchesOr = (row: Row, filter: string) => splitTopLevel(filter).some((t) => evalTerm(row, t));
 
-function orderDesc(rows: Row[]): Row[] {
-  return [...rows].sort((a, b) => {
-    if (a.completed_at === null && b.completed_at !== null) return 1;
-    if (a.completed_at !== null && b.completed_at === null) return -1;
-    if (a.completed_at !== b.completed_at) return String(b.completed_at) < String(a.completed_at) ? -1 : 1;
-    return b.id < a.id ? -1 : 1;
-  });
-}
-
 function paginate(rows: Row[], pageSize: number): string[] {
-  const seen: string[] = [];
-  let cursor: TripHistoryCursor | null = null;
-  for (let guard = 0; guard < 100; guard += 1) {
-    const filtered = cursor ? rows.filter((row) => matchesOr(row, tripHistoryCursorOrFilter(cursor!))) : rows;
-    const page = orderDesc(filtered).slice(0, pageSize + 1);
-    const pageRows = page.slice(0, pageSize);
-    seen.push(...pageRows.map((r) => r.id));
-    if (page.length <= pageSize) break;
-    const last = pageRows[pageRows.length - 1];
-    cursor = { id: last.id, completedAt: last.completed_at };
-  }
-  return seen;
+  return tripHistoryKeysetPages(rows, pageSize, 'newest').flat();
 }
 
 const WINDOW_START = new Date('2026-09-25T00:00:00.000Z');

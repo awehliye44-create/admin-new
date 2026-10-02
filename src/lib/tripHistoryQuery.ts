@@ -1,5 +1,13 @@
 import { supabase } from '@/integrations/supabase/client';
 import { fetchPassengerDirectory, hydratePassengerIdentity } from '@/lib/tripPassengerDisplay';
+import {
+  ADMIN_TRIP_DATE_SORT_DEFAULT,
+  TRIP_HISTORY_EVENT_AT_COLUMN,
+  adminTripDateSortAscending,
+  parseAdminTripDateSort,
+  tripHistoryEventAt,
+  type AdminTripDateSort,
+} from '@/lib/adminTripListDateSort';
 
 /** Terminal trips — aligned with Financial Reconciliation COUNTABLE_FINANCIAL_OUTCOMES. */
 export const TRIP_HISTORY_FINANCIAL_OUTCOMES = [
@@ -92,7 +100,7 @@ const TRIP_HISTORY_SELECT_BASE = `
   payment_status, payment_method, payment_provider, provider_order_id, provider_payment_id,
   currency_code, estimated_distance_km, estimated_duration_minutes,
   refund_amount_pence, refunded_at,
-  total_stops, created_at, started_at, completed_at, cancelled_at, cancellation_reason, surge_multiplier, driver_id,
+  total_stops, created_at, started_at, completed_at, cancelled_at, ${TRIP_HISTORY_EVENT_AT_COLUMN}, cancellation_reason, surge_multiplier, driver_id,
   driver_location_lat, driver_location_lng, stacked_trip_id,
   corporate_account_id, region_id, service_area_id, financial_model,
   cancellation_fee_pence,
@@ -138,9 +146,11 @@ export type TripHistoryStatusFilter =
   | 'arrival_cancellation'
   | 'late_cancellation';
 
+/** Keyset position on (trip_history_event_at, id); bound to the sort it was issued for. */
 export type TripHistoryCursor = {
-  completedAt: string | null;
+  eventAt: string;
   id: string;
+  sort: AdminTripDateSort;
 };
 
 export type TripHistoryPage = {
@@ -156,36 +166,40 @@ export function resolveTripHistoryPageSize(raw?: number | null): number {
   return Math.min(n, TRIP_HISTORY_REQUEST_SAFETY_MAX);
 }
 
-/** Newest-first by display date (completed_at, else cancelled_at, else created_at). */
-export function sortTripHistoryRows<T extends Record<string, unknown>>(rows: T[]): T[] {
+/**
+ * Reference ordering identical to the database ORDER BY
+ * (trip_history_event_at, id) — for tests and in-memory fixtures only.
+ * Admin pages rely on the server order and never re-sort a fetched page.
+ */
+export function sortTripHistoryRows<T extends Record<string, unknown>>(
+  rows: T[],
+  sort: AdminTripDateSort = ADMIN_TRIP_DATE_SORT_DEFAULT,
+): T[] {
+  const dir = adminTripDateSortAscending(sort) ? 1 : -1;
   const at = (row: Record<string, unknown>): number => {
-    const value = (row.completed_at ?? row.cancelled_at ?? row.created_at) as
-      | string
-      | null
-      | undefined;
+    const value = tripHistoryEventAt(row as Parameters<typeof tripHistoryEventAt>[0]);
     const ts = value ? new Date(value).getTime() : NaN;
     return Number.isFinite(ts) ? ts : 0;
   };
-  return [...rows].sort((a, b) => at(b) - at(a));
+  return [...rows].sort((a, b) => {
+    const diff = at(a) - at(b);
+    if (diff !== 0) return diff * dir;
+    return String(a.id ?? '').localeCompare(String(b.id ?? '')) * dir;
+  });
 }
 
 export function encodeTripHistoryCursor(cursor: TripHistoryCursor | null | undefined): string | null {
-  if (!cursor?.id) return null;
-  return JSON.stringify({
-    completedAt: cursor.completedAt,
-    id: cursor.id,
-  });
+  if (!cursor?.id || !cursor.eventAt) return null;
+  return JSON.stringify({ eventAt: cursor.eventAt, id: cursor.id, sort: cursor.sort });
 }
 
 export function decodeTripHistoryCursor(raw: string | null | undefined): TripHistoryCursor | null {
   if (!raw) return null;
   try {
-    const parsed = JSON.parse(raw) as { completedAt?: unknown; id?: unknown };
+    const parsed = JSON.parse(raw) as { eventAt?: unknown; id?: unknown; sort?: unknown };
     if (typeof parsed.id !== 'string' || !parsed.id) return null;
-    return {
-      id: parsed.id,
-      completedAt: typeof parsed.completedAt === 'string' ? parsed.completedAt : null,
-    };
+    if (typeof parsed.eventAt !== 'string' || !parsed.eventAt) return null;
+    return { id: parsed.id, eventAt: parsed.eventAt, sort: parseAdminTripDateSort(parsed.sort) };
   } catch {
     return null;
   }
@@ -213,20 +227,17 @@ async function applyTripHistoryLocationFilter(
 }
 
 /**
- * Keyset continuation for `completed_at DESC NULLS LAST, id DESC`.
- * The null completed_at band (terminal no-shows) ranks after every non-null row,
- * so a non-null cursor must still admit it — otherwise those trips are unreachable
- * whenever completed trips fill more than one page.
+ * Keyset continuation for ORDER BY trip_history_event_at, id (both DESC for
+ * Newest first, both ASC for Oldest first). The event date is never NULL
+ * (created_at is NOT NULL), so there is no null band to re-admit.
  */
 export function tripHistoryCursorOrFilter(cursor: TripHistoryCursor): string {
-  if (cursor.completedAt) {
-    return [
-      `completed_at.lt.${cursor.completedAt}`,
-      `and(completed_at.eq.${cursor.completedAt},id.lt.${cursor.id})`,
-      'completed_at.is.null',
-    ].join(',');
-  }
-  return `and(completed_at.is.null,id.lt.${cursor.id})`;
+  const op = adminTripDateSortAscending(cursor.sort) ? 'gt' : 'lt';
+  const col = TRIP_HISTORY_EVENT_AT_COLUMN;
+  return [
+    `${col}.${op}.${cursor.eventAt}`,
+    `and(${col}.eq.${cursor.eventAt},id.${op}.${cursor.id})`,
+  ].join(',');
 }
 
 function applyTripHistoryCursorFilter(query: any, cursor: TripHistoryCursor | null | undefined): any {
@@ -261,6 +272,8 @@ export type FetchTripHistoryPageArgs = {
   /** Page size — default 100. Not a history retention cap. */
   pageSize?: number;
   cursor?: TripHistoryCursor | null;
+  /** Date sort — default Newest first. */
+  sort?: AdminTripDateSort;
   status?: TripHistoryStatusFilter;
   driverId?: string | null;
   passengerId?: string | null;
@@ -276,6 +289,9 @@ export async function fetchTripHistoryPage(
   args: FetchTripHistoryPageArgs,
 ): Promise<TripHistoryPage> {
   const pageSize = resolveTripHistoryPageSize(args.pageSize);
+  const sort = parseAdminTripDateSort(args.sort);
+  const ascending = adminTripDateSortAscending(sort);
+  const cursor = args.cursor && args.cursor.sort === sort ? args.cursor : null;
   const selectVariants = [
     `${TRIP_HISTORY_SELECT_BASE}, ${TRIP_HISTORY_SELECT_INVOICE}, ${TRIP_HISTORY_SELECT_CORPORATE}`,
     `${TRIP_HISTORY_SELECT_BASE}, ${TRIP_HISTORY_SELECT_INVOICE}`,
@@ -290,12 +306,12 @@ export async function fetchTripHistoryPage(
       .select(select)
       .or(tripHistoryTerminalOrFilter(args.status ?? 'all'))
       .or(tripHistoryDateOrFilter(args.start, args.end))
-      .order('completed_at', { ascending: false, nullsFirst: false })
-      .order('id', { ascending: false })
+      .order(TRIP_HISTORY_EVENT_AT_COLUMN, { ascending })
+      .order('id', { ascending })
       .limit(pageSize + 1);
 
     query = await applyTripHistoryLocationFilter(query, args);
-    query = applyTripHistoryCursorFilter(query, args.cursor);
+    query = applyTripHistoryCursorFilter(query, cursor);
 
     if (args.driverId) query = query.or(tripHistoryDriverOrFilter(args.driverId));
     if (args.passengerId) query = query.eq('passenger_id', args.passengerId);
@@ -319,13 +335,14 @@ export async function fetchTripHistoryPage(
       ).map(attributeTripHistoryDriver) as TripHistoryRow[];
 
       const last = rows[rows.length - 1];
+      const lastEventAt = last
+        ? (typeof last[TRIP_HISTORY_EVENT_AT_COLUMN] === 'string'
+          ? (last[TRIP_HISTORY_EVENT_AT_COLUMN] as string)
+          : tripHistoryEventAt(last as Parameters<typeof tripHistoryEventAt>[0]))
+        : null;
       const nextCursor: TripHistoryCursor | null =
-        hasMore && last
-          ? {
-              id: last.id,
-              completedAt:
-                typeof last.completed_at === 'string' ? last.completed_at : null,
-            }
+        hasMore && last && lastEventAt
+          ? { id: last.id, eventAt: lastEventAt, sort }
           : null;
 
       return { rows, nextCursor, hasMore, pageSize };
@@ -350,6 +367,7 @@ export async function fetchTripHistoryRows(args: {
   regionId?: string;
   serviceAreaId?: string;
   pageSize?: number;
+  sort?: AdminTripDateSort;
   status?: TripHistoryStatusFilter;
   driverId?: string | null;
   passengerId?: string | null;

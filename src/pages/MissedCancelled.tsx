@@ -31,6 +31,16 @@ import {
 } from '@/components/ui/select';
 import { supabase } from '@/integrations/supabase/client';
 import { ADMIN_MISSED_CANCELLED_PAGE_SIZE, ADMIN_MISSED_CANCELLED_STATS_ROW_CAP } from '@/lib/adminQueryBounds';
+import {
+  ADMIN_TRIP_DATE_SORT_DEFAULT,
+  ADMIN_TRIP_DATE_SORT_OPTIONS,
+  MISSED_CANCELLED_EVENT_AT_COLUMN,
+  adminTripDateSortAscending,
+  missedCancelledEventAt,
+  parseAdminTripDateSort,
+  type AdminTripDateSort,
+} from '@/lib/adminTripListDateSort';
+import { missedCancelledHasNextPage, missedCancelledPageRange } from '@/lib/missedCancelledPagination';
 import { formatCancellationReason, resolveCancellationActor, resolveCancellationReasonText } from '@/lib/tripCancellationReason';
 import { 
   XCircle, Loader2, Search, RefreshCw, Clock, MapPin, Phone,
@@ -153,6 +163,7 @@ export default function MissedCancelled() {
   const [dateFilter, setDateFilter] = useState('7days');
   const [serviceFilter, setServiceFilter] = useState<ServiceAreaFinanceSelection>(DEFAULT_SERVICE_AREA_SELECTION);
   const [listPage, setListPage] = useState(0);
+  const [dateSort, setDateSort] = useState<AdminTripDateSort>(ADMIN_TRIP_DATE_SORT_DEFAULT);
 
   // Dialog states
   const [isViewOpen, setIsViewOpen] = useState(false);
@@ -194,7 +205,7 @@ export default function MissedCancelled() {
   }, []);
 
   const { data: missedPage, isLoading, isError, error, refetch } = useQuery({
-    queryKey: ['missed-cancelled', dateFilter, listPage, statusFilter, serviceFilter.regionId, debouncedSearch],
+    queryKey: ['missed-cancelled', dateFilter, listPage, statusFilter, serviceFilter.regionId, debouncedSearch, dateSort],
     queryFn: async () => {
       const { start, end } = getDateRange();
 
@@ -207,7 +218,7 @@ export default function MissedCancelled() {
           offer_discount_pence, discount_pence, customer_modification_charge_pence,
           currency_code, financial_outcome, no_show_charge_pence,
           created_at, completed_at, special_instructions, driver_id, service_area_id,
-          arrived_at, pickup_waiting_started_at, cancelled_at, cancellation_reason,
+          arrived_at, pickup_waiting_started_at, cancelled_at, ${MISSED_CANCELLED_EVENT_AT_COLUMN}, cancellation_reason,
           cancelled_by, cancelled_by_role, cancel_reason, cancellation_note,
           arrival_cancellation_applied, arrival_cancellation_fee, arrival_cancellation_applied_at, arrival_cancellation_reason,
           financial_model, cancellation_fee_pence, payment_status,
@@ -241,10 +252,11 @@ export default function MissedCancelled() {
         );
       }
 
-      const from = listPage * ADMIN_MISSED_CANCELLED_PAGE_SIZE;
-      const to = from + ADMIN_MISSED_CANCELLED_PAGE_SIZE - 1;
+      const { from, to } = missedCancelledPageRange(listPage, ADMIN_MISSED_CANCELLED_PAGE_SIZE);
+      const ascending = adminTripDateSortAscending(dateSort);
       const { data, error, count } = await query
-        .order('created_at', { ascending: false })
+        .order(MISSED_CANCELLED_EVENT_AT_COLUMN, { ascending })
+        .order('id', { ascending })
         .range(from, to);
 
       if (error) throw error;
@@ -415,7 +427,7 @@ export default function MissedCancelled() {
     >
       {/* Service Area Filter */}
       <div className="flex items-center gap-3 mb-6">
-        <ServiceAreaFinanceFilter financialModel="ALL_OPERATIONAL" value={serviceFilter} onChange={setServiceFilter} />
+        <ServiceAreaFinanceFilter financialModel="ALL_OPERATIONAL" value={serviceFilter} onChange={(v) => { setServiceFilter(v); setListPage(0); }} />
         {isMixedCurrency && (
           <Badge variant="outline" className="text-amber-600 border-amber-300">
             <AlertTriangle className="h-3 w-3 mr-1" /> Mixed currencies — select a service for totals
@@ -533,7 +545,7 @@ export default function MissedCancelled() {
                 onChange={(e) => setSearchQuery(e.target.value)}
               />
             </div>
-            <Select value={statusFilter} onValueChange={setStatusFilter}>
+            <Select value={statusFilter} onValueChange={(v) => { setStatusFilter(v); setListPage(0); }}>
               <SelectTrigger className="w-full md:w-[130px]">
                 <SelectValue placeholder="All Status" />
               </SelectTrigger>
@@ -554,6 +566,18 @@ export default function MissedCancelled() {
                 <SelectItem value="7days">Last 7 Days</SelectItem>
                 <SelectItem value="30days">Last 30 Days</SelectItem>
                 <SelectItem value="90days">Last 90 Days</SelectItem>
+              </SelectContent>
+            </Select>
+            <Select value={dateSort} onValueChange={(v) => { setDateSort(parseAdminTripDateSort(v)); setListPage(0); }}>
+              <SelectTrigger className="w-full md:w-[150px]" aria-label="Sort by date">
+                <SelectValue placeholder="Sort by date" />
+              </SelectTrigger>
+              <SelectContent>
+                {ADMIN_TRIP_DATE_SORT_OPTIONS.map((option) => (
+                  <SelectItem key={option.value} value={option.value}>
+                    {option.label}
+                  </SelectItem>
+                ))}
               </SelectContent>
             </Select>
             <Button variant="outline" onClick={() => queryClient.invalidateQueries({ queryKey: ['missed-cancelled'] })} disabled={isLoading}>
@@ -661,7 +685,7 @@ export default function MissedCancelled() {
                         {formatPaymentDisposition(trip)}
                       </TableCell>
                       <TableCell className="text-muted-foreground text-sm">
-                        {formatFinanceDateSafe(trip.created_at, 'MMM d, HH:mm')}
+                        {formatFinanceDateSafe(missedCancelledEventAt(trip), 'MMM d, HH:mm')}
                       </TableCell>
                       <TableCell className="text-right">
                         <Button 
@@ -695,7 +719,7 @@ export default function MissedCancelled() {
                 <Button
                   variant="outline"
                   size="sm"
-                  disabled={isLoading || allTrips.length < ADMIN_MISSED_CANCELLED_PAGE_SIZE}
+                  disabled={isLoading || !missedCancelledHasNextPage(listPage, ADMIN_MISSED_CANCELLED_PAGE_SIZE, totalCount)}
                   onClick={() => setListPage((p) => p + 1)}
                 >
                   Next
