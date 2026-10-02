@@ -16826,8 +16826,10 @@ export type Database = {
           idempotency_key: string
           metadata: Json
           operation: string
+          payment_session_id: string | null
+          provider_order_id: string | null
           status: string
-          trip_id: string
+          trip_id: string | null
           updated_at: string
         }
         Insert: {
@@ -16839,8 +16841,10 @@ export type Database = {
           idempotency_key: string
           metadata?: Json
           operation: string
+          payment_session_id?: string | null
+          provider_order_id?: string | null
           status?: string
-          trip_id: string
+          trip_id?: string | null
           updated_at?: string
         }
         Update: {
@@ -16852,11 +16856,20 @@ export type Database = {
           idempotency_key?: string
           metadata?: Json
           operation?: string
+          payment_session_id?: string | null
+          provider_order_id?: string | null
           status?: string
-          trip_id?: string
+          trip_id?: string | null
           updated_at?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "payment_authorization_ledger_payment_session_id_fkey"
+            columns: ["payment_session_id"]
+            isOneToOne: false
+            referencedRelation: "payment_sessions"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "payment_authorization_ledger_trip_id_fkey"
             columns: ["trip_id"]

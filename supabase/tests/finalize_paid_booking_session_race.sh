@@ -8,14 +8,19 @@
 # Usage:
 #   supabase/tests/finalize_paid_booking_session_race.sh            # current migration, expects 0 failures
 #   supabase/tests/finalize_paid_booking_session_race.sh --baseline # pre-release definition, expects the 4 known failures
+#   supabase/tests/finalize_paid_booking_session_race.sh --with-ledger-trigger # current migration + ledger session-owner trigger
 set -u
 HERE="$(cd "$(dirname "$0")" && pwd)"
 MIG_DIR="$HERE/../migrations"
 FUNC_FILE="$MIG_DIR/20261207120000_finalize_paid_booking_same_booking_adopt.sql"
 EXPECT_FAIL=0
+EXTRA_SQL=()
 if [ "${1:-}" = "--baseline" ]; then
   FUNC_FILE="$MIG_DIR/rollback/rollback_20261207120000_finalize_paid_booking_same_booking_adopt.sql"
   EXPECT_FAIL=4
+elif [ "${1:-}" = "--with-ledger-trigger" ]; then
+  EXTRA_SQL=("$HERE/finalize_paid_booking_session_race.ledger_adapter.sql"
+             "$MIG_DIR/20261208120000_payment_authorization_ledger_session_owner.sql")
 fi
 
 PG_BIN="${PG_BIN:-$(dirname "$(command -v initdb || echo /opt/homebrew/opt/postgresql@17/bin/initdb)")}"
@@ -36,6 +41,9 @@ check() { if [ "$2" = "$3" ]; then ok "$1 ($2)"; else bad "$1 (got '$2' want '$3
 reset() {
   "${P[@]}" -f "$HERE/finalize_paid_booking_session_race.schema.sql" >/dev/null 2>&1 || { echo "schema load failed"; exit 2; }
   "${P[@]}" -f "$FUNC_FILE" >/dev/null 2>&1 || { echo "function load failed: $FUNC_FILE"; exit 2; }
+  for f in ${EXTRA_SQL[@]+"${EXTRA_SQL[@]}"}; do
+    "${P[@]}" -f "$f" >/dev/null 2>&1 || { echo "extra sql load failed: $f"; exit 2; }
+  done
   q "CREATE TABLE fail_flag(on_ boolean); INSERT INTO fail_flag VALUES (false);
      CREATE FUNCTION maybe_fail() RETURNS trigger LANGUAGE plpgsql AS \$\$
      BEGIN IF (SELECT on_ FROM fail_flag) THEN RAISE EXCEPTION 'SIMULATED_INSERT_FAILURE'; END IF; RETURN NEW; END \$\$;

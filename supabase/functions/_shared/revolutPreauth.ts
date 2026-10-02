@@ -19,10 +19,8 @@ import {
   shouldAttachRevolutCustomerForPreauth,
 } from "./revolutPreauthCustomerAttach.ts";
 import { resolveRevolutMerchantContext } from "./revolutMerchantContext.ts";
-import {
-  isRevolutAuthorisedState,
-  isRevolutInFlightState,
-} from "./revolutPaymentConfirmation.ts";
+import { isRevolutAuthorisedState } from "./revolutPaymentConfirmation.ts";
+import { reportPaymentLedgerWriteFailure } from "./paymentLedgerDiagnostics.ts";
 import {
   createRevolutOrder,
   isRevolutPaymentAuthenticationChallenge,
@@ -1275,24 +1273,37 @@ export async function createRevolutPreauthResponse(
 
   if (clientActionId || tripId) {
     const authEventStarted = Date.now();
-    await recordPaymentAuthorizationEvent(supabase, {
-      tripId: tripId ?? clientActionId ?? "pending",
-      fareRevisionNumber: 0,
-      operation: "initial_auth",
-      idempotencyKey,
-      providerOrderId: order.id,
-      amountPence: authorisedAmountPence,
-      status: isRevolutAuthorisedState(order.state) || isRevolutInFlightState(order.state)
-        ? "pending"
-        : "pending",
-      metadata: {
-        provider: "revolut",
-        client_action_id: clientActionId,
-        provider_order_id: order.id,
-      },
-    }).catch((err) => {
-      logStep("Revolut auth ledger warning", { error: String(err) });
-    });
+    // Payment-first: owned by the payment session (no trip yet). A failure here does not
+    // block the booking — trg_payment_session_ledger_sync records the row atomically with
+    // the authorised session (and aborts that write if it cannot).
+    try {
+      await recordPaymentAuthorizationEvent(supabase, {
+        tripId: tripId ?? null,
+        paymentSessionId: paymentSessionId ?? null,
+        fareRevisionNumber: 0,
+        operation: "initial_auth",
+        idempotencyKey,
+        providerOrderId: order.id,
+        amountPence: authorisedAmountPence,
+        status: "pending",
+        metadata: {
+          provider: "revolut",
+          client_action_id: clientActionId,
+          provider_order_id: order.id,
+          payment_session_id: paymentSessionId ?? null,
+        },
+      });
+    } catch (err) {
+      reportPaymentLedgerWriteFailure({
+        operation: "initial_auth",
+        stage: "create_preauth_pending",
+        paymentSessionId: paymentSessionId ?? null,
+        clientActionId: clientActionId ?? null,
+        tripId: tripId ?? null,
+        providerOrderId: order.id,
+        consequence: "booking_continues_session_trigger_backstop",
+      }, err);
+    }
     edgeTiming.recordSpan("edge_auth_event_ms", authEventStarted, Date.now());
   }
 
@@ -1317,6 +1328,7 @@ export async function createRevolutPreauthResponse(
         browserEnvironment: validatedBrowserEnv!,
         edgeTiming,
         fingerprintCapable,
+        preloadedTokenRow: tokenRow,
       });
       if (savedAttempt) return savedAttempt;
       logStep("Revolut saved-card charge failed despite provider token", {
@@ -1390,12 +1402,16 @@ async function attemptRevolutSavedCardCharge(args: {
   browserEnvironment: RevolutCitBrowserEnvironment;
   edgeTiming: PreauthEdgeTiming;
   fingerprintCapable?: boolean;
+  /** Token row this request already read for the same user + platform PM. Omitted → read here. */
+  preloadedTokenRow?: Awaited<ReturnType<typeof lookupProviderPaymentMethodToken>>;
 }): Promise<Response | null> {
-  const tokenRow = await lookupProviderPaymentMethodToken(args.supabase, {
-    userId: args.userId,
-    platformPaymentMethodId: args.platformPaymentMethodId,
-    paymentProvider: "revolut",
-  });
+  const tokenRow = args.preloadedTokenRow !== undefined
+    ? args.preloadedTokenRow
+    : await lookupProviderPaymentMethodToken(args.supabase, {
+      userId: args.userId,
+      platformPaymentMethodId: args.platformPaymentMethodId,
+      paymentProvider: "revolut",
+    });
   if (!tokenRow?.provider_payment_method_id) {
     args.logStep("Revolut saved-card token missing for platform PM", {
       orderId: args.orderId,
