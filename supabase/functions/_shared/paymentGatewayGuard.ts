@@ -11,6 +11,7 @@ import {
   gatewayStatusToPaymentGatewayPayload,
   resolveGatewayBlockCode,
   resolveProviderGatewayStatus,
+  type GatewayResolveTiming,
   type GatewayRole,
   type GatewayStatusSnapshot,
 } from "./paymentGatewayStatus.ts";
@@ -124,6 +125,115 @@ export async function checkServiceAreaGateway(
     environment: status.environment ?? "live",
     display_name: status.display_name ?? status.provider!,
     role,
+  };
+}
+
+export type ServiceAreaBookingGatewayDiagnostics = {
+  service_area_ms: number;
+  provider_config_ms: number | null;
+  credentials_ms: number | null;
+  probe_ms: number | null;
+  probe_deferred: boolean;
+};
+
+export type ServiceAreaBookingGatewayBundle = {
+  financialRow: {
+    financial_model: string | null;
+    commission_wallet_enabled: boolean | null;
+    customer_payment_policy: string | null;
+  } | null;
+  check: GatewayCheckResult;
+  diagnostics: ServiceAreaBookingGatewayDiagnostics;
+};
+
+/**
+ * One service-area read plus gateway resolution for create-preauth.
+ * Live HTTP credential probe is deferred to the provider order call,
+ * except a fresh failed probe which still fail-closes.
+ */
+export async function checkServiceAreaGatewayForBooking(
+  supabase: SupabaseClient,
+  serviceAreaId: string,
+  role: GatewayRole = "customer",
+): Promise<ServiceAreaBookingGatewayBundle> {
+  const saStarted = Date.now();
+  const { data, error } = await supabase
+    .from("service_areas")
+    .select(
+      "id, payment_provider, financial_model, commission_wallet_enabled, customer_payment_policy",
+    )
+    .eq("id", serviceAreaId)
+    .maybeSingle();
+  const service_area_ms = Date.now() - saStarted;
+  const timing: GatewayResolveTiming = {};
+
+  if (error || !data) {
+    return {
+      financialRow: null,
+      check: {
+        ok: false,
+        code: PAYMENT_GATEWAY_NOT_CONFIGURED,
+        role,
+        provider: null,
+        reason: "Service area not found",
+      },
+      diagnostics: {
+        service_area_ms,
+        provider_config_ms: null,
+        credentials_ms: null,
+        probe_ms: null,
+        probe_deferred: false,
+      },
+    };
+  }
+
+  const providerId = resolveServiceAreaPaymentProvider(data);
+  const status = await resolveProviderGatewayStatus(supabase, providerId, role, {
+    deferLiveProbe: true,
+    timing,
+  });
+  const financialRow = {
+    financial_model: data.financial_model != null ? String(data.financial_model) : null,
+    commission_wallet_enabled: typeof data.commission_wallet_enabled === "boolean"
+      ? data.commission_wallet_enabled
+      : null,
+    customer_payment_policy: data.customer_payment_policy != null
+      ? String(data.customer_payment_policy)
+      : null,
+  };
+  const diagnostics: ServiceAreaBookingGatewayDiagnostics = {
+    service_area_ms,
+    provider_config_ms: timing.provider_config_ms ?? null,
+    credentials_ms: timing.credentials_ms ?? null,
+    probe_ms: timing.probe_ms ?? 0,
+    probe_deferred: timing.probe_deferred === true,
+  };
+
+  if (!status.ready_for_production) {
+    const code = resolveGatewayBlockCode(status);
+    return {
+      financialRow,
+      check: {
+        ok: false,
+        code,
+        role,
+        provider: status.provider,
+        reason: status.message ?? status.configuration_error ?? "Payment gateway not configured",
+      },
+      diagnostics,
+    };
+  }
+
+  return {
+    financialRow,
+    check: {
+      ok: true,
+      provider: status.provider!,
+      environment: status.environment ?? "live",
+      display_name: status.display_name ?? status.provider!,
+      role,
+    },
+    diagnostics,
   };
 }
 

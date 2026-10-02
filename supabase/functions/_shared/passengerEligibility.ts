@@ -164,7 +164,12 @@ export async function evaluatePassengerAuthState(
     return unauthenticatedPassengerEligibility();
   }
 
-  const guard = await evaluateCustomerOnboardingLogin(service, userId);
+  // Both checks are required. They do not depend on each other. Onboarding
+  // failure still wins when both fail, matching the previous decision order.
+  const [guard, suspension] = await Promise.all([
+    evaluateCustomerOnboardingLogin(service, userId),
+    loadActiveCustomerSuspension(service, userId),
+  ]);
   if (!guard.app_access_allowed) {
     const mapped = mapOnboardingGuardToPassengerState(guard);
     return {
@@ -173,8 +178,6 @@ export async function evaluatePassengerAuthState(
       message: mapped.message || DEFAULT_BOOKING_BLOCKED_MESSAGE,
     };
   }
-
-  const suspension = await loadActiveCustomerSuspension(service, userId);
   if (suspension.suspended) {
     const mapped = mapSuspensionToPassengerState(suspension.message);
     return { allowed: false, ...mapped };

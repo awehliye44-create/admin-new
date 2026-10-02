@@ -7,6 +7,7 @@ import type { SupabaseClient } from "npm:@supabase/supabase-js@2.57.2";
 import {
   type AdapterReadinessStatus,
   loadPaymentProviderCredentialReadiness,
+  LIVE_PROVIDER_AUTH_TEST_MAX_AGE_MS,
   resolveProviderBookingWorkflow,
   type ProviderBookingWorkflow,
   verifyLiveProviderApiAuthentication,
@@ -280,10 +281,28 @@ function buildSnapshot(
   };
 }
 
+export type GatewayResolveTiming = {
+  provider_config_ms?: number;
+  credentials_ms?: number;
+  probe_ms?: number;
+  probe_deferred?: boolean;
+};
+
+export type GatewayResolveOptions = {
+  /**
+   * Booking critical path: do not HTTP-probe the provider.
+   * A fresh failed probe still fail-closes. A fresh success is reused.
+   * A stale or missing probe is deferred to the real provider order call.
+   */
+  deferLiveProbe?: boolean;
+  timing?: GatewayResolveTiming;
+};
+
 export async function resolveProviderGatewayStatus(
   supabase: SupabaseClient,
   providerId: string | null | undefined,
   role: GatewayRole,
+  options?: GatewayResolveOptions,
 ): Promise<GatewayStatusSnapshot> {
   if (!providerId) {
     return buildSnapshot(role, null, null, {
@@ -299,7 +318,9 @@ export async function resolveProviderGatewayStatus(
     });
   }
 
+  const configStarted = Date.now();
   const config = await loadProviderConfig(supabase, providerId);
+  if (options?.timing) options.timing.provider_config_ms = Date.now() - configStarted;
   if (!config) {
     return buildSnapshot(role, providerId, null, {
       apiKeysConfigured: false,
@@ -337,7 +358,9 @@ export async function resolveProviderGatewayStatus(
   }
 
   const environment = config.environment === "test" ? "test" : "live";
+  const credentialsStarted = Date.now();
   const credentialReadiness = await loadProviderCredentials(supabase, providerId, environment);
+  if (options?.timing) options.timing.credentials_ms = Date.now() - credentialsStarted;
   const apiKeysConfigured = credentialReadiness.credentials_ready;
   const webhookStored = credentialReadiness.webhook_secret_status === "added";
 
@@ -390,29 +413,63 @@ export async function resolveProviderGatewayStatus(
     }));
   }
 
-  const liveAuth = await verifyLiveProviderApiAuthentication(
-    supabase,
-    providerId as PaymentProviderId,
-    environment,
-    config,
-  );
-  if (!liveAuth.ok) {
-    const authMessage = liveAuth.message ?? "Live provider API authentication failed";
-    return buildSnapshot(role, providerId, config, withCredentials({
-      apiKeysConfigured: true,
-      webhookConfigured: webhookStored,
-      webhookHealthy,
-      lastWebhookAt,
-      lastWebhookError,
-      providerApiHealth: "down",
-      webhookDeliveryHealth,
-      webhookProcessingHealth,
-      bookingPaymentHealth: "down",
-      providerHealth: "down",
-      status: "CONNECTION_FAILED",
-      message: authMessage,
-      configurationError: authMessage,
-    }));
+  if (options?.deferLiveProbe) {
+    const lastAt = config.last_connection_test_at
+      ? new Date(config.last_connection_test_at).getTime()
+      : 0;
+    const fresh = lastAt > Date.now() - LIVE_PROVIDER_AUTH_TEST_MAX_AGE_MS;
+    const lastStatus = String(config.last_connection_test_status ?? "");
+    if (options.timing) {
+      options.timing.probe_ms = 0;
+      options.timing.probe_deferred = !(fresh && lastStatus === "ok");
+    }
+    if (fresh && lastStatus === "error") {
+      return buildSnapshot(role, providerId, config, withCredentials({
+        apiKeysConfigured: true,
+        webhookConfigured: webhookStored,
+        webhookHealthy,
+        lastWebhookAt,
+        lastWebhookError,
+        providerApiHealth: "down",
+        webhookDeliveryHealth,
+        webhookProcessingHealth,
+        bookingPaymentHealth: "down",
+        providerHealth: "down",
+        status: "CONNECTION_FAILED",
+        message: config.last_error_message ?? "Live provider API authentication failed",
+        configurationError: config.last_error_message ?? "Live provider API authentication failed",
+      }));
+    }
+  } else {
+    const probeStarted = Date.now();
+    const liveAuth = await verifyLiveProviderApiAuthentication(
+      supabase,
+      providerId as PaymentProviderId,
+      environment,
+      config,
+    );
+    if (options?.timing) {
+      options.timing.probe_ms = Date.now() - probeStarted;
+      options.timing.probe_deferred = false;
+    }
+    if (!liveAuth.ok) {
+      const authMessage = liveAuth.message ?? "Live provider API authentication failed";
+      return buildSnapshot(role, providerId, config, withCredentials({
+        apiKeysConfigured: true,
+        webhookConfigured: webhookStored,
+        webhookHealthy,
+        lastWebhookAt,
+        lastWebhookError,
+        providerApiHealth: "down",
+        webhookDeliveryHealth,
+        webhookProcessingHealth,
+        bookingPaymentHealth: "down",
+        providerHealth: "down",
+        status: "CONNECTION_FAILED",
+        message: authMessage,
+        configurationError: authMessage,
+      }));
+    }
   }
 
   const providerApiHealth: BookingPaymentHealth = "healthy";

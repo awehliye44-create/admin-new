@@ -28,6 +28,17 @@ import {
   parseRpcSurgeResolution,
   type SurgeResolution,
 } from "../_shared/demandZoneSurgeSSOT.ts";
+import { resolveOptionalVerifiedUserId } from "../_shared/optionalVerifiedUser.ts";
+import {
+  buildFareArtifactInserts,
+  buildServerRouteKey,
+  type FareArtifactPricingInput,
+  loadRouteArtifactForFare,
+  persistFareArtifacts,
+  ROUTE_QUOTE_MISMATCH,
+  type RouteArtifactRow,
+  SERVICE_AREA_MISMATCH,
+} from "../_shared/serverFareAuthoritySSOT.ts";
 
 const CURRENCY_SYMBOLS: Record<string, string> = {
   GBP: "£", USD: "$", EUR: "€", KES: "KSh", NGN: "₦",
@@ -56,6 +67,8 @@ interface CalculateFareRequest {
   stops?: LatLng[];
   intermediate_stops?: LatLng[];
   intermediateStops?: LatLng[];
+  /** Opaque calculate-route artifact id. Optional: (user, route) lookup otherwise. */
+  route_quote_id?: string;
 }
 
 type FareTimings = {
@@ -71,6 +84,8 @@ type FareTimings = {
   surge_rpc_ms: number;
   fare_engine_ms: number;
   serialization_ms: number;
+  route_artifact_ms: number;
+  fare_artifact_ms: number;
 };
 
 function parseLatLng(raw: unknown): LatLng | null {
@@ -114,6 +129,8 @@ Deno.serve(async (req) => {
       Deno.env.get("SUPABASE_URL")!,
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
     );
+    // Anonymous callers still get display fares but no fare artifacts.
+    const userIdPromise = resolveOptionalVerifiedUserId(req);
 
     const body: CalculateFareRequest = await req.json().catch(() => ({} as CalculateFareRequest));
     const { service_area_id, vehicle_type_id } = body;
@@ -121,8 +138,10 @@ Deno.serve(async (req) => {
       return respond(200, { success: false, error: "service_area_id is required", vehicleFares: [] });
     }
 
-    const distanceKm = Math.max(Number(body.estimated_distance_km) || 0, 0);
-    const durationMin = Math.max(Number(body.estimated_duration_min) || 0, 0);
+    // Client distance/duration are display-only inputs: a valid server route
+    // artifact replaces them below and is the only basis for fare artifacts.
+    let distanceKm = Math.max(Number(body.estimated_distance_km) || 0, 0);
+    let durationMin = Math.max(Number(body.estimated_duration_min) || 0, 0);
 
     const pickup: LatLng | null =
       body.pickup ??
@@ -135,6 +154,21 @@ Deno.serve(async (req) => {
         ? { lat: body.dropoff_lat as number, lng: body.dropoff_lng as number }
         : null);
     const stops = parseStopsList(body);
+    const routeKey = buildServerRouteKey({ pickup, dropoff, stops });
+    const explicitRouteQuoteId = typeof body.route_quote_id === "string"
+      ? body.route_quote_id.trim() || null
+      : null;
+    const routeArtifactPromise = timedMs(async () => {
+      const userId = await userIdPromise;
+      if (!userId || !routeKey) return { userId, check: null };
+      const check = await loadRouteArtifactForFare(supabase, {
+        userId,
+        routeKey,
+        routeQuoteId: explicitRouteQuoteId,
+        nowMs: Date.now(),
+      }).catch(() => ({ ok: false as const, reason: "lookup_failed" as const }));
+      return { userId, check };
+    });
 
     console.log(
       `[calculate-fare] sa=${service_area_id} dist=${distanceKm}km dur=${durationMin}min pickup=${!!pickup} dropoff=${!!dropoff} stops=${stops.length}`,
@@ -406,6 +440,39 @@ Deno.serve(async (req) => {
       surgeResolution = parseRpcSurgeResolution(surgeData);
     }
 
+    const routeArtifactTimed = await routeArtifactPromise;
+    const routeCheck = routeArtifactTimed.value.check;
+    let routeArtifact: RouteArtifactRow | null = null;
+    if (routeCheck?.ok) {
+      routeArtifact = routeCheck.artifact;
+    } else if (explicitRouteQuoteId && routeArtifactTimed.value.userId) {
+      // An explicit id that does not price this request is never replaced by
+      // the client distance.
+      return respond(200, {
+        success: false,
+        error: ROUTE_QUOTE_MISMATCH,
+        note: routeCheck?.reason ?? "route_quote_unusable",
+        vehicleFares: [],
+      });
+    }
+    if (routeArtifact && routeArtifact.service_area_id !== service_area_id) {
+      console.warn("[calculate-fare] service area mismatch", {
+        requested: service_area_id,
+        server: routeArtifact.service_area_id,
+      });
+      return respond(200, {
+        success: false,
+        error: SERVICE_AREA_MISMATCH,
+        serverServiceAreaId: routeArtifact.service_area_id,
+        vehicleFares: [],
+      });
+    }
+    if (routeArtifact) {
+      distanceKm = routeArtifact.distance_km;
+      durationMin = routeArtifact.duration_min;
+    }
+    const fareAuthority = routeArtifact ? "server_route_artifact" : "display_only";
+
     // Zone containment once per quote (not once per vehicle).
     const pickupContainingZones = pickup ? zonesContainingPoint(pickup, zones) : [];
     const dropoffContainingZones = dropoff ? zonesContainingPoint(dropoff, zones) : [];
@@ -425,6 +492,7 @@ Deno.serve(async (req) => {
     ).map((row) => row.id);
 
     const engineStart = Date.now();
+    const fareArtifactInputs: FareArtifactPricingInput[] = [];
     const vehicleFares = orderedVehicleIds
       .filter((id) => !vehicle_type_id || id === vehicle_type_id)
       .map((vtId) => {
@@ -550,6 +618,38 @@ Deno.serve(async (req) => {
           surge_quote: surgeQuote,
         };
 
+        if (routeArtifact) {
+          fareArtifactInputs.push({
+            vehicleTypeId: vtId,
+            grossFarePence: totalFarePence,
+            airportChargePence: Math.round(breakdown.airport_charge * 100),
+            surgeMultiplier: appliedSurgeMultiplier,
+            surgeQuoteId: surgeQuote?.quote_id ?? null,
+            fareSource: breakdown.fare_source ?? null,
+            pricingMode: breakdown.pricing_mode ?? null,
+            minimumApplied: breakdown.minimum_applied === true,
+            evidence: {
+              fare_pricing_settings: pricing,
+              service_area_pricing_settings: serviceAreaPricingSettings,
+              matched_route_id: breakdown.matched_route_id ?? null,
+              zone_applied: breakdown.zone_applied ?? null,
+              fixed_fare_applied: breakdown.fixed_fare_applied ?? null,
+              base_fare: breakdown.base_fare,
+              distance_cost: breakdown.distance_cost,
+              time_cost: breakdown.time_cost,
+              booking_fee: breakdown.booking_fee,
+              trip_fare: breakdown.trip_fare,
+              airport_charge: breakdown.airport_charge,
+              minimum_fare: breakdown.minimum_fare,
+              engine_final_fare_pence: breakdown.final_fare_pence,
+              surge_resolution: surgeResolution,
+              surge_quote: surgeQuote,
+              distance_unit: distanceUnit,
+              scheduled_pricing: "not_applied_by_calculate_fare",
+            },
+          });
+        }
+
         return {
           vehicleTypeId: vtId,
           slug: (vehicle?.slug as string) || vtId,
@@ -574,6 +674,31 @@ Deno.serve(async (req) => {
     );
     const fareEngineMs = Date.now() - engineStart;
 
+    // Awaited before the response: the booking quote may be requested the
+    // moment this returns and must find the artifact.
+    const fareArtifactStart = Date.now();
+    let fareArtifactIds: Map<string, { id: string; expires_at: string }> | null = null;
+    if (routeArtifact && fareArtifactInputs.length > 0) {
+      const rows = await buildFareArtifactInserts({
+        route: routeArtifact,
+        serviceAreaId: service_area_id,
+        currency: currencyCode,
+        isScheduled: false,
+        fares: fareArtifactInputs,
+        nowMs: Date.now(),
+      });
+      fareArtifactIds = await persistFareArtifacts(supabase, rows);
+    }
+    const fareArtifactMs = Date.now() - fareArtifactStart;
+    const vehicleFaresOut = vehicleFares.map((row) => {
+      const artifact = fareArtifactIds?.get(row.vehicleTypeId) ?? null;
+      return {
+        ...row,
+        fareQuoteId: artifact?.id ?? null,
+        fareQuoteExpiresAt: artifact?.expires_at ?? null,
+      };
+    });
+
     const timings: FareTimings = {
       total_edge_ms: 0, // filled after serialize
       service_area_region_ms: saTimed.ms,
@@ -587,6 +712,8 @@ Deno.serve(async (req) => {
       surge_rpc_ms: surgeTimed.ms,
       fare_engine_ms: fareEngineMs,
       serialization_ms: 0,
+      route_artifact_ms: routeArtifactTimed.ms,
+      fare_artifact_ms: fareArtifactMs,
     };
 
     const serializeStart = Date.now();
@@ -599,7 +726,11 @@ Deno.serve(async (req) => {
       financial_model: financialModel,
       skip_platform_preauth: skipPlatformPreauth,
       demand_surge: surgeResolution,
-      vehicleFares,
+      fareAuthority,
+      routeQuoteId: routeArtifact?.id ?? null,
+      pricedDistanceKm: distanceKm,
+      pricedDurationMin: durationMin,
+      vehicleFares: vehicleFaresOut,
       timings: null as FareTimings | null,
     };
     timings.serialization_ms = Date.now() - serializeStart;

@@ -61,6 +61,7 @@ import {
   type BookingPaymentQuoteErrorCode,
   type BookingPaymentQuoteRow,
 } from "./bookingPaymentQuoteSSOT.ts";
+import { buildOpaqueQuoteSessionFareSnapshot } from "./serverFareAuthoritySSOT.ts";
 import {
   RECEIVABLE_CONSENT_REFRESH_REQUIRED,
   RECEIVABLE_FOLD_UNAVAILABLE,
@@ -147,6 +148,11 @@ export type RevolutPreauthInput = {
    * Missing/old → NO fold (receivables stay OPEN; fare-only preauth).
    */
   receivableConsent?: ReceivableConsentRequest | null;
+  /**
+   * Quote row already loaded on the opaque path. Validation and consume still
+   * run. A second SELECT is skipped when the id matches.
+   */
+  preloadedBookingPaymentQuote?: BookingPaymentQuoteRow | null;
 };
 
 export async function createRevolutPreauthResponse(
@@ -167,7 +173,7 @@ export async function createRevolutPreauthResponse(
     userId,
     platformPaymentMethodId,
     bookingSnapshot: bookingSnapshotInput,
-    fareSnapshot,
+    fareSnapshot: fareSnapshotInput,
     customerId,
     customerEmail,
     customerName,
@@ -177,9 +183,12 @@ export async function createRevolutPreauthResponse(
     logStep,
     edgeTiming: edgeTimingInput,
     receivableConsent: receivableConsentInput,
+    preloadedBookingPaymentQuote,
   } = input;
   /** May grow after durable receivable reservation (ride + buffer + debt). */
   let authorisedAmountPence = authorisedAmountPenceInput;
+  /** Opaque path replaces every money key with the validated quote's values. */
+  let fareSnapshot = fareSnapshotInput;
   const receivableConsent: ReceivableConsentRequest =
     receivableConsentInput
     ?? extractReceivableConsentFromPreauthBody({
@@ -232,22 +241,6 @@ export async function createRevolutPreauthResponse(
   }
   edgeTiming.markValidationEnd();
 
-  edgeTiming.markDbLookupStart();
-  let merchant;
-  try {
-    merchant = await resolveRevolutMerchantContext(supabase, environment);
-  } catch (err) {
-    const message = humanizeRevolutPreauthCustomerError((err as Error)?.message);
-    edgeTiming.markDbLookupEnd();
-    return jsonResponseWithPreauthTiming({
-      error: message,
-      code: "PAYMENT_GATEWAY_NOT_CONFIGURED",
-      charge_state: "no_charge",
-    }, corsHeaders, 503, edgeTiming);
-  }
-  edgeTiming.markDbLookupEnd();
-
-  const { secretKey, publicKey } = merchant;
   const holdStartedAt = edgeTiming.t0;
   const idempotencyKey = buildPreauthIdempotencyKey({
     tripId,
@@ -300,29 +293,121 @@ export async function createRevolutPreauthResponse(
     metadata: { hold_start_ms: holdStartedAt },
   });
 
-  let existingOrderId: string | null = null;
-  if (clientActionId) {
-    const existingSession = await loadPaymentSession(supabase, { clientActionId });
-    existingOrderId = (existingSession?.provider_order_id as string | undefined) ?? null;
-    paymentSessionId = (existingSession?.id as string | undefined) ?? null;
-    if (existingOrderId) {
-      logStep("Payment session idempotent reuse candidate", {
-        clientActionId,
-        orderId: existingOrderId,
-        sessionId: paymentSessionId,
-      });
+  // Merchant secret, session idempotency, ledger order recovery, and the
+  // opaque-quote receivable read do not depend on each other. The session
+  // order id still wins. The ledger id is used only when the session has
+  // none. No payment row is written until this join finishes.
+  const prewriteStarted = Date.now();
+  const opaqueQuoteId = String(
+    receivableConsent.booking_payment_quote_id ?? "",
+  ).trim() || null;
+  let merchantError: unknown = null;
+  const merchantP = (async () => {
+    edgeTiming.markDbLookupStart();
+    try {
+      return await resolveRevolutMerchantContext(supabase, environment);
+    } catch (err) {
+      merchantError = err;
+      return null;
+    } finally {
+      edgeTiming.markDbLookupEnd();
     }
+  })();
+  const sessionP = (async () => {
+    if (!clientActionId) return null;
+    edgeTiming.markPaymentSessionStart();
+    try {
+      return await loadPaymentSession(supabase, { clientActionId });
+    } finally {
+      edgeTiming.markPaymentSessionEnd();
+    }
+  })();
+  const ledgerP = (async () => {
+    if (!(clientActionId || tripId)) return null;
+    edgeTiming.markLedgerStart();
+    try {
+      const { data: ledgerRow } = await supabase
+        .from("payment_authorization_ledger")
+        .select("metadata")
+        .eq("idempotency_key", idempotencyKey)
+        .maybeSingle();
+      return String((ledgerRow?.metadata as { provider_order_id?: unknown } | null)?.provider_order_id ?? "").trim() || null;
+    } finally {
+      edgeTiming.markLedgerEnd();
+    }
+  })();
+  const quoteRevalidateP = (async () => {
+    if (!opaqueQuoteId || !customerId || !clientActionId) return null;
+    const started = Date.now();
+    const [row, openRecv] = await Promise.all([
+      preloadedBookingPaymentQuote?.id === opaqueQuoteId
+        ? Promise.resolve(preloadedBookingPaymentQuote)
+        : loadBookingPaymentQuote(supabase, opaqueQuoteId),
+      sumOpenReceivableOutstandingForCustomer(supabase, {
+        customer_id: customerId,
+        currency: paymentCurrency,
+      }),
+    ]);
+    return { row, openRecv, started, ended: Date.now(), failed: false as const };
+  })().catch(() => ({
+    row: null,
+    openRecv: 0,
+    started: Date.now(),
+    ended: Date.now(),
+    failed: true as const,
+  }));
+
+  let merchant;
+  let existingOrderId: string | null = null;
+  let ledgerOrderId: string | null = null;
+  let prefetchedQuoteRevalidate: {
+    row: BookingPaymentQuoteRow | null;
+    openRecv: number;
+    started: number;
+    ended: number;
+    failed: boolean;
+  } | null = null;
+  const [merchantResult, existingSession, ledgerId, quotePrefetch] = await Promise.all([
+    merchantP,
+    sessionP,
+    ledgerP,
+    quoteRevalidateP,
+  ]);
+  if (merchantError || !merchantResult) {
+    const message = humanizeRevolutPreauthCustomerError((merchantError as Error)?.message);
+    return jsonResponseWithPreauthTiming({
+      error: message,
+      code: "PAYMENT_GATEWAY_NOT_CONFIGURED",
+      charge_state: "no_charge",
+    }, corsHeaders, 503, edgeTiming);
+  }
+  merchant = merchantResult;
+  ledgerOrderId = ledgerId;
+  prefetchedQuoteRevalidate = quotePrefetch;
+  const sessionOrderId = (existingSession?.provider_order_id as string | undefined) ?? null;
+  paymentSessionId = (existingSession?.id as string | undefined) ?? null;
+  existingOrderId = sessionOrderId || ledgerOrderId;
+  if (sessionOrderId) {
+    logStep("Payment session idempotent reuse candidate", {
+      clientActionId,
+      orderId: sessionOrderId,
+      sessionId: paymentSessionId,
+    });
+  }
+  const prewriteEnded = Date.now();
+  const prewriteWallMs = Math.max(0, prewriteEnded - prewriteStarted);
+  edgeTiming.recordDiagnostic("edge_prewrite_reads_wall_ms", prewriteWallMs);
+  edgeTiming.recordDiagnostic("edge_prewrite_reads_critical_ms", prewriteWallMs);
+  edgeTiming.recordDiagnostic("edge_prewrite_reads_parallel", true);
+  if (prefetchedQuoteRevalidate && !prefetchedQuoteRevalidate.failed) {
+    edgeTiming.recordSpan(
+      "edge_quote_revalidate_ms",
+      prefetchedQuoteRevalidate.started,
+      prefetchedQuoteRevalidate.ended,
+    );
   }
 
-  if (!existingOrderId && (clientActionId || tripId)) {
-    const { data: ledgerRow } = await supabase
-      .from("payment_authorization_ledger")
-      .select("metadata")
-      .eq("idempotency_key", idempotencyKey)
-      .maybeSingle();
-
-    existingOrderId = String((ledgerRow?.metadata as any)?.provider_order_id ?? "").trim() || null;
-  }
+  const { secretKey, publicKey } = merchant;
 
   if (existingOrderId) {
     try {
@@ -631,7 +716,10 @@ export async function createRevolutPreauthResponse(
           note: "quote_requires_customer_and_client_action",
         });
       }
-      opaqueQuote = await loadBookingPaymentQuote(supabase, opaqueQuoteId);
+      if (prefetchedQuoteRevalidate?.failed) {
+        return await quoteReject(BOOKING_QUOTE_INVALID, null, { note: "quote_revalidate_failed" });
+      }
+      opaqueQuote = prefetchedQuoteRevalidate?.row ?? null;
       if (!opaqueQuote) {
         return await quoteReject(BOOKING_QUOTE_INVALID, null, { note: "quote_not_found" });
       }
@@ -652,10 +740,7 @@ export async function createRevolutPreauthResponse(
         voucher_id: snap.voucher_id != null ? String(snap.voucher_id) : null,
         currency: paymentCurrency,
       });
-      const openRecv = await sumOpenReceivableOutstandingForCustomer(supabase, {
-        customer_id: customerId,
-        currency: paymentCurrency,
-      });
+      const openRecv = prefetchedQuoteRevalidate?.openRecv ?? 0;
       const frozenGateEarly = readCustomerReceivableFoldGate();
       const validated = validateBookingPaymentQuoteForPreauth({
         quote: opaqueQuote,
@@ -666,6 +751,7 @@ export async function createRevolutPreauthResponse(
         currency: paymentCurrency,
         open_receivable_pence: openRecv,
         gate_enabled: frozenGateEarly.enabled,
+        require_server_fare_artifact: true,
       });
       if (!validated.ok) {
         logStep("OPAQUE_BOOKING_QUOTE_REJECTED", {
@@ -680,6 +766,7 @@ export async function createRevolutPreauthResponse(
       bufferPenceForSession = amounts.buffer_pence;
       authorisedAmountPence = amounts.total_authorisation_pence;
       opaqueQuote = validated.quote;
+      fareSnapshot = buildOpaqueQuoteSessionFareSnapshot(fareSnapshot, opaqueQuote);
       logStep("OPAQUE_BOOKING_QUOTE_FROZEN", {
         quote_id: opaqueQuote.id,
         trip_fare_pence: rideFarePence,
@@ -752,6 +839,7 @@ export async function createRevolutPreauthResponse(
 
       if (opaqueQuote && customerId) {
         const frozenGateForConsume = readCustomerReceivableFoldGate();
+        const consumeStarted = Date.now();
         const consumed = await consumeBookingPaymentQuoteViaRpc(supabase, {
           quote_id: opaqueQuote.id,
           customer_id: customerId,
@@ -760,6 +848,7 @@ export async function createRevolutPreauthResponse(
           expected_receivable_pence: opaqueQuote.receivable_pence,
           gate_enabled: frozenGateForConsume.enabled,
         });
+        edgeTiming.recordSpan("edge_quote_consume_ms", consumeStarted, Date.now());
         if (!consumed.ok) {
           logStep("OPAQUE_BOOKING_QUOTE_CONSUME_FAILED", {
             code: consumed.code,
@@ -778,6 +867,7 @@ export async function createRevolutPreauthResponse(
           receivableFoldAdmission = "admitted";
           receivableFoldResult = "opaque_quote_consumed";
           receivableConsentVersionOut = opaqueQuote.consent_version;
+          edgeTiming.markReceivableStart();
           const reserve = await reserveReceivablesBeforeProviderCall(supabase, {
             customer_id: customerId,
             payment_session_id: paymentSessionId,
@@ -786,6 +876,7 @@ export async function createRevolutPreauthResponse(
             ride_fare_pence: rideFarePence,
             buffer_pence: bufferPenceForSession,
           });
+          edgeTiming.markReceivableEnd();
           if (!reserve.ok) {
             await rollbackOrphanPendingPaymentSession(supabase, paymentSessionId);
             return new Response(JSON.stringify({
@@ -813,6 +904,10 @@ export async function createRevolutPreauthResponse(
               note: "reserved_ne_quoted_receivable",
             });
           }
+        } else {
+          // No receivable reservation on this quote. Stamp 0 so the field is present.
+          edgeTiming.markReceivableStart();
+          edgeTiming.markReceivableEnd();
         }
       } else if (customerId) {
         const eligibility = isCustomerReceivablePreauthEligible({
@@ -947,6 +1042,7 @@ export async function createRevolutPreauthResponse(
           reserved_authorised_amount_pence: authorisedAmountPence,
           displayed_total_authorisation_pence:
             consentDecision.displayed_total_authorisation_pence,
+          buffer_pence: bufferPence,
         });
         if (!reservedMatch.ok) {
           logStep("Reserved receivable total mismatch — fail closed", reservedMatch.telemetry);
@@ -1078,6 +1174,7 @@ export async function createRevolutPreauthResponse(
   );
 
   if (userId && clientActionId && metadataExtra.service_area_id) {
+    const orderLinkStarted = Date.now();
     edgeTiming.markPersistStart();
     const sessionResult = await upsertPaymentSessionPending(supabase, {
       clientActionId,
@@ -1104,6 +1201,7 @@ export async function createRevolutPreauthResponse(
     const priorPaymentSessionId = paymentSessionId;
     paymentSessionId = sessionResult.sessionId;
     edgeTiming.markPersistEnd();
+    edgeTiming.recordSpan("edge_order_link_persist_ms", orderLinkStarted, Date.now());
     if (!paymentSessionId) {
       // P0 fail-closed: never return a usable preauth if the authoritative session
       // row did not persist (Slice A regression: missing idempotency_key).
@@ -1150,6 +1248,7 @@ export async function createRevolutPreauthResponse(
   }
 
   if (clientActionId || tripId) {
+    const authEventStarted = Date.now();
     await recordPaymentAuthorizationEvent(supabase, {
       tripId: tripId ?? clientActionId ?? "pending",
       fareRevisionNumber: 0,
@@ -1168,6 +1267,7 @@ export async function createRevolutPreauthResponse(
     }).catch((err) => {
       logStep("Revolut auth ledger warning", { error: String(err) });
     });
+    edgeTiming.recordSpan("edge_auth_event_ms", authEventStarted, Date.now());
   }
 
   if (userId && platformPaymentMethodId) {

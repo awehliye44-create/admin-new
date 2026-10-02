@@ -13,6 +13,11 @@ import {
   planCustomerReceivableFoldEligibilityQuote,
   readCustomerReceivableFoldGate,
 } from "./customerReceivableConsentSSOT.ts";
+import {
+  type PreauthBufferResolution,
+  resolvePreauthBuffer,
+} from "./preauthBufferResolverSSOT.ts";
+import { buildServerRouteKey } from "./serverFareAuthoritySSOT.ts";
 
 export const BOOKING_PAYMENT_QUOTE_TTL_MS = 10 * 60 * 1000;
 
@@ -71,6 +76,9 @@ export type BookingPaymentQuoteRow = {
   issued_at: string;
   expires_at: string;
   metadata: Record<string, unknown>;
+  /** Immutable server fare artifact (server_fare_quotes.id) this quote prices. */
+  server_fare_quote_id?: string | null;
+  pricing_fingerprint?: string | null;
 };
 
 function nonNeg(v: unknown): number {
@@ -107,6 +115,92 @@ export function buildBookingPaymentRouteFingerprint(input: {
     `v:${String(input.voucher_id ?? "").trim()}`,
   ];
   return parts.join("|");
+}
+
+/**
+ * Quote request fields the server accepts from the client: identity of the
+ * route/vehicle and opaque ids only. There is deliberately no fare, discount
+ * or reserve field. `client_claimed_trip_fare_pence` is diagnostics only and
+ * never priced.
+ */
+export type BookingQuoteRequestFields = {
+  client_action_id: string;
+  client_claimed_trip_fare_pence: number;
+  currency: string;
+  service_area_id: string | null;
+  ride_category: string;
+  vehicle_type_id: string | null;
+  voucher_id: string | null;
+  route_fingerprint: string;
+  route_key: string | null;
+  server_fare_quote_id: string | null;
+  personal_voucher_code: string | null;
+};
+
+export function parseBookingQuoteRequestBody(
+  body: Record<string, unknown> | null | undefined,
+): BookingQuoteRequestFields {
+  const b = body && typeof body === "object" ? body : {};
+  const currency = String(b.currency ?? "gbp").trim().toLowerCase() || "gbp";
+  const serviceAreaId = b.service_area_id != null
+    ? String(b.service_area_id).trim() || null
+    : null;
+  const rideCategory = String(b.ride_category ?? b.vehicle_type_id ?? "").trim();
+  const vehicleTypeId = typeof b.vehicle_type_id === "string" ? b.vehicle_type_id : null;
+  const pickup = b.pickup && typeof b.pickup === "object"
+    ? b.pickup as { lat?: unknown; lng?: unknown }
+    : null;
+  const dropoff = b.dropoff && typeof b.dropoff === "object"
+    ? b.dropoff as { lat?: unknown; lng?: unknown }
+    : null;
+  const stops = Array.isArray(b.stops) ? b.stops as Array<{ lat?: unknown; lng?: unknown }> : [];
+  const voucherId = b.voucher_id != null ? String(b.voucher_id).trim() || null : null;
+  const fareQuoteId = typeof b.server_fare_quote_id === "string"
+    ? b.server_fare_quote_id.trim() || null
+    : null;
+  const voucherCode = typeof b.personal_voucher_code === "string"
+    ? b.personal_voucher_code.trim() || null
+    : null;
+  return {
+    client_action_id: String(b.client_action_id ?? "").trim(),
+    client_claimed_trip_fare_pence: Math.max(0, Math.round(Number(b.trip_fare_pence) || 0)),
+    currency,
+    service_area_id: serviceAreaId,
+    ride_category: rideCategory,
+    vehicle_type_id: vehicleTypeId,
+    voucher_id: voucherId,
+    route_fingerprint: buildBookingPaymentRouteFingerprint({
+      service_area_id: serviceAreaId,
+      ride_category: rideCategory,
+      vehicle_type_id: vehicleTypeId,
+      pickup,
+      dropoff,
+      stops,
+      voucher_id: voucherId,
+      currency,
+    }),
+    route_key: buildServerRouteKey({ pickup, dropoff, stops }),
+    server_fare_quote_id: fareQuoteId,
+    personal_voucher_code: voucherCode,
+  };
+}
+
+/**
+ * Server-owned preauth buffer for a booking quote, from
+ * service_area_preauth_settings via the canonical resolver, applied to the
+ * SERVER payable (server fare artifact gross − server discount).
+ */
+export function resolveBookingQuoteServerBuffer(
+  supabase: SupabaseClient,
+  input: {
+    service_area_id: string | null;
+    server_trip_fare_pence: number;
+    server_discount_applied: boolean;
+  },
+): Promise<PreauthBufferResolution> {
+  return resolvePreauthBuffer(supabase, input.server_trip_fare_pence, input.service_area_id, {
+    skipMinHoldWhenDiscounted: input.server_discount_applied,
+  });
 }
 
 export function bookingPaymentQuoteErrorPayload(
@@ -205,6 +299,10 @@ export function rowFromDb(raw: Record<string, unknown>): BookingPaymentQuoteRow 
     metadata: raw.metadata && typeof raw.metadata === "object"
       ? raw.metadata as Record<string, unknown>
       : {},
+    server_fare_quote_id: raw.server_fare_quote_id != null
+      ? String(raw.server_fare_quote_id)
+      : null,
+    pricing_fingerprint: raw.pricing_fingerprint != null ? String(raw.pricing_fingerprint) : null,
   };
 }
 
@@ -236,12 +334,23 @@ export function validateBookingPaymentQuoteForPreauth(args: {
   /** Live OPEN outstanding — must equal quoted receivable. */
   open_receivable_pence: number;
   gate_enabled: boolean;
+  /**
+   * Payment admission requires a quote priced from a server fare artifact.
+   * Quotes issued from a client-supplied fare (pre-artifact) are rejected.
+   */
+  require_server_fare_artifact?: boolean;
 }):
   | { ok: true; quote: BookingPaymentQuoteRow }
   | { ok: false; code: BookingPaymentQuoteErrorCode; note: string } {
   const q = args.quote;
   const now = args.now_ms ?? Date.now();
 
+  if (
+    args.require_server_fare_artifact === true
+    && (!q.server_fare_quote_id || !q.pricing_fingerprint)
+  ) {
+    return { ok: false, code: FARE_QUOTE_CHANGED, note: "quote_missing_server_fare_artifact" };
+  }
   if (q.customer_id !== args.customer_id) {
     return { ok: false, code: BOOKING_QUOTE_INVALID, note: "customer_mismatch" };
   }
@@ -317,8 +426,16 @@ export async function issueBookingPaymentQuote(
     ride_category?: string | null;
     route_fingerprint: string;
     currency?: string | null;
-    trip_fare_pence: number;
-    buffer_pence?: number | null;
+    /** Server fare artifact gross − server discount. Never a client value. */
+    server_trip_fare_pence: number;
+    /** server_fare_quotes.id the payable was priced from. */
+    server_fare_quote_id: string;
+    /** buildBookingPricingFingerprint — reuse requires equality. */
+    pricing_fingerprint: string;
+    /** Server pricing/discount evidence persisted on the quote. */
+    pricing_metadata?: Record<string, unknown>;
+    /** From resolveBookingQuoteServerBuffer — never a client value. */
+    server_buffer: PreauthBufferResolution;
     server_outstanding_pence: number;
     gate?: { enabled: boolean; allowlist: Set<string> };
     ttl_ms?: number;
@@ -331,20 +448,31 @@ export async function issueBookingPaymentQuote(
   const customerId = String(input.customer_id ?? "").trim();
   const userId = String(input.user_id ?? "").trim();
   const fingerprint = String(input.route_fingerprint ?? "").trim();
+  const serverFareQuoteId = String(input.server_fare_quote_id ?? "").trim();
+  const pricingFingerprint = String(input.pricing_fingerprint ?? "").trim();
   if (!clientActionId || !customerId || !userId || !fingerprint) {
     return { ok: false, error: "missing_issue_fields" };
+  }
+  if (!serverFareQuoteId || !pricingFingerprint) {
+    return { ok: false, error: "missing_server_fare_artifact" };
+  }
+  const serverTripFare = Math.round(Number(input.server_trip_fare_pence));
+  if (!Number.isFinite(serverTripFare) || serverTripFare <= 0) {
+    return { ok: false, error: "server_trip_fare_invalid" };
   }
 
   const gate = input.gate ?? readCustomerReceivableFoldGate();
   const plan = planCustomerReceivableFoldEligibilityQuote({
     customer_id: customerId,
     server_outstanding_pence: input.server_outstanding_pence,
-    trip_fare_pence: input.trip_fare_pence,
-    buffer_pence: input.buffer_pence,
+    trip_fare_pence: serverTripFare,
+    buffer_pence: input.server_buffer.bufferPence,
     gate,
   });
 
-  // Reuse ISSUED unexpired same-fingerprint quote for this CA.
+  // Reuse only an ISSUED unexpired quote priced from the same immutable
+  // server fare artifact, discount state and buffer — never a fare compare
+  // against anything the client sent.
   const { data: existing } = await supabase
     .from("booking_payment_quotes")
     .select("*")
@@ -355,7 +483,17 @@ export async function issueBookingPaymentQuote(
   if (existing) {
     const row = rowFromDb(existing as Record<string, unknown>);
     const exp = Date.parse(row.expires_at);
-    if (Number.isFinite(exp) && exp > Date.now() && row.route_fingerprint === fingerprint) {
+    if (
+      Number.isFinite(exp)
+      && exp > Date.now()
+      && row.route_fingerprint === fingerprint
+      && row.server_fare_quote_id === serverFareQuoteId
+      && row.pricing_fingerprint === pricingFingerprint
+      && row.trip_fare_pence === plan.trip_fare_pence
+      && row.buffer_pence === plan.buffer_pence
+      && row.receivable_pence === plan.outstanding_pence
+      && row.fold_eligible === plan.fold_eligible
+    ) {
       return { ok: true, quote: row, reused: true };
     }
     // Fingerprint changed or expired — cancel old ISSUED row.
@@ -388,9 +526,14 @@ export async function issueBookingPaymentQuote(
     state: "ISSUED",
     issued_at: now.toISOString(),
     expires_at: new Date(now.getTime() + ttl).toISOString(),
+    server_fare_quote_id: serverFareQuoteId,
+    pricing_fingerprint: pricingFingerprint,
     metadata: {
+      ...(input.pricing_metadata ?? {}),
       quote_version: plan.quote_version,
       reason: plan.reason,
+      buffer_source: input.server_buffer.source,
+      fare_authority: "server_fare_quotes",
     },
   };
 
@@ -501,5 +644,6 @@ export function quotePublicResponseFields(quote: BookingPaymentQuoteRow): Record
     state: quote.state,
     quote_version: quoteVersion,
     consumed_payment_session_id: quote.consumed_payment_session_id,
+    server_fare_quote_id: quote.server_fare_quote_id ?? null,
   };
 }

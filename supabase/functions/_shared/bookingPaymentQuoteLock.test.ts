@@ -260,7 +260,10 @@ Deno.test("migration + quote edge exist", async () => {
   const edge = await Deno.readTextFile(
     new URL("../customer-receivable-booking-quote/index.ts", import.meta.url),
   );
-  assertStringIncludes(edge, "issueBookingPaymentQuote");
+  assertStringIncludes(edge, "issueServerAuthoritativeBookingQuote(admin, { userId: user.id, body })");
   assertStringIncludes(edge, "quote_id");
   assertStringIncludes(edge, "client_action_id");
+  const issue = await Deno.readTextFile(new URL("./serverBookingQuoteIssue.ts", import.meta.url));
+  assertStringIncludes(issue, "issueBookingPaymentQuote(admin, {");
+  assertStringIncludes(issue, "client_action_id");
 });

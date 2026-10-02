@@ -33,6 +33,12 @@ Deno.test("preauthEdgeTiming flat fields include edge_total and revolut split", 
   if (typeof body.edge_revolut_response_ms !== "number") {
     throw new Error("edge_revolut_response_ms missing");
   }
+  if (typeof body.edge_accounted_wall_ms !== "number") {
+    throw new Error("edge_accounted_wall_ms missing");
+  }
+  if (typeof body.edge_unaccounted_ms !== "number") {
+    throw new Error("edge_unaccounted_ms missing");
+  }
   if (!body.booking_milestones || typeof body.booking_milestones.hold_duration_ms !== "number") {
     throw new Error("booking_milestones.hold_duration_ms missing on processing path");
   }
