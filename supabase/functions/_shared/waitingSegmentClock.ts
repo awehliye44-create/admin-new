@@ -223,15 +223,125 @@ export function segmentDurationSeconds(
   return Math.max(0, Math.floor((end - start) / 1000));
 }
 
+export type WaitingSegmentRow = { started_at: string; ended_at: string | null };
+
+/**
+ * Canonical counted waiting at an explicit evaluation instant.
+ * Segment ends are capped at atMs and segments starting at/after atMs are
+ * excluded, so time after a terminal decision never counts. Milliseconds are
+ * summed before flooring so a pause/re-open never drops a partial second.
+ */
+export function sumSegmentSecondsAt(
+  rows: WaitingSegmentRow[],
+  atMs: number,
+): number {
+  if (!Number.isFinite(atMs)) return 0;
+  let totalMs = 0;
+  for (const row of rows) {
+    const start = Date.parse(row.started_at);
+    if (!Number.isFinite(start) || start >= atMs) continue;
+    const endRaw = row.ended_at ? Date.parse(row.ended_at) : atMs;
+    if (!Number.isFinite(endRaw)) continue;
+    const end = Math.min(endRaw, atMs);
+    if (end > start) totalMs += end - start;
+  }
+  return Math.floor(totalMs / 1000);
+}
+
 export function sumSegmentSeconds(
-  rows: Array<{ started_at: string; ended_at: string | null }>,
+  rows: WaitingSegmentRow[],
   nowMs: number,
 ): number {
-  let total = 0;
-  for (const row of rows) {
-    total += segmentDurationSeconds(row.started_at, row.ended_at, nowMs);
+  return sumSegmentSecondsAt(rows, nowMs);
+}
+
+export const WAITING_EVIDENCE_UNAVAILABLE = "WAITING_EVIDENCE_UNAVAILABLE";
+
+export type CanonicalWaitingResolution =
+  | {
+    ok: true;
+    countedSeconds: number;
+    segmentCount: number;
+    openSegmentCount: number;
+    evaluatedAtIso: string;
+    source: "trip_waiting_segments";
   }
-  return total;
+  | {
+    ok: false;
+    reason: "invalid_evaluation_time" | "segment_query_failed";
+    message: string;
+    evaluatedAtIso: string | null;
+  };
+
+export class WaitingEvidenceUnavailableError extends Error {
+  readonly code = WAITING_EVIDENCE_UNAVAILABLE;
+  readonly resolution: Extract<CanonicalWaitingResolution, { ok: false }>;
+  constructor(resolution: Extract<CanonicalWaitingResolution, { ok: false }>) {
+    super(`${WAITING_EVIDENCE_UNAVAILABLE}:${resolution.reason}:${resolution.message}`);
+    this.resolution = resolution;
+  }
+}
+
+/**
+ * Single backend source of truth for counted waiting. Reads trip_waiting_segments
+ * and evaluates them at atIso (terminal decision time for Customer cancel /
+ * No-Show). trips.*_waiting_counted_seconds is a display cache and must never
+ * decide money. A failed read is { ok: false } — never 0.
+ */
+// deno-lint-ignore no-explicit-any
+export async function resolveCanonicalWaitingSeconds(
+  supabase: any,
+  input: {
+    tripId: string;
+    locationType: WaitingLocationType;
+    stopId?: string | null;
+    atIso: string;
+  },
+): Promise<CanonicalWaitingResolution> {
+  const atMs = Date.parse(input.atIso);
+  if (!input.tripId || !Number.isFinite(atMs)) {
+    return {
+      ok: false,
+      reason: "invalid_evaluation_time",
+      message: `trip_id=${input.tripId ?? ""} at=${input.atIso ?? ""}`,
+      evaluatedAtIso: null,
+    };
+  }
+  const evaluatedAtIso = new Date(atMs).toISOString();
+  let q = supabase
+    .from("trip_waiting_segments")
+    .select("started_at, ended_at")
+    .eq("trip_id", input.tripId)
+    .eq("location_type", input.locationType);
+  if (input.locationType === "stop" && input.stopId) {
+    q = q.eq("stop_id", input.stopId);
+  }
+  let data: unknown;
+  let error: { message?: string } | null = null;
+  try {
+    const res = await q;
+    data = res?.data;
+    error = res?.error ?? null;
+  } catch (err) {
+    error = { message: err instanceof Error ? err.message : String(err) };
+  }
+  if (error || !Array.isArray(data)) {
+    return {
+      ok: false,
+      reason: "segment_query_failed",
+      message: error?.message ?? "segment_rows_unavailable",
+      evaluatedAtIso,
+    };
+  }
+  const rows = data as WaitingSegmentRow[];
+  return {
+    ok: true,
+    countedSeconds: sumSegmentSecondsAt(rows, atMs),
+    segmentCount: rows.length,
+    openSegmentCount: rows.filter((r) => !r.ended_at).length,
+    evaluatedAtIso,
+    source: "trip_waiting_segments",
+  };
 }
 
 export function chargeableSecondsFromCounted(
@@ -308,7 +418,12 @@ export async function syncWaitingGeofenceClock(
   },
 ): Promise<{
   status: WaitingGeofenceStatus;
+  /**
+   * Canonical segment sum at nowIso when evidenceComplete; otherwise the
+   * unchanged cached counter. Money must not be decided when !evidenceComplete.
+   */
   countedSeconds: number;
+  evidenceComplete: boolean;
   distanceMeters: number | null;
   inside: boolean;
   usedSource: string;
@@ -367,19 +482,36 @@ export async function syncWaitingGeofenceClock(
       .eq("id", open.id);
   }
 
-  let sumQuery = supabase
-    .from("trip_waiting_segments")
-    .select("started_at, ended_at")
-    .eq("trip_id", input.tripId)
-    .eq("location_type", input.locationType);
-  if (input.locationType === "stop" && input.stopId) {
-    sumQuery = sumQuery.eq("stop_id", input.stopId);
+  // Always the full segment sum: a re-open after a pause must never reset the
+  // counted total to the new segment's duration (MK-261002-004).
+  const canonical = await resolveCanonicalWaitingSeconds(supabase, {
+    tripId: input.tripId,
+    locationType: input.locationType,
+    stopId: input.stopId ?? null,
+    atIso: nowIso,
+  });
+  const counterColumn = input.locationType === "pickup"
+    ? "pickup_waiting_counted_seconds"
+    : "stop_waiting_counted_seconds";
+  let countedSeconds: number;
+  if (canonical.ok) {
+    countedSeconds = canonical.countedSeconds;
+  } else {
+    console.error("[waitingSegmentClock] WAITING_EVIDENCE_UNAVAILABLE", {
+      trip_id: input.tripId,
+      location_type: input.locationType,
+      stop_id: input.stopId ?? null,
+      reason: canonical.reason,
+      message: canonical.message,
+    });
+    const { data: cached } = await supabase
+      .from("trips")
+      .select(counterColumn)
+      .eq("id", input.tripId)
+      .maybeSingle();
+    const cachedNum = Number((cached as Record<string, unknown> | null)?.[counterColumn]);
+    countedSeconds = Number.isFinite(cachedNum) && cachedNum > 0 ? Math.floor(cachedNum) : 0;
   }
-  const { data: allSegs } = await sumQuery;
-  const countedSeconds = sumSegmentSeconds(
-    (allSegs ?? []) as Array<{ started_at: string; ended_at: string | null }>,
-    nowMs,
-  );
 
   const status: WaitingGeofenceStatus = verdict.inside ? "counting" : "paused";
   const tripPatch: Record<string, unknown> = {
@@ -388,16 +520,15 @@ export async function syncWaitingGeofenceClock(
     waiting_geofence_distance_m: verdict.distanceMeters,
     updated_at: nowIso,
   };
-  if (input.locationType === "pickup") {
-    tripPatch.pickup_waiting_counted_seconds = countedSeconds;
-  } else {
-    tripPatch.stop_waiting_counted_seconds = countedSeconds;
+  if (canonical.ok) {
+    tripPatch[counterColumn] = countedSeconds;
   }
   await supabase.from("trips").update(tripPatch).eq("id", input.tripId);
 
   return {
     status,
     countedSeconds,
+    evidenceComplete: canonical.ok,
     distanceMeters: verdict.distanceMeters,
     inside: verdict.inside,
     usedSource: verdict.usedSource,
@@ -417,7 +548,6 @@ export async function closeOpenWaitingSegments(
   },
 ): Promise<number> {
   const nowIso = input.nowIso ?? new Date().toISOString();
-  const nowMs = Date.parse(nowIso);
   let q = supabase
     .from("trip_waiting_segments")
     .update({ ended_at: nowIso })
@@ -429,19 +559,24 @@ export async function closeOpenWaitingSegments(
   }
   await q;
 
-  let sumQuery = supabase
-    .from("trip_waiting_segments")
-    .select("started_at, ended_at")
-    .eq("trip_id", input.tripId)
-    .eq("location_type", input.locationType);
-  if (input.locationType === "stop" && input.stopId) {
-    sumQuery = sumQuery.eq("stop_id", input.stopId);
+  const canonical = await resolveCanonicalWaitingSeconds(supabase, {
+    tripId: input.tripId,
+    locationType: input.locationType,
+    stopId: input.stopId ?? null,
+    atIso: nowIso,
+  });
+  if (!canonical.ok) {
+    // Callers freeze money from this value; an unreadable sum must not become 0.
+    console.error("[waitingSegmentClock] WAITING_EVIDENCE_UNAVAILABLE on close", {
+      trip_id: input.tripId,
+      location_type: input.locationType,
+      stop_id: input.stopId ?? null,
+      reason: canonical.reason,
+      message: canonical.message,
+    });
+    throw new WaitingEvidenceUnavailableError(canonical);
   }
-  const { data: allSegs } = await sumQuery;
-  const counted = sumSegmentSeconds(
-    (allSegs ?? []) as Array<{ started_at: string; ended_at: string | null }>,
-    nowMs,
-  );
+  const counted = canonical.countedSeconds;
 
   const patch: Record<string, unknown> = {
     waiting_geofence_status: "not_started",
@@ -455,4 +590,84 @@ export async function closeOpenWaitingSegments(
   }
   await supabase.from("trips").update(patch).eq("id", input.tripId);
   return counted;
+}
+
+/**
+ * Freeze waiting evidence at a terminal decision (Customer cancel / No-Show).
+ * Only rows still open are touched, each with a conditional `ended_at IS NULL`
+ * update, so replays are no-ops and finalized rows never change. ended_at is
+ * clamped to started_at for rows opened after the decision
+ * (trip_waiting_segments_time_order_chk). The cache is then set to the
+ * canonical value at atIso.
+ */
+// deno-lint-ignore no-explicit-any
+export async function finalizeWaitingSegmentsAtTerminal(
+  supabase: any,
+  input: {
+    tripId: string;
+    locationType: WaitingLocationType;
+    stopId?: string | null;
+    atIso: string;
+  },
+): Promise<
+  | { ok: true; closedSegments: number; countedSeconds: number }
+  | { ok: false; reason: string; message: string }
+> {
+  const atMs = Date.parse(input.atIso);
+  if (!input.tripId || !Number.isFinite(atMs)) {
+    return { ok: false, reason: "invalid_evaluation_time", message: String(input.atIso) };
+  }
+  let openQ = supabase
+    .from("trip_waiting_segments")
+    .select("id, started_at")
+    .eq("trip_id", input.tripId)
+    .eq("location_type", input.locationType)
+    .is("ended_at", null);
+  if (input.locationType === "stop" && input.stopId) {
+    openQ = openQ.eq("stop_id", input.stopId);
+  }
+  const { data: openRows, error: openErr } = await openQ;
+  if (openErr || !Array.isArray(openRows)) {
+    return {
+      ok: false,
+      reason: "segment_query_failed",
+      message: openErr?.message ?? "segment_rows_unavailable",
+    };
+  }
+
+  let closedSegments = 0;
+  for (const row of openRows as Array<{ id: string; started_at: string }>) {
+    const startMs = Date.parse(row.started_at);
+    const endedAt = new Date(
+      Number.isFinite(startMs) ? Math.max(startMs, atMs) : atMs,
+    ).toISOString();
+    const { data: closed, error: closeErr } = await supabase
+      .from("trip_waiting_segments")
+      .update({ ended_at: endedAt })
+      .eq("id", row.id)
+      .is("ended_at", null)
+      .select("id");
+    if (closeErr) {
+      return { ok: false, reason: "segment_close_failed", message: closeErr.message };
+    }
+    if (Array.isArray(closed) && closed.length > 0) closedSegments += 1;
+  }
+
+  const canonical = await resolveCanonicalWaitingSeconds(supabase, {
+    tripId: input.tripId,
+    locationType: input.locationType,
+    stopId: input.stopId ?? null,
+    atIso: input.atIso,
+  });
+  if (!canonical.ok) {
+    return { ok: false, reason: canonical.reason, message: canonical.message };
+  }
+  const counterColumn = input.locationType === "pickup"
+    ? "pickup_waiting_counted_seconds"
+    : "stop_waiting_counted_seconds";
+  await supabase
+    .from("trips")
+    .update({ [counterColumn]: canonical.countedSeconds })
+    .eq("id", input.tripId);
+  return { ok: true, closedSegments, countedSeconds: canonical.countedSeconds };
 }
