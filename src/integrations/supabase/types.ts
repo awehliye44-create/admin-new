@@ -2987,6 +2987,8 @@ export type Database = {
         Row: {
           address: string | null
           approved_at: string | null
+          archived_at: string | null
+          archived_by: string | null
           city: string | null
           company_name: string
           contact_email: string
@@ -3013,6 +3015,8 @@ export type Database = {
         Insert: {
           address?: string | null
           approved_at?: string | null
+          archived_at?: string | null
+          archived_by?: string | null
           city?: string | null
           company_name: string
           contact_email: string
@@ -3039,6 +3043,8 @@ export type Database = {
         Update: {
           address?: string | null
           approved_at?: string | null
+          archived_at?: string | null
+          archived_by?: string | null
           city?: string | null
           company_name?: string
           contact_email?: string
@@ -3082,6 +3088,8 @@ export type Database = {
       corporate_accounts: {
         Row: {
           address: string | null
+          archived_at: string | null
+          archived_by: string | null
           billing_email: string | null
           city: string | null
           company_name: string
@@ -3112,6 +3120,8 @@ export type Database = {
         }
         Insert: {
           address?: string | null
+          archived_at?: string | null
+          archived_by?: string | null
           billing_email?: string | null
           city?: string | null
           company_name: string
@@ -3142,6 +3152,8 @@ export type Database = {
         }
         Update: {
           address?: string | null
+          archived_at?: string | null
+          archived_by?: string | null
           billing_email?: string | null
           city?: string | null
           company_name?: string
@@ -28799,6 +28811,14 @@ export type Database = {
           phone: string
         }[]
       }
+      admin_remove_corporate_account: {
+        Args: { p_account_id: string }
+        Returns: Json
+      }
+      admin_remove_corporate_request: {
+        Args: { p_request_id: string }
+        Returns: Json
+      }
       admin_remove_service_area: {
         Args: { p_service_area_id: string }
         Returns: Json
@@ -28806,6 +28826,14 @@ export type Database = {
       admin_remove_staff_member: {
         Args: { _correlation_id?: string; _staff_id: string }
         Returns: string
+      }
+      admin_restore_corporate_account: {
+        Args: { p_account_id: string }
+        Returns: undefined
+      }
+      admin_restore_corporate_request: {
+        Args: { p_request_id: string }
+        Returns: undefined
       }
       admin_restore_service_area: {
         Args: { p_service_area_id: string }
