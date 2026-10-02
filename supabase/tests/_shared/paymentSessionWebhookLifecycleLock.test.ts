@@ -345,6 +345,44 @@ Deno.test("admin refresh imports monotonic lifecycle apply helper", async () => 
   );
 });
 
+// A bare name match passes when the call survives but its import is dropped (093f28227):
+// Deno deploy does not type-check, so the call throws ReferenceError per session at runtime.
+const LIFECYCLE_HELPER_IMPORT =
+  /import\s*\{[^}]*\bapplyPaymentSessionWebhookLifecycleUpdate\b[^}]*\}\s*from\s*["'][^"']*\/applyPaymentSessionWebhookLifecycleUpdate\.ts["']/;
+const LIFECYCLE_HELPER_CALL = /\bapplyPaymentSessionWebhookLifecycleUpdate\s*\(/;
+
+Deno.test("every lifecycle helper caller binds it with a named import", async () => {
+  const functionsRoot = new URL("../../functions/", import.meta.url);
+  const callers: string[] = [];
+  const unbound: string[] = [];
+  const visit = async (dir: URL) => {
+    for await (const entry of Deno.readDir(dir)) {
+      const url = new URL(entry.name + (entry.isDirectory ? "/" : ""), dir);
+      if (entry.isDirectory) {
+        if (entry.name !== "node_modules") await visit(url);
+        continue;
+      }
+      if (!entry.name.endsWith(".ts") || entry.name.endsWith(".test.ts")) continue;
+      if (entry.name === "applyPaymentSessionWebhookLifecycleUpdate.ts") continue;
+      const src = await Deno.readTextFile(url);
+      if (!LIFECYCLE_HELPER_CALL.test(src)) continue;
+      const rel = url.pathname.slice(functionsRoot.pathname.length);
+      callers.push(rel);
+      if (!LIFECYCLE_HELPER_IMPORT.test(src)) unbound.push(rel);
+    }
+  };
+  await visit(functionsRoot);
+
+  for (const required of [
+    "revolut-webhook/index.ts",
+    "admin-refresh-payment-sessions/index.ts",
+    "_shared/applySavedCardOrderReconcile.ts",
+  ]) {
+    assertEquals(callers.includes(required), true, `expected lifecycle caller missing: ${required}`);
+  }
+  assertEquals(unbound, [], `lifecycle helper called without import binding: ${unbound.join(", ")}`);
+});
+
 Deno.test("admin refresh cannot regress captured to trip_created or payment_authorised", () => {
   const completed = resolvePaymentSessionStatusFromProviderWebhook({
     currentStatus: "captured",
