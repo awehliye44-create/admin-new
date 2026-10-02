@@ -1,0 +1,276 @@
+import type { SupabaseClient } from "npm:@supabase/supabase-js@2.57.2";
+import {
+  cancelRevolutOrder,
+  refundRevolutOrder,
+  retrieveRevolutOrder,
+} from "./revolutOrders.ts";
+import { revolutMerchantRequest } from "./revolutApi.ts";
+import type { ProviderEnvironment } from "./paymentProviders/types.ts";
+
+export const MAX_SAVED_REVOLUT_CARDS = 2;
+/** £1 verification hold only — never trip fare, never captured as revenue. */
+export const REVOLUT_SAVE_CARD_VERIFICATION_MINOR = 100;
+
+/** States where the native form / complete path may still reuse the setup order. */
+export function isReusableSaveCardSetupState(state: string | null | undefined): boolean {
+  const s = String(state ?? "").toUpperCase();
+  return (
+    s === "PENDING" ||
+    s === "PROCESSING" ||
+    s === "AUTHORISED" ||
+    s === "AUTHORIZED" ||
+    s === "AWAITING" ||
+    s === ""
+  );
+}
+
+export type RevolutCustomerPaymentMethod = {
+  id: string;
+  type: string;
+  saved_for?: string;
+  method_details?: {
+    brand?: string;
+    last4?: string;
+    expiry_month?: number;
+    expiry_year?: number;
+    cardholder_name?: string;
+  };
+};
+
+type CustomerRow = {
+  id: string;
+  user_id: string;
+  revolut_customer_id: string | null;
+};
+
+export async function loadCustomerForUser(
+  supabase: SupabaseClient,
+  userId: string,
+): Promise<CustomerRow | null> {
+  const { data, error } = await supabase
+    .from("customers")
+    .select("id, user_id, revolut_customer_id")
+    .eq("user_id", userId)
+    .maybeSingle();
+  if (error) throw error;
+  return data as CustomerRow | null;
+}
+
+export async function ensureRevolutCustomer(args: {
+  supabase: SupabaseClient;
+  environment: ProviderEnvironment;
+  secretKey: string;
+  userId: string;
+  email: string;
+}): Promise<{ customerId: string; revolutCustomerId: string }> {
+  const row = await loadCustomerForUser(args.supabase, args.userId);
+  if (!row) {
+    throw new Error("CUSTOMER_PROFILE_NOT_FOUND");
+  }
+
+  if (row.revolut_customer_id) {
+    return { customerId: row.id, revolutCustomerId: row.revolut_customer_id };
+  }
+
+  const created = await revolutMerchantRequest<{ id: string }>(
+    args.environment,
+    args.secretKey,
+    "/customers",
+    {
+      method: "POST",
+      body: JSON.stringify({
+        email: args.email,
+        full_name: args.email.split("@")[0] || "ONECAB customer",
+      }),
+    },
+  );
+
+  const revolutCustomerId = String(created.id);
+  const { error: updateErr } = await args.supabase
+    .from("customers")
+    .update({ revolut_customer_id: revolutCustomerId, updated_at: new Date().toISOString() })
+    .eq("id", row.id);
+  if (updateErr) throw updateErr;
+
+  return { customerId: row.id, revolutCustomerId };
+}
+
+export async function createRevolutSaveCardSetupOrder(args: {
+  environment: ProviderEnvironment;
+  secretKey: string;
+  currency: string;
+  revolutCustomerId: string;
+  customerEmail: string;
+  customerUserId: string;
+  setupRef: string;
+}) {
+  return await revolutMerchantRequest<{
+    id: string;
+    token?: string;
+    public_id?: string;
+    state?: string;
+  }>(
+    args.environment,
+    args.secretKey,
+    "/orders",
+    {
+      method: "POST",
+      body: JSON.stringify({
+        amount: REVOLUT_SAVE_CARD_VERIFICATION_MINOR,
+        currency: args.currency.toUpperCase(),
+        // Manual capture + immediate cancel/void after token verify — NEVER capture £1.
+        capture_mode: "manual",
+        // Card saving is requested by the native SDK (savePaymentMethodFor), not order create.
+        // Revolut has no zero-amount merchant-vault setup in this codebase; £1 auth-only is required.
+        customer: {
+          id: args.revolutCustomerId,
+          email: args.customerEmail,
+        },
+        merchant_order_ext_ref: `save-card-${args.setupRef}`,
+        description: "ONECAB card verification (temporary £1 hold — not a ride payment)",
+        metadata: {
+          purpose: "save_card",
+          never_capture: "true",
+          setup_ref: args.setupRef,
+          customer_user_id: args.customerUserId,
+        },
+      }),
+    },
+  );
+}
+
+export async function listRevolutCustomerPaymentMethods(args: {
+  environment: ProviderEnvironment;
+  secretKey: string;
+  revolutCustomerId: string;
+}): Promise<RevolutCustomerPaymentMethod[]> {
+  const response = await revolutMerchantRequest<{
+    payment_methods?: RevolutCustomerPaymentMethod[];
+  }>(
+    args.environment,
+    args.secretKey,
+    `/customers/${encodeURIComponent(args.revolutCustomerId)}/payment-methods?only_merchant=false`,
+  );
+  return Array.isArray(response.payment_methods) ? response.payment_methods : [];
+}
+
+export async function deleteRevolutCustomerPaymentMethod(args: {
+  environment: ProviderEnvironment;
+  secretKey: string;
+  revolutCustomerId: string;
+  providerPaymentMethodId: string;
+}): Promise<void> {
+  await revolutMerchantRequest(
+    args.environment,
+    args.secretKey,
+    `/customers/${encodeURIComponent(args.revolutCustomerId)}/payment-methods/${encodeURIComponent(args.providerPaymentMethodId)}`,
+    { method: "DELETE" },
+  );
+}
+
+export function normaliseCardBrand(raw: string | null | undefined): string {
+  const value = String(raw ?? "").trim().toLowerCase();
+  if (!value) return "Card";
+  if (value.includes("visa")) return "Visa";
+  if (value.includes("master")) return "Mastercard";
+  if (value.includes("amex") || value.includes("american")) return "Amex";
+  return value.charAt(0).toUpperCase() + value.slice(1);
+}
+
+export function mapRevolutPaymentMethodToSavedCardRow(args: {
+  userId: string;
+  platformPaymentMethodId: string;
+  method: RevolutCustomerPaymentMethod;
+}) {
+  const details = args.method.method_details ?? {};
+  return {
+    user_id: args.userId,
+    platform_payment_method_id: args.platformPaymentMethodId,
+    payment_provider: "revolut",
+    provider_payment_method_id: args.method.id,
+    brand: normaliseCardBrand(details.brand),
+    last4: String(details.last4 ?? "").slice(-4),
+    exp_month: typeof details.expiry_month === "number" ? details.expiry_month : null,
+    exp_year: typeof details.expiry_year === "number" ? details.expiry_year : null,
+    revolut_verified: true,
+    tokenization_status: "active",
+    verified_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+  };
+}
+
+/**
+ * Release the £1 verification hold.
+ * - AUTHORISED / PROCESSING / PENDING → cancel (void) — never capture
+ * - COMPLETED (should not happen with never_capture) → full refund cleanup
+ * Setup path must never call captureRevolutOrder.
+ */
+export async function releaseSaveCardVerificationOrder(args: {
+  environment: ProviderEnvironment;
+  secretKey: string;
+  orderId: string;
+}): Promise<void> {
+  try {
+    const order = await retrieveRevolutOrder(args.environment, args.secretKey, args.orderId);
+    const state = String(order.state ?? "").toUpperCase();
+    if (
+      state === "AUTHORISED" ||
+      state === "AUTHORIZED" ||
+      state === "PROCESSING" ||
+      state === "PENDING" ||
+      state === "AWAITING"
+    ) {
+      await cancelRevolutOrder(args.environment, args.secretKey, args.orderId);
+      return;
+    }
+    if (state === "COMPLETED") {
+      // Failsafe only — capture_mode=manual + never_capture should prevent this.
+      await refundRevolutOrder(
+        args.environment,
+        args.secretKey,
+        args.orderId,
+        REVOLUT_SAVE_CARD_VERIFICATION_MINOR,
+        "save_card_verification_never_capture",
+        String(order.currency ?? "GBP"),
+      );
+    }
+  } catch (err) {
+    console.warn("[revolutSavedCardVault] release verification order failed", err);
+  }
+}
+
+export async function countSavedRevolutCards(
+  supabase: SupabaseClient,
+  userId: string,
+): Promise<number> {
+  const { count, error } = await supabase
+    .from("customer_saved_payment_method_tokens")
+    .select("id", { count: "exact", head: true })
+    .eq("user_id", userId)
+    .eq("payment_provider", "revolut");
+  if (error) throw error;
+  return count ?? 0;
+}
+
+/** Usable booking vault rows. Removed and failed tokens do not consume the cap. */
+export async function countUsableSavedRevolutCards(
+  supabase: SupabaseClient,
+  userId: string,
+): Promise<number> {
+  const { data, error } = await supabase
+    .from("customer_saved_payment_method_tokens")
+    .select("provider_payment_method_id, tokenization_status, revolut_verified")
+    .eq("user_id", userId)
+    .eq("payment_provider", "revolut");
+  if (error) throw error;
+  const seen = new Set<string>();
+  for (const row of data ?? []) {
+    const status = String(row.tokenization_status ?? "");
+    if (status === "removed" || status === "tokenization_failed" || status === "pending") continue;
+    if (status !== "active" && status !== "verified" && row.revolut_verified !== true) continue;
+    const providerId = String(row.provider_payment_method_id ?? "").trim();
+    if (!providerId || seen.has(providerId)) continue;
+    seen.add(providerId);
+  }
+  return seen.size;
+}

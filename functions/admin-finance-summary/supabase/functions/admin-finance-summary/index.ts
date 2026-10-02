@@ -1,0 +1,283 @@
+// Canonical admin finance summary — single source of truth for:
+//   1. Total customer revenue (payments.captured_amount_pence)
+//   2. ONECAB gross commission (driver_wallet_ledger PLATFORM_COMMISSION)
+//   3. Provider processing fees (trips.provider_fee_pence / legacy provider_fee_pence)
+//   4. ONECAB net commission (#2 - #3)
+//   5. Driver net earnings (ledger TRIP_EARNING_NET + DRIVER_TIP_CREDIT + ADJUSTMENT)
+//   6. provider platform balance (live, never used as commission)
+//   7. Driver payout liability (Σ driver_financial_summary.wallet_balance)
+//   8. Driver available payout (Σ driver_financial_summary.net_available_for_payout)
+//   9. Driver pending payout (Σ driver_wallets.pending_pence — cache component only)
+// Plus commission_status, validation_warnings, and currency_code grouping.
+//
+// HARD RULE: ONECAB commission is NEVER `provider_balance - driver_payable`.
+
+import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { createClient } from "npm:@supabase/supabase-js@2.57.2";
+import {
+  fetchProviderPlatformBalance,
+  resolveFinanceScopeProvider,
+} from "../_shared/providerPlatformBalanceSSOT.ts";
+import { tripProviderProcessingFeePence } from "../_shared/financialReconciliationSSOT.ts";
+import { excludeTripFromPlatformCollectedFinance } from "../_shared/commissionWalletSSOT.ts";
+
+const corsHeaders = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+};
+
+type CommissionStatus =
+  | 'provider_confirmed'
+  | 'provider_paid_out'
+  | 'calculated_pending'
+  | 'legacy_fallback';
+
+interface CurrencyGroup {
+  currency_code: string;
+  totals: {
+    customer_revenue_pence: number;
+    onecab_gross_commission_pence: number;
+    /** Separate Africa CW revenue — never mixed into PLATFORM_COMMISSION gross. */
+    commission_wallet_deduction_pence: number;
+    provider_fees_pence: number;
+    onecab_net_commission_pence: number;
+    driver_net_earnings_pence: number;
+    driver_payout_liability_pence: number;
+    driver_available_payout_pence: number;
+    driver_pending_payout_pence: number;
+    commissionable_revenue_pence: number;
+  };
+  commission_status: CommissionStatus;
+  validation_warnings: string[];
+}
+
+serve(async (req) => {
+  if (req.method === 'OPTIONS') return new Response(null, { headers: corsHeaders });
+
+  try {
+    const supabase = createClient(
+      Deno.env.get('SUPABASE_URL')!,
+      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
+    );
+
+    // ── Auth: admin only (role from user_roles, never profiles) ──
+    const authHeader = req.headers.get('Authorization');
+    if (!authHeader) {
+      return json({ error: 'Unauthorized', error_code: 'AUTH_MISSING' }, 401);
+    }
+    const { data: { user }, error: authError } = await supabase.auth.getUser(
+      authHeader.replace('Bearer ', ''),
+    );
+    if (authError || !user) {
+      return json({ error: 'Unauthorized', error_code: 'AUTH_INVALID' }, 401);
+    }
+    const { data: roleData } = await supabase
+      .from('user_roles')
+      .select('role')
+      .eq('user_id', user.id)
+      .eq('role', 'admin')
+      .maybeSingle();
+    if (!roleData) {
+      return json({ error: 'Admin access required', error_code: 'ROLE_FORBIDDEN' }, 403);
+    }
+
+    // Optional ?region_id= filter (same pattern as other admin finance fns)
+    const url = new URL(req.url);
+    const regionFilter = url.searchParams.get('region_id') || null;
+
+    // ── 1. Customer revenue: captured payments ──
+    let paymentsQuery = supabase
+      .from('payments')
+      .select('captured_amount_pence, currency, status')
+      .in('status', ['captured', 'succeeded', 'confirmed']);
+    const { data: paymentRows, error: payErr } = await paymentsQuery;
+    if (payErr) throw new Error(`payments: ${payErr.message}`);
+
+    // ── 2. Trips: provider fees + commissionable fares (for tier-cap validation) ──
+    // Phase 8: exclude DRIVER_COLLECTED_COMMISSION_WALLET trips from UK commissionable gross.
+    let tripsQuery = supabase
+      .from('trips')
+      .select('provider_fee_pence, provider_fee_pence, commissionable_fare_pence, commission_pence, currency_code, region_id, status, financial_model, commission_wallet_enabled')
+      .in('status', ['completed', 'no_show']);
+    if (regionFilter) tripsQuery = tripsQuery.eq('region_id', regionFilter);
+    const { data: tripRows, error: tripErr } = await tripsQuery;
+    if (tripErr) throw new Error(`trips: ${tripErr.message}`);
+
+    // ── 3. Ledger SOT (commission + driver net + tips + adjustments) ──
+    const { data: ledgerRows, error: ledgerErr } = await supabase
+      .from('driver_wallet_ledger')
+      .select('amount_pence, type, currency, provider_payout_id, provider_transfer_id');
+    if (ledgerErr) throw new Error(`ledger: ${ledgerErr.message}`);
+
+    // ── 4. Driver financial summary view (region-aware, currency-aware) ──
+    let summaryQuery = supabase
+      .from('driver_financial_summary')
+      .select('region_id, currency_code, wallet_balance, net_available_for_payout, reserved_cashout_pence');
+    if (regionFilter) summaryQuery = summaryQuery.eq('region_id', regionFilter);
+    const { data: summaryRows, error: sumErr } = await summaryQuery;
+    if (sumErr) throw new Error(`driver_financial_summary: ${sumErr.message}`);
+
+    // ── 5. Pending payout component (no SSOT view field) ──
+    const { data: walletRows, error: walletErr } = await supabase
+      .from('driver_wallets')
+      .select('pending_pence');
+    if (walletErr) throw new Error(`driver_wallets: ${walletErr.message}`);
+
+    // ── 6. Max tier % for validation ──
+    const { data: tierRows } = await supabase
+      .from('driver_categories')
+      .select('commission_pct');
+    const maxTierPct = Math.max(
+      0,
+      ...(tierRows || []).map((r) => Number(r.commission_pct || 0)),
+    );
+
+    // ── 7. Provider platform balance (live) — never used as commission ──
+    const financeScope = await resolveFinanceScopeProvider(supabase, { regionId: regionFilter });
+    const primaryCurrency = (tripRows?.[0]?.currency_code as string | undefined)?.toLowerCase() || "gbp";
+    const providerBalanceResult = await fetchProviderPlatformBalance(supabase, {
+      provider: financeScope.provider,
+      environment: financeScope.environment,
+      currency: primaryCurrency,
+    });
+    const providerBalance: {
+      available_pence: number;
+      pending_pence: number;
+      source: "provider_api" | "unavailable";
+      provider?: string;
+      error?: string | null;
+    } = {
+      available_pence: providerBalanceResult.available_pence,
+      pending_pence: providerBalanceResult.pending_pence,
+      source: providerBalanceResult.error ? "unavailable" : "provider_api",
+      provider: providerBalanceResult.provider,
+      error: providerBalanceResult.error,
+    };
+
+    // ── Group by currency_code (mixed-currency safe) ──
+    const buckets = new Map<string, CurrencyGroup>();
+    const ensure = (cc: string): CurrencyGroup => {
+      const key = (cc || '').toUpperCase() || 'UNKNOWN';
+      let g = buckets.get(key);
+      if (!g) {
+        g = {
+          currency_code: key,
+          totals: {
+            customer_revenue_pence: 0,
+            onecab_gross_commission_pence: 0,
+            commission_wallet_deduction_pence: 0,
+            provider_fees_pence: 0,
+            onecab_net_commission_pence: 0,
+            driver_net_earnings_pence: 0,
+            driver_payout_liability_pence: 0,
+            driver_available_payout_pence: 0,
+            driver_pending_payout_pence: 0,
+            commissionable_revenue_pence: 0,
+          },
+          commission_status: 'legacy_fallback',
+          validation_warnings: [],
+        };
+        buckets.set(key, g);
+      }
+      return g;
+    };
+
+    for (const p of paymentRows || []) {
+      ensure(p.currency).totals.customer_revenue_pence += Number(p.captured_amount_pence || 0);
+    }
+    for (const t of tripRows || []) {
+      if (excludeTripFromPlatformCollectedFinance(t)) continue;
+      const g = ensure(t.currency_code);
+      g.totals.provider_fees_pence += tripProviderProcessingFeePence(t);
+      g.totals.commissionable_revenue_pence += Number(t.commissionable_fare_pence || 0);
+    }
+    for (const l of ledgerRows || []) {
+      const g = ensure(l.currency);
+      const amt = Number(l.amount_pence || 0);
+      switch (l.type) {
+        case 'PLATFORM_COMMISSION':
+          g.totals.onecab_gross_commission_pence += amt;
+          if (l.provider_payout_id) g.commission_status = 'provider_paid_out';
+          else if (l.provider_transfer_id && g.commission_status === 'legacy_fallback') g.commission_status = 'provider_confirmed';
+          break;
+        case 'TRIP_EARNING_NET':
+        case 'DRIVER_TIP_CREDIT':
+        case 'ADJUSTMENT':
+          if (amt > 0) g.totals.driver_net_earnings_pence += amt;
+          break;
+      }
+    }
+
+    // Phase 7: COMMISSION_WALLET_DEDUCTION — separate revenue source (never mixed into PLATFORM_COMMISSION).
+    let cwLedgerQuery = supabase
+      .from('driver_commission_wallet_ledger')
+      .select('amount_minor, currency, entry_type, region_id')
+      .eq('entry_type', 'COMMISSION_DEDUCTION');
+    if (regionFilter) cwLedgerQuery = cwLedgerQuery.eq('region_id', regionFilter);
+    const { data: cwDeductionRows, error: cwErr } = await cwLedgerQuery;
+    if (cwErr) {
+      console.warn('[admin-finance-summary] CW deduction query failed (non-fatal):', cwErr.message);
+    } else {
+      for (const row of cwDeductionRows || []) {
+        const g = ensure(row.currency);
+        g.totals.commission_wallet_deduction_pence += Math.max(0, Number(row.amount_minor || 0));
+      }
+    }
+    for (const s of summaryRows || []) {
+      const g = ensure(s.currency_code);
+      g.totals.driver_payout_liability_pence += Math.max(0, Number(s.wallet_balance || 0));
+      g.totals.driver_available_payout_pence += Math.max(0, Number(s.net_available_for_payout || 0));
+    }
+    // pending payout = driver_wallets.pending_pence (currency missing → bucket into UNKNOWN or sum globally)
+    const totalPending = (walletRows || []).reduce((s, w) => s + Math.max(0, Number(w.pending_pence || 0)), 0);
+    if (buckets.size === 1) {
+      // Single-currency setup — attribute pending to it
+      const only = Array.from(buckets.values())[0];
+      only.totals.driver_pending_payout_pence = totalPending;
+    }
+
+    // ── Derive net commission + status + validation per bucket ──
+    for (const g of buckets.values()) {
+      g.totals.onecab_net_commission_pence =
+        g.totals.onecab_gross_commission_pence - g.totals.provider_fees_pence;
+
+      if (g.totals.onecab_gross_commission_pence > 0 && g.commission_status === 'legacy_fallback') {
+        g.commission_status = 'calculated_pending';
+      }
+
+      if (
+        maxTierPct > 0 &&
+        g.totals.commissionable_revenue_pence > 0 &&
+        g.totals.onecab_gross_commission_pence >
+          Math.round((g.totals.commissionable_revenue_pence * maxTierPct) / 100)
+      ) {
+        g.validation_warnings.push(
+          'Commission exceeds allowed tier cap — calculation mismatch.',
+        );
+      }
+    }
+
+    return json({
+      max_tier_pct: maxTierPct,
+      provider_platform_balance: providerBalance,
+      revenue_sources: {
+        PLATFORM_COMMISSION: 'driver_wallet_ledger PLATFORM_COMMISSION (UK/EU)',
+        COMMISSION_WALLET_DEDUCTION:
+          'driver_commission_wallet_ledger COMMISSION_DEDUCTION (Africa CW) — see totals.commission_wallet_deduction_pence',
+      },
+      currencies: Array.from(buckets.values()).sort((a, b) =>
+        a.currency_code.localeCompare(b.currency_code),
+      ),
+    }, 200);
+  } catch (error) {
+    console.error('admin-finance-summary error:', error);
+    return json({ error: (error as Error).message, error_code: 'FINANCE_SUMMARY_FAILED' }, 500);
+  }
+});
+
+function json(body: unknown, status = 200) {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+  });
+}

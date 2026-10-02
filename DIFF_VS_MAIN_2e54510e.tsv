@@ -1,0 +1,316 @@
+slug	status	same	whitespace_only	differs	not_in_main	files(~differs,+not_in_main)
+abandon-payment-session	DRIFT	same=25	whitespace_only=0	differs=5	not_in_main=0	~supabase/functions/_shared/customerReceivableLifecycle.ts ~supabase/functions/_shared/edgeFunctionTiming.ts ~supabase/functions/_shared/paymentSessionSSOT.ts ~supabase/functions/_shared/revolutOrders.ts ~supabase/functions/_shared/revolutPreauthCustomerAttach.ts
+accept-offer	IDENTICAL	same=17	whitespace_only=0	differs=0	not_in_main=0	
+accept-trip	DRIFT	same=9	whitespace_only=0	differs=1	not_in_main=0	~supabase/functions/_shared/customerTripLifecycleNotify.ts
+account-email-change-verify-link	IDENTICAL	same=5	whitespace_only=0	differs=0	not_in_main=0	
+account-email-verify-link	IDENTICAL	same=4	whitespace_only=0	differs=0	not_in_main=0	
+ack-timeout-sweep	DRIFT	same=2	whitespace_only=0	differs=1	not_in_main=0	~supabase/functions/ack-timeout-sweep/index.ts
+admin-add-trip-finance-note	IDENTICAL	same=5	whitespace_only=0	differs=0	not_in_main=0	
+admin-cancel-trip-negotiation	DRIFT	same=2	whitespace_only=0	differs=1	not_in_main=0	~supabase/functions/_shared/customerTripLifecycleNotify.ts
+admin-cancel-trip-payment	DRIFT	same=10	whitespace_only=0	differs=2	not_in_main=0	~supabase/functions/_shared/revolutOrders.ts ~supabase/functions/_shared/revolutPreauthCustomerAttach.ts
+admin-capture-trip-payment	DRIFT	same=55	whitespace_only=0	differs=12	not_in_main=3	+supabase/functions/_shared/captureCompositionAcquireSSOT.ts +supabase/functions/_shared/captureCompositionFreezeSSOT.ts +supabase/functions/_shared/captureCompositionSSOT.ts ~supabase/functions/_shared/adminCaptureTripPaymentSSOT.ts ~supabase/functions/_shared/applyCanonicalSettlementAfterCapture.ts ~supabase/functions/_shared/frDriverExpectedEntitlementSSOT.ts ~supabase/functions/_shared/paymentSessionSSOT.ts ~supabase/functions/_shared/persistConfirmedProviderCapture.ts ~supabase/functions/_shared/revolutOrders.ts ~supabase/functions/_shared/revolutPreauthCustomerAttach.ts ~supabase/functions/_shared/terminalFeeSettlementResumptionSSOT.ts ~supabase/functions/_shared/terminalOutcomeEntitlementSSOT.ts ~supabase/functions/_shared/tripPaymentFinalised.ts ~supabase/functions/_shared/tripSettlement.ts ~supabase/functions/admin-capture-trip-payment/index.ts
+admin-commission-wallet-campaigns	IDENTICAL	same=6	whitespace_only=0	differs=0	not_in_main=0	
+admin-commission-wallet-credit	IDENTICAL	same=6	whitespace_only=0	differs=0	not_in_main=0	
+admin-commission-wallet-overview	DRIFT	same=7	whitespace_only=0	differs=1	not_in_main=0	~supabase/functions/admin-commission-wallet-overview/index.ts
+admin-company-operational-reserve	IDENTICAL	same=7	whitespace_only=0	differs=0	not_in_main=0	
+admin-company-outgoing-transfer	DRIFT	same=52	whitespace_only=0	differs=1	not_in_main=0	~supabase/functions/_shared/frDriverExpectedEntitlementSSOT.ts
+admin-company-payees	IDENTICAL	same=34	whitespace_only=0	differs=0	not_in_main=0	
+admin-continuous-reconciliation	DRIFT	same=26	whitespace_only=0	differs=2	not_in_main=0	~supabase/functions/_shared/fetchDriverPayoutEligibility.ts ~supabase/functions/_shared/frDriverExpectedEntitlementSSOT.ts
+admin-customer-receivables	IDENTICAL	same=4	whitespace_only=0	differs=0	not_in_main=0	
+admin-delete-account	IDENTICAL	same=2	whitespace_only=0	differs=0	not_in_main=0	
+admin-digital-finance-migration	IDENTICAL	same=2	whitespace_only=0	differs=0	not_in_main=0	
+admin-driver-adjustment	DRIFT	same=18	whitespace_only=0	differs=1	not_in_main=0	~supabase/functions/_shared/fetchDriverPayoutEligibility.ts
+admin-driver-financial-repair	DRIFT	same=30	whitespace_only=0	differs=3	not_in_main=0	~supabase/functions/_shared/driverFinancialReviewRepairSSOT.ts ~supabase/functions/_shared/fetchDriverPayoutEligibility.ts ~supabase/functions/_shared/frDriverExpectedEntitlementSSOT.ts
+admin-driver-invoice	IDENTICAL	same=16	whitespace_only=0	differs=0	not_in_main=0	
+admin-driver-settlements	IDENTICAL	same=2	whitespace_only=0	differs=0	not_in_main=0	
+admin-driver-wallet-detail	IDENTICAL	same=5	whitespace_only=0	differs=0	not_in_main=0	
+admin-driver-wallet-ssot	DRIFT	same=28	whitespace_only=0	differs=4	not_in_main=0	~supabase/functions/_shared/fetchDriverPayoutEligibility.ts ~supabase/functions/_shared/fetchDriverWalletPayoutSnapshot.ts ~supabase/functions/_shared/frDriverExpectedEntitlementSSOT.ts ~supabase/functions/_shared/tripSettlement.ts
+admin-dry-run-driver-payout-payment	IDENTICAL	same=6	whitespace_only=0	differs=0	not_in_main=0	
+admin-emergency-dispatch	DRIFT	same=5	whitespace_only=0	differs=3	not_in_main=0	~supabase/functions/_shared/customerTripLifecycleNotify.ts ~supabase/functions/_shared/dispatch-settings.ts ~supabase/functions/_shared/dispatchOrchestrator.ts
+admin-execute-weekly-payout-occurrence	DRIFT	same=48	whitespace_only=0	differs=3	not_in_main=0	~supabase/functions/_shared/fetchDriverPayoutEligibility.ts ~supabase/functions/_shared/payoutItemLifecycleSSOT.ts ~supabase/functions/admin-execute-weekly-payout-occurrence/index.ts
+admin-finalize-company-transfer-completion	IDENTICAL	same=5	whitespace_only=0	differs=0	not_in_main=0	
+admin-finalize-driver-payout-completion	IDENTICAL	same=7	whitespace_only=0	differs=0	not_in_main=0	
+admin-finance-reconciliation	DRIFT	same=58	whitespace_only=0	differs=11	not_in_main=3	+supabase/functions/_shared/captureCompositionLocalApplySSOT.ts +supabase/functions/_shared/frCaptureCompositionIdentitySSOT.ts +supabase/functions/_shared/frCardReconciliationIdentitySSOT.ts ~supabase/functions/_shared/fetchDriverPayoutEligibility.ts ~supabase/functions/_shared/fetchDriverWalletPayoutSnapshot.ts ~supabase/functions/_shared/financeReconciliationTripQuery.ts ~supabase/functions/_shared/financeSettlementSummary.ts ~supabase/functions/_shared/financialReconciliationSSOT.ts ~supabase/functions/_shared/frDriverExpectedEntitlementSSOT.ts ~supabase/functions/_shared/frPerTripAuditSSOT.ts ~supabase/functions/_shared/paymentGatewayGuard.ts ~supabase/functions/_shared/paymentGatewayStatus.ts ~supabase/functions/_shared/tripSettlement.ts ~supabase/functions/admin-finance-reconciliation/index.ts
+admin-finance-settlement-summary	DRIFT	same=31	whitespace_only=0	differs=5	not_in_main=2	+supabase/functions/_shared/captureCompositionLocalApplySSOT.ts +supabase/functions/_shared/frCaptureCompositionIdentitySSOT.ts ~supabase/functions/_shared/financeSettlementSummary.ts ~supabase/functions/_shared/financialReconciliationSSOT.ts ~supabase/functions/_shared/frDriverExpectedEntitlementSSOT.ts ~supabase/functions/_shared/frPerTripAuditSSOT.ts ~supabase/functions/_shared/tripSettlement.ts
+admin-finance-summary	DRIFT	same=17	whitespace_only=0	differs=2	not_in_main=0	~supabase/functions/_shared/financialReconciliationSSOT.ts ~supabase/functions/_shared/tripSettlement.ts
+admin-get-trip-payment-state	DRIFT	same=28	whitespace_only=0	differs=8	not_in_main=3	+supabase/functions/_shared/captureCompositionLocalApplySSOT.ts +supabase/functions/_shared/frCaptureCompositionIdentitySSOT.ts +supabase/functions/_shared/frCardReconciliationIdentitySSOT.ts ~supabase/functions/_shared/financeSettlementSummary.ts ~supabase/functions/_shared/financialReconciliationSSOT.ts ~supabase/functions/_shared/frDriverExpectedEntitlementSSOT.ts ~supabase/functions/_shared/frPerTripAuditSSOT.ts ~supabase/functions/_shared/revolutOrders.ts ~supabase/functions/_shared/revolutPreauthCustomerAttach.ts ~supabase/functions/_shared/tripSettlement.ts ~supabase/functions/admin-get-trip-payment-state/index.ts
+admin-get-trips-capture-ssot	DRIFT	same=23	whitespace_only=0	differs=5	not_in_main=2	+supabase/functions/_shared/captureCompositionLocalApplySSOT.ts +supabase/functions/_shared/frCaptureCompositionIdentitySSOT.ts ~supabase/functions/_shared/financeSettlementSummary.ts ~supabase/functions/_shared/financialReconciliationSSOT.ts ~supabase/functions/_shared/frDriverExpectedEntitlementSSOT.ts ~supabase/functions/_shared/frPerTripAuditSSOT.ts ~supabase/functions/_shared/tripSettlement.ts
+admin-hold-action	DRIFT	same=39	whitespace_only=0	differs=8	not_in_main=1	+supabase/functions/_shared/captureCompositionSSOT.ts ~supabase/functions/_shared/frDriverExpectedEntitlementSSOT.ts ~supabase/functions/_shared/paymentSessionSSOT.ts ~supabase/functions/_shared/persistConfirmedProviderCapture.ts ~supabase/functions/_shared/revolutOrders.ts ~supabase/functions/_shared/revolutPreauthCustomerAttach.ts ~supabase/functions/_shared/terminalFeeSettlementResumptionSSOT.ts ~supabase/functions/_shared/terminalOutcomeEntitlementSSOT.ts ~supabase/functions/_shared/tripSettlement.ts
+admin-increment-revolut-authorisation	DRIFT	same=12	whitespace_only=0	differs=2	not_in_main=0	~supabase/functions/_shared/revolutOrders.ts ~supabase/functions/_shared/revolutPreauthCustomerAttach.ts
+admin-integration-secrets	IDENTICAL	same=2	whitespace_only=0	differs=0	not_in_main=0	
+admin-lovable-publish	IDENTICAL	same=4	whitespace_only=0	differs=0	not_in_main=0	
+admin-mark-manual-payout-paid	IDENTICAL	same=28	whitespace_only=0	differs=0	not_in_main=0	
+admin-official-boundaries	IDENTICAL	same=2	whitespace_only=0	differs=0	not_in_main=0	
+admin-payment-detail	DRIFT	same=19	whitespace_only=0	differs=4	not_in_main=0	~supabase/functions/_shared/canonicalTypedWalletPostingSSOT.ts ~supabase/functions/_shared/frDriverExpectedEntitlementSSOT.ts ~supabase/functions/_shared/terminalOutcomeEntitlementSSOT.ts ~supabase/functions/_shared/tripPaymentFinalised.ts
+admin-payment-holds-reconciliation	DRIFT	same=37	whitespace_only=0	differs=7	not_in_main=0	~supabase/functions/_shared/frDriverExpectedEntitlementSSOT.ts ~supabase/functions/_shared/paymentSessionSSOT.ts ~supabase/functions/_shared/persistConfirmedProviderCapture.ts ~supabase/functions/_shared/revolutOrders.ts ~supabase/functions/_shared/revolutPreauthCustomerAttach.ts ~supabase/functions/_shared/terminalFeeSettlementResumptionSSOT.ts ~supabase/functions/_shared/terminalOutcomeEntitlementSSOT.ts
+admin-payment-lifecycle-audit	DRIFT	same=8	whitespace_only=0	differs=2	not_in_main=0	~supabase/functions/_shared/revolutOrders.ts ~supabase/functions/_shared/revolutPreauthCustomerAttach.ts
+admin-payment-providers	DRIFT	same=14	whitespace_only=0	differs=2	not_in_main=0	~supabase/functions/_shared/paymentGatewayGuard.ts ~supabase/functions/_shared/paymentGatewayStatus.ts
+admin-payment-sessions	DRIFT	same=51	whitespace_only=0	differs=7	not_in_main=0	~supabase/functions/_shared/frDriverExpectedEntitlementSSOT.ts ~supabase/functions/_shared/paymentSessionSSOT.ts ~supabase/functions/_shared/persistConfirmedProviderCapture.ts ~supabase/functions/_shared/revolutOrders.ts ~supabase/functions/_shared/revolutPreauthCustomerAttach.ts ~supabase/functions/_shared/terminalFeeSettlementResumptionSSOT.ts ~supabase/functions/_shared/terminalOutcomeEntitlementSSOT.ts
+admin-payments-list	IDENTICAL	same=5	whitespace_only=0	differs=0	not_in_main=0	
+admin-payments-summary	IDENTICAL	same=2	whitespace_only=0	differs=0	not_in_main=0	
+admin-payout-batches	IDENTICAL	same=2	whitespace_only=0	differs=0	not_in_main=0	
+admin-payout-ledger	DRIFT	same=54	whitespace_only=0	differs=4	not_in_main=0	~supabase/functions/_shared/adminPayoutLedgerAccountsOverviewSSOT.ts ~supabase/functions/_shared/fetchDriverPayoutEligibility.ts ~supabase/functions/_shared/frDriverExpectedEntitlementSSOT.ts ~supabase/functions/_shared/weeklyPayoutOrchestratorSSOT.ts
+admin-recapture-trip-shortfall	IDENTICAL	same=8	whitespace_only=0	differs=0	not_in_main=0	
+admin-reconcile-historical-payout-allocation	IDENTICAL	same=6	whitespace_only=0	differs=0	not_in_main=0	
+admin-recover-captured-trip-wallet	DRIFT	same=25	whitespace_only=0	differs=1	not_in_main=0	~supabase/functions/admin-recover-captured-trip-wallet/handler.ts
+admin-recover-mk007-mk009-wallet	DRIFT	same=7	whitespace_only=0	differs=1	not_in_main=0	~supabase/functions/admin-recover-mk007-mk009-wallet/handler.ts
+admin-recover-revolut-orphan	DRIFT	same=35	whitespace_only=0	differs=3	not_in_main=0	~supabase/functions/_shared/paymentSessionSSOT.ts ~supabase/functions/_shared/revolutOrders.ts ~supabase/functions/_shared/revolutPreauthCustomerAttach.ts
+admin-refresh-payment-sessions	DRIFT	same=42	whitespace_only=0	differs=6	not_in_main=1	+supabase/functions/_shared/captureCompositionSSOT.ts ~supabase/functions/_shared/frDriverExpectedEntitlementSSOT.ts ~supabase/functions/_shared/paymentSessionSSOT.ts ~supabase/functions/_shared/revolutOrders.ts ~supabase/functions/_shared/revolutPreauthCustomerAttach.ts ~supabase/functions/_shared/tripSettlement.ts ~supabase/functions/admin-refresh-payment-sessions/index.ts
+admin-refund-trip-payment	DRIFT	same=12	whitespace_only=0	differs=2	not_in_main=0	~supabase/functions/_shared/revolutOrders.ts ~supabase/functions/_shared/revolutPreauthCustomerAttach.ts
+admin-register-revolut-webhook	IDENTICAL	same=9	whitespace_only=0	differs=0	not_in_main=0	
+admin-remediate-mk260815029	DRIFT	same=8	whitespace_only=0	differs=2	not_in_main=0	~supabase/functions/_shared/revolutOrders.ts ~supabase/functions/_shared/revolutPreauthCustomerAttach.ts
+admin-remediate-trip-payment	DRIFT	same=64	whitespace_only=0	differs=9	not_in_main=4	+supabase/functions/_shared/captureCompositionAcquireSSOT.ts +supabase/functions/_shared/captureCompositionFreezeSSOT.ts +supabase/functions/_shared/captureCompositionLocalApplySSOT.ts +supabase/functions/_shared/captureCompositionSSOT.ts ~supabase/functions/_shared/applyCanonicalSettlementAfterCapture.ts ~supabase/functions/_shared/customerReceivableLifecycle.ts ~supabase/functions/_shared/paymentSessionSSOT.ts ~supabase/functions/_shared/revolutCompletionCapture.ts ~supabase/functions/_shared/revolutOrders.ts ~supabase/functions/_shared/revolutPreauthCustomerAttach.ts ~supabase/functions/_shared/tipWindowConstants.ts ~supabase/functions/_shared/tripPaymentFinalised.ts ~supabase/functions/_shared/tripSettlement.ts
+admin-request-extra-payment	DRIFT	same=10	whitespace_only=0	differs=3	not_in_main=0	~supabase/functions/_shared/revolutOrders.ts ~supabase/functions/_shared/revolutPreauthCustomerAttach.ts ~supabase/functions/admin-request-extra-payment/index.ts
+admin-reserve-driver-payout-batch	IDENTICAL	same=5	whitespace_only=0	differs=0	not_in_main=0	
+admin-revolut-business-oauth	IDENTICAL	same=28	whitespace_only=0	differs=0	not_in_main=0	
+admin-revolut-business-oauth-callback	IDENTICAL	same=25	whitespace_only=0	differs=0	not_in_main=0	
+admin-revolut-orphan-reconciliation	DRIFT	same=35	whitespace_only=0	differs=3	not_in_main=0	~supabase/functions/_shared/paymentSessionSSOT.ts ~supabase/functions/_shared/revolutOrders.ts ~supabase/functions/_shared/revolutPreauthCustomerAttach.ts
+admin-service-area-digital-payment-methods	DRIFT	same=17	whitespace_only=0	differs=2	not_in_main=0	~supabase/functions/_shared/paymentGatewayGuard.ts ~supabase/functions/_shared/paymentGatewayStatus.ts
+admin-set-commission-wallet-test-access	IDENTICAL	same=5	whitespace_only=0	differs=0	not_in_main=0	
+admin-submit-company-transfer-payment	DRIFT	same=45	whitespace_only=0	differs=1	not_in_main=0	~supabase/functions/_shared/frDriverExpectedEntitlementSSOT.ts
+admin-submit-driver-payout-payment	IDENTICAL	same=33	whitespace_only=0	differs=0	not_in_main=0	
+admin-support-heartbeat	IDENTICAL	same=2	whitespace_only=0	differs=0	not_in_main=0	
+admin-support-status	IDENTICAL	same=2	whitespace_only=0	differs=0	not_in_main=0	
+admin-sync-company-transfer-provider-status	IDENTICAL	same=5	whitespace_only=0	differs=0	not_in_main=0	
+admin-sync-driver-payout-provider-linkage	IDENTICAL	same=6	whitespace_only=0	differs=0	not_in_main=0	
+admin-sync-payout-ledger	IDENTICAL	same=5	whitespace_only=0	differs=0	not_in_main=0	
+admin-trip-action	DRIFT	same=18	whitespace_only=0	differs=3	not_in_main=0	~supabase/functions/_shared/customerTripLifecycleNotify.ts ~supabase/functions/_shared/revolutOrders.ts ~supabase/functions/_shared/revolutPreauthCustomerAttach.ts
+admin-trip-actions	DRIFT	same=23	whitespace_only=0	differs=5	not_in_main=0	~supabase/functions/_shared/customerReceivableLifecycle.ts ~supabase/functions/_shared/paymentSessionSSOT.ts ~supabase/functions/_shared/revolutOrders.ts ~supabase/functions/_shared/revolutPreauthCustomerAttach.ts ~supabase/functions/_shared/terminalTripPaymentDisposition.ts
+admin-update-driver-contact	IDENTICAL	same=2	whitespace_only=0	differs=0	not_in_main=0	
+admin-verify-driver-payout-destination	IDENTICAL	same=3	whitespace_only=0	differs=0	not_in_main=0	
+admin-weekly-monday-settlement	IDENTICAL	same=2	whitespace_only=0	differs=0	not_in_main=0	
+admin-weekly-payout-scheduler	DRIFT	same=19	whitespace_only=0	differs=3	not_in_main=0	~supabase/functions/_shared/fetchDriverPayoutEligibility.ts ~supabase/functions/_shared/payoutItemLifecycleSSOT.ts ~supabase/functions/admin-weekly-payout-scheduler/index.ts
+apply-customer-email-change	IDENTICAL	same=13	whitespace_only=0	differs=0	not_in_main=0	
+apply-offer	IDENTICAL	same=3	whitespace_only=0	differs=0	not_in_main=0	
+apply-trip-change	IDENTICAL	same=8	whitespace_only=0	differs=0	not_in_main=0	
+auto-dispatch	DRIFT	same=34	whitespace_only=0	differs=1	not_in_main=0	~supabase/functions/_shared/customerTripLifecycleNotify.ts
+auto-generate-statements	DRIFT	same=14	whitespace_only=0	differs=1	not_in_main=0	~supabase/functions/auto-generate-statements/index.ts
+bind-driver-device-token	IDENTICAL	same=5	whitespace_only=0	differs=0	not_in_main=0	
+booking-received	IDENTICAL	same=3	whitespace_only=0	differs=0	not_in_main=0	
+calculate-fare	IDENTICAL	same=9	whitespace_only=0	differs=0	not_in_main=0	
+calculate-final-fare	IDENTICAL	same=2	whitespace_only=0	differs=0	not_in_main=0	
+calculate-route	IDENTICAL	same=5	whitespace_only=0	differs=0	not_in_main=0	
+call-masking	DRIFT	same=9	whitespace_only=0	differs=2	not_in_main=0	~supabase/functions/_shared/callMaskingLogs.ts ~supabase/functions/call-masking/index.ts
+cancel-corporate-trip	DRIFT	same=2	whitespace_only=0	differs=1	not_in_main=0	~supabase/functions/_shared/customerTripLifecycleNotify.ts
+cancel-payment-session	DRIFT	same=3	whitespace_only=0	differs=1	not_in_main=0	~supabase/functions/_shared/customerReceivableLifecycle.ts
+cancel-trip	DRIFT	same=36	whitespace_only=0	differs=9	not_in_main=1	+supabase/functions/_shared/captureCompositionSSOT.ts ~supabase/functions/_shared/customerReceivableLifecycle.ts ~supabase/functions/_shared/frDriverExpectedEntitlementSSOT.ts ~supabase/functions/_shared/paymentSessionSSOT.ts ~supabase/functions/_shared/revolutOrders.ts ~supabase/functions/_shared/revolutPreauthCustomerAttach.ts ~supabase/functions/_shared/terminalTripPaymentDisposition.ts ~supabase/functions/_shared/tripSettlement.ts ~supabase/functions/_shared/waitingSegmentClock.ts ~supabase/functions/cancel-trip/index.ts
+cancel-trip-modification	IDENTICAL	same=2	whitespace_only=0	differs=0	not_in_main=0	
+capture-expired-tip-windows	DRIFT	same=27	whitespace_only=0	differs=7	not_in_main=1	+supabase/functions/_shared/captureCompositionSSOT.ts ~supabase/functions/_shared/revolutOrders.ts ~supabase/functions/_shared/revolutPreauthCustomerAttach.ts ~supabase/functions/_shared/tipWindowConstants.ts ~supabase/functions/_shared/tipWindowTriggerMutexSSOT.ts ~supabase/functions/_shared/tripPaymentFinalised.ts ~supabase/functions/_shared/tripSettlement.ts ~supabase/functions/capture-expired-tip-windows/index.ts
+capture-trip-payment	IDENTICAL	same=4	whitespace_only=0	differs=0	not_in_main=0	
+change-active-trip-payment-method	IDENTICAL	same=4	whitespace_only=0	differs=0	not_in_main=0	
+change-customer-email	IDENTICAL	same=2	whitespace_only=0	differs=0	not_in_main=0	
+charge-lifecycle-fee	DRIFT	same=19	whitespace_only=0	differs=3	not_in_main=0	~supabase/functions/_shared/paymentSessionSSOT.ts ~supabase/functions/_shared/revolutOrders.ts ~supabase/functions/_shared/revolutPreauthCustomerAttach.ts
+check-account-email-verified	IDENTICAL	same=4	whitespace_only=0	differs=0	not_in_main=0	
+check-corporate-schedule-overlap	IDENTICAL	same=3	whitespace_only=0	differs=0	not_in_main=0	
+check-geofence	DRIFT	same=4	whitespace_only=0	differs=1	not_in_main=0	~supabase/functions/check-geofence/index.ts
+check-identity-availability	IDENTICAL	same=2	whitespace_only=0	differs=0	not_in_main=0	
+claim-device	IDENTICAL	same=1	whitespace_only=0	differs=0	not_in_main=0	
+cleanup-unverified-accounts	IDENTICAL	same=2	whitespace_only=0	differs=0	not_in_main=0	
+commission-wallet-topup-webhook	IDENTICAL	same=8	whitespace_only=0	differs=0	not_in_main=0	
+complete-stop	IDENTICAL	same=4	whitespace_only=0	differs=0	not_in_main=0	
+complete-trip	IDENTICAL	same=2	whitespace_only=0	differs=0	not_in_main=0	
+compute-driver-demand-zones	IDENTICAL	same=7	whitespace_only=0	differs=0	not_in_main=0	
+confirm-revolut-payment	DRIFT	same=33	whitespace_only=0	differs=8	not_in_main=0	~supabase/functions/_shared/customerSavedPaymentMethodTokens.ts ~supabase/functions/_shared/edgeFunctionTiming.ts ~supabase/functions/_shared/paymentSessionSSOT.ts ~supabase/functions/_shared/revolutOrders.ts ~supabase/functions/_shared/revolutPreauthCustomerAttach.ts ~supabase/functions/_shared/revolutSavedCardWalletLink.ts ~supabase/functions/_shared/savedCardPaymentReconcileSSOT.ts ~supabase/functions/confirm-revolut-payment/index.ts
+confirm-trip-modification-payment	DRIFT	same=8	whitespace_only=0	differs=6	not_in_main=0	~supabase/functions/_shared/executeFareIncreaseModificationPayment.ts ~supabase/functions/_shared/revolutOrders.ts ~supabase/functions/_shared/revolutPreauthCustomerAttach.ts ~supabase/functions/_shared/tripModificationApply.ts ~supabase/functions/_shared/tripModificationPaymentGateSSOT.ts ~supabase/functions/confirm-trip-modification-payment/index.ts
+corporate-service-area-options	IDENTICAL	same=5	whitespace_only=0	differs=0	not_in_main=0	
+create-active-trip	IDENTICAL	same=4	whitespace_only=0	differs=0	not_in_main=0	
+create-corporate-book	DRIFT	same=39	whitespace_only=0	differs=10	not_in_main=1	+supabase/functions/_shared/scanGoDriverHoldSSOT.ts ~supabase/functions/_shared/customerReceivableConsentSSOT.ts ~supabase/functions/_shared/customerReceivableLifecycle.ts ~supabase/functions/_shared/customerSavedPaymentMethodTokens.ts ~supabase/functions/_shared/paymentSessionSSOT.ts ~supabase/functions/_shared/preauthEdgeTimingSSOT.ts ~supabase/functions/_shared/revolutOrders.ts ~supabase/functions/_shared/revolutPreauth.ts ~supabase/functions/_shared/revolutPreauthCustomerAttach.ts ~supabase/functions/_shared/revolutSavedCardWalletLink.ts ~supabase/functions/_shared/savedCardPaymentReconcileSSOT.ts
+create-guest-payment-intent	IDENTICAL	same=27	whitespace_only=0	differs=0	not_in_main=0	
+create-lost-property-case	IDENTICAL	same=2	whitespace_only=0	differs=0	not_in_main=0	
+create-onboarding-auth-user	IDENTICAL	same=7	whitespace_only=0	differs=0	not_in_main=0	
+create-payment-intent	DRIFT	same=8	whitespace_only=0	differs=3	not_in_main=0	~supabase/functions/_shared/revolutOrders.ts ~supabase/functions/_shared/revolutPreauthCustomerAttach.ts ~supabase/functions/create-payment-intent/index.ts
+create-payment-recovery	DRIFT	same=24	whitespace_only=0	differs=4	not_in_main=0	~supabase/functions/_shared/paymentSessionSSOT.ts ~supabase/functions/_shared/revolutOrders.ts ~supabase/functions/_shared/revolutPreauthCustomerAttach.ts ~supabase/functions/create-payment-recovery/index.ts
+create-preauth-payment-intent	IDENTICAL	same=71	whitespace_only=0	differs=0	not_in_main=0	
+create-ride	DRIFT	same=5	whitespace_only=0	differs=1	not_in_main=0	~supabase/functions/_shared/scheduledDispatchConfig.ts
+create-trip	IDENTICAL	same=2	whitespace_only=0	differs=0	not_in_main=0	
+create-trip-after-payment	DRIFT	same=60	whitespace_only=0	differs=14	not_in_main=0	~supabase/functions/_shared/bookingPostCommit.ts ~supabase/functions/_shared/bookingWaterfallSSOT.ts ~supabase/functions/_shared/bookingWaterfallTelemetry.ts ~supabase/functions/_shared/customerSavedPaymentMethodTokens.ts ~supabase/functions/_shared/dispatch-settings.ts ~supabase/functions/_shared/dispatchOrchestrator.ts ~supabase/functions/_shared/holdReleaseSSOT.ts ~supabase/functions/_shared/opsLog.ts ~supabase/functions/_shared/passengerEligibility.ts ~supabase/functions/_shared/paymentGatewayGuard.ts ~supabase/functions/_shared/paymentGatewayStatus.ts ~supabase/functions/_shared/paymentSessionSSOT.ts ~supabase/functions/_shared/revolutSavedCardWalletLink.ts ~supabase/functions/create-trip-after-payment/index.ts
+create-trip-request	IDENTICAL	same=8	whitespace_only=0	differs=0	not_in_main=0	
+customer-counter-offer	IDENTICAL	same=2	whitespace_only=0	differs=0	not_in_main=0	
+customer-decision	IDENTICAL	same=4	whitespace_only=0	differs=0	not_in_main=0	
+customer-fare-decision	DRIFT	same=29	whitespace_only=0	differs=3	not_in_main=0	~supabase/functions/_shared/customerTripLifecycleNotify.ts ~supabase/functions/_shared/revolutOrders.ts ~supabase/functions/_shared/revolutPreauthCustomerAttach.ts
+customer-identity-veriff-webhook	IDENTICAL	same=2	whitespace_only=0	differs=0	not_in_main=0	
+customer-login-confirm-email	IDENTICAL	same=3	whitespace_only=0	differs=0	not_in_main=0	
+customer-negotiation-sync	IDENTICAL	same=6	whitespace_only=0	differs=0	not_in_main=0	
+customer-receivable-booking-quote	IDENTICAL	same=11	whitespace_only=0	differs=0	not_in_main=0	
+customer-resume-driver-search	DRIFT	same=4	whitespace_only=0	differs=3	not_in_main=0	~supabase/functions/_shared/customerTripLifecycleNotify.ts ~supabase/functions/_shared/dispatch-settings.ts ~supabase/functions/_shared/dispatchOrchestrator.ts
+customer-special-offers	IDENTICAL	same=3	whitespace_only=0	differs=0	not_in_main=0	
+customer-trip-driver-details	IDENTICAL	same=2	whitespace_only=0	differs=0	not_in_main=0	
+customer-trip-invoice	DRIFT	same=11	whitespace_only=0	differs=3	not_in_main=0	~supabase/functions/_shared/tipWindowConstants.ts ~supabase/functions/_shared/tripInvoiceEligibility.ts ~supabase/functions/_shared/tripPaymentFinalised.ts
+decline-offer	DRIFT	same=6	whitespace_only=0	differs=1	not_in_main=0	~supabase/functions/_shared/customerTripLifecycleNotify.ts
+decline-trip	IDENTICAL	same=4	whitespace_only=0	differs=0	not_in_main=0	
+delete-customer-account	IDENTICAL	same=2	whitespace_only=0	differs=0	not_in_main=0	
+delete-revolut-saved-card	IDENTICAL	same=1	whitespace_only=0	differs=0	not_in_main=0	
+deliver-driver-statement	IDENTICAL	same=10	whitespace_only=0	differs=0	not_in_main=0	
+diag	ABSENT_FROM_MAIN	same=2	whitespace_only=0	differs=0	not_in_main=1	+supabase/functions/diag/index.ts
+document-reminders	IDENTICAL	same=2	whitespace_only=0	differs=0	not_in_main=0	
+driver-arrived	IDENTICAL	same=2	whitespace_only=0	differs=0	not_in_main=0	
+driver-cancel-before-pickup	DRIFT	same=6	whitespace_only=0	differs=3	not_in_main=0	~supabase/functions/_shared/customerTripLifecycleNotify.ts ~supabase/functions/_shared/dispatch-settings.ts ~supabase/functions/_shared/dispatchOrchestrator.ts
+driver-commission-wallet-initiate-topup	DRIFT	same=6	whitespace_only=0	differs=1	not_in_main=0	~supabase/functions/driver-commission-wallet-initiate-topup/index.ts
+driver-commission-wallet-summary	IDENTICAL	same=4	whitespace_only=0	differs=0	not_in_main=0	
+driver-earnings-summary	DRIFT	same=16	whitespace_only=0	differs=1	not_in_main=0	~supabase/functions/_shared/fetchDriverPayoutEligibility.ts
+driver-fare-final	DRIFT	same=25	whitespace_only=0	differs=3	not_in_main=0	~supabase/functions/_shared/customerTripLifecycleNotify.ts ~supabase/functions/_shared/revolutOrders.ts ~supabase/functions/_shared/revolutPreauthCustomerAttach.ts
+driver-fare-offer	IDENTICAL	same=12	whitespace_only=0	differs=0	not_in_main=0	
+driver-invoices	IDENTICAL	same=2	whitespace_only=0	differs=0	not_in_main=0	
+driver-negotiation-decision	IDENTICAL	same=2	whitespace_only=0	differs=0	not_in_main=0	
+driver-negotiation-sync	IDENTICAL	same=3	whitespace_only=0	differs=0	not_in_main=0	
+driver-payout-settings	DRIFT	same=19	whitespace_only=0	differs=2	not_in_main=0	~supabase/functions/_shared/paymentGatewayGuard.ts ~supabase/functions/_shared/paymentGatewayStatus.ts
+driver-pending-offers	IDENTICAL	same=3	whitespace_only=0	differs=0	not_in_main=0	
+driver-send-preset-offer	IDENTICAL	same=4	whitespace_only=0	differs=0	not_in_main=0	
+driver-signup-location-options	IDENTICAL	same=3	whitespace_only=0	differs=0	not_in_main=0	
+driver-special-offers	IDENTICAL	same=3	whitespace_only=0	differs=0	not_in_main=0	
+driver-statement-pdf	IDENTICAL	same=10	whitespace_only=0	differs=0	not_in_main=0	
+driver-trip-passenger-details	IDENTICAL	same=2	whitespace_only=0	differs=0	not_in_main=0	
+driver-wallet-transactions	IDENTICAL	same=7	whitespace_only=0	differs=0	not_in_main=0	
+driver-withdraw	IDENTICAL	same=46	whitespace_only=0	differs=0	not_in_main=0	
+driving-directions	IDENTICAL	same=3	whitespace_only=0	differs=0	not_in_main=0	
+estimate-fare	IDENTICAL	same=6	whitespace_only=0	differs=0	not_in_main=0	
+expire-offers	DRIFT	same=20	whitespace_only=0	differs=3	not_in_main=0	~supabase/functions/_shared/customerTripLifecycleNotify.ts ~supabase/functions/_shared/dispatch-settings.ts ~supabase/functions/expire-offers/index.ts
+expire-stale-drivers	DRIFT	same=2	whitespace_only=0	differs=1	not_in_main=0	~supabase/functions/expire-stale-drivers/index.ts
+expire-trip	DRIFT	same=20	whitespace_only=0	differs=4	not_in_main=0	~supabase/functions/_shared/customerTripLifecycleNotify.ts ~supabase/functions/_shared/paymentSessionSSOT.ts ~supabase/functions/_shared/revolutOrders.ts ~supabase/functions/_shared/revolutPreauthCustomerAttach.ts
+finalize-customer-onboarding	IDENTICAL	same=3	whitespace_only=0	differs=0	not_in_main=0	
+finalize-paid-booking-session	IDENTICAL	same=3	whitespace_only=0	differs=0	not_in_main=0	
+finalize-trip-and-capture	IDENTICAL	same=67	whitespace_only=0	differs=0	not_in_main=0	
+finance-backend-audit-v1	DRIFT	same=34	whitespace_only=0	differs=5	not_in_main=2	+supabase/functions/_shared/captureCompositionLocalApplySSOT.ts +supabase/functions/_shared/frCaptureCompositionIdentitySSOT.ts ~supabase/functions/_shared/financeSettlementSummary.ts ~supabase/functions/_shared/financialReconciliationSSOT.ts ~supabase/functions/_shared/frDriverExpectedEntitlementSSOT.ts ~supabase/functions/_shared/frPerTripAuditSSOT.ts ~supabase/functions/_shared/tripSettlement.ts
+financial-ssot-monitor	DRIFT	same=7	whitespace_only=0	differs=2	not_in_main=0	~supabase/functions/_shared/edgeFunctionTiming.ts ~supabase/functions/financial-ssot-monitor/index.ts
+find-drivers	IDENTICAL	same=5	whitespace_only=0	differs=0	not_in_main=0	
+generate-driver-statement	IDENTICAL	same=3	whitespace_only=0	differs=0	not_in_main=0	
+generate-merchant-image	IDENTICAL	same=2	whitespace_only=0	differs=0	not_in_main=0	
+get-active-offer	IDENTICAL	same=2	whitespace_only=0	differs=0	not_in_main=0	
+get-active-trip	DRIFT	same=52	whitespace_only=0	differs=3	not_in_main=1	+supabase/functions/_shared/getActiveTripEdgeTimingSSOT.ts ~supabase/functions/_shared/paymentGatewayGuard.ts ~supabase/functions/_shared/paymentGatewayStatus.ts ~supabase/functions/get-active-trip/index.ts
+get-customer-identity-verification-status	IDENTICAL	same=3	whitespace_only=0	differs=0	not_in_main=0	
+get-driver-offer-snapshot	IDENTICAL	same=7	whitespace_only=0	differs=0	not_in_main=0	
+get-mapbox-token	IDENTICAL	same=2	whitespace_only=0	differs=0	not_in_main=0	
+get-payment-session	DRIFT	same=14	whitespace_only=0	differs=2	not_in_main=0	~supabase/functions/_shared/edgeFunctionTiming.ts ~supabase/functions/_shared/paymentSessionSSOT.ts
+get-preset-offers	IDENTICAL	same=5	whitespace_only=0	differs=0	not_in_main=0	
+get-revolut-checkout-client-config	IDENTICAL	same=3	whitespace_only=0	differs=0	not_in_main=0	
+get-sentry-dsn	IDENTICAL	same=2	whitespace_only=0	differs=0	not_in_main=0	
+get-vapid-key	IDENTICAL	same=4	whitespace_only=0	differs=0	not_in_main=0	
+guard-onboarding-login	IDENTICAL	same=6	whitespace_only=0	differs=0	not_in_main=0	
+guest-trip-action	ABSENT_FROM_MAIN	same=1	whitespace_only=0	differs=2	not_in_main=2	+supabase/functions/_shared/whatsappPassengerInvoke.ts +supabase/functions/guest-trip-action/index.ts ~supabase/functions/_shared/corsHeaders.ts ~supabase/functions/_shared/whatsappContinuationToken.ts
+guest-trip-status	ABSENT_FROM_MAIN	same=13	whitespace_only=0	differs=13	not_in_main=2	+supabase/functions/_shared/whatsappNoDriverNotify.ts +supabase/functions/guest-trip-status/index.ts ~shared/paymentHoldClassificationSSOT.ts ~shared/paymentHoldProviderTerminalPure.ts ~shared/paymentSessionAdditionalAuthSSOT.ts ~shared/paymentSessionRefundFeeSSOT.ts ~shared/paymentSessionReleaseEvidenceSSOT.ts ~shared/revolutPaymentHoldSSOT.ts ~supabase/functions/_shared/corsHeaders.ts ~supabase/functions/_shared/holdTelemetrySSOT.ts ~supabase/functions/_shared/paymentSessionSSOT.ts ~supabase/functions/_shared/revolutApi.ts ~supabase/functions/_shared/revolutOrders.ts ~supabase/functions/_shared/revolutPreauthCustomerAttach.ts ~supabase/functions/_shared/whatsappContinuationToken.ts
+help-centre	IDENTICAL	same=3	whitespace_only=0	differs=0	not_in_main=0	
+improve-lost-item-description	DRIFT	same=1	whitespace_only=0	differs=2	not_in_main=0	~supabase/functions/_shared/corsHeaders.ts ~supabase/functions/improve-lost-item-description/index.ts
+ingest-ops-event	IDENTICAL	same=2	whitespace_only=0	differs=0	not_in_main=0	
+ingest-telemetry	DRIFT	same=1	whitespace_only=0	differs=1	not_in_main=0	~supabase/functions/ingest-telemetry/index.ts
+investigate-resend-delivery	DRIFT	same=1	whitespace_only=0	differs=1	not_in_main=0	~supabase/functions/investigate-resend-delivery/index.ts
+ios-offer-realert	IDENTICAL	same=4	whitespace_only=0	differs=0	not_in_main=0	
+late-cancellation-check	DRIFT	same=26	whitespace_only=0	differs=3	not_in_main=1	+supabase/functions/_shared/captureCompositionSSOT.ts ~supabase/functions/_shared/frDriverExpectedEntitlementSSOT.ts ~supabase/functions/_shared/paymentSessionSSOT.ts ~supabase/functions/_shared/tripSettlement.ts
+list-customer-service-areas	DRIFT	same=1	whitespace_only=0	differs=1	not_in_main=0	~supabase/functions/_shared/corsHeaders.ts
+list-marketplace-merchants	IDENTICAL	same=2	whitespace_only=0	differs=0	not_in_main=0	
+list-revolut-saved-cards	IDENTICAL	same=1	whitespace_only=0	differs=0	not_in_main=0	
+livekit-voip-token	IDENTICAL	same=11	whitespace_only=0	differs=0	not_in_main=0	
+livekit-webhook	IDENTICAL	same=11	whitespace_only=0	differs=0	not_in_main=0	
+lookup-booking-canonical-trip	ABSENT_FROM_MAIN	same=2	whitespace_only=0	differs=1	not_in_main=2	+supabase/functions/_shared/bookingCanonicalTripLookupSSOT.ts +supabase/functions/lookup-booking-canonical-trip/index.ts ~supabase/functions/_shared/opsLog.ts
+lost-property	DRIFT	same=4	whitespace_only=0	differs=1	not_in_main=0	~supabase/functions/_shared/customerTripLifecycleNotify.ts
+lost-property-ai	IDENTICAL	same=2	whitespace_only=0	differs=0	not_in_main=0	
+lost-property-transition	DRIFT	same=2	whitespace_only=0	differs=2	not_in_main=0	~supabase/functions/_shared/customerTripLifecycleNotify.ts ~supabase/functions/lost-property-transition/index.ts
+lovable-app-publish	IDENTICAL	same=4	whitespace_only=0	differs=0	not_in_main=0	
+mapbox-places	DRIFT	same=1	whitespace_only=0	differs=1	not_in_main=0	~supabase/functions/mapbox-places/index.ts
+mapbox-search	IDENTICAL	same=4	whitespace_only=0	differs=0	not_in_main=0	
+merchant-signup	DRIFT	same=1	whitespace_only=0	differs=1	not_in_main=0	~supabase/functions/merchant-signup/index.ts
+onecab-assistant	DRIFT	same=11	whitespace_only=0	differs=5	not_in_main=3	+supabase/functions/onecab-assistant/driverCatalog.ts +supabase/functions/onecab-assistant/driverReadContext.ts +supabase/functions/onecab-assistant/driverRouter.ts ~supabase/functions/onecab-assistant/driverAssistantRuntime.ts ~supabase/functions/onecab-assistant/driverAuth.ts ~supabase/functions/onecab-assistant/driverBusyGate.ts ~supabase/functions/onecab-assistant/driverKnowledge.ts ~supabase/functions/onecab-assistant/handler.ts
+open-payment-session-checkout	DRIFT	same=14	whitespace_only=0	differs=2	not_in_main=0	~supabase/functions/_shared/edgeFunctionTiming.ts ~supabase/functions/_shared/paymentSessionSSOT.ts
+ops-ai-fix	IDENTICAL	same=2	whitespace_only=0	differs=0	not_in_main=0	
+ops-ai-summary	IDENTICAL	same=5	whitespace_only=0	differs=0	not_in_main=0	
+ops-p0-release-duplicate-holds	DRIFT	same=9	whitespace_only=0	differs=2	not_in_main=0	~supabase/functions/_shared/revolutOrders.ts ~supabase/functions/_shared/revolutPreauthCustomerAttach.ts
+ops-run-detections	IDENTICAL	same=4	whitespace_only=0	differs=0	not_in_main=0	
+ops-seed	IDENTICAL	same=4	whitespace_only=0	differs=0	not_in_main=0	
+pickup-no-show	DRIFT	same=20	whitespace_only=0	differs=6	not_in_main=0	~supabase/functions/_shared/dispatch-settings.ts ~supabase/functions/_shared/dispatchOrchestrator.ts ~supabase/functions/_shared/frDriverExpectedEntitlementSSOT.ts ~supabase/functions/_shared/tripSettlement.ts ~supabase/functions/_shared/waitingSegmentClock.ts ~supabase/functions/pickup-no-show/index.ts
+place-lookup	DRIFT	same=4	whitespace_only=0	differs=2	not_in_main=0	~supabase/functions/_shared/corsHeaders.ts ~supabase/functions/place-lookup/index.ts
+postcode-lookup	DRIFT	same=3	whitespace_only=0	differs=2	not_in_main=0	~supabase/functions/_shared/corsHeaders.ts ~supabase/functions/postcode-lookup/index.ts
+process-scheduled-rides	IDENTICAL	same=4	whitespace_only=0	differs=0	not_in_main=0	
+public-content	IDENTICAL	same=2	whitespace_only=0	differs=0	not_in_main=0	
+qr-booking-config	IDENTICAL	same=2	whitespace_only=0	differs=0	not_in_main=0	
+query-performance	IDENTICAL	same=2	whitespace_only=0	differs=0	not_in_main=0	
+reconcile-payment-session	DRIFT	same=25	whitespace_only=0	differs=5	not_in_main=0	~supabase/functions/_shared/edgeFunctionTiming.ts ~supabase/functions/_shared/paymentSessionSSOT.ts ~supabase/functions/_shared/revolutOrders.ts ~supabase/functions/_shared/revolutPreauthCustomerAttach.ts ~supabase/functions/_shared/savedCardPaymentReconcileSSOT.ts
+reconcile-submitted-driver-withdrawals	IDENTICAL	same=6	whitespace_only=0	differs=0	not_in_main=0	
+record-financial-outcome	DRIFT	same=18	whitespace_only=0	differs=3	not_in_main=0	~supabase/functions/_shared/frDriverExpectedEntitlementSSOT.ts ~supabase/functions/_shared/tripPaymentFinalised.ts ~supabase/functions/_shared/tripSettlement.ts
+redeem-promo-code	IDENTICAL	same=4	whitespace_only=0	differs=0	not_in_main=0	
+release-terminal-trip-hold	DRIFT	same=22	whitespace_only=0	differs=5	not_in_main=0	~supabase/functions/_shared/customerReceivableLifecycle.ts ~supabase/functions/_shared/paymentSessionSSOT.ts ~supabase/functions/_shared/revolutOrders.ts ~supabase/functions/_shared/revolutPreauthCustomerAttach.ts ~supabase/functions/_shared/terminalTripPaymentDisposition.ts
+repair-commissions	DRIFT	same=17	whitespace_only=0	differs=4	not_in_main=0	~supabase/functions/_shared/canonicalTypedWalletPostingSSOT.ts ~supabase/functions/_shared/frDriverExpectedEntitlementSSOT.ts ~supabase/functions/_shared/terminalOutcomeEntitlementSSOT.ts ~supabase/functions/_shared/tripPaymentFinalised.ts
+report-payment-recovery-needed	DRIFT	same=29	whitespace_only=0	differs=4	not_in_main=0	~supabase/functions/_shared/edgeFunctionTiming.ts ~supabase/functions/_shared/paymentSessionSSOT.ts ~supabase/functions/_shared/revolutOrders.ts ~supabase/functions/_shared/revolutPreauthCustomerAttach.ts
+request-password-recovery	IDENTICAL	same=8	whitespace_only=0	differs=0	not_in_main=0	
+request-trip-modification	DRIFT	same=21	whitespace_only=0	differs=2	not_in_main=1	+supabase/functions/_shared/modificationPaymentFailureTaxonomy.ts ~supabase/functions/_shared/executeFareIncreaseModificationPayment.ts ~supabase/functions/request-trip-modification/index.ts
+resolve-service-area	IDENTICAL	same=2	whitespace_only=0	differs=0	not_in_main=0	
+resolve-zones	IDENTICAL	same=2	whitespace_only=0	differs=0	not_in_main=0	
+respond-trip-modification	DRIFT	same=9	whitespace_only=0	differs=1	not_in_main=0	~supabase/functions/_shared/edgeFunctionTiming.ts
+restore-active-trip	DRIFT	same=19	whitespace_only=0	differs=3	not_in_main=1	+supabase/functions/_shared/restoreEdgeTimingSSOT.ts ~supabase/functions/_shared/activeTripRestoreCore.ts ~supabase/functions/_shared/performanceHealthControl.ts ~supabase/functions/restore-active-trip/index.ts
+resume-verification-sign-in	IDENTICAL	same=4	whitespace_only=0	differs=0	not_in_main=0	
+revolut-backfill-provider-fees	DRIFT	same=27	whitespace_only=0	differs=3	not_in_main=1	+supabase/functions/_shared/captureCompositionSSOT.ts ~supabase/functions/_shared/frDriverExpectedEntitlementSSOT.ts ~supabase/functions/_shared/paymentSessionSSOT.ts ~supabase/functions/_shared/tripSettlement.ts
+revolut-cancel-order	DRIFT	same=8	whitespace_only=0	differs=2	not_in_main=0	~supabase/functions/_shared/revolutOrders.ts ~supabase/functions/_shared/revolutPreauthCustomerAttach.ts
+revolut-capture-order	IDENTICAL	same=5	whitespace_only=0	differs=0	not_in_main=0	
+revolut-merchant-payment-details	IDENTICAL	same=5	whitespace_only=0	differs=0	not_in_main=0	
+revolut-merchant-payouts-sync	IDENTICAL	same=5	whitespace_only=0	differs=0	not_in_main=0	
+revolut-refund-order	DRIFT	same=8	whitespace_only=0	differs=2	not_in_main=0	~supabase/functions/_shared/revolutOrders.ts ~supabase/functions/_shared/revolutPreauthCustomerAttach.ts
+revolut-webhook	DRIFT	same=39	whitespace_only=0	differs=6	not_in_main=1	+supabase/functions/_shared/captureCompositionSSOT.ts ~supabase/functions/_shared/frDriverExpectedEntitlementSSOT.ts ~supabase/functions/_shared/paymentSessionSSOT.ts ~supabase/functions/_shared/revolutOrders.ts ~supabase/functions/_shared/revolutPreauthCustomerAttach.ts ~supabase/functions/_shared/savedCardPaymentReconcileSSOT.ts ~supabase/functions/_shared/tripSettlement.ts
+ride-offer-reminders	IDENTICAL	same=8	whitespace_only=0	differs=0	not_in_main=0	
+ride-transition	IDENTICAL	same=4	whitespace_only=0	differs=0	not_in_main=0	
+save-customer-push-token	DRIFT	same=0	whitespace_only=0	differs=1	not_in_main=2	+supabase/functions/_shared/customerNotificationPush.ts +supabase/functions/save-customer-push-token/handler.ts ~supabase/functions/save-customer-push-token/index.ts
+save-push-subscription	IDENTICAL	same=4	whitespace_only=0	differs=0	not_in_main=0	
+schedule-dispatch	DRIFT	same=5	whitespace_only=0	differs=1	not_in_main=0	~supabase/functions/schedule-dispatch/index.ts
+scheduled-checkin	IDENTICAL	same=4	whitespace_only=0	differs=0	not_in_main=0	
+scheduled-dispatch	DRIFT	same=11	whitespace_only=0	differs=2	not_in_main=0	~supabase/functions/_shared/customerTripLifecycleNotify.ts ~supabase/functions/scheduled-dispatch/index.ts
+scheduled-ride-action	DRIFT	same=3	whitespace_only=0	differs=2	not_in_main=0	~supabase/functions/_shared/customerTripLifecycleNotify.ts ~supabase/functions/_shared/scheduledDispatchConfig.ts
+search-onecab-locations	DRIFT	same=2	whitespace_only=0	differs=1	not_in_main=0	~supabase/functions/search-onecab-locations/index.ts
+send-account-email-change-verification	IDENTICAL	same=13	whitespace_only=0	differs=0	not_in_main=0	
+send-account-email-verification	IDENTICAL	same=6	whitespace_only=0	differs=0	not_in_main=0	
+send-admin-notification	IDENTICAL	same=5	whitespace_only=0	differs=0	not_in_main=0	
+send-campaign-heads-up	DRIFT	same=6	whitespace_only=0	differs=1	not_in_main=0	~supabase/functions/send-campaign-heads-up/index.ts
+send-customer-notification	DRIFT	same=3	whitespace_only=0	differs=1	not_in_main=2	+supabase/functions/_shared/customerNotificationPush.ts +supabase/functions/_shared/fcmHttpV1.ts ~supabase/functions/send-customer-notification/index.ts
+send-customer-phone-otp	IDENTICAL	same=12	whitespace_only=0	differs=0	not_in_main=0	
+send-document-notification	DRIFT	same=1	whitespace_only=0	differs=1	not_in_main=0	~supabase/functions/send-document-notification/index.ts
+send-driver-notification	IDENTICAL	same=15	whitespace_only=0	differs=0	not_in_main=0	
+send-driver-phone-otp	IDENTICAL	same=13	whitespace_only=0	differs=0	not_in_main=0	
+send-email	DRIFT	same=1	whitespace_only=0	differs=1	not_in_main=0	~supabase/functions/send-email/index.ts
+send-lost-property-message	IDENTICAL	same=2	whitespace_only=0	differs=0	not_in_main=0	
+send-password-reset-otp	IDENTICAL	same=7	whitespace_only=0	differs=0	not_in_main=0	
+send-push-notification	IDENTICAL	same=2	whitespace_only=0	differs=0	not_in_main=0	
+send-tip-thanks	DRIFT	same=6	whitespace_only=0	differs=1	not_in_main=0	~supabase/functions/_shared/corsHeaders.ts
+send-trip-notification	DRIFT	same=4	whitespace_only=0	differs=1	not_in_main=1	+supabase/functions/_shared/fcmHttpV1.ts ~supabase/functions/send-trip-notification/index.ts
+send-trip-receipt	DRIFT	same=9	whitespace_only=0	differs=4	not_in_main=0	~supabase/functions/_shared/tipWindowConstants.ts ~supabase/functions/_shared/tripInvoice.ts ~supabase/functions/_shared/tripInvoiceEligibility.ts ~supabase/functions/_shared/tripPaymentFinalised.ts
+set-corporate-service-area	IDENTICAL	same=5	whitespace_only=0	differs=0	not_in_main=0	
+setup-revolut-card	DRIFT	same=15	whitespace_only=0	differs=5	not_in_main=0	~supabase/functions/_shared/paymentGatewayGuard.ts ~supabase/functions/_shared/paymentGatewayStatus.ts ~supabase/functions/_shared/revolutOrders.ts ~supabase/functions/_shared/revolutPreauthCustomerAttach.ts ~supabase/functions/setup-revolut-card/index.ts
+stacked-ride-driver-offline	DRIFT	same=4	whitespace_only=0	differs=3	not_in_main=0	~supabase/functions/_shared/customerTripLifecycleNotify.ts ~supabase/functions/_shared/dispatch-settings.ts ~supabase/functions/_shared/dispatchOrchestrator.ts
+start-customer-identity-verification	IDENTICAL	same=3	whitespace_only=0	differs=0	not_in_main=0	
+start-waiting-charge	IDENTICAL	same=3	whitespace_only=0	differs=0	not_in_main=0	
+stop-waiting	IDENTICAL	same=4	whitespace_only=0	differs=0	not_in_main=0	
+stop-workflow	DRIFT	same=77	whitespace_only=0	differs=6	not_in_main=0	~supabase/functions/_shared/canonicalTypedWalletPostingSSOT.ts ~supabase/functions/_shared/dispatch-settings.ts ~supabase/functions/_shared/dispatchOrchestrator.ts ~supabase/functions/_shared/frDriverExpectedEntitlementSSOT.ts ~supabase/functions/_shared/terminalOutcomeEntitlementSSOT.ts ~supabase/functions/_shared/waitingSegmentClock.ts
+submit-corporate-account-request	IDENTICAL	same=7	whitespace_only=0	differs=0	not_in_main=0	
+submit-customer-identity-verification	IDENTICAL	same=3	whitespace_only=0	differs=0	not_in_main=0	
+submit-customer-trip-tip	IDENTICAL	same=9	whitespace_only=0	differs=0	not_in_main=0	
+submit-revolut-google-pay	DRIFT	same=6	whitespace_only=0	differs=2	not_in_main=0	~supabase/functions/_shared/revolutOrders.ts ~supabase/functions/_shared/revolutPreauthCustomerAttach.ts
+sweep-pending-trip-invoices	DRIFT	same=10	whitespace_only=0	differs=3	not_in_main=0	~supabase/functions/_shared/tipWindowConstants.ts ~supabase/functions/_shared/tripInvoiceEligibility.ts ~supabase/functions/_shared/tripPaymentFinalised.ts
+sweep-revolut-stale-holds	DRIFT	same=42	whitespace_only=0	differs=10	not_in_main=1	+supabase/functions/_shared/captureCompositionSSOT.ts ~supabase/functions/_shared/applyCanonicalSettlementAfterCapture.ts ~supabase/functions/_shared/customerReceivableLifecycle.ts ~supabase/functions/_shared/paymentSessionSSOT.ts ~supabase/functions/_shared/revolutOrders.ts ~supabase/functions/_shared/revolutPreauthCustomerAttach.ts ~supabase/functions/_shared/terminalTripPaymentDisposition.ts ~supabase/functions/_shared/tipWindowConstants.ts ~supabase/functions/_shared/tripPaymentFinalised.ts ~supabase/functions/_shared/tripSettlement.ts ~supabase/functions/sweep-revolut-stale-holds/index.ts
+tick-pickup-waiting-charge	DRIFT	same=5	whitespace_only=0	differs=2	not_in_main=0	~supabase/functions/_shared/waitingSegmentClock.ts ~supabase/functions/tick-pickup-waiting-charge/index.ts
+tick-waiting-charge	DRIFT	same=2	whitespace_only=0	differs=3	not_in_main=0	~supabase/functions/_shared/waitingAdminConfig.ts ~supabase/functions/_shared/waitingSegmentClock.ts ~supabase/functions/tick-waiting-charge/index.ts
+trip-communication-config	IDENTICAL	same=16	whitespace_only=0	differs=0	not_in_main=0	
+trip-communication-staging-verify	IDENTICAL	same=11	whitespace_only=0	differs=0	not_in_main=0	
+trip-communication-timeout-sweep	IDENTICAL	same=11	whitespace_only=0	differs=0	not_in_main=0	
+trip-invoice-process	DRIFT	same=8	whitespace_only=0	differs=5	not_in_main=0	~supabase/functions/_shared/tipWindowConstants.ts ~supabase/functions/_shared/tripInvoice.ts ~supabase/functions/_shared/tripInvoiceEligibility.ts ~supabase/functions/_shared/tripPaymentFinalised.ts ~supabase/functions/trip-invoice-process/index.ts
+trip-route	IDENTICAL	same=5	whitespace_only=0	differs=0	not_in_main=0	
+unbind-driver-device-token	IDENTICAL	same=5	whitespace_only=0	differs=0	not_in_main=0	
+update-driver-payout-destination	DRIFT	same=22	whitespace_only=0	differs=2	not_in_main=0	~supabase/functions/_shared/paymentGatewayGuard.ts ~supabase/functions/_shared/paymentGatewayStatus.ts
+update-lost-property-case	IDENTICAL	same=2	whitespace_only=0	differs=0	not_in_main=0	
+update-preauth-on-trip-modification	DRIFT	same=7	whitespace_only=0	differs=5	not_in_main=0	~supabase/functions/_shared/executeSameOrderIncrementSSOT.ts ~supabase/functions/_shared/revolutModTopUp.ts ~supabase/functions/_shared/revolutOrders.ts ~supabase/functions/_shared/revolutPreauthCustomerAttach.ts ~supabase/functions/update-preauth-on-trip-modification/index.ts
+update-stop-status	IDENTICAL	same=2	whitespace_only=0	differs=0	not_in_main=0	
+update-trip-status	IDENTICAL	same=2	whitespace_only=0	differs=0	not_in_main=0	
+upsert-driver-location	IDENTICAL	same=4	whitespace_only=0	differs=0	not_in_main=0	
+validate-customer	DRIFT	same=5	whitespace_only=0	differs=1	not_in_main=0	~supabase/functions/_shared/edgeFunctionTiming.ts
+validate-driver	DRIFT	same=5	whitespace_only=0	differs=2	not_in_main=0	~supabase/functions/_shared/driverEligibility.ts ~supabase/functions/validate-driver/index.ts
+validate-personal-voucher	IDENTICAL	same=4	whitespace_only=0	differs=0	not_in_main=0	
+validate-scheduled-booking	IDENTICAL	same=4	whitespace_only=0	differs=0	not_in_main=0	
+verify-account-email	IDENTICAL	same=4	whitespace_only=0	differs=0	not_in_main=0	
+verify-account-email-change	IDENTICAL	same=9	whitespace_only=0	differs=0	not_in_main=0	
+verify-customer-phone-otp	IDENTICAL	same=11	whitespace_only=0	differs=0	not_in_main=0	
+verify-device	IDENTICAL	same=2	whitespace_only=0	differs=0	not_in_main=0	
+verify-driver-phone-otp	IDENTICAL	same=12	whitespace_only=0	differs=0	not_in_main=0	
+voip-call-event	IDENTICAL	same=11	whitespace_only=0	differs=0	not_in_main=0	
+wa-book-token	ABSENT_FROM_MAIN	same=0	whitespace_only=0	differs=0	not_in_main=1	+supabase/functions/wa-book-token/index.ts
+website-enquiry	IDENTICAL	same=3	whitespace_only=0	differs=0	not_in_main=0	
+website-support-chat	IDENTICAL	same=2	whitespace_only=0	differs=0	not_in_main=0	
+whatsapp-booking-fares	DRIFT	same=4	whitespace_only=0	differs=1	not_in_main=0	~supabase/functions/_shared/corsHeaders.ts
+whatsapp-booking-out-of-area-notify	DRIFT	same=6	whitespace_only=0	differs=1	not_in_main=0	~supabase/functions/_shared/corsHeaders.ts
+whatsapp-reply	IDENTICAL	same=3	whitespace_only=0	differs=0	not_in_main=0	
+whatsapp-resolve	IDENTICAL	same=3	whitespace_only=0	differs=0	not_in_main=0	
+whatsapp-session-expire	DRIFT	same=2	whitespace_only=0	differs=1	not_in_main=0	~supabase/functions/whatsapp-session-expire/index.ts
+whatsapp-webhook	IDENTICAL	same=6	whitespace_only=0	differs=0	not_in_main=0	

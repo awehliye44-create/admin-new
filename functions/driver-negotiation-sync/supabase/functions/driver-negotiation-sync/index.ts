@@ -1,0 +1,149 @@
+/**
+ * Driver app: display-clock reconcile only.
+ *
+ * Local countdown hitting zero must not rematch. expire-offers owns
+ * Driver second-chance £X and Driver £Z timeouts.
+ */
+import { createClient } from "npm:@supabase/supabase-js@2.57.2";
+import {
+  handleCORSPreflight,
+  checkRateLimit,
+  getClientIP,
+  rateLimitResponse,
+  isValidUUID,
+  successResponse,
+  errorResponse,
+} from "../_shared/security.ts";
+
+const RATE_LIMIT_CONFIG = {
+  limit: 40,
+  windowMs: 60000,
+  keyPrefix: "driver-negotiation-sync",
+};
+
+Deno.serve(async (req) => {
+  if (req.method === "OPTIONS") return handleCORSPreflight();
+
+  const clientIP = getClientIP(req);
+  const rl = checkRateLimit(clientIP, RATE_LIMIT_CONFIG);
+  if (!rl.allowed) return rateLimitResponse(rl);
+
+  try {
+    const authHeader = req.headers.get("Authorization");
+    if (!authHeader) return errorResponse("UNAUTHORIZED", "Missing authorization", 401);
+
+    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+    const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+    const supabase = createClient(supabaseUrl, serviceRoleKey);
+    const userClient = createClient(supabaseUrl, Deno.env.get("SUPABASE_ANON_KEY")!, {
+      global: { headers: { Authorization: authHeader } },
+    });
+
+    const token = authHeader.replace(/^Bearer\s+/i, "");
+    const { data: { user }, error: authError } = await userClient.auth.getUser(token);
+    if (authError || !user) return errorResponse("UNAUTHORIZED", "Invalid token", 401);
+
+    const body = await req.json() as { offer_id?: string; driver_id?: string };
+    const offerId = body.offer_id;
+    const driverId = body.driver_id;
+
+    if (!offerId || !isValidUUID(offerId)) {
+      return errorResponse("VALIDATION_ERROR", "Valid offer_id required", 400);
+    }
+    if (!driverId || !isValidUUID(driverId)) {
+      return errorResponse("VALIDATION_ERROR", "Valid driver_id required", 400);
+    }
+
+    const { data: driver } = await supabase
+      .from("drivers")
+      .select("id, user_id")
+      .eq("id", driverId)
+      .maybeSingle();
+
+    if (!driver || driver.user_id !== user.id) {
+      return errorResponse("FORBIDDEN", "Not your driver profile", 403);
+    }
+
+    const { data: offer, error: offerErr } = await supabase
+      .from("ride_offers")
+      .select(
+        "id, trip_id, driver_id, status, negotiation_status, customer_respond_by, driver_respond_by, grace_window_expires_at",
+      )
+      .eq("id", offerId)
+      .eq("driver_id", driverId)
+      .maybeSingle();
+
+    if (offerErr || !offer) return errorResponse("NOT_FOUND", "Offer not found", 404);
+
+    const now = Date.now();
+    const ns = offer.negotiation_status ?? "";
+    const alreadyResolved =
+      offer.status === "accepted"
+      || offer.status === "revoked"
+      || ns === "confirmed";
+
+    if (alreadyResolved) {
+      return successResponse({ success: true, action: "already_resolved", trip_id: offer.trip_id });
+    }
+
+    if (ns === "waiting_customer" && offer.customer_respond_by) {
+      if (new Date(offer.customer_respond_by).getTime() > now) {
+        return successResponse({ success: true, action: "not_expired_yet", trip_id: offer.trip_id });
+      }
+
+      // Customer £Y timeout is owned by expire-offers. Do not stamp second chance here.
+      return successResponse({
+        success: true,
+        action: "awaiting_timeout_owner",
+        trip_id: offer.trip_id,
+        negotiation_status: "waiting_customer",
+      });
+    }
+
+    if (ns === "declined_customer_awaiting_driver") {
+      // Only guard against early calls if we have an explicit deadline.
+      if (offer.grace_window_expires_at && new Date(offer.grace_window_expires_at).getTime() > now) {
+        return successResponse({ success: true, action: "not_expired_yet", trip_id: offer.trip_id });
+      }
+
+      return successResponse({
+        success: true,
+        action: "awaiting_timeout_owner",
+        trip_id: offer.trip_id,
+        negotiation_status: ns,
+      });
+    }
+
+    if (ns === "waiting_driver_final" && offer.driver_respond_by) {
+      if (new Date(offer.driver_respond_by).getTime() > now) {
+        return successResponse({ success: true, action: "not_expired_yet", trip_id: offer.trip_id });
+      }
+
+      return successResponse({
+        success: true,
+        action: "awaiting_timeout_owner",
+        trip_id: offer.trip_id,
+        negotiation_status: ns,
+      });
+    }
+
+    if (
+      ns === "timeout_driver"
+      || ns === "timeout_customer"
+      || ns === "declined_driver"
+      || offer.status === "expired"
+      || offer.status === "declined"
+    ) {
+      return successResponse({
+        success: true,
+        action: "already_resolved",
+        trip_id: offer.trip_id,
+      });
+    }
+
+    return successResponse({ success: true, action: "no_op", trip_id: offer.trip_id });
+  } catch (err) {
+    console.error("[driver-negotiation-sync] Error:", err);
+    return errorResponse("INTERNAL_ERROR", "Internal server error", 500);
+  }
+});

@@ -1,0 +1,643 @@
+import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { createClient } from "npm:@supabase/supabase-js@2.57.2";
+import {
+  corsHeaders,
+  checkRateLimit,
+  getClientIP,
+  rateLimitResponse,
+  successResponse,
+  errorResponse,
+  logAuditEvent,
+} from "../_shared/security.ts";
+import { requireUser } from "../_shared/internalAuth.ts";
+import { disposeTerminalTripPayment } from "../_shared/terminalTripPaymentDisposition.ts";
+import {
+  isArrivalCancellationFeeEligible,
+  resolveFreeWaitingExpiresAtMs,
+} from "../_shared/terminalFeeDecisionSSOT.ts";
+import {
+  finalizeWaitingSegmentsAtTerminal,
+  noShowEligibleFromCountedSeconds,
+  resolveCanonicalWaitingSeconds,
+  WAITING_EVIDENCE_UNAVAILABLE,
+} from "../_shared/waitingSegmentClock.ts";
+import { notifyCustomerTripLifecycle } from "../_shared/customerTripLifecycleNotify.ts";
+import { notifyDriverTripStopped } from "../_shared/notifyDriverTripStopped.ts";
+import { maybeResumeTerminalFeeSettlementAfterProviderFee } from "../_shared/terminalFeeSettlementResumptionSSOT.ts";
+
+
+/**
+ * cancel-trip
+ *
+ * Handles cancellation logic for both riders and drivers.
+ * Implements the two-phase grace period:
+ *   A) Post-booking (after driver assigned, before arrival)
+ *   B) Post-arrival (after driver taps arrived)
+ *
+ * Uses existing fare_pricing_settings fields:
+ *   - cancellation_grace_period_minutes
+ *   - cancellation_fee_pence
+ *   - cancellation_apply_after_arrival_only
+ *   - no_show_fee_pence
+ *   - no_show_wait_time_minutes
+ *   - no_show_apply_after_arrival_only
+ */
+
+const RATE_LIMIT_CONFIG = { limit: 30, windowMs: 60 * 1000 };
+
+serve(async (req) => {
+  if (req.method === "OPTIONS") {
+    return new Response(null, { headers: corsHeaders });
+  }
+
+  const clientIP = getClientIP(req);
+  const userAgent = req.headers.get("user-agent") || "unknown";
+
+  const rl = checkRateLimit(clientIP, RATE_LIMIT_CONFIG);
+  try {
+    // Require an authenticated caller (rider, driver, or admin)
+    const authed = await requireUser(req);
+    if (authed instanceof Response) return authed;
+    const callerUserId = authed.userId;
+
+    let body: {
+      trip_id: string;
+      cancelled_by: string; // 'rider' | 'driver' | 'admin'
+      cancelled_by_id?: string;
+      reason?: string;
+      is_no_show?: boolean;
+    };
+
+    try {
+      body = await req.json();
+    } catch {
+      return errorResponse("Invalid JSON", 400);
+    }
+
+    const { trip_id, cancelled_by, reason, is_no_show } = body;
+
+    if (!trip_id || !cancelled_by) {
+      return errorResponse("Missing trip_id or cancelled_by", 400);
+    }
+
+    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+    const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+    const supabase = createClient(supabaseUrl, supabaseKey);
+
+    // Fetch trip
+    const { data: trip, error: tripErr } = await supabase
+      .from("trips")
+      .select(
+        "id, status, driver_id, confirmed_driver_id, passenger_id, service_area_id, vehicle_type_id, assigned_at, arrived_at, cancellation_grace_expires_at, free_wait_expires_at, payment_method, waiting_minutes, waiting_charge_pence, scheduled_at, started_at"
+      )
+      .eq("id", trip_id)
+      .maybeSingle();
+
+    if (tripErr) {
+      console.error("[cancel-trip] trip lookup failed", tripErr);
+      return errorResponse(`Trip lookup failed: ${tripErr.message}`, 500);
+    }
+    if (!trip) {
+      return errorResponse("Trip not found", 404);
+    }
+
+    // Verify caller is authorised: admin OR the rider OR the assigned driver of this trip
+    let cancelled_by_id: string | null = null;
+    const { data: adminRole } = await supabase
+      .from("user_roles")
+      .select("role")
+      .eq("user_id", callerUserId)
+      .in("role", ["admin", "super_admin"])
+      .maybeSingle();
+
+    if (adminRole) {
+      cancelled_by_id = callerUserId;
+    } else {
+      // Try as rider (customers.user_id)
+      const { data: customer } = await supabase
+        .from("customers")
+        .select("id")
+        .eq("user_id", callerUserId)
+        .maybeSingle();
+      if (customer && trip.passenger_id === customer.id) {
+        cancelled_by_id = customer.id;
+      } else {
+        // Try as driver (drivers.user_id)
+        const { data: driver } = await supabase
+          .from("drivers")
+          .select("id")
+          .eq("user_id", callerUserId)
+          .maybeSingle();
+        if (driver && (trip.driver_id === driver.id || trip.confirmed_driver_id === driver.id)) {
+          cancelled_by_id = driver.id;
+        }
+      }
+    }
+
+    if (!cancelled_by_id) {
+      return errorResponse("Forbidden: caller not authorised to cancel this trip", 403);
+    }
+
+    const terminalStatuses = ["completed", "cancelled", "no_show"];
+    if (terminalStatuses.includes(trip.status)) {
+      return errorResponse(`Trip already in terminal status: ${trip.status}`, 400);
+    }
+
+    // Fetch fare pricing settings — Admin Panel is the single source of truth.
+    // No fallback defaults: if config is missing, reject the request.
+    if (!trip.service_area_id) {
+      return errorResponse("Trip has no service_area_id — cannot resolve lifecycle rules", 400);
+    }
+
+    const fpsQuery = supabase
+      .from("fare_pricing_settings")
+      .select(
+        "cancellation_fee_pence, cancellation_grace_period_minutes, cancellation_apply_after_arrival_only, no_show_fee_pence, no_show_wait_time_minutes, no_show_apply_after_arrival_only, waiting_per_minute_pence, late_cancel_enabled, late_cancel_threshold_minutes, late_cancel_fee_pence, arrival_cancellation_enabled, arrival_cancellation_fee_pence, arrival_cancellation_apply_after_free_waiting_expired, arrival_cancellation_after_arrival_only, free_waiting_minutes"
+      )
+      .eq("service_area_id", trip.service_area_id);
+
+    if (trip.vehicle_type_id) {
+      fpsQuery.eq("vehicle_type_id", trip.vehicle_type_id);
+    }
+
+    const { data: fps, error: fpsErr } = await fpsQuery.maybeSingle();
+
+    if (fpsErr || !fps) {
+      console.error(
+        `[cancel-trip] No fare_pricing_settings found for service_area=${trip.service_area_id}, vehicle_type=${trip.vehicle_type_id}. Admin must configure lifecycle rules first.`
+      );
+      return errorResponse(
+        "No fare pricing settings configured for this service area. Please configure lifecycle rules in Admin Panel.",
+        422
+      );
+    }
+
+    const cancellationFeePence = fps.cancellation_fee_pence;
+    const cancellationGracePeriodMinutes = fps.cancellation_grace_period_minutes;
+    const cancellationApplyAfterArrivalOnly = fps.cancellation_apply_after_arrival_only;
+    const noShowFeePence = fps.no_show_fee_pence;
+    const noShowWaitTimeMinutes = fps.no_show_wait_time_minutes;
+    const noShowApplyAfterArrivalOnly = fps.no_show_apply_after_arrival_only;
+    const waitingPerMinutePence = fps.waiting_per_minute_pence;
+    const lateCancelEnabled = fps.late_cancel_enabled;
+    const lateCancelThresholdMinutes = fps.late_cancel_threshold_minutes;
+    const lateCancelFeePence = fps.late_cancel_fee_pence;
+
+    const now = new Date();
+    const decisionAtIso = now.toISOString();
+    let appliedFee = 0;
+    let feeType = "none";
+    let cancellationReasonFinal = reason || "cancelled";
+    let financialOutcome = "CANCELLED_NO_FEE";
+    let tripStatus = "cancelled";
+
+    // Counted waiting is resolved from trip_waiting_segments at the decision
+    // time. The trips counter is a cache and never decides a fee. When the
+    // segments cannot be read the request fails before any trip or payment
+    // mutation: no NO_FEE decision, no release, hold kept, caller retries.
+    let canonicalPickupWaitingSeconds: number | null = null;
+    const resolvePickupWaitingAtDecision = async (): Promise<number | null> => {
+      const resolved = await resolveCanonicalWaitingSeconds(supabase, {
+        tripId: trip_id,
+        locationType: "pickup",
+        atIso: decisionAtIso,
+      });
+      if (!resolved.ok) {
+        console.error("[cancel-trip] WAITING_EVIDENCE_UNAVAILABLE — no decision, no mutation", {
+          trip_id,
+          reason: resolved.reason,
+          message: resolved.message,
+          evaluated_at: decisionAtIso,
+        });
+        return null;
+      }
+      canonicalPickupWaitingSeconds = resolved.countedSeconds;
+      return resolved.countedSeconds;
+    };
+    const waitingEvidenceUnavailableResponse = () =>
+      errorResponse(
+        WAITING_EVIDENCE_UNAVAILABLE,
+        "Unable to verify waiting time right now. Please try again.",
+        503,
+      );
+
+    // ══════════════════════════════════════════
+    // NO-SHOW PATH (driver-initiated)
+    // ══════════════════════════════════════════
+    if (is_no_show && cancelled_by === "driver") {
+      if (noShowApplyAfterArrivalOnly && !trip.arrived_at) {
+        return errorResponse("No-show can only be triggered after driver arrival", 400);
+      }
+
+      // Counted in-radius seconds only. Wall-clock since arrival advances
+      // while the driver is outside the pickup radius and must not qualify.
+      const countedNoShowSeconds = await resolvePickupWaitingAtDecision();
+      if (countedNoShowSeconds == null) return waitingEvidenceUnavailableResponse();
+      if (!noShowEligibleFromCountedSeconds({
+        countedSeconds: countedNoShowSeconds,
+        requiredWaitMinutes: Number(noShowWaitTimeMinutes ?? 0),
+      })) {
+        return errorResponse(
+          `Must wait ${noShowWaitTimeMinutes} in-radius minutes before no-show. Counted: ${Math.floor(countedNoShowSeconds)}s`,
+          400
+        );
+      }
+
+      appliedFee = noShowFeePence;
+      feeType = "no_show";
+      cancellationReasonFinal = "no_show";
+      financialOutcome = "NO_SHOW";
+      tripStatus = "no_show";
+
+      // Calculate any accumulated waiting charge
+      const waitingCharge = trip.waiting_charge_pence || 0;
+
+      console.log(
+        `[cancel-trip] NO_SHOW trip ${trip_id}: fee=${appliedFee}p, waiting=${waitingCharge}p`
+      );
+    }
+    // ══════════════════════════════════════════
+    // CANCELLATION PATH (rider or admin)
+    // ══════════════════════════════════════════
+    else if (cancelled_by === "rider" || cancelled_by === "admin") {
+      const driverAssigned = !!trip.driver_id;
+      const driverArrived = !!trip.arrived_at;
+
+      // ── LATE PASSENGER CANCELLATION CHECK (scheduled trips) ──
+      // Evaluated first: if the trip has a scheduled_at time and late_cancel is enabled,
+      // check if we're within the threshold window before pickup.
+      // For immediate trips (no scheduled_at), this block is skipped entirely.
+      let lateCancelApplied = false;
+
+      if (lateCancelEnabled && trip.scheduled_at) {
+        const scheduledPickup = new Date(trip.scheduled_at);
+        const timeToPickupMinutes = (scheduledPickup.getTime() - now.getTime()) / 60000;
+
+        console.log(
+          `[cancel-trip] LATE_CANCEL check: trip=${trip_id}, scheduled_at=${trip.scheduled_at}, ` +
+          `time_to_pickup=${timeToPickupMinutes.toFixed(1)}min, threshold=${lateCancelThresholdMinutes}min, ` +
+          `late_cancel_fee=${lateCancelFeePence}p, late_cancel_enabled=${lateCancelEnabled}`
+        );
+
+        if (timeToPickupMinutes <= lateCancelThresholdMinutes) {
+          // Within threshold → apply late cancellation fee
+          appliedFee = lateCancelFeePence;
+          feeType = "late_cancellation";
+          cancellationReasonFinal = reason || "late_passenger_cancellation";
+          financialOutcome = "LATE_PASSENGER_CANCELLATION";
+          lateCancelApplied = true;
+
+          console.log(
+            `[cancel-trip] LATE_CANCEL APPLIED: trip=${trip_id}, fee=${lateCancelFeePence}p, ` +
+            `time_to_pickup=${timeToPickupMinutes.toFixed(1)}min <= threshold=${lateCancelThresholdMinutes}min`
+          );
+        } else {
+          console.log(
+            `[cancel-trip] LATE_CANCEL SKIPPED: trip=${trip_id}, ` +
+            `time_to_pickup=${timeToPickupMinutes.toFixed(1)}min > threshold=${lateCancelThresholdMinutes}min — no fee`
+          );
+        }
+      } else if (lateCancelEnabled && !trip.scheduled_at) {
+        // Immediate trip with late_cancel enabled — not applicable
+        console.log(
+          `[cancel-trip] LATE_CANCEL N/A: trip=${trip_id} is immediate (no scheduled_at), skipping late cancel check`
+        );
+      }
+
+      // If late cancel was applied, skip the standard grace/cancellation logic
+      if (!lateCancelApplied) {
+        // PHASE A: Post-booking, pre-arrival cancellation
+        if (driverAssigned && !driverArrived) {
+          if (cancellationApplyAfterArrivalOnly) {
+            appliedFee = 0;
+            feeType = "none";
+            cancellationReasonFinal = reason || "cancelled_pre_arrival";
+          } else {
+            const graceExpires = trip.cancellation_grace_expires_at
+              ? new Date(trip.cancellation_grace_expires_at)
+              : null;
+            const graceWritten = graceExpires != null && !Number.isNaN(graceExpires.getTime());
+
+            // Null grace is not written anywhere. Do not treat it as expired.
+            if (!graceWritten || now <= graceExpires!) {
+              appliedFee = 0;
+              feeType = "none";
+              cancellationReasonFinal = graceWritten ? "post_booking_grace" : (reason || "cancelled_pre_arrival_no_grace_stamp");
+              financialOutcome = "CANCELLED_NO_FEE";
+            } else {
+              appliedFee = cancellationFeePence;
+              feeType = "cancellation";
+              cancellationReasonFinal = reason || "cancelled_after_grace";
+              financialOutcome = "CANCELLED_WITH_FEE";
+            }
+          }
+        }
+        // PHASE B: Post-arrival cancellation.
+        // Arrival alone is not a fee. cancellation_grace_expires_at is not written
+        // and must not gate this. Arrival fee applies only after free waiting expired
+        // on free_wait_expires_at AND counted in-radius seconds.
+        else if (driverArrived) {
+          const freeExpiresMs = resolveFreeWaitingExpiresAtMs({
+            arrived_at: trip.arrived_at ?? null,
+            free_wait_expires_at: trip.free_wait_expires_at ?? null,
+            free_waiting_minutes: fps.free_waiting_minutes ?? null,
+          });
+          let countedInRadiusSeconds: number | null = null;
+          if (fps.arrival_cancellation_enabled === true) {
+            countedInRadiusSeconds = await resolvePickupWaitingAtDecision();
+            if (countedInRadiusSeconds == null) return waitingEvidenceUnavailableResponse();
+          }
+          const arrivalFeeEligible = fps.arrival_cancellation_enabled === true
+            && isArrivalCancellationFeeEligible({
+              arrivedAtMs: trip.arrived_at ? new Date(trip.arrived_at).getTime() : null,
+              cancelledAtMs: now.getTime(),
+              freeExpiresMs,
+              requireFreeWaitExpired: fps.arrival_cancellation_apply_after_free_waiting_expired !== false,
+              freeWaitingMinutes: fps.free_waiting_minutes ?? null,
+              countedInRadiusSeconds,
+            });
+          const arrivalFeePence = Math.max(0, Math.round(Number(fps.arrival_cancellation_fee_pence ?? 0)));
+          if (arrivalFeeEligible && arrivalFeePence > 0) {
+            appliedFee = arrivalFeePence;
+            feeType = "arrival_cancellation";
+            cancellationReasonFinal = reason || "arrival_cancellation_fee";
+            financialOutcome = "ARRIVAL_CANCELLATION";
+          } else {
+            appliedFee = 0;
+            feeType = "none";
+            cancellationReasonFinal = reason || "cancelled_during_free_waiting";
+            financialOutcome = "CANCELLED_NO_FEE";
+          }
+        }
+        // No driver assigned → always free
+        else {
+          appliedFee = 0;
+          feeType = "none";
+          cancellationReasonFinal = reason || "cancelled_no_driver";
+          financialOutcome = "CANCELLED_NO_FEE";
+        }
+      }
+    }
+    // Driver cancellation (not no-show)
+    else if (cancelled_by === "driver") {
+      appliedFee = 0;
+      feeType = "none";
+      cancellationReasonFinal = reason || "driver_cancelled";
+      financialOutcome = "CANCELLED_NO_FEE";
+    }
+
+    // ══════════════════════════════════════════
+    // UPDATE TRIP
+    // ══════════════════════════════════════════
+    // Active assignment is cleared by enforce_trip_cancel_assignment_invariant.
+    // previous_driver_id keeps the driver who accepted/arrived so settlement
+    // and driver history do not depend on the nulled driver_id.
+    const tripUpdate: Record<string, unknown> = {
+      status: tripStatus,
+      cancelled_at: decisionAtIso,
+      cancelled_by: cancelled_by,
+      cancellation_reason: cancellationReasonFinal,
+      cancellation_fee_pence: appliedFee,
+      financial_outcome: financialOutcome,
+      negotiation_owner_driver_id: null,
+      current_offer_driver_id: null,
+      negotiation_locked_until: null,
+      current_offer_expires_at: null,
+      searching_expires_at: null,
+      dispatch_status: "cancelled",
+      updated_at: now.toISOString(),
+    };
+
+    const entitledDriverId = trip.confirmed_driver_id ?? trip.driver_id ?? null;
+    if (entitledDriverId) {
+      tripUpdate.previous_driver_id = entitledDriverId;
+    }
+
+
+    const { error: updateErr } = await supabase
+      .from("trips")
+      .update(tripUpdate)
+      .eq("id", trip_id);
+
+    if (updateErr) {
+      console.error("[cancel-trip] update error:", updateErr);
+      return errorResponse("Failed to cancel trip", 500);
+    }
+
+    // Close the open pickup segment at cancelled_at. The fee decision above is
+    // already frozen from segments capped at decisionAtIso, so a failure here
+    // cannot change it; it is logged for ops.
+    if (trip.arrived_at) {
+      const frozen = await finalizeWaitingSegmentsAtTerminal(supabase, {
+        tripId: trip_id,
+        locationType: "pickup",
+        atIso: decisionAtIso,
+      });
+      if (!frozen.ok) {
+        console.error("[cancel-trip] waiting segment finalize failed", { trip_id, ...frozen });
+      } else if (
+        canonicalPickupWaitingSeconds != null &&
+        frozen.countedSeconds !== canonicalPickupWaitingSeconds
+      ) {
+        console.error("[cancel-trip] WAITING_CANONICAL_MISMATCH", {
+          trip_id,
+          decision_counted_seconds: canonicalPickupWaitingSeconds,
+          finalized_counted_seconds: frozen.countedSeconds,
+        });
+      }
+    }
+
+    // Clear driver's current trip if driver was assigned
+    const assignedDriverId = trip.confirmed_driver_id ?? trip.driver_id ?? null;
+    if (assignedDriverId) {
+      await supabase
+        .from("drivers")
+        .update({ current_trip_id: null })
+        .eq("id", assignedDriverId);
+    }
+
+    // Revoke any outstanding ride offers so the driver app clears the offer card too
+    const terminalNegotiation =
+      cancelled_by === "driver"
+        ? "cancelled_by_driver"
+        : cancelled_by === "admin"
+        ? "cancelled_by_admin"
+        : "cancelled_by_customer";
+
+    const { error: offersErr } = await supabase
+      .from("ride_offers")
+      .update({
+        status: "revoked",
+        revoked_reason: "trip_terminal_cancel",
+        negotiation_status: terminalNegotiation,
+        updated_at: now.toISOString(),
+      })
+      .eq("trip_id", trip_id)
+      .in("status", ["pending", "countered", "accepted"]);
+
+    if (offersErr) {
+      console.error("[cancel-trip] ride_offers revoke error:", offersErr);
+    }
+
+
+
+    await supabase
+      .from("customers")
+      .update({ active_trip_id: null, updated_at: now.toISOString() })
+      .eq("active_trip_id", trip_id);
+
+    // Release Revolut preauth after terminal cancel is committed.
+    // Fee ordering: use cancel-trip's already-computed appliedFee —
+    // fee > 0 → disposer partial-captures then releases remainder;
+    // fee = 0 → void full unused authorisation. Do not invent a second fee policy.
+    let holdDisposition: { outcome?: string; captured_fee_pence?: number } | null = null;
+    try {
+      const dispositionReason =
+        cancelled_by === "admin"
+          ? "admin_cancel" as const
+          : cancelled_by === "driver"
+          ? "driver_cancel_terminal" as const
+          : "customer_cancel" as const;
+      holdDisposition = await disposeTerminalTripPayment(supabase, {
+        tripId: trip_id,
+        reason: dispositionReason,
+        feePence: appliedFee,
+        // Positive override of NO_FEE_FULL_RELEASE is ignored in dispose.
+        // Keep the flag so admin fee=0 full-release and existing lock tests stay wired.
+        forceFeePenceOverride: true,
+        canonicalPickupWaitingSeconds,
+      });
+      console.log("[PAYMENT_AUDIT] cancel-trip hold disposition", {
+        trip_id,
+        fee_pence: appliedFee,
+        fee_type: feeType,
+        ...holdDisposition,
+      });
+    } catch (holdErr) {
+      console.error(
+        "[PAYMENT_AUDIT] cancel-trip hold disposition failed (non-fatal):",
+        holdErr,
+      );
+    }
+
+    const capturedFeePence = Math.max(0, Math.round(Number(holdDisposition?.captured_fee_pence ?? 0)));
+    const captureConfirmed = capturedFeePence > 0 && (
+      holdDisposition?.outcome === "FEE_CAPTURED_AND_REMAINDER_RELEASED" ||
+      holdDisposition?.outcome === "LOCAL_RECONCILIATION_FAILED_AFTER_PROVIDER_SUCCESS"
+    );
+    const providerFailed = holdDisposition == null || holdDisposition.outcome === "PROVIDER_FAILED";
+
+    // Provider failure must not leave a charged fee or credit a wallet.
+    if (appliedFee > 0 && providerFailed) {
+      appliedFee = 0;
+      feeType = "none";
+      financialOutcome = "CANCELLED_NO_FEE";
+      await supabase.from("trips").update({
+        cancellation_fee_pence: 0,
+        financial_outcome: "CANCELLED_NO_FEE",
+        arrival_cancellation_applied: false,
+        updated_at: new Date().toISOString(),
+      }).eq("id", trip_id);
+      console.error("[cancel-trip] provider failed — fee stamp cleared, no wallet credit", { trip_id });
+    }
+
+    // Chargeable terminal fees settle through the canonical poster after capture.
+    // Driver identity is previous_driver_id, set before the assignment trigger
+    // nulls driver_id. CANCELLED_WITH_FEE (pre-arrival grace fee) is not settled here.
+    const settlesTerminalFee = feeType === "arrival_cancellation"
+      || feeType === "no_show"
+      || feeType === "late_cancellation";
+    if (captureConfirmed && settlesTerminalFee && appliedFee > 0 && entitledDriverId) {
+      try {
+        await maybeResumeTerminalFeeSettlementAfterProviderFee(supabase, {
+          tripId: trip_id,
+          source: "cancel-trip",
+        });
+      } catch (finErr) {
+        console.error("[cancel-trip] terminal fee settlement error:", finErr);
+      }
+    }
+
+    await logAuditEvent(supabase, "trip_cancelled", {
+      driverId: trip.driver_id || undefined,
+      tripId: trip_id,
+      details: {
+        cancelled_by,
+        cancelled_by_id,
+        fee_type: feeType,
+        fee_pence: appliedFee,
+        reason: cancellationReasonFinal,
+        financial_outcome: financialOutcome,
+        was_arrived: !!trip.arrived_at,
+        was_within_grace: appliedFee === 0 && feeType === "none",
+        pickup_waiting_counted_seconds: canonicalPickupWaitingSeconds,
+        waiting_evidence_source: canonicalPickupWaitingSeconds == null ? null : "trip_waiting_segments",
+        waiting_evaluated_at: decisionAtIso,
+        is_scheduled: !!trip.scheduled_at,
+        late_cancel_enabled: lateCancelEnabled,
+        late_cancel_threshold_minutes: lateCancelThresholdMinutes,
+        late_cancel_fee_pence: lateCancelFeePence,
+      },
+      ipAddress: clientIP,
+      userAgent,
+    });
+
+    console.log(
+      `[cancel-trip] Trip ${trip_id}: status=${tripStatus}, fee=${appliedFee}p, type=${feeType}, outcome=${financialOutcome}`
+    );
+
+    await notifyCustomerTripLifecycle(supabase, {
+      passengerId: typeof trip.passenger_id === "string" ? trip.passenger_id : null,
+      tripId: trip_id,
+      event: "trip_cancelled",
+    });
+
+    // Response messages for apps
+    let riderMessage = "Trip cancelled";
+    let driverMessage = "Trip has been cancelled";
+
+    if (feeType === "none" && cancelled_by === "rider") {
+      riderMessage = "Trip cancelled — no charge";
+      driverMessage = "Rider cancelled within grace period — no fee";
+    } else if (feeType === "cancellation") {
+      riderMessage = `Trip cancelled — cancellation fee of ${appliedFee}p applied`;
+      driverMessage = "Rider cancelled — cancellation fee applied";
+    } else if (feeType === "no_show") {
+      riderMessage = `No-show fee of ${appliedFee}p applied`;
+      driverMessage = "Passenger no-show — fee applied";
+    } else if (feeType === "late_cancellation") {
+      riderMessage = `Trip cancelled — late cancellation fee of ${appliedFee}p applied`;
+      driverMessage = "Rider cancelled late — late cancellation fee applied";
+    }
+
+    // Assigned Driver must get cancel push for BG/killed Trip Cancelled audio.
+    // Skip when the Driver themselves cancelled (local UI already owns that path).
+    // Searching-only cancels (no driver) skip — nothing to stop on Driver app.
+    if (assignedDriverId && cancelled_by !== "driver") {
+      void notifyDriverTripStopped(supabaseUrl, supabaseKey, assignedDriverId, {
+        tripId: trip_id,
+        stopReason:
+          feeType === "no_show" ? "no_show" : "passenger_cancelled",
+        cancelledBy: cancelled_by || "passenger",
+        body: driverMessage,
+      }).catch((e) =>
+        console.warn("[cancel-trip] driver trip_cancelled push failed:", e)
+      );
+    }
+
+    return successResponse({
+      trip_id,
+      status: tripStatus,
+      fee_type: feeType,
+      fee_pence: appliedFee,
+      financial_outcome: financialOutcome,
+      cancelled_by,
+      reason: cancellationReasonFinal,
+      rider_message: riderMessage,
+      driver_message: driverMessage,
+    });
+  } catch (err) {
+    console.error("[cancel-trip] Error:", err);
+    return errorResponse(err instanceof Error ? err.message : "Unknown error", 500);
+  }
+});

@@ -1,0 +1,287 @@
+import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { createClient } from "npm:@supabase/supabase-js@2.57.2";
+import { FINANCIAL_MODEL, resolveServiceAreaFinancialScope } from "../_shared/financialModelScopeGate.ts";
+import { resolvePlatformCollectedDriverIds } from "../_shared/platformCollectedDriverScope.ts";
+
+const corsHeaders = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+};
+
+serve(async (req) => {
+  if (req.method === 'OPTIONS') {
+    return new Response(null, { headers: corsHeaders });
+  }
+
+  try {
+    const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
+    const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+    const supabase = createClient(supabaseUrl, supabaseServiceKey);
+
+    // Get authorization header to verify admin
+    const authHeader = req.headers.get('Authorization');
+    if (!authHeader) {
+      return new Response(JSON.stringify({ error: 'Unauthorized' }), {
+        status: 401,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
+    const token = authHeader.replace('Bearer ', '');
+    const { data: { user }, error: authError } = await supabase.auth.getUser(token);
+    if (authError || !user) {
+      return new Response(JSON.stringify({ error: 'Unauthorized' }), {
+        status: 401,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
+    // Check admin role via user_roles table (NOT profiles — prevents privilege escalation)
+    const { data: roleData } = await supabase
+      .from('user_roles')
+      .select('role')
+      .eq('user_id', user.id)
+      .eq('role', 'admin')
+      .maybeSingle();
+
+    if (!roleData) {
+      return new Response(JSON.stringify({ error: 'Admin access required' }), {
+        status: 403,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
+    const url = new URL(req.url);
+    const driverId = url.searchParams.get('driver_id');
+    const period = url.searchParams.get('period') || 'all'; // 'this_week', 'last_week', 'this_month', 'all'
+    const serviceAreaId = url.searchParams.get('service_area_id');
+
+    if (!driverId) {
+      return new Response(JSON.stringify({ error: 'driver_id is required' }), {
+        status: 400,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
+    // PIPELINE 1 — Driver Wallet detail is PLATFORM_COLLECTED only.
+    const modelScope = await resolveServiceAreaFinancialScope(
+      supabase,
+      FINANCIAL_MODEL.PLATFORM_COLLECTED,
+      serviceAreaId,
+    );
+    if (!modelScope.ok) {
+      return new Response(JSON.stringify({ error: modelScope.error, error_code: modelScope.code }), {
+        status: 400,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+    const platformDriverIds = await resolvePlatformCollectedDriverIds(supabase, {
+      service_area_id: serviceAreaId,
+      allowed_service_area_ids: modelScope.allowedServiceAreaIds,
+    });
+    if (!platformDriverIds.includes(driverId)) {
+      return new Response(JSON.stringify({
+        error: 'Driver is outside PLATFORM_COLLECTED Driver Wallet scope',
+        error_code: 'FINANCIAL_MODEL_VIOLATION',
+      }), {
+        status: 400,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
+    // Get driver info
+    const { data: driver, error: driverError } = await supabase
+      .from('drivers')
+      .select('id, first_name, last_name, email, phone, is_online, rating, total_trips, payouts_enabled, payout_operational_paused, charges_enabled, onboarding_complete, approval_status, region_id')
+      .eq('id', driverId)
+      .single();
+
+    if (driverError || !driver) {
+      return new Response(JSON.stringify({ error: 'Driver not found' }), {
+        status: 404,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
+    // Build live wallet totals from driver_wallet_ledger (source of truth)
+    const { data: allLedgerEntriesForWallet } = await supabase
+      .from('driver_wallet_ledger')
+      .select('type, amount_pence')
+      .eq('driver_id', driverId);
+
+    // Get ledger entries (with period filter)
+    let ledgerQuery = supabase
+      .from('driver_wallet_ledger')
+      .select('*')
+      .eq('driver_id', driverId)
+      .order('created_at', { ascending: false });
+
+    // Apply period filter
+    const now = new Date();
+    if (period === 'this_week') {
+      const startOfWeek = new Date(now);
+      startOfWeek.setDate(now.getDate() - now.getDay());
+      startOfWeek.setHours(0, 0, 0, 0);
+      ledgerQuery = ledgerQuery.gte('created_at', startOfWeek.toISOString());
+    } else if (period === 'last_week') {
+      const startOfLastWeek = new Date(now);
+      startOfLastWeek.setDate(now.getDate() - now.getDay() - 7);
+      startOfLastWeek.setHours(0, 0, 0, 0);
+      const endOfLastWeek = new Date(startOfLastWeek);
+      endOfLastWeek.setDate(endOfLastWeek.getDate() + 7);
+      ledgerQuery = ledgerQuery.gte('created_at', startOfLastWeek.toISOString())
+        .lt('created_at', endOfLastWeek.toISOString());
+    } else if (period === 'this_month') {
+      const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+      ledgerQuery = ledgerQuery.gte('created_at', startOfMonth.toISOString());
+    }
+
+    const { data: ledgerEntries, error: ledgerError } = await ledgerQuery.limit(100);
+
+    if (ledgerError) {
+      console.error('Ledger query error:', ledgerError);
+    }
+
+    // Calculate period summary
+    const periodSummary = {
+      earnings: 0,
+      debts: 0,
+      payouts: 0,
+      adjustments: 0,
+      fees: 0,
+    };
+
+    ledgerEntries?.forEach(entry => {
+      const amount = entry.amount_pence || 0;
+      switch (entry.type) {
+        case 'TRIP_EARNING_NET':
+          periodSummary.earnings += amount;
+          break;
+        case 'CASH_COMMISSION_DEBT':
+          periodSummary.debts += Math.abs(amount);
+          break;
+        case 'WEEKLY_PAYOUT':
+        case 'EARLY_CASHOUT':
+        case 'MANUAL_PAYOUT':
+        case 'PAYOUT':
+          periodSummary.payouts += Math.abs(amount);
+          break;
+        case 'ADJUSTMENT':
+        case 'BONUS':
+          periodSummary.adjustments += amount;
+          break;
+        case 'CASHOUT_FEE':
+        case 'REFUND_DEBIT':
+          periodSummary.fees += Math.abs(amount);
+          break;
+      }
+    });
+
+    // Get payout history
+    const { data: payoutItems } = await supabase
+      .from('payout_items')
+      .select(`
+        *,
+        payout_batches:batch_id (
+          id,
+          kind,
+          run_date,
+          status
+        )
+      `)
+      .eq('driver_id', driverId)
+      .order('created_at', { ascending: false })
+      .limit(20);
+
+    // Get cashout settings
+    const { data: settings } = await supabase
+      .from('admin_settings')
+      .select('setting_key, setting_value')
+      .in('setting_key', ['early_cashout_fee_pence', 'payouts_enabled']);
+
+    const settingsMap: Record<string, string> = {};
+    settings?.forEach(s => {
+      settingsMap[s.setting_key] = s.setting_value as string;
+    });
+
+    const earlyCashoutFee = parseInt(settingsMap.early_cashout_fee_pence || '50');
+    const globalPayoutsEnabled = settingsMap.payouts_enabled !== 'false';
+
+    // Exclude PLATFORM_COMMISSION and CASH_TRIP_EARNING from wallet balance
+    const available = allLedgerEntriesForWallet?.reduce((sum, entry) => {
+      if (entry.type === 'PLATFORM_COMMISSION' || entry.type === 'CASH_TRIP_EARNING') return sum;
+      return sum + (entry.amount_pence || 0);
+    }, 0) || 0;
+    const earnings = allLedgerEntriesForWallet?.reduce((sum, entry) => {
+      if (entry.type === 'PLATFORM_COMMISSION' || entry.type === 'CASH_TRIP_EARNING') return sum;
+      const amount = entry.amount_pence || 0;
+      return amount > 0 ? sum + amount : sum;
+    }, 0) || 0;
+    const debt = allLedgerEntriesForWallet?.reduce((sum, entry) => {
+      if (entry.type !== 'CASH_COMMISSION_DEBT') return sum;
+      return sum + Math.abs(entry.amount_pence || 0);
+    }, 0) || 0;
+
+    const response = {
+      driver: {
+        id: driver.id,
+        name: `${driver.first_name} ${driver.last_name}`,
+        email: driver.email,
+        phone: driver.phone,
+        isOnline: driver.is_online,
+        rating: driver.rating,
+        totalTrips: driver.total_trips,
+        payoutsEnabled: driver.payouts_enabled,
+        payoutOperationalPaused: driver.payout_operational_paused === true,
+        chargesEnabled: driver.charges_enabled,
+        onboardingComplete: driver.onboarding_complete,
+        approvalStatus: driver.approval_status,
+      },
+      wallet: {
+        available,
+        debt,
+        earnings,
+        // Stage C2: operational pause + global kill-switch — legacy payouts_enabled is diagnostic only.
+        canPayout: available > 0 && driver.payout_operational_paused !== true && globalPayoutsEnabled,
+        canEarlyCashout: available > earlyCashoutFee && driver.payout_operational_paused !== true && globalPayoutsEnabled,
+      },
+      periodSummary,
+      ledgerEntries: ledgerEntries?.map(e => ({
+        id: e.id,
+        type: e.type,
+        amount: e.amount_pence,
+        currency: e.currency,
+        description: e.description,
+        tripId: e.related_trip_id,
+        referenceId: e.provider_transfer_id ?? e.provider_payout_id ?? null,
+        createdAt: e.created_at,
+      })) || [],
+      payoutHistory: payoutItems?.map(p => ({
+        id: p.id,
+        amount: p.amount_pence,
+        status: p.status,
+        providerTransferId: p.provider_transfer_id ?? null,
+        providerPayoutId: p.provider_payout_id ?? null,
+        errorMessage: p.error_message,
+        createdAt: p.created_at,
+        completedAt: p.completed_at,
+        batch: p.payout_batches,
+      })) || [],
+      settings: {
+        earlyCashoutFee,
+        globalPayoutsEnabled,
+      },
+    };
+
+    return new Response(JSON.stringify(response), {
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    });
+
+  } catch (error) {
+    console.error('Error in admin-driver-wallet-detail:', error);
+    return new Response(JSON.stringify({ error: (error as Error).message }), {
+      status: 500,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    });
+  }
+});

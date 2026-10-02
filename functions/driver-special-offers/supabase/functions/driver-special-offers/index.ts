@@ -1,0 +1,128 @@
+import { createClient } from "npm:@supabase/supabase-js@2.57.2";
+import {
+  buildDriverOffersPayload,
+  sanitiseOfferForApp,
+  type DriverEligibilityContext,
+  type DriverSpecialOfferRow,
+  type OfferAreaMap,
+} from "../_shared/driverSpecialOffersSSOT.ts";
+
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+};
+
+const json = (body: unknown, status = 200) =>
+  new Response(JSON.stringify(body), {
+    status,
+    headers: { ...corsHeaders, "Content-Type": "application/json" },
+  });
+
+/**
+ * Driver Special Offers feed (banner + list) for the Driver Expo app.
+ *
+ * Geographic scoping is resolved on the BACKEND from the canonical SSOT:
+ *   drivers.service_area_id -> service_areas.is_active / service_areas.region_id
+ * The app never downloads ineligible offers and never filters by city name.
+ */
+Deno.serve(async (req) => {
+  if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
+
+  try {
+    const authHeader = req.headers.get("Authorization") ?? "";
+    const token = authHeader.replace(/^Bearer\s+/i, "");
+    if (!token) return json({ error: "UNAUTHENTICATED" }, 401);
+
+    const admin = createClient(
+      Deno.env.get("SUPABASE_URL")!,
+      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
+    );
+
+    const { data: userData, error: userErr } = await admin.auth.getUser(token);
+    if (userErr || !userData?.user) return json({ error: "UNAUTHENTICATED" }, 401);
+
+    const { data: driver, error: driverErr } = await admin
+      .from("drivers")
+      .select("id, service_area_id, total_trips, category_id, created_at")
+      .eq("user_id", userData.user.id)
+      .maybeSingle();
+    if (driverErr) throw driverErr;
+    if (!driver) return json({ error: "DRIVER_PROFILE_REQUIRED" }, 403);
+
+    // Canonical service-area resolution. No GPS, no city text, no app-side cache.
+    let areaActive = false;
+    let driverRegionId: string | null = null;
+    if (driver.service_area_id) {
+      const { data: area, error: areaErr } = await admin
+        .from("service_areas")
+        .select("id, is_active, region_id")
+        .eq("id", driver.service_area_id)
+        .maybeSingle();
+      if (areaErr) throw areaErr;
+      areaActive = area?.is_active === true;
+      driverRegionId = areaActive ? (area?.region_id ?? null) : null;
+    }
+
+    let tierName: string | null = null;
+    if (driver.category_id) {
+      const { data: cat } = await admin
+        .from("driver_categories")
+        .select("name")
+        .eq("id", driver.category_id)
+        .maybeSingle();
+      tierName = cat?.name ?? null;
+    }
+
+    const { data: offers, error: offersErr } = await admin
+      .from("driver_special_offers")
+      .select("*")
+      .eq("audience", "driver")
+      .eq("status", "published")
+      .eq("is_active", true);
+    if (offersErr) throw offersErr;
+
+    const offerIds = (offers ?? []).map((o: { id: string }) => o.id);
+    const areaMap: OfferAreaMap = {};
+    // Join table has no FK to service_areas, so PostgREST cannot embed
+    // `service_areas!inner(...)`. The driver's area is already confirmed active above.
+    if (offerIds.length && driver.service_area_id && areaActive) {
+      const { data: links, error: linkErr } = await admin
+        .from("driver_special_offer_service_areas")
+        .select("offer_id, service_area_id")
+        .in("offer_id", offerIds)
+        .eq("service_area_id", driver.service_area_id);
+      if (linkErr) throw linkErr;
+      for (const l of (links ?? []) as Array<{ offer_id: string; service_area_id: string }>) {
+        (areaMap[l.offer_id] ??= []).push(l.service_area_id);
+      }
+    }
+
+    const context: DriverEligibilityContext = {
+      service_area_id: driver.service_area_id ?? null,
+      service_area_active: areaActive,
+      region_id: driverRegionId,
+      total_trips: driver.total_trips ?? 0,
+      tier_name: tierName,
+      created_at: driver.created_at ?? null,
+    };
+
+    const payload = buildDriverOffersPayload(
+      (offers ?? []) as DriverSpecialOfferRow[],
+      areaMap,
+      context,
+    );
+
+    const sanitised = payload.offers.map(sanitiseOfferForApp);
+
+    return json({
+      banner: payload.banner,
+      offers: sanitised,
+      empty: sanitised.length === 0,
+      empty_copy: payload.empty_copy,
+      resolved_service_area_id: areaActive ? driver.service_area_id : null,
+    });
+  } catch (e) {
+    return json({ error: (e as Error).message }, 500);
+  }
+});

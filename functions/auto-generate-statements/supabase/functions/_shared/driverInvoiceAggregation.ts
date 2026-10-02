@@ -1,0 +1,199 @@
+import type { SupabaseClient } from "npm:@supabase/supabase-js@2.57.2";
+import {
+  isInstantInClosedRange,
+  mergeBackendEconomicFields,
+} from "./economicEarnedAtSSOT.ts";
+import { economicFieldsByLedgerOrTrip, loadDriverWalletEconomicFields } from "./loadDriverWalletEconomicFields.ts";
+
+export interface DriverInvoiceAggregation {
+  cardTripEarningsPence: number;
+  cashTripEarningsPence: number;
+  airportFeeEarningsPence: number;
+  extraChargeEarningsPence: number;
+  bonusesPence: number;
+  adjustmentsPence: number;
+  platformCommissionPence: number;
+  cashCollectedOffsetPence: number;
+  cardTrips: number;
+  cashTrips: number;
+  totalTrips: number;
+  grossEarningsPence: number;
+  netDriverEarningsPence: number;
+  completedTripIds: Set<string>;
+}
+
+export async function aggregateDriverInvoice(
+  supabase: SupabaseClient,
+  params: {
+    driverId: string;
+    periodStart: string;
+    periodEnd: string;
+    currencyCode: string;
+    serviceAreaId?: string | null;
+  },
+): Promise<DriverInvoiceAggregation> {
+  const periodEndTs = `${params.periodEnd}T23:59:59.999Z`;
+  let ledgerQuery = supabase
+    .from("driver_wallet_ledger")
+    .select("id, type, amount_pence, related_trip_id, service_area_id, created_at")
+    .eq("driver_id", params.driverId)
+    .eq("currency", params.currencyCode);
+
+  if (params.serviceAreaId) {
+    ledgerQuery = ledgerQuery.eq("service_area_id", params.serviceAreaId);
+  }
+
+  const { data: ledgerData, error: ledgerError } = await ledgerQuery;
+  if (ledgerError) throw new Error(ledgerError.message);
+
+  const economicFields = await loadDriverWalletEconomicFields(supabase, params.driverId);
+  const attributedLedger = (ledgerData ?? []).map((e) => {
+    const id = String((e as { id?: string }).id ?? "");
+    const tripId = (e as { related_trip_id?: string | null }).related_trip_id ?? null;
+    return mergeBackendEconomicFields(
+      {
+        type: String((e as { type?: string }).type ?? ""),
+        amount_pence: Number((e as { amount_pence?: number }).amount_pence ?? 0),
+        related_trip_id: tripId,
+        created_at: (e as { created_at?: string | null }).created_at ?? null,
+        id,
+      },
+      economicFieldsByLedgerOrTrip(economicFields, id, tripId),
+    );
+  });
+  const periodLedger = attributedLedger.filter((row) => {
+    if (String(row.type ?? "").toUpperCase() === "TRIP_EARNING_NET") {
+      return isInstantInClosedRange(row.economic_earned_at, params.periodStart, periodEndTs);
+    }
+    return isInstantInClosedRange(row.created_at, params.periodStart, periodEndTs);
+  });
+
+  let tripsQuery = supabase
+    .from("trips")
+    .select("id, payment_method, airport_charge_pence, extras_pence, customer_modification_charge_pence")
+    .eq("driver_id", params.driverId)
+    .eq("status", "completed")
+    .gte("completed_at", params.periodStart)
+    .lte("completed_at", periodEndTs);
+
+  if (params.serviceAreaId) {
+    tripsQuery = tripsQuery.eq("service_area_id", params.serviceAreaId);
+  }
+
+  const { data: tripsData, error: tripsError } = await tripsQuery;
+  if (tripsError) throw new Error(tripsError.message);
+
+  const cardTripIds = new Set<string>();
+  const cashTripIds = new Set<string>();
+  let airportFeeEarningsPence = 0;
+  let extraChargeEarningsPence = 0;
+
+  for (const trip of tripsData ?? []) {
+    const pm = (trip.payment_method ?? "").toLowerCase();
+    if (pm === "cash") cashTripIds.add(trip.id);
+    else cardTripIds.add(trip.id);
+    airportFeeEarningsPence += Math.max(0, Number(trip.airport_charge_pence ?? 0));
+    extraChargeEarningsPence += Math.max(0, Number(trip.extras_pence ?? 0))
+      + Math.max(0, Number(trip.customer_modification_charge_pence ?? 0));
+  }
+
+  let cardTripEarningsPence = 0;
+  let cashTripEarningsPence = 0;
+  let bonusesPence = 0;
+  let adjustmentsPence = 0;
+  let platformCommissionPence = 0;
+  let cashCollectedOffsetPence = 0;
+  const completedTripIds = new Set<string>();
+
+  for (const entry of periodLedger) {
+    const amt = Number(entry.amount_pence ?? 0);
+    const tripId = entry.related_trip_id as string | null;
+    switch (entry.type) {
+      case "TRIP_EARNING_NET":
+        cardTripEarningsPence += amt;
+        if (tripId) completedTripIds.add(tripId);
+        break;
+      case "TIP_CREDIT":
+      case "DRIVER_TIP_CREDIT":
+        cardTripEarningsPence += amt;
+        break;
+      case "PLATFORM_COMMISSION":
+      case "COMPANY_COMMISSION":
+        platformCommissionPence += Math.abs(amt);
+        break;
+      case "BONUS":
+        bonusesPence += amt;
+        break;
+      case "ADJUSTMENT":
+      case "REFUND_DEBIT":
+        adjustmentsPence += amt;
+        break;
+      case "PENALTY":
+      case "DEDUCTION":
+        adjustmentsPence -= Math.abs(amt);
+        break;
+      default:
+        break;
+    }
+  }
+
+  const cardTrips = cardTripIds.size;
+  const cashTrips = cashTripIds.size;
+  const totalTrips = new Set([...cardTripIds, ...cashTripIds, ...completedTripIds]).size;
+
+  const grossEarningsPence = cardTripEarningsPence + cashTripEarningsPence
+    + airportFeeEarningsPence + extraChargeEarningsPence + bonusesPence
+    + Math.max(0, adjustmentsPence);
+
+  // Platform commission is not shown on driver statements (no provider/platform cut on this invoice).
+  // Net statement total = earnings + fees/bonuses/adjustments only.
+  const netDriverEarningsPence = cardTripEarningsPence + cashTripEarningsPence
+    + airportFeeEarningsPence + extraChargeEarningsPence + bonusesPence + adjustmentsPence;
+
+  return {
+    cardTripEarningsPence,
+    cashTripEarningsPence,
+    airportFeeEarningsPence,
+    extraChargeEarningsPence,
+    bonusesPence,
+    adjustmentsPence,
+    platformCommissionPence,
+    cashCollectedOffsetPence,
+    cardTrips,
+    cashTrips,
+    totalTrips,
+    grossEarningsPence,
+    netDriverEarningsPence,
+    completedTripIds,
+  };
+}
+
+export function buildInvoiceItems(
+  invoiceId: string,
+  agg: DriverInvoiceAggregation,
+): Array<Record<string, unknown>> {
+  const items: Array<Record<string, unknown>> = [];
+  let sort = 1;
+
+  const push = (type: string, description: string, trips: number, amount: number) => {
+    if (amount === 0 && trips === 0) return;
+    items.push({
+      invoice_id: invoiceId,
+      item_type: type,
+      description,
+      quantity: trips,
+      unit_price_pence: trips > 0 ? Math.round(amount / trips) : amount,
+      amount_pence: amount,
+      sort_order: sort++,
+    });
+  };
+
+  push("trip_earnings", "Completed Card Trip Earnings", agg.cardTrips, agg.cardTripEarningsPence);
+  push("other", "Airport Fee Earnings", 0, agg.airportFeeEarningsPence);
+  push("other", "Extra Charge Earnings", 0, agg.extraChargeEarningsPence);
+  if (agg.bonusesPence > 0) push("bonus", "Bonuses", 0, agg.bonusesPence);
+  if (agg.adjustmentsPence !== 0) push("adjustment", "Adjustments", 0, agg.adjustmentsPence);
+  // Intentionally omit Platform Commission line items from driver invoices.
+
+  return items;
+}

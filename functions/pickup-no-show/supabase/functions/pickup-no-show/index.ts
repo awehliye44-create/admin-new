@@ -1,0 +1,433 @@
+import { createClient } from "npm:@supabase/supabase-js@2.57.2";
+import { requireAuthenticatedUser } from "../_shared/edgeAuth.ts";
+import {
+  checkRateLimit,
+  getClientIP,
+  rateLimitResponse,
+  handleCORSPreflight,
+  successResponse,
+  errorResponse,
+  isValidUUID,
+  validationErrorResponse,
+} from "../_shared/security.ts";
+import { resolveDriverArrivedAtIso } from "../_shared/pickupWaiting.ts";
+import {
+  evaluateCanMarkNoShow,
+  loadNoShowDispatchRules,
+  loadNoShowPricingRules,
+} from "../_shared/tripNoShowRules.ts";
+import { isCashPayment, settleNoShowFee } from "../_shared/noShowSettlement.ts";
+import { computeCaptureAmount } from "../_shared/tripFareSSOT.ts";
+import { handleQueuedTripAfterCurrentTripFailure } from "../_shared/stackedRideLifecycle.ts";
+import { notifyCustomerTripLifecycle } from "../_shared/customerTripLifecycleNotify.ts";
+import {
+  finalizeWaitingSegmentsAtTerminal,
+  resolveCanonicalWaitingSeconds,
+  resolveEffectiveWaitingRadiusMeters,
+  resolveTrustedDriverLocation,
+  syncWaitingGeofenceClock,
+  WAITING_EVIDENCE_UNAVAILABLE,
+} from "../_shared/waitingSegmentClock.ts";
+import { loadAdminWaitingConfig } from "../_shared/waitingAdminConfig.ts";
+
+const RATE_LIMIT_CONFIG = {
+  limit: 10,
+  windowMs: 60000,
+  keyPrefix: "pickup-no-show",
+};
+
+// (userIdFromAuthHeader helper removed for signature verification security)
+
+/**
+ * PICKUP NO-SHOW — validates lifecycle rules, charges fee, sets trip terminal status.
+ *
+ * Business-rule failures return HTTP 200 + { success: false, message } so the driver app
+ * can show a clear message instead of a generic non-2xx invoke error.
+ */
+Deno.serve(async (req) => {
+  if (req.method === "OPTIONS") return handleCORSPreflight();
+
+  const clientIP = getClientIP(req);
+  const rl = checkRateLimit(clientIP, RATE_LIMIT_CONFIG);
+  if (!rl.allowed) return rateLimitResponse(rl);
+
+  try {
+    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+    const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+    const anonKey = Deno.env.get("SUPABASE_ANON_KEY")!;
+    const supabase = createClient(supabaseUrl, serviceRoleKey);
+
+    const auth = await requireAuthenticatedUser(req, supabaseUrl, anonKey);
+    if (!auth.ok) {
+      return auth.response;
+    }
+    const userId = auth.userId;
+
+    const { data: driver } = await supabase
+      .from("drivers")
+      .select("id")
+      .eq("user_id", userId)
+      .single();
+    if (!driver) return errorResponse("FORBIDDEN", "Driver not found", 403);
+
+    const body = await req.json();
+    const { trip_id, driver_lat, driver_lng } = body;
+    if (!trip_id || !isValidUUID(trip_id)) {
+      return validationErrorResponse({ trip_id: "Valid trip_id required" });
+    }
+
+    // Legacy payment-intent column intentionally omitted — Revolut is SSOT.
+    const tripSelectCols =
+      "id, confirmed_driver_id, passenger_id, status, arrived_at, pickup_arrived_at, service_area_id, vehicle_type_id, pickup_latitude, pickup_longitude, driver_location_lat, driver_location_lng, payment_method, financial_model, currency_code, no_show_charge_pence, completed_at, pickup_waiting_counted_seconds, pickup_waiting_started_at";
+
+    const { data: trip, error: tripErr } = await supabase
+      .from("trips")
+      .select(tripSelectCols)
+      .eq("id", trip_id)
+      .single();
+
+    if (tripErr || !trip) return errorResponse("NOT_FOUND", "Trip not found", 404);
+
+    console.log("NO_SHOW_SELECT_PROD_SAFE", { trip_id, select_cols: tripSelectCols });
+    console.log("DRIVER_ARRIVED_AT_COLUMN_REMOVED_FROM_SELECTS", {
+      function: "pickup-no-show",
+      canonical_arrival_fields: ["pickup_arrived_at", "arrived_at"],
+    });
+    if (trip.confirmed_driver_id !== driver.id) {
+      return errorResponse("FORBIDDEN", "Not your trip", 403);
+    }
+
+    const tripStatusNorm = String(trip.status || "").toLowerCase();
+    if (tripStatusNorm === "no_show") {
+      return successResponse({
+        success: true,
+        idempotent: true,
+        status: "no_show",
+        message: "No-show already recorded for this trip.",
+      });
+    }
+
+    const trusted = await resolveTrustedDriverLocation(supabase, driver.id);
+    let resolvedDriverLat =
+      trusted?.lat ??
+      (typeof driver_lat === "number" ? driver_lat : undefined);
+    let resolvedDriverLng =
+      trusted?.lng ??
+      (typeof driver_lng === "number" ? driver_lng : undefined);
+    // Prefer trusted server location; body GPS only when no trusted fix.
+    if (trusted) {
+      resolvedDriverLat = trusted.lat;
+      resolvedDriverLng = trusted.lng;
+    } else if (resolvedDriverLat == null || resolvedDriverLng == null) {
+      const { data: driverGeo } = await supabase
+        .from("drivers")
+        .select("current_lat, current_lng")
+        .eq("id", driver.id)
+        .maybeSingle();
+      resolvedDriverLat =
+        resolvedDriverLat ??
+        (typeof driverGeo?.current_lat === "number" ? driverGeo.current_lat : undefined) ??
+        (typeof trip.driver_location_lat === "number" ? trip.driver_location_lat : undefined);
+      resolvedDriverLng =
+        resolvedDriverLng ??
+        (typeof driverGeo?.current_lng === "number" ? driverGeo.current_lng : undefined) ??
+        (typeof trip.driver_location_lng === "number" ? trip.driver_location_lng : undefined);
+    }
+
+    const terminal = new Set(["completed", "cancelled", "canceled", "no_show", "expired"]);
+    if (terminal.has(String(trip.status || "").toLowerCase())) {
+      return successResponse({
+        success: false,
+        message: "This trip has already ended.",
+      });
+    }
+
+    const pickupArrivedAt = await resolveDriverArrivedAtIso(supabase, trip_id, trip);
+    console.log("PICKUP_ARRIVAL_TIMESTAMP_LOADED", {
+      trip_id,
+      pickup_arrived_at: pickupArrivedAt,
+      trip_pickup_arrived_at: trip.pickup_arrived_at ?? null,
+      trip_arrived_at: trip.arrived_at ?? null,
+    });
+    console.log("NO_SHOW_ANCHOR_DRIVER_ARRIVED_AT", {
+      trip_id,
+      pickup_arrived_at: pickupArrivedAt,
+    });
+    if (!pickupArrivedAt) {
+      console.log("NO_SHOW_BLOCKED_NO_ARRIVAL_TIMESTAMP", {
+        trip_id,
+        reason: "no_pickup_arrival_anchor",
+      });
+      return successResponse({
+        success: false,
+        message: "No arrival time recorded — tap Arrived at pickup first.",
+      });
+    }
+    const pricing = await loadNoShowPricingRules(
+      supabase,
+      trip.service_area_id,
+      trip.vehicle_type_id,
+    );
+    const dispatch = await loadNoShowDispatchRules(supabase, trip.service_area_id);
+    const waitingConfig = await loadAdminWaitingConfig(
+      supabase,
+      trip.service_area_id,
+      trip.vehicle_type_id,
+    );
+
+    // No-Show decision time. Eligibility reads segments at this instant, never
+    // the trips counter cache; unreadable segments block the No-Show (no
+    // trip, fee or payment mutation) until the Driver retries.
+    const decisionAtIso = new Date().toISOString();
+    if (
+      trip.pickup_waiting_started_at &&
+      trip.pickup_latitude != null &&
+      trip.pickup_longitude != null
+    ) {
+      await syncWaitingGeofenceClock(supabase, {
+        tripId: trip_id,
+        driverId: driver.id,
+        locationType: "pickup",
+        target: {
+          lat: trip.pickup_latitude,
+          lng: trip.pickup_longitude,
+          radiusMeters: resolveEffectiveWaitingRadiusMeters(
+            waitingConfig.pickup_radius_meters,
+            waitingConfig.pickup_radius_enabled,
+          ),
+          radiusEnabled: waitingConfig.pickup_radius_enabled,
+        },
+        bodyLat: typeof driver_lat === "number" ? driver_lat : null,
+        bodyLng: typeof driver_lng === "number" ? driver_lng : null,
+        nowIso: decisionAtIso,
+      });
+    }
+    const canonicalWaiting = await resolveCanonicalWaitingSeconds(supabase, {
+      tripId: trip_id,
+      locationType: "pickup",
+      atIso: decisionAtIso,
+    });
+    if (!canonicalWaiting.ok) {
+      console.error("[pickup-no-show] WAITING_EVIDENCE_UNAVAILABLE — no decision, no mutation", {
+        trip_id,
+        reason: canonicalWaiting.reason,
+        message: canonicalWaiting.message,
+        evaluated_at: decisionAtIso,
+      });
+      return errorResponse(
+        WAITING_EVIDENCE_UNAVAILABLE,
+        "Unable to verify waiting time right now. Please try again.",
+        503,
+      );
+    }
+    const countedInRadiusSeconds = canonicalWaiting.countedSeconds;
+
+    const eligibility = evaluateCanMarkNoShow({
+      tripStatus: trip.status,
+      arrivedAtIso: pickupArrivedAt,
+      pricing,
+      dispatch,
+      countedInRadiusSeconds,
+      driverLat: resolvedDriverLat,
+      driverLng: resolvedDriverLng,
+      pickupLat: trip.pickup_latitude,
+      pickupLng: trip.pickup_longitude,
+    });
+
+    if (!eligibility.canMark) {
+      console.log("[pickup-no-show] Not eligible:", trip_id, eligibility.message);
+      return successResponse({
+        success: false,
+        message: eligibility.message,
+      });
+    }
+
+    const configuredNoShowFeePence = pricing.noShowFeePence;
+    const driverCollected =
+      String(trip.financial_model ?? "").toUpperCase() === "DRIVER_COLLECTED_COMMISSION_WALLET";
+    const cashTrip = isCashPayment(trip.payment_method) || driverCollected;
+    const effectiveNoShowFeePence = cashTrip ? 0 : configuredNoShowFeePence;
+    const now = decisionAtIso;
+
+    let updateErr = (await supabase
+      .from("trips")
+      .update({
+        status: "no_show",
+        completed_at: trip.completed_at ?? now,
+        cancelled_at: null,
+        cancelled_by: null,
+        cancelled_by_role: null,
+        cancel_reason: null,
+        cancellation_reason: "no_show",
+        no_show_by: "driver",
+        no_show_charge_pence: effectiveNoShowFeePence,
+        late_cancel_fee_pence: 0,
+        pickup_waiting_charge_pence: 0,
+        total_waiting_charge_pence: 0,
+        grace_period_expired_at: now,
+        previous_driver_id: driver.id,
+        updated_at: now,
+      })
+      .eq("id", trip_id)
+      .eq("confirmed_driver_id", driver.id)).error;
+
+    if (updateErr?.message?.includes("no_show_by")) {
+      console.warn("[pickup-no-show] no_show_by column missing — retry without actor column");
+      updateErr = (await supabase
+        .from("trips")
+        .update({
+          status: "no_show",
+          completed_at: trip.completed_at ?? now,
+          cancelled_at: null,
+          cancelled_by: null,
+          cancelled_by_role: null,
+          cancel_reason: null,
+          cancellation_reason: "no_show",
+          no_show_charge_pence: effectiveNoShowFeePence,
+          late_cancel_fee_pence: 0,
+          pickup_waiting_charge_pence: 0,
+          total_waiting_charge_pence: 0,
+          grace_period_expired_at: now,
+          previous_driver_id: driver.id,
+          updated_at: now,
+        })
+        .eq("id", trip_id)
+        .eq("confirmed_driver_id", driver.id)).error;
+    }
+
+    if (updateErr) {
+      console.error("[pickup-no-show] Trip update failed:", updateErr);
+      return errorResponse("UPDATE_FAILED", "Could not update trip — please try again", 500);
+    }
+
+    const frozenWaiting = await finalizeWaitingSegmentsAtTerminal(supabase, {
+      tripId: trip_id,
+      locationType: "pickup",
+      atIso: decisionAtIso,
+    });
+    if (!frozenWaiting.ok) {
+      console.error("[pickup-no-show] waiting segment finalize failed", { trip_id, ...frozenWaiting });
+    }
+
+    console.log("NO_SHOW_TERMINAL_CONFIRMED", JSON.stringify({
+      trip_id,
+      driver_id: driver.id,
+      status: "no_show",
+      no_show_by: "driver",
+      payment_method: trip.payment_method,
+      configured_no_show_fee_pence: configuredNoShowFeePence,
+      effective_no_show_fee_pence: effectiveNoShowFeePence,
+      cash_zero_policy: cashTrip,
+      pickup_waiting_counted_seconds: countedInRadiusSeconds,
+      waiting_evidence_source: canonicalWaiting.source,
+      waiting_evaluated_at: decisionAtIso,
+    }));
+
+    await supabase
+      .from("drivers")
+      .update({ current_trip_id: null, active_trip_id: null, updated_at: now })
+      .eq("id", driver.id);
+
+    await handleQueuedTripAfterCurrentTripFailure(supabase, {
+      currentTripId: trip_id,
+      driverId: driver.id,
+      failureReason: "pickup_no_show",
+    });
+
+    if (trip.passenger_id) {
+      await supabase
+        .from("customers")
+        .update({ active_trip_id: null })
+        .eq("id", trip.passenger_id)
+        .eq("active_trip_id", trip_id);
+
+      // Terminal no_show aliases to trip_cancelled lifecycle WAV.
+      void notifyCustomerTripLifecycle(supabase, {
+        passengerId: trip.passenger_id,
+        tripId: trip_id,
+        event: "no_show",
+        title: "ONECAB TRIP CANCELLED",
+        body: "Your trip ended — the driver reported a no-show.",
+      }).catch((e) =>
+        console.warn("[pickup-no-show] customer trip_cancelled push failed:", e)
+      );
+    }
+
+    let cardCharged = false;
+    if (effectiveNoShowFeePence > 0 && !cashTrip && trip.payment_method !== "wallet") {
+      const noShowCapture = computeCaptureAmount(
+        { ...trip, no_show_charge_pence: effectiveNoShowFeePence },
+        "card_no_show",
+      );
+      const captureAmountPence = noShowCapture.capture_amount_pence;
+      try {
+        const chargeRes = await fetch(`${supabaseUrl}/functions/v1/charge-lifecycle-fee`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${serviceRoleKey}`,
+          },
+          body: JSON.stringify({
+            trip_id,
+            fee_type: "no_show",
+            amount_pence: captureAmountPence,
+            description: "No-show fee",
+          }),
+        });
+        const chargeResult = await chargeRes.json();
+        cardCharged =
+          chargeResult?.success === true &&
+          (chargeResult?.charged === true || chargeResult?.already_charged === true);
+        console.log("[pickup-no-show] charge-lifecycle-fee:", JSON.stringify(chargeResult));
+      } catch (chargeErr) {
+        console.error("[pickup-no-show] charge-lifecycle-fee failed (non-fatal):", chargeErr);
+      }
+    }
+
+    let settlement: Awaited<ReturnType<typeof settleNoShowFee>>;
+    try {
+      settlement = await settleNoShowFee({
+        supabase,
+        tripId: trip_id,
+        driverId: driver.id,
+        passengerId: trip.passenger_id ?? null,
+        paymentMethod: trip.payment_method,
+        financialModel: trip.financial_model ?? null,
+        currencyCode: trip.currency_code,
+        feePence: effectiveNoShowFeePence,
+        cardCharged,
+        serviceRoleKey,
+        supabaseUrl,
+      });
+      console.log("[pickup-no-show] Recorded:", trip_id, settlement);
+    } catch (settleErr) {
+      console.error("[pickup-no-show] Settlement failed (trip already no_show):", settleErr);
+      settlement = {
+        paymentStatus: "no_show_company_compensated",
+        driverCompensated: false,
+        customerDebtPence: 0,
+        driverMessage: "No-show recorded. Fee will be handled by ONECAB.",
+      };
+    }
+    console.log("NO_SHOW_REMATCH_BLOCKED", JSON.stringify({
+      trip_id,
+      reason: "no_show_is_terminal",
+    }));
+
+    return successResponse({
+      success: true,
+      status: "no_show",
+      trip_id,
+      no_show_fee_pence: effectiveNoShowFeePence,
+      configured_no_show_fee_pence: configuredNoShowFeePence,
+      charged: cardCharged,
+      payment_status: settlement.paymentStatus,
+      driver_compensated: settlement.driverCompensated,
+      customer_debt_pence: settlement.customerDebtPence,
+      message: settlement.driverMessage,
+    });
+  } catch (err) {
+    console.error("[pickup-no-show] Error:", err);
+    return errorResponse("INTERNAL_ERROR", "Internal server error", 500);
+  }
+});

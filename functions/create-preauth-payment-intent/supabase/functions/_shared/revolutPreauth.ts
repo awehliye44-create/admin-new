@@ -1,0 +1,1829 @@
+import type { CreateOrderParams } from "./revolutOrders.ts";
+import type { SupabaseClient } from "npm:@supabase/supabase-js@2.57.2";
+import {
+  buildPreauthIdempotencyKey,
+  recordPaymentAuthorizationEvent,
+} from "./dynamicPaymentWorkflow.ts";
+import { humanizeRevolutPreauthCustomerError } from "./revolutCustomerError.ts";
+import { ensureRevolutCustomerForBooking } from "./revolutCustomers.ts";
+import {
+  buildPreauthOrderCreateMetadata,
+  customerForStaleOrderRetry,
+  planStaleCachedCustomerOrderRetry,
+  shouldAttachRevolutCustomerForPreauth,
+} from "./revolutPreauthCustomerAttach.ts";
+import { resolveRevolutMerchantContext } from "./revolutMerchantContext.ts";
+import {
+  isRevolutAuthorisedState,
+  isRevolutInFlightState,
+} from "./revolutPaymentConfirmation.ts";
+import {
+  createRevolutOrder,
+  isRevolutPaymentAuthenticationChallenge,
+  isRevolutPaymentAuthorisedState,
+  isRevolutPaymentFailedState,
+  payRevolutOrderWithSavedCard,
+  retrieveRevolutOrder,
+  retrieveRevolutOrderPayment,
+} from "./revolutOrders.ts";
+import {
+  captureRevolutProviderTokenFromOrder,
+  invalidateRevolutProviderToken,
+  lookupProviderPaymentMethodToken,
+  ONECAB_PENDING_PLATFORM_PM_PREFIX,
+} from "./customerSavedPaymentMethodTokens.ts";
+import { countUsableSavedRevolutCards, MAX_SAVED_REVOLUT_CARDS } from "./revolutSavedCardVault.ts";
+import { upsertPaymentSessionPending, markPaymentSessionAuthorised, markPaymentSessionFailed, loadPaymentSession } from "./paymentSessionSSOT.ts";
+import {
+  releaseReceivablesOnCancelIfAllowed,
+  reserveReceivablesBeforeProviderCall,
+  sumOpenReceivableOutstandingForCustomer,
+} from "./customerReceivableLifecycle.ts";
+import {
+  PREAUTH_RECEIVABLE_ORDERING,
+  RECEIVABLE_PERSISTENCE_UNAVAILABLE,
+  isCustomerReceivablePreauthEligible,
+} from "./customerReceivableSSOT.ts";
+import {
+  BOOKING_QUOTE_INVALID,
+  BOOKING_PAYMENT_QUOTE_ERROR_COPY,
+  FARE_QUOTE_CHANGED,
+  FARE_QUOTE_EXPIRED,
+  OUTSTANDING_BALANCE_CHANGED,
+  buildBookingPaymentRouteFingerprint,
+  consumeBookingPaymentQuoteViaRpc,
+  extractBookingPaymentQuoteIdFromBody,
+  loadBookingPaymentQuote,
+  resolvePreauthAmountsFromQuote,
+  rollbackOrphanPendingPaymentSession,
+  bookingPaymentQuoteErrorPayload,
+  validateBookingPaymentQuoteForPreauth,
+  type BookingPaymentQuoteErrorCode,
+  type BookingPaymentQuoteRow,
+} from "./bookingPaymentQuoteSSOT.ts";
+import { buildOpaqueQuoteSessionFareSnapshot } from "./serverFareAuthoritySSOT.ts";
+import {
+  RECEIVABLE_CONSENT_REFRESH_REQUIRED,
+  RECEIVABLE_FOLD_UNAVAILABLE,
+  buildReceivablePreauthResponseFields,
+  extractReceivableConsentFromPreauthBody,
+  planCustomerReceivableFoldConsent,
+  planReceivableReservedTotalMatchesConsent,
+  readCustomerReceivableFoldGate,
+  type ReceivableConsentRequest,
+} from "./customerReceivableConsentSSOT.ts";
+import type { ProviderEnvironment } from "./paymentProviders/types.ts";
+import { createBookingWaterfallCollector } from "./bookingWaterfallTelemetry.ts";
+import {
+  isRevolutBookingPreauthHoldState,
+} from "./revolutPaymentConfirmation.ts";
+import { isRevolutWrongCaptureBeforeTripComplete } from "./revolutPreauthReleaseSSOT.ts";
+import { validateCanonicalBookingSnapshot } from "./bookingSnapshotSSOT.ts";
+import { assertBookingPreauthAmount } from "./bookingPreauthAmountGuardSSOT.ts";
+import {
+  authorisedHoldMatchesBooking,
+  classifyRevolutOrderForBookingRetry,
+} from "./revolutPaymentAttemptStateSSOT.ts";
+import {
+  buildSavedCardPendingHandoff,
+  isTechnicalDeclineReason,
+  SAVED_CARD_TERMINAL_FAILURE_THROTTLE_MS,
+} from "./savedCardPaymentReconcileSSOT.ts";
+import {
+  citBrowserEnvironmentErrorResponse,
+  parseAndValidateCitBrowserEnvironment,
+  type RevolutCitBrowserEnvironment,
+} from "./revolutCitBrowserEnvironmentSSOT.ts";
+import {
+  createPreauthEdgeTiming,
+  jsonResponseWithPreauthTiming,
+  type PreauthEdgeTiming,
+} from "./preauthEdgeTimingSSOT.ts";
+
+export { isRevolutAuthorisedState } from "./revolutPaymentConfirmation.ts";
+
+/**
+ * Max Edge wait after saved-card Pay while Revolut is processing / challenge
+ * without ACS. Tuned from Samsung device Books where client AUTHENTICATION_NO_ACS
+ * settle was ~5–7s after a short Edge handoff.
+ */
+export const SAVED_CARD_PREAUTH_SETTLE_MAX_MS = 8_000;
+/** Tight Revolut retrieve interval during Edge settle (cheaper than client reconcile RTT). */
+export const SAVED_CARD_PREAUTH_SETTLE_POLL_MS = 200;
+
+const REVOLUT_REUSABLE_STATES = new Set(["PENDING", "PROCESSING", "AUTHORISED"]);
+
+export type RevolutPreauthInput = {
+  supabase: SupabaseClient;
+  environment: ProviderEnvironment;
+  authorisedAmountPence: number;
+  estimatedTotalPence: number;
+  bufferPence: number;
+  paymentCurrency: string;
+  tripId: string | null;
+  clientActionId: string | null;
+  idempotencyKeySuffix: string;
+  metadataExtra: Record<string, string>;
+  paymentMethodType?: string | null;
+  userId?: string | null;
+  platformPaymentMethodId?: string | null;
+  bookingSnapshot?: Record<string, unknown> | null;
+  fareSnapshot?: Record<string, unknown> | null;
+  customerId?: string | null;
+  customerEmail?: string | null;
+  customerName?: string | null;
+  /** Explicit rider opt-in. False/absent must not allocate a new vault id or save flag. */
+  savePaymentMethod?: boolean;
+  /**
+   * Required for saved-card Pay (CIT). Validated by caller / create-preauth
+   * before order create when possible. Never invent defaults.
+   */
+  browserEnvironment?: RevolutCitBrowserEnvironment | null;
+  corsHeaders: Record<string, string>;
+  logStep: (step: string, details?: unknown) => void;
+  /** Observability — created by create-preauth so receive→auth is measured. */
+  edgeTiming?: PreauthEdgeTiming | null;
+  /**
+   * Visible consent capability from Customer Book request.
+   * Missing/old → NO fold (receivables stay OPEN; fare-only preauth).
+   */
+  receivableConsent?: ReceivableConsentRequest | null;
+  /**
+   * Quote row already loaded on the opaque path. Validation and consume still
+   * run. A second SELECT is skipped when the id matches.
+   */
+  preloadedBookingPaymentQuote?: BookingPaymentQuoteRow | null;
+};
+
+export async function createRevolutPreauthResponse(
+  input: RevolutPreauthInput,
+): Promise<Response> {
+  const {
+    supabase,
+    environment,
+    authorisedAmountPence: authorisedAmountPenceInput,
+    estimatedTotalPence,
+    bufferPence,
+    paymentCurrency,
+    tripId,
+    clientActionId,
+    idempotencyKeySuffix,
+    metadataExtra,
+    paymentMethodType,
+    userId,
+    platformPaymentMethodId,
+    bookingSnapshot: bookingSnapshotInput,
+    fareSnapshot: fareSnapshotInput,
+    customerId,
+    customerEmail,
+    customerName,
+    savePaymentMethod,
+    browserEnvironment,
+    corsHeaders,
+    logStep,
+    edgeTiming: edgeTimingInput,
+    receivableConsent: receivableConsentInput,
+    preloadedBookingPaymentQuote,
+  } = input;
+  /** May grow after durable receivable reservation (ride + buffer + debt). */
+  let authorisedAmountPence = authorisedAmountPenceInput;
+  /** Opaque path replaces every money key with the validated quote's values. */
+  let fareSnapshot = fareSnapshotInput;
+  const receivableConsent: ReceivableConsentRequest =
+    receivableConsentInput
+    ?? extractReceivableConsentFromPreauthBody({
+      ...metadataExtra,
+      booking_snapshot: bookingSnapshotInput ?? undefined,
+      metadata: metadataExtra,
+    });
+
+  let bookingSnapshot = bookingSnapshotInput;
+  const edgeTiming = edgeTimingInput ?? createPreauthEdgeTiming();
+
+  // Saved-card CIT Pay requires validated browser environment — fail closed
+  // before creating / reusing pay paths that would call Revolut Pay.
+  edgeTiming.markValidationStart();
+  const savedCardReuse = Boolean(platformPaymentMethodId?.trim());
+  let validatedBrowserEnv: RevolutCitBrowserEnvironment | null = null;
+  if (savedCardReuse) {
+    const parsedEnv = parseAndValidateCitBrowserEnvironment(browserEnvironment);
+    if (!parsedEnv.ok) {
+      logStep("BROWSER_ENVIRONMENT_REJECTED", {
+        code: parsedEnv.code,
+        clientActionId,
+        hasPlatformPm: true,
+      });
+      edgeTiming.markValidationEnd();
+      return citBrowserEnvironmentErrorResponse(parsedEnv, corsHeaders);
+    }
+    validatedBrowserEnv = parsedEnv.environment;
+  }
+
+  // Fail closed: booking preauth must never create a £1 vault verification hold.
+  const amountGuard = assertBookingPreauthAmount({
+    estimatedTotalPence,
+    authorisedAmountPence,
+  });
+  if (!amountGuard.ok) {
+    logStep("BOOKING_PREAUTH_AMOUNT_REJECTED", {
+      code: amountGuard.code,
+      estimatedTotalPence,
+      authorisedAmountPence,
+      clientActionId,
+    });
+    edgeTiming.markValidationEnd();
+    return jsonResponseWithPreauthTiming({
+      error: amountGuard.message,
+      error_code: amountGuard.code,
+      code: amountGuard.code,
+      charge_state: "no_charge",
+    }, corsHeaders, 422, edgeTiming);
+  }
+  edgeTiming.markValidationEnd();
+
+  const holdStartedAt = edgeTiming.t0;
+  const idempotencyKey = buildPreauthIdempotencyKey({
+    tripId,
+    clientActionId,
+  });
+  // New-card booking allocates a pending vault id only when the rider opted in
+  // to save and is under MAX_SAVED_REVOLUT_CARDS. Saved-card booking already
+  // passes platformPaymentMethodId and must not save again.
+  const methodType = String(paymentMethodType ?? "card").toLowerCase();
+  let resolvedPlatformPaymentMethodId = platformPaymentMethodId?.trim() || null;
+  let saveCardEligible = false;
+  if (
+    !resolvedPlatformPaymentMethodId
+    && savePaymentMethod === true
+    && userId
+    && (methodType === "card" || methodType === "")
+  ) {
+    const usable = await countUsableSavedRevolutCards(supabase, userId);
+    if (usable >= MAX_SAVED_REVOLUT_CARDS) {
+      logStep("Booking card save skipped — vault cap", {
+        usable,
+        max: MAX_SAVED_REVOLUT_CARDS,
+      });
+    } else {
+      saveCardEligible = true;
+      resolvedPlatformPaymentMethodId =
+        `${ONECAB_PENDING_PLATFORM_PM_PREFIX}${crypto.randomUUID()}`;
+      logStep("Allocated pending platform payment method for explicit card save", {
+        platformPaymentMethodId: resolvedPlatformPaymentMethodId,
+      });
+    }
+  }
+  const savedCardContext = Boolean(platformPaymentMethodId);
+  let paymentSessionId: string | null = null;
+  /** Reserved OPEN receivables folded into this preauth (pence). */
+  let receivableReservedTotal = 0;
+  let receivableFoldAdmission: string | null = null;
+  let receivableFoldResult: string | null = null;
+  let receivableQuoteVersionOut: string | null = null;
+  let receivableConsentVersionOut: number | null = null;
+  const bookingWaterfall = createBookingWaterfallCollector({
+    client_action_id: clientActionId,
+    trip_id: tripId,
+  });
+  bookingWaterfall.recordStep({
+    step: "revolut_order_created",
+    start_time_ms: holdStartedAt,
+    finish_time_ms: holdStartedAt,
+    source: "revolutPreauth.ts:hold_start",
+    metadata: { hold_start_ms: holdStartedAt },
+  });
+
+  // Merchant secret, session idempotency, ledger order recovery, and the
+  // opaque-quote receivable read do not depend on each other. The session
+  // order id still wins. The ledger id is used only when the session has
+  // none. No payment row is written until this join finishes.
+  const prewriteStarted = Date.now();
+  const opaqueQuoteId = String(
+    receivableConsent.booking_payment_quote_id ?? "",
+  ).trim() || null;
+  let merchantError: unknown = null;
+  const merchantP = (async () => {
+    edgeTiming.markDbLookupStart();
+    try {
+      return await resolveRevolutMerchantContext(supabase, environment);
+    } catch (err) {
+      merchantError = err;
+      return null;
+    } finally {
+      edgeTiming.markDbLookupEnd();
+    }
+  })();
+  const sessionP = (async () => {
+    if (!clientActionId) return null;
+    edgeTiming.markPaymentSessionStart();
+    try {
+      return await loadPaymentSession(supabase, { clientActionId });
+    } finally {
+      edgeTiming.markPaymentSessionEnd();
+    }
+  })();
+  const ledgerP = (async () => {
+    if (!(clientActionId || tripId)) return null;
+    edgeTiming.markLedgerStart();
+    try {
+      const { data: ledgerRow } = await supabase
+        .from("payment_authorization_ledger")
+        .select("metadata")
+        .eq("idempotency_key", idempotencyKey)
+        .maybeSingle();
+      return String((ledgerRow?.metadata as { provider_order_id?: unknown } | null)?.provider_order_id ?? "").trim() || null;
+    } finally {
+      edgeTiming.markLedgerEnd();
+    }
+  })();
+  const quoteRevalidateP = (async () => {
+    if (!opaqueQuoteId || !customerId || !clientActionId) return null;
+    const started = Date.now();
+    const [row, openRecv] = await Promise.all([
+      preloadedBookingPaymentQuote?.id === opaqueQuoteId
+        ? Promise.resolve(preloadedBookingPaymentQuote)
+        : loadBookingPaymentQuote(supabase, opaqueQuoteId),
+      sumOpenReceivableOutstandingForCustomer(supabase, {
+        customer_id: customerId,
+        currency: paymentCurrency,
+      }),
+    ]);
+    return { row, openRecv, started, ended: Date.now(), failed: false as const };
+  })().catch(() => ({
+    row: null,
+    openRecv: 0,
+    started: Date.now(),
+    ended: Date.now(),
+    failed: true as const,
+  }));
+
+  let merchant;
+  let existingOrderId: string | null = null;
+  let ledgerOrderId: string | null = null;
+  let prefetchedQuoteRevalidate: {
+    row: BookingPaymentQuoteRow | null;
+    openRecv: number;
+    started: number;
+    ended: number;
+    failed: boolean;
+  } | null = null;
+  const [merchantResult, existingSession, ledgerId, quotePrefetch] = await Promise.all([
+    merchantP,
+    sessionP,
+    ledgerP,
+    quoteRevalidateP,
+  ]);
+  if (merchantError || !merchantResult) {
+    const message = humanizeRevolutPreauthCustomerError((merchantError as Error)?.message);
+    return jsonResponseWithPreauthTiming({
+      error: message,
+      code: "PAYMENT_GATEWAY_NOT_CONFIGURED",
+      charge_state: "no_charge",
+    }, corsHeaders, 503, edgeTiming);
+  }
+  merchant = merchantResult;
+  ledgerOrderId = ledgerId;
+  prefetchedQuoteRevalidate = quotePrefetch;
+  const sessionOrderId = (existingSession?.provider_order_id as string | undefined) ?? null;
+  paymentSessionId = (existingSession?.id as string | undefined) ?? null;
+  existingOrderId = sessionOrderId || ledgerOrderId;
+  if (sessionOrderId) {
+    logStep("Payment session idempotent reuse candidate", {
+      clientActionId,
+      orderId: sessionOrderId,
+      sessionId: paymentSessionId,
+    });
+  }
+  const prewriteEnded = Date.now();
+  const prewriteWallMs = Math.max(0, prewriteEnded - prewriteStarted);
+  edgeTiming.recordDiagnostic("edge_prewrite_reads_wall_ms", prewriteWallMs);
+  edgeTiming.recordDiagnostic("edge_prewrite_reads_critical_ms", prewriteWallMs);
+  edgeTiming.recordDiagnostic("edge_prewrite_reads_parallel", true);
+  if (prefetchedQuoteRevalidate && !prefetchedQuoteRevalidate.failed) {
+    edgeTiming.recordSpan(
+      "edge_quote_revalidate_ms",
+      prefetchedQuoteRevalidate.started,
+      prefetchedQuoteRevalidate.ended,
+    );
+  }
+
+  const { secretKey, publicKey } = merchant;
+
+  if (existingOrderId) {
+    try {
+      const existing = await retrieveRevolutOrder(environment, secretKey, existingOrderId);
+      const state = String(existing.state ?? "").toUpperCase();
+      const retryDecision = classifyRevolutOrderForBookingRetry(state);
+
+      // Manually cancelled / failed / completed — never continue booking on this draft.
+      if (retryDecision === "terminal_block") {
+        logStep("Revolut order terminal — block booking continuation", {
+          orderId: existing.id,
+          state,
+          amount: existing.amount ?? null,
+        });
+        return new Response(JSON.stringify({
+          error: humanizeRevolutPreauthCustomerError(
+            state === "CANCELLED" || state === "CANCELED"
+              ? "Payment was cancelled. Start a new booking to try again."
+              : "Payment failed. Start a new booking to try again.",
+          ),
+          code: "PAYMENT_TERMINAL",
+          error_code: "PAYMENT_TERMINAL",
+          provider_state: state,
+          provider_order_id: existing.id,
+          charge_state: "no_charge",
+        }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+          status: 409,
+        });
+      }
+
+      if (
+        retryDecision === "reuse_unresolved" ||
+        retryDecision === "reuse_authorised" ||
+        REVOLUT_REUSABLE_STATES.has(state)
+      ) {
+        logStep("Revolut order idempotent reuse", {
+          orderId: existing.id,
+          state,
+          decision: retryDecision,
+          amount: existing.amount ?? null,
+        });
+        if (clientActionId && !paymentSessionId) {
+          const existingSession = await loadPaymentSession(supabase, { clientActionId });
+          paymentSessionId = (existingSession?.id as string | undefined) ?? null;
+        }
+        if (isRevolutWrongCaptureBeforeTripComplete(state)) {
+          return new Response(JSON.stringify({
+            error: humanizeRevolutPreauthCustomerError("Payment already captured — cannot reuse for booking"),
+            code: "PAYMENT_INVARIANT_VIOLATION",
+            charge_state: "hold_possible",
+          }), {
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+            status: 409,
+          });
+        }
+        if (isRevolutBookingPreauthHoldState(state)) {
+          const amountOk = authorisedHoldMatchesBooking({
+            orderAmountMinor: existing.amount,
+            orderCurrency: existing.currency,
+            expectedAmountMinor: authorisedAmountPence,
+            expectedCurrency: paymentCurrency,
+          });
+          if (!amountOk) {
+            logStep("Revolut authorised hold amount mismatch — block", {
+              orderId: existing.id,
+              orderAmount: existing.amount ?? null,
+              expected: authorisedAmountPence,
+            });
+            return new Response(JSON.stringify({
+              error: humanizeRevolutPreauthCustomerError(
+                "Authorised amount does not match this fare. Start a new booking.",
+              ),
+              code: "PAYMENT_AMOUNT_MISMATCH",
+              error_code: "PAYMENT_AMOUNT_MISMATCH",
+              charge_state: "hold_possible",
+            }), {
+              headers: { ...corsHeaders, "Content-Type": "application/json" },
+              status: 409,
+            });
+          }
+          await markPaymentSessionAuthorised(supabase, {
+            providerOrderId: existing.id,
+            clientActionId,
+          });
+          bookingWaterfall.completeStep(
+            "revolut_order_created",
+            "revolutPreauth.ts:retrieveRevolutOrder(idempotent)",
+            { order_id: existing.id, idempotent: true },
+          );
+          if (paymentSessionId) {
+            bookingWaterfall.completeStep(
+              "payment_session_created",
+              "revolutPreauth.ts:loadPaymentSession(idempotent)",
+              { payment_session_id: paymentSessionId, idempotent: true },
+            );
+          }
+          bookingWaterfall.completeStep(
+            "revolut_authorised",
+            "revolutPreauth.ts:retrieveRevolutOrder(idempotent)",
+            { order_id: existing.id, idempotent: true },
+          );
+          return revolutSavedCardAuthorisedResponse({
+            orderId: existing.id,
+            authorisedAmountPence,
+            estimatedTotalPence,
+            bufferPence,
+            publicKey,
+            idempotent: true,
+            paymentSessionId,
+            corsHeaders,
+            holdStartedAt,
+            waterfallFragment: bookingWaterfall.toResponseFragment(),
+            edgeTiming,
+          });
+        }
+
+        if (userId && platformPaymentMethodId) {
+          const savedAttempt = await attemptRevolutSavedCardCharge({
+            supabase,
+            environment,
+            secretKey,
+            publicKey,
+            orderId: existing.id,
+            userId,
+            platformPaymentMethodId,
+            clientActionId,
+            authorisedAmountPence,
+            estimatedTotalPence,
+            bufferPence,
+            paymentSessionId,
+            corsHeaders,
+            logStep,
+            holdStartedAt,
+            browserEnvironment: validatedBrowserEnv!,
+            edgeTiming,
+          });
+          if (savedAttempt) return savedAttempt;
+        }
+
+        // Unresolved (auth challenge / processing / pending): return same order — never create another.
+        return revolutPreauthJsonResponse({
+          order: existing,
+          authorisedAmountPence,
+          estimatedTotalPence,
+          bufferPence,
+          publicKey,
+          idempotent: true,
+          savedCardContext,
+          paymentSessionId,
+          corsHeaders,
+          holdStartedAt,
+          waterfallFragment: bookingWaterfall.toResponseFragment(),
+          edgeTiming,
+        });
+      }
+    } catch (err) {
+      logStep("Revolut idempotent lookup warning (non-fatal)", { error: String(err) });
+    }
+  }
+
+  const attachRevolutCustomer = shouldAttachRevolutCustomerForPreauth({
+    paymentMethodType,
+    saveCardEligible,
+    savedCardReuse: savedCardContext,
+  });
+  const orderMetadata = buildPreauthOrderCreateMetadata({
+    metadataExtra,
+    estimatedTotalPence,
+    bufferPence,
+    paymentMethodType,
+    saveCardEligible,
+    clientActionId,
+    userId,
+    platformPaymentMethodId: resolvedPlatformPaymentMethodId,
+  });
+
+  let revolutCustomer: Awaited<ReturnType<typeof ensureRevolutCustomerForBooking>> = null;
+  // Customer id is for explicit card save and saved-card reuse only.
+  // Apple Pay / Google Pay must not receive customer — a stale cached id 404s POST /orders
+  // before the wallet sheet opens.
+  const needsRevolutCustomer = attachRevolutCustomer && Boolean(userId && customerEmail?.trim());
+
+  const [tokenRow, revolutCustomerResolved] = await Promise.all([
+    userId && platformPaymentMethodId
+      ? lookupProviderPaymentMethodToken(supabase, {
+        userId,
+        platformPaymentMethodId,
+        paymentProvider: "revolut",
+      })
+      : Promise.resolve(null),
+    needsRevolutCustomer
+      ? ensureRevolutCustomerForBooking({
+        supabase,
+        environment,
+        secretKey,
+        userId: userId!,
+        email: customerEmail!,
+        fullName: customerName,
+      })
+      : Promise.resolve(null),
+  ]);
+
+  if (revolutCustomerResolved) {
+    revolutCustomer = revolutCustomerResolved;
+    logStep("Revolut customer resolved", {
+      hasId: Boolean(revolutCustomer?.id),
+      attach: attachRevolutCustomer,
+      payment_method_type: paymentMethodType ?? "card",
+    });
+  } else if (!attachRevolutCustomer) {
+    logStep("Revolut customer omitted", {
+      payment_method_type: paymentMethodType ?? "card",
+      save_card_eligible: saveCardEligible,
+      saved_card_reuse: savedCardContext,
+    });
+  }
+
+  let order;
+  const orderCreateFailed = async (err: unknown) => {
+    const revolutErr = err as { message?: string; status?: number };
+    // Plain objects thrown by revolutMerchantRequest stringify as [object Object].
+    logStep("Revolut order create failed", {
+      error: revolutErr?.message ?? "unknown",
+      status: revolutErr?.status ?? null,
+    });
+    // No provider order → safe to release any durable receivable reservation.
+    if (paymentSessionId) {
+      await releaseReceivablesOnCancelIfAllowed(supabase, {
+        payment_session_id: paymentSessionId,
+        provider_order_id: null,
+        provider_state: null,
+        has_capture: false,
+        reason: "revolut_order_create_failed",
+      });
+    }
+    return new Response(JSON.stringify({
+      error: humanizeRevolutPreauthCustomerError(revolutErr?.message),
+      code: "PAYMENT_SETUP_FAILED",
+      charge_state: "no_charge",
+    }), {
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+      status: 402,
+    });
+  };
+  const postPreauthOrder = (
+    customer: { id?: string; email?: string; full_name?: string } | null,
+  ) => createRevolutOrder({
+    environment,
+    secretKey,
+    amountMinor: authorisedAmountPence,
+    currency: paymentCurrency,
+    tripId: tripId ?? idempotencyKeySuffix,
+    description: tripId ? `ONECAB trip ${tripId}` : "ONECAB ride pre-authorisation",
+    metadata: orderMetadata,
+    // Cached Revolut customer refs may carry only an id; the order body builder accepts that.
+    customer: (customer ?? undefined) as CreateOrderParams["customer"],
+  });
+
+  try {
+    // Defense in depth: never create a NEW Revolut order without a canonical snapshot.
+    // (create-preauth already validates; this blocks any other caller.)
+    const snapCheck = validateCanonicalBookingSnapshot(bookingSnapshot ?? null);
+    if (!snapCheck.ok) {
+      logStep("BOOKING_SNAPSHOT_REJECTED_BEFORE_ORDER", {
+        error_code: snapCheck.error_code,
+        missing_fields: snapCheck.missing_fields,
+        client_action_id: clientActionId,
+      });
+      return new Response(JSON.stringify({
+        error: snapCheck.message,
+        error_code: snapCheck.error_code,
+        missing_fields: snapCheck.missing_fields,
+        charge_state: "no_charge",
+      }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+        status: 422,
+      });
+    }
+    bookingSnapshot = snapCheck.snapshot as unknown as Record<string, unknown>;
+
+    // Opaque booking-payment quote — freeze amounts before any session insert.
+    // NO_REPRICE_AFTER_BOOK_TAP: quoted total wins over live estimate-fare.
+    let rideFarePence = estimatedTotalPence;
+    let bufferPenceForSession = bufferPence;
+    let opaqueQuote: BookingPaymentQuoteRow | null = null;
+    const opaqueQuoteId = String(
+      receivableConsent.booking_payment_quote_id ?? "",
+    ).trim() || null;
+
+    const quoteReject = async (
+      code: BookingPaymentQuoteErrorCode,
+      sessionToRollback: string | null,
+      extra?: Record<string, unknown>,
+    ) => {
+      await rollbackOrphanPendingPaymentSession(supabase, sessionToRollback);
+      return new Response(JSON.stringify(bookingPaymentQuoteErrorPayload(code, extra)), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+        status: 409,
+      });
+    };
+
+    if (opaqueQuoteId) {
+      if (!customerId || !clientActionId) {
+        return await quoteReject(BOOKING_QUOTE_INVALID, null, {
+          note: "quote_requires_customer_and_client_action",
+        });
+      }
+      if (prefetchedQuoteRevalidate?.failed) {
+        return await quoteReject(BOOKING_QUOTE_INVALID, null, { note: "quote_revalidate_failed" });
+      }
+      opaqueQuote = prefetchedQuoteRevalidate?.row ?? null;
+      if (!opaqueQuote) {
+        return await quoteReject(BOOKING_QUOTE_INVALID, null, { note: "quote_not_found" });
+      }
+      const snap = bookingSnapshot ?? {};
+      const routeFp = buildBookingPaymentRouteFingerprint({
+        service_area_id:
+          metadataExtra.service_area_id
+          ?? (snap.service_area_id != null ? String(snap.service_area_id) : null),
+        ride_category: String(
+          snap.vehicle_type_id ?? snap.selected_service_id ?? "",
+        ),
+        vehicle_type_id: String(snap.vehicle_type_id ?? ""),
+        pickup: (snap.pickup ?? null) as { lat?: unknown; lng?: unknown } | null,
+        dropoff: (snap.dropoff ?? null) as { lat?: unknown; lng?: unknown } | null,
+        stops: Array.isArray(snap.stops)
+          ? snap.stops as Array<{ lat?: unknown; lng?: unknown }>
+          : [],
+        voucher_id: snap.voucher_id != null ? String(snap.voucher_id) : null,
+        currency: paymentCurrency,
+      });
+      const openRecv = prefetchedQuoteRevalidate?.openRecv ?? 0;
+      const frozenGateEarly = readCustomerReceivableFoldGate();
+      const validated = validateBookingPaymentQuoteForPreauth({
+        quote: opaqueQuote,
+        customer_id: customerId,
+        client_action_id: clientActionId,
+        route_fingerprint: routeFp,
+        ride_category: opaqueQuote.ride_category,
+        currency: paymentCurrency,
+        open_receivable_pence: openRecv,
+        gate_enabled: frozenGateEarly.enabled,
+        require_server_fare_artifact: true,
+      });
+      if (!validated.ok) {
+        logStep("OPAQUE_BOOKING_QUOTE_REJECTED", {
+          code: validated.code,
+          note: validated.note,
+          quote_id: opaqueQuoteId,
+        });
+        return await quoteReject(validated.code, null, { note: validated.note });
+      }
+      const amounts = resolvePreauthAmountsFromQuote(validated.quote);
+      rideFarePence = amounts.trip_fare_pence;
+      bufferPenceForSession = amounts.buffer_pence;
+      authorisedAmountPence = amounts.total_authorisation_pence;
+      opaqueQuote = validated.quote;
+      fareSnapshot = buildOpaqueQuoteSessionFareSnapshot(fareSnapshot, opaqueQuote);
+      logStep("OPAQUE_BOOKING_QUOTE_FROZEN", {
+        quote_id: opaqueQuote.id,
+        trip_fare_pence: rideFarePence,
+        total_authorisation_pence: authorisedAmountPence,
+        live_server_estimate_ignored_pence: estimatedTotalPence,
+      });
+    } else if (
+      Number(receivableConsent.customer_receivable_displayed_outstanding_pence ?? 0) > 0
+      || (
+        Number(receivableConsent.customer_receivable_displayed_total_authorisation_pence ?? 0)
+        > Number(receivableConsent.customer_receivable_displayed_trip_fare_pence ?? 0)
+      )
+    ) {
+      return await quoteReject(BOOKING_QUOTE_INVALID, null, {
+        note: "receivable_expected_requires_opaque_quote",
+      });
+    }
+
+    // ── Customer receivable SSOT ordering (lock): ─────────────────────────
+    // CREATE_PENDING_PAYMENT_SESSION → lock → select OPEN → RESERVED allocs
+    // → commit → fare+reserved → CALL_REVOLUT_PREAUTH
+    // Never call Revolut before durable reservation when folding debt.
+    if (
+      !existingOrderId
+      && userId
+      && clientActionId
+      && metadataExtra.service_area_id
+    ) {
+      edgeTiming.markPersistStart();
+      const pendingSession = await upsertPaymentSessionPending(supabase, {
+        clientActionId,
+        userId,
+        customerId: customerId ?? null,
+        serviceAreaId: metadataExtra.service_area_id,
+        paymentProvider: "revolut",
+        providerOrderId: null,
+        idempotencyKey,
+        authorisedAmountPence,
+        estimatedTotalPence: rideFarePence,
+        bufferPence: bufferPenceForSession,
+        fareSnapshot: fareSnapshot ?? {},
+        bookingSnapshot: bookingSnapshot ?? {},
+        platformPaymentMethodId: resolvedPlatformPaymentMethodId ?? null,
+        paymentMethod: paymentMethodType ?? "card",
+        metadata: {
+          trip_id: tripId,
+          idempotency_key_suffix: idempotencyKeySuffix,
+          idempotency_key: idempotencyKey,
+          preauth_receivable_ordering: PREAUTH_RECEIVABLE_ORDERING,
+          booking_payment_quote_id: opaqueQuote?.id ?? null,
+        },
+      });
+      paymentSessionId = pendingSession.sessionId;
+      edgeTiming.markPersistEnd();
+      if (!paymentSessionId) {
+        logStep("Pending payment session required before receivable reserve / Revolut", {
+          error: pendingSession.error ?? "unknown",
+          clientActionId,
+        });
+        return new Response(JSON.stringify({
+          error:
+            "We couldn't complete your booking. No payment was started.",
+          code: "PAYMENT_SESSION_PERSIST_FAILED",
+          charge_state: "no_charge",
+        }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+          status: 500,
+        });
+      }
+
+      if (opaqueQuote && customerId) {
+        const frozenGateForConsume = readCustomerReceivableFoldGate();
+        const consumeStarted = Date.now();
+        const consumed = await consumeBookingPaymentQuoteViaRpc(supabase, {
+          quote_id: opaqueQuote.id,
+          customer_id: customerId,
+          client_action_id: clientActionId,
+          payment_session_id: paymentSessionId,
+          expected_receivable_pence: opaqueQuote.receivable_pence,
+          gate_enabled: frozenGateForConsume.enabled,
+        });
+        edgeTiming.recordSpan("edge_quote_consume_ms", consumeStarted, Date.now());
+        if (!consumed.ok) {
+          logStep("OPAQUE_BOOKING_QUOTE_CONSUME_FAILED", {
+            code: consumed.code,
+            note: consumed.note,
+            quote_id: opaqueQuote.id,
+            payment_session_id: paymentSessionId,
+          });
+          return await quoteReject(consumed.code, paymentSessionId, { note: consumed.note });
+        }
+        if (consumed.idempotent) {
+          authorisedAmountPence = consumed.total_authorisation_pence;
+          paymentSessionId = consumed.payment_session_id;
+        }
+        // Opaque path: fold only when quote.fold_eligible; skip legacy consent recompute.
+        if (opaqueQuote.fold_eligible && opaqueQuote.receivable_pence > 0) {
+          receivableFoldAdmission = "admitted";
+          receivableFoldResult = "opaque_quote_consumed";
+          receivableConsentVersionOut = opaqueQuote.consent_version;
+          edgeTiming.markReceivableStart();
+          const reserve = await reserveReceivablesBeforeProviderCall(supabase, {
+            customer_id: customerId,
+            payment_session_id: paymentSessionId,
+            recovery_trip_id: tripId,
+            currency: paymentCurrency,
+            ride_fare_pence: rideFarePence,
+            buffer_pence: bufferPenceForSession,
+          });
+          edgeTiming.markReceivableEnd();
+          if (!reserve.ok) {
+            await rollbackOrphanPendingPaymentSession(supabase, paymentSessionId);
+            return new Response(JSON.stringify({
+              error:
+                "We couldn't complete your booking. Outstanding balance could not be reserved.",
+              code: RECEIVABLE_PERSISTENCE_UNAVAILABLE,
+              error_code: RECEIVABLE_PERSISTENCE_UNAVAILABLE,
+              charge_state: "no_charge",
+            }), {
+              headers: { ...corsHeaders, "Content-Type": "application/json" },
+              status: 503,
+            });
+          }
+          receivableReservedTotal = reserve.data.reserved_total_pence;
+          authorisedAmountPence = opaqueQuote.total_authorisation_pence;
+          if (receivableReservedTotal !== opaqueQuote.receivable_pence) {
+            await releaseReceivablesOnCancelIfAllowed(supabase, {
+              payment_session_id: paymentSessionId,
+              provider_order_id: null,
+              provider_state: null,
+              has_capture: false,
+              reason: "quoted_receivable_reserve_mismatch",
+            });
+            return await quoteReject(OUTSTANDING_BALANCE_CHANGED, paymentSessionId, {
+              note: "reserved_ne_quoted_receivable",
+            });
+          }
+        } else {
+          // No receivable reservation on this quote. Stamp 0 so the field is present.
+          edgeTiming.markReceivableStart();
+          edgeTiming.markReceivableEnd();
+        }
+      } else if (customerId) {
+        const eligibility = isCustomerReceivablePreauthEligible({
+          customer_id: customerId,
+          booking_source:
+            (bookingSnapshot as { booking_source?: string } | null)?.booking_source
+            ?? metadataExtra.booking_source
+            ?? null,
+          corporate_account_id:
+            (bookingSnapshot as { corporate_account_id?: string } | null)?.corporate_account_id
+            ?? metadataExtra.corporate_account_id
+            ?? null,
+          financial_model:
+            (fareSnapshot as { financial_model?: string } | null)?.financial_model
+            ?? metadataExtra.financial_model
+            ?? null,
+          is_guest: false,
+        });
+        if (!eligibility.eligible) {
+          logStep("Customer receivable fold skipped — booking not eligible", {
+            reject_reason: eligibility.reject_reason,
+            payment_session_id: paymentSessionId,
+            booking_source: metadataExtra.booking_source ?? null,
+            corporate_account_id: metadataExtra.corporate_account_id ?? null,
+          });
+        } else {
+          // Fail-closed consent. Freeze gate once — never re-read mid-request.
+          // RECEIVABLE_EXPECTED + gate OFF → 409 (never fare-only). MK-260924-002.
+          const serverOutstanding = await sumOpenReceivableOutstandingForCustomer(
+            supabase,
+            { customer_id: customerId, currency: paymentCurrency },
+          );
+          const frozenGate = readCustomerReceivableFoldGate();
+          const consentDecision = planCustomerReceivableFoldConsent({
+            customer_id: customerId,
+            consent: receivableConsent,
+            server_outstanding_pence: serverOutstanding,
+            server_ride_fare_pence: estimatedTotalPence,
+            server_buffer_pence: bufferPence,
+            gate: frozenGate,
+          });
+          logStep("Customer receivable fold consent decision", consentDecision.telemetry);
+
+          if ("fail_closed" in consentDecision && consentDecision.fail_closed) {
+            const tripFareMismatch =
+              String(consentDecision.telemetry?.note ?? "") === "displayed_trip_fare_mismatch";
+            const typedCode: BookingPaymentQuoteErrorCode = tripFareMismatch
+              ? FARE_QUOTE_CHANGED
+              : consentDecision.reason === RECEIVABLE_FOLD_UNAVAILABLE
+              ? RECEIVABLE_FOLD_UNAVAILABLE
+              : OUTSTANDING_BALANCE_CHANGED;
+            await rollbackOrphanPendingPaymentSession(supabase, paymentSessionId);
+            return new Response(JSON.stringify({
+              ...bookingPaymentQuoteErrorPayload(typedCode, {
+                server_outstanding_pence: consentDecision.server_outstanding_pence,
+                displayed_outstanding_pence: consentDecision.displayed_outstanding_pence,
+                ...buildReceivablePreauthResponseFields({
+                  trip_fare_pence: rideFarePence,
+                  receivable_reserved_pence: 0,
+                  total_authorisation_pence: rideFarePence + bufferPenceForSession,
+                  quote_version:
+                    typeof consentDecision.telemetry.expected_quote_version === "string"
+                      ? consentDecision.telemetry.expected_quote_version
+                      : null,
+                  fold_admission: "rejected",
+                  fold_result: consentDecision.reason,
+                }),
+                ...consentDecision.telemetry,
+              }),
+            }), {
+              headers: { ...corsHeaders, "Content-Type": "application/json" },
+              status: 409,
+            });
+          }
+
+          if (!consentDecision.allow_fold) {
+            // Compat only: old clients with no RECEIVABLE_EXPECTED signal.
+            logStep("Customer receivable fold skipped — compat fare-only", {
+              reason: consentDecision.reason,
+              receivable_expected: consentDecision.receivable_expected,
+              payment_session_id: paymentSessionId,
+              authorised_amount_pence: authorisedAmountPence,
+              note: "old_client_or_no_debt_consent_fare_only",
+            });
+          } else {
+        receivableFoldAdmission = "admitted";
+        receivableFoldResult = consentDecision.reason;
+        receivableQuoteVersionOut = consentDecision.quote_version;
+        receivableConsentVersionOut =
+          typeof consentDecision.telemetry.consent_version === "number"
+            ? consentDecision.telemetry.consent_version
+            : null;
+        const reserve = await reserveReceivablesBeforeProviderCall(supabase, {
+          customer_id: customerId,
+          payment_session_id: paymentSessionId,
+          recovery_trip_id: tripId,
+          currency: paymentCurrency,
+          ride_fare_pence: estimatedTotalPence,
+          buffer_pence: bufferPence,
+        });
+        if (!reserve.ok) {
+          logStep("Receivable reserve failed before provider call", {
+            code: reserve.error.code,
+            message: reserve.error.message,
+            payment_session_id: paymentSessionId,
+          });
+          return new Response(JSON.stringify({
+            error:
+              "We couldn't complete your booking. Outstanding balance could not be reserved.",
+            code: RECEIVABLE_PERSISTENCE_UNAVAILABLE,
+            error_code: RECEIVABLE_PERSISTENCE_UNAVAILABLE,
+            manual_review: true,
+            charge_state: "no_charge",
+            ...buildReceivablePreauthResponseFields({
+              trip_fare_pence: estimatedTotalPence,
+              receivable_reserved_pence: 0,
+              total_authorisation_pence: estimatedTotalPence + bufferPence,
+              quote_version: consentDecision.quote_version,
+              fold_admission: "admitted",
+              fold_result: RECEIVABLE_PERSISTENCE_UNAVAILABLE,
+            }),
+          }), {
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+            status: 503,
+          });
+        }
+        receivableReservedTotal = reserve.data.reserved_total_pence;
+        authorisedAmountPence = reserve.data.fold.authorised_amount_pence;
+        // Never call provider with a silently rewritten total vs CTA consent.
+        // Do not re-read global gate — admission already frozen.
+        const reservedMatch = planReceivableReservedTotalMatchesConsent({
+          reserved_authorised_amount_pence: authorisedAmountPence,
+          displayed_total_authorisation_pence:
+            consentDecision.displayed_total_authorisation_pence,
+          buffer_pence: bufferPence,
+        });
+        if (!reservedMatch.ok) {
+          logStep("Reserved receivable total mismatch — fail closed", reservedMatch.telemetry);
+          return new Response(JSON.stringify({
+            error:
+              "Your outstanding balance changed. Please refresh and try again.",
+            code: RECEIVABLE_CONSENT_REFRESH_REQUIRED,
+            error_code: RECEIVABLE_CONSENT_REFRESH_REQUIRED,
+            charge_state: "no_charge",
+            ...buildReceivablePreauthResponseFields({
+              trip_fare_pence: estimatedTotalPence,
+              receivable_reserved_pence: receivableReservedTotal,
+              total_authorisation_pence: authorisedAmountPence,
+              quote_version: consentDecision.quote_version,
+              fold_admission: "admitted",
+              fold_result: RECEIVABLE_CONSENT_REFRESH_REQUIRED,
+            }),
+            ...reservedMatch.telemetry,
+          }), {
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+            status: 409,
+          });
+        }
+        if (receivableReservedTotal > 0) {
+          logStep("Customer receivables reserved before Revolut preauth", {
+            payment_session_id: paymentSessionId,
+            receivables_total_pence: receivableReservedTotal,
+            authorised_amount_pence: authorisedAmountPence,
+            ordering: PREAUTH_RECEIVABLE_ORDERING,
+            admission_frozen: consentDecision.admission_frozen === true,
+            gate_enabled_at_admission: consentDecision.gate_enabled_at_admission,
+          });
+          // Refresh pending session amounts / metadata after durable reserve.
+          await upsertPaymentSessionPending(supabase, {
+            clientActionId,
+            userId,
+            customerId,
+            serviceAreaId: metadataExtra.service_area_id,
+            paymentProvider: "revolut",
+            providerOrderId: null,
+            idempotencyKey,
+            authorisedAmountPence,
+            estimatedTotalPence,
+            bufferPence,
+            fareSnapshot: {
+              ...(fareSnapshot ?? {}),
+              customer_receivables_pence: receivableReservedTotal,
+            },
+            bookingSnapshot: bookingSnapshot ?? {},
+            platformPaymentMethodId: resolvedPlatformPaymentMethodId ?? null,
+            paymentMethod: paymentMethodType ?? "card",
+            metadata: {
+              trip_id: tripId,
+              idempotency_key_suffix: idempotencyKeySuffix,
+              idempotency_key: idempotencyKey,
+              customer_receivables_pence: receivableReservedTotal,
+              customer_receivable_ids: reserve.data.fold.receivable_ids,
+              preauth_receivable_ordering: PREAUTH_RECEIVABLE_ORDERING,
+              receivable_fold_admission: "admitted",
+              gate_enabled_at_admission: consentDecision.gate_enabled_at_admission,
+            },
+          });
+        }
+          } // end allow_fold reserve
+        } // end eligible
+      }
+    }
+
+    bookingWaterfall.startStep(
+      "revolut_order_created",
+      "revolutPreauth.ts:createRevolutOrder",
+    );
+    edgeTiming.markRevolutRequestStart();
+    const staleCustomerId = revolutCustomer?.id?.trim() || "";
+    try {
+      order = await postPreauthOrder(revolutCustomer);
+    } catch (err) {
+      // First POST failed before payment_session insert. A cached customer 404
+      // means Revolut did not create the order — one refresh retry is safe.
+      const retry = planStaleCachedCustomerOrderRetry({
+        sentCachedCustomerId: Boolean(staleCustomerId),
+        alreadyRetried: false,
+        err,
+      });
+      if (retry !== "refresh_and_retry" || !userId || !customerEmail?.trim()) {
+        edgeTiming.markRevolutRequestEnd();
+        return await orderCreateFailed(err);
+      }
+      logStep("Stale Revolut customer on order create — refreshing once", {
+        status: (err as { status?: number })?.status ?? null,
+      });
+      const refreshed = await ensureRevolutCustomerForBooking({
+        supabase,
+        environment,
+        secretKey,
+        userId,
+        email: customerEmail,
+        fullName: customerName,
+        ignoreCachedId: true,
+      });
+      const retryCustomer = customerForStaleOrderRetry({
+        staleCustomerId,
+        refreshed,
+      });
+      try {
+        order = await postPreauthOrder(retryCustomer);
+      } catch (retryErr) {
+        edgeTiming.markRevolutRequestEnd();
+        return await orderCreateFailed(retryErr);
+      }
+    }
+    edgeTiming.markRevolutRequestEnd();
+  } catch (err) {
+    edgeTiming.markRevolutRequestEnd();
+    return await orderCreateFailed(err);
+  }
+
+  logStep("Revolut order created", {
+    orderId: order.id,
+    state: order.state,
+    amount: order.amount,
+    hasToken: Boolean(order.token),
+    platformPaymentMethodId: resolvedPlatformPaymentMethodId ?? null,
+  });
+  bookingWaterfall.completeStep(
+    "revolut_order_created",
+    "revolutPreauth.ts:createRevolutOrder",
+    { order_id: order.id, state: order.state ?? null },
+  );
+
+  if (userId && clientActionId && metadataExtra.service_area_id) {
+    const orderLinkStarted = Date.now();
+    edgeTiming.markPersistStart();
+    const sessionResult = await upsertPaymentSessionPending(supabase, {
+      clientActionId,
+      userId,
+      customerId: customerId ?? null,
+      serviceAreaId: metadataExtra.service_area_id,
+      paymentProvider: "revolut",
+      providerOrderId: order.id,
+      idempotencyKey,
+      authorisedAmountPence,
+      estimatedTotalPence,
+      bufferPence,
+      fareSnapshot: fareSnapshot ?? {},
+      bookingSnapshot: bookingSnapshot ?? {},
+      platformPaymentMethodId: resolvedPlatformPaymentMethodId ?? null,
+      paymentMethod: paymentMethodType ?? "card",
+      metadata: {
+        trip_id: tripId,
+        idempotency_key_suffix: idempotencyKeySuffix,
+        idempotency_key: idempotencyKey,
+        customer_receivables_pence: receivableReservedTotal,
+      },
+    });
+    const priorPaymentSessionId = paymentSessionId;
+    paymentSessionId = sessionResult.sessionId;
+    edgeTiming.markPersistEnd();
+    edgeTiming.recordSpan("edge_order_link_persist_ms", orderLinkStarted, Date.now());
+    if (!paymentSessionId) {
+      // P0 fail-closed: never return a usable preauth if the authoritative session
+      // row did not persist (Slice A regression: missing idempotency_key).
+      logStep("Revolut payment session upsert failed — cancelling order", {
+        error: sessionResult.error ?? "unknown",
+        orderId: order.id,
+        clientActionId,
+      });
+      try {
+        const { cancelRevolutOrder } = await import("./revolutOrders.ts");
+        await cancelRevolutOrder(environment, secretKey, order.id);
+      } catch (cancelErr) {
+        logStep("Session-persist cancel failed", {
+          orderId: order.id,
+          error: String(cancelErr),
+        });
+      }
+      // Provider order cancelled → release reservations on the pending session.
+      if (priorPaymentSessionId) {
+        await releaseReceivablesOnCancelIfAllowed(supabase, {
+          payment_session_id: priorPaymentSessionId,
+          provider_order_id: order.id,
+          provider_state: "CANCELLED",
+          has_capture: false,
+          reason: "session_persist_failed_after_order",
+        });
+      }
+      return new Response(JSON.stringify({
+        error:
+          "We couldn't complete your booking. Any temporary card hold will be released.",
+        code: "PAYMENT_SESSION_PERSIST_FAILED",
+        charge_state: "reversed",
+        payment_intent_id: order.id,
+      }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+        status: 500,
+      });
+    }
+    bookingWaterfall.completeStep(
+      "payment_session_created",
+      "revolutPreauth.ts:upsertPaymentSessionPending",
+      { payment_session_id: paymentSessionId },
+    );
+  }
+
+  if (clientActionId || tripId) {
+    const authEventStarted = Date.now();
+    await recordPaymentAuthorizationEvent(supabase, {
+      tripId: tripId ?? clientActionId ?? "pending",
+      fareRevisionNumber: 0,
+      operation: "initial_auth",
+      idempotencyKey,
+      providerOrderId: order.id,
+      amountPence: authorisedAmountPence,
+      status: isRevolutAuthorisedState(order.state) || isRevolutInFlightState(order.state)
+        ? "pending"
+        : "pending",
+      metadata: {
+        provider: "revolut",
+        client_action_id: clientActionId,
+        provider_order_id: order.id,
+      },
+    }).catch((err) => {
+      logStep("Revolut auth ledger warning", { error: String(err) });
+    });
+    edgeTiming.recordSpan("edge_auth_event_ms", authEventStarted, Date.now());
+  }
+
+  if (userId && platformPaymentMethodId) {
+    if (tokenRow?.provider_payment_method_id) {
+      const savedAttempt = await attemptRevolutSavedCardCharge({
+        supabase,
+        environment,
+        secretKey,
+        publicKey,
+        orderId: order.id,
+        userId,
+        platformPaymentMethodId,
+        clientActionId,
+        authorisedAmountPence,
+        estimatedTotalPence,
+        bufferPence,
+        paymentSessionId,
+        corsHeaders,
+        logStep,
+        holdStartedAt,
+        browserEnvironment: validatedBrowserEnv!,
+        edgeTiming,
+      });
+      if (savedAttempt) return savedAttempt;
+      logStep("Revolut saved-card charge failed despite provider token", {
+        orderId: order.id,
+        platformPaymentMethodId,
+        providerPaymentMethodId: tokenRow?.provider_payment_method_id ?? null,
+        tokenizationStatus: tokenRow?.tokenization_status ?? null,
+        revolutVerified: tokenRow?.revolut_verified ?? null,
+      });
+      return new Response(JSON.stringify({
+        error: humanizeRevolutPreauthCustomerError("Saved card payment failed"),
+        code: "saved_card_charge_failed",
+        charge_state: "no_charge",
+      }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+        status: 402,
+      });
+    }
+    logStep("Revolut saved-card token missing for platform PM", {
+      orderId: order.id,
+      platformPaymentMethodId,
+    });
+  }
+
+  return revolutPreauthJsonResponse({
+    order,
+    authorisedAmountPence,
+    estimatedTotalPence,
+    bufferPence,
+    publicKey,
+    savedCardContext,
+    savedCardBlockingReason: platformPaymentMethodId
+      ? "provider_token_missing_in_db"
+      : null,
+    paymentSessionId,
+    corsHeaders,
+    holdStartedAt,
+    waterfallFragment: bookingWaterfall.toResponseFragment(),
+    edgeTiming,
+    receivableResponseFields: buildReceivablePreauthResponseFields({
+      trip_fare_pence: estimatedTotalPence,
+      receivable_reserved_pence: receivableReservedTotal,
+      total_authorisation_pence: authorisedAmountPence,
+      consent_version: receivableConsentVersionOut,
+      quote_version: receivableQuoteVersionOut,
+      fold_admission: receivableFoldAdmission ??
+        (receivableReservedTotal > 0 ? "admitted" : "compat_skipped"),
+      fold_result: receivableFoldResult ??
+        (receivableReservedTotal > 0 ? "consent_matched" : null),
+    }),
+  });
+}
+
+async function attemptRevolutSavedCardCharge(args: {
+  supabase: SupabaseClient;
+  environment: ProviderEnvironment;
+  secretKey: string;
+  publicKey: string | null;
+  orderId: string;
+  userId: string;
+  platformPaymentMethodId: string;
+  clientActionId?: string | null;
+  authorisedAmountPence: number;
+  estimatedTotalPence: number;
+  bufferPence: number;
+  paymentSessionId?: string | null;
+  corsHeaders: Record<string, string>;
+  logStep: (step: string, details?: unknown) => void;
+  holdStartedAt?: number;
+  /** Pre-validated CIT browser environment — never invent defaults. */
+  browserEnvironment: RevolutCitBrowserEnvironment;
+  edgeTiming: PreauthEdgeTiming;
+}): Promise<Response | null> {
+  const tokenRow = await lookupProviderPaymentMethodToken(args.supabase, {
+    userId: args.userId,
+    platformPaymentMethodId: args.platformPaymentMethodId,
+    paymentProvider: "revolut",
+  });
+  if (!tokenRow?.provider_payment_method_id) {
+    args.logStep("Revolut saved-card token missing for platform PM", {
+      orderId: args.orderId,
+      platformPaymentMethodId: args.platformPaymentMethodId,
+    });
+    return null;
+  }
+
+  args.logStep("Revolut saved-card preauth attempt", {
+    orderId: args.orderId,
+    platformPaymentMethodId: args.platformPaymentMethodId,
+    providerPaymentMethodId: tokenRow.provider_payment_method_id,
+    tokenizationStatus: tokenRow.tokenization_status ?? null,
+    revolutVerified: tokenRow.revolut_verified ?? null,
+  });
+
+  try {
+    // Book is always customer-initiated (CIT). `saved_for=merchant` is vault
+    // storage only — never select MIT for a customer-tapped Book. Genuine
+    // off-session MIT stays in the unwired draft mandate helper (excluded).
+    const initiator = "customer" as const;
+
+    // Re-validate immediately before Pay (fail closed if caller omitted).
+    const payEnv = parseAndValidateCitBrowserEnvironment(args.browserEnvironment);
+    if (!payEnv.ok) {
+      args.logStep("BROWSER_ENVIRONMENT_REJECTED_BEFORE_PAY", {
+        code: payEnv.code,
+        orderId: args.orderId,
+      });
+      return citBrowserEnvironmentErrorResponse(payEnv, args.corsHeaders);
+    }
+
+    args.edgeTiming.markRevolutResponseStart();
+    const payment = await payRevolutOrderWithSavedCard(
+      args.environment,
+      args.secretKey,
+      args.orderId,
+      tokenRow.provider_payment_method_id,
+      payEnv.environment,
+      initiator,
+    );
+    const resolved = await resolveSavedCardPaymentOutcome({
+      environment: args.environment,
+      secretKey: args.secretKey,
+      orderId: args.orderId,
+      payment,
+      logStep: args.logStep,
+    });
+    args.edgeTiming.markRevolutResponseEnd();
+    if (resolved.kind === "authorised") {
+      // P0: never return booking-ready success without an authoritative session row.
+      if (args.clientActionId && !args.paymentSessionId) {
+        args.logStep("Authorised but payment session missing — cancelling hold", {
+          orderId: args.orderId,
+          clientActionId: args.clientActionId,
+        });
+        try {
+          const { cancelRevolutOrder } = await import("./revolutOrders.ts");
+          await cancelRevolutOrder(args.environment, args.secretKey, args.orderId);
+        } catch (cancelErr) {
+          args.logStep("Authorised-without-session cancel failed", {
+            orderId: args.orderId,
+            error: String(cancelErr),
+          });
+        }
+        return new Response(JSON.stringify({
+          error:
+            "We couldn't complete your booking. Any temporary card hold will be released.",
+          code: "PAYMENT_SESSION_PERSIST_FAILED",
+          charge_state: "reversed",
+          payment_intent_id: args.orderId,
+        }), {
+          headers: { ...args.corsHeaders, "Content-Type": "application/json" },
+          status: 500,
+        });
+      }
+      if (args.clientActionId) {
+        args.edgeTiming.markPersistStart();
+        await markPaymentSessionAuthorised(args.supabase, {
+          providerOrderId: args.orderId,
+          clientActionId: args.clientActionId,
+        });
+        args.edgeTiming.markPersistEnd();
+      }
+      return revolutSavedCardAuthorisedResponse({
+        orderId: args.orderId,
+        authorisedAmountPence: args.authorisedAmountPence,
+        estimatedTotalPence: args.estimatedTotalPence,
+        bufferPence: args.bufferPence,
+        publicKey: args.publicKey,
+        paymentSessionId: args.paymentSessionId ?? null,
+        corsHeaders: args.corsHeaders,
+        holdStartedAt: args.holdStartedAt,
+        edgeTiming: args.edgeTiming,
+      });
+    }
+    if (resolved.kind === "requires_3ds") {
+      return jsonResponseWithPreauthTiming({
+        success: true,
+        provider: "revolut",
+        payment_intent_id: args.orderId,
+        provider_order_id: args.orderId,
+        revolut_public_key: args.publicKey,
+        authorised_amount_pence: args.authorisedAmountPence,
+        estimated_total_pence: args.estimatedTotalPence,
+        buffer_pence: args.bufferPence,
+        status: "authentication_challenge",
+        saved_card_flow: true,
+        requires_3ds: true,
+        provider_payment_id: resolved.paymentId,
+        authentication_acs_url: resolved.acsUrl,
+      }, args.corsHeaders, 200, args.edgeTiming);
+    }
+    if (resolved.kind === "failed") {
+      const declineReason = resolved.reason ?? null;
+      const preserveCard = isTechnicalDeclineReason(declineReason);
+      args.logStep("Revolut saved-card charge declined", {
+        orderId: args.orderId,
+        platformPaymentMethodId: args.platformPaymentMethodId,
+        providerPaymentMethodId: tokenRow.provider_payment_method_id,
+        declineReason,
+        preserveSavedCard: preserveCard,
+      });
+      // Terminalize session out of pending_payment (idempotent). No trip / ledger.
+      if (args.clientActionId || args.paymentSessionId) {
+        await markPaymentSessionFailed(args.supabase, {
+          clientActionId: args.clientActionId ?? null,
+          providerOrderId: args.orderId,
+          failureReason: declineReason
+            ? `REVOLUT_PAYMENT_FAILED:${declineReason}`
+            : "REVOLUT_PAYMENT_FAILED",
+        }).catch((markErr) => {
+          args.logStep("markPaymentSessionFailed after saved-card decline failed", {
+            orderId: args.orderId,
+            error: String(markErr),
+          });
+        });
+      }
+      // Never invalidate vault card on technical_error / provider faults.
+      if (!preserveCard) {
+        await invalidateRevolutProviderToken(args.supabase, {
+          userId: args.userId,
+          platformPaymentMethodId: args.platformPaymentMethodId,
+          orderId: args.orderId,
+          reason: declineReason ?? "saved_card_charge_failed",
+        });
+      }
+      const correlation = args.paymentSessionId && args.clientActionId
+        ? buildSavedCardPendingHandoff({
+          paymentSessionId: args.paymentSessionId,
+          clientActionId: args.clientActionId,
+          providerOrderId: args.orderId,
+          clientState: preserveCard ? "PAYMENT_FAILED" : "DECLINED",
+          declineReason,
+        })
+        : {};
+      return new Response(JSON.stringify({
+        error: humanizeRevolutPreauthCustomerError(
+          preserveCard
+            ? "Payment couldn’t be completed. Please try again in a moment."
+            : (declineReason ?? "Payment failed"),
+        ),
+        code: preserveCard ? "payment_failed" : "card_declined",
+        charge_state: "no_charge",
+        client_state: preserveCard ? "PAYMENT_FAILED" : "DECLINED",
+        terminal: true,
+        preserve_saved_card: preserveCard,
+        retry_after_ms: SAVED_CARD_TERMINAL_FAILURE_THROTTLE_MS,
+        throttle_ms: SAVED_CARD_TERMINAL_FAILURE_THROTTLE_MS,
+        no_new_order: true,
+        ...correlation,
+        // Override pending-shaped flags from handoff helper.
+        saved_card_pending: false,
+      }), {
+        headers: { ...args.corsHeaders, "Content-Type": "application/json" },
+        status: 402,
+      });
+    }
+    args.logStep("Revolut saved-card payment still settling", {
+      orderId: args.orderId,
+      paymentState: resolved.paymentState,
+      paymentSessionId: args.paymentSessionId ?? null,
+      clientActionId: args.clientActionId ?? null,
+    });
+    // Return 200 processing handoff with stable IDs so TRY AGAIN can reconcile
+    // the same session/order — never mint a new client_action_id blindly.
+    if (args.paymentSessionId && args.clientActionId) {
+      const handoff = buildSavedCardPendingHandoff({
+        paymentSessionId: args.paymentSessionId,
+        clientActionId: args.clientActionId,
+        providerOrderId: args.orderId,
+        clientState: "PAYMENT_PROCESSING",
+      });
+      return jsonResponseWithPreauthTiming({
+        success: true,
+        provider: "revolut",
+        status: "payment_processing",
+        saved_card_flow: true,
+        requires_3ds: false,
+        error: humanizeRevolutPreauthCustomerError(
+          "Saved card payment is still processing. Please try again in a moment.",
+        ),
+        ...handoff,
+      }, args.corsHeaders, 200, args.edgeTiming);
+    }
+    return jsonResponseWithPreauthTiming({
+      error: humanizeRevolutPreauthCustomerError(
+        "Saved card payment is still processing. Please try again in a moment.",
+      ),
+      code: "saved_card_pending",
+      charge_state: "no_charge",
+      client_state: "PAYMENT_PROCESSING",
+      provider_order_id: args.orderId,
+      payment_intent_id: args.orderId,
+      payment_session_id: args.paymentSessionId ?? null,
+      client_action_id: args.clientActionId ?? null,
+    }, args.corsHeaders, 409, args.edgeTiming);
+  } catch (err) {
+    const errMessage = err instanceof Error ? err.message : String(err);
+    const preserveCard = isTechnicalDeclineReason(errMessage);
+    args.logStep("Revolut saved-card preauth failed", {
+      orderId: args.orderId,
+      platformPaymentMethodId: args.platformPaymentMethodId,
+      providerPaymentMethodId: tokenRow.provider_payment_method_id,
+      error: errMessage,
+      preserveSavedCard: preserveCard,
+    });
+    if (args.clientActionId || args.paymentSessionId) {
+      await markPaymentSessionFailed(args.supabase, {
+        clientActionId: args.clientActionId ?? null,
+        providerOrderId: args.orderId,
+        failureReason: `REVOLUT_SAVED_CARD_EXCEPTION:${errMessage}`.slice(0, 500),
+      }).catch(() => {});
+    }
+    if (!preserveCard) {
+      await invalidateRevolutProviderToken(args.supabase, {
+        userId: args.userId,
+        platformPaymentMethodId: args.platformPaymentMethodId,
+        orderId: args.orderId,
+        reason: errMessage,
+      });
+    }
+    return new Response(JSON.stringify({
+      error: humanizeRevolutPreauthCustomerError(errMessage || "Saved card payment failed"),
+      code: "saved_card_charge_failed",
+      charge_state: "no_charge",
+      provider_error: errMessage,
+      client_state: "PAYMENT_FAILED",
+      terminal: true,
+      preserve_saved_card: preserveCard,
+      retry_after_ms: SAVED_CARD_TERMINAL_FAILURE_THROTTLE_MS,
+      payment_session_id: args.paymentSessionId ?? null,
+      client_action_id: args.clientActionId ?? null,
+      provider_order_id: args.orderId,
+      no_new_order: true,
+    }), {
+      headers: { ...args.corsHeaders, "Content-Type": "application/json" },
+      status: 402,
+    });
+  }
+}
+
+async function resolveSavedCardPaymentOutcome(args: {
+  environment: ProviderEnvironment;
+  secretKey: string;
+  orderId: string;
+  payment: {
+    id: string;
+    state?: string;
+    decline_reason?: string;
+    authentication_challenge?: { acs_url?: string };
+  };
+  logStep: (step: string, details?: unknown) => void;
+}): Promise<
+  | { kind: "authorised" }
+  | { kind: "requires_3ds"; paymentId: string; acsUrl: string }
+  | { kind: "failed"; reason?: string }
+  | { kind: "in_flight"; paymentState?: string }
+> {
+  /**
+   * Bolt/Uber-class: keep polling Revolut on Edge while payment is processing /
+   * challenge-without-ACS. Device samples showed ~5–7s client reconcile after a
+   * short Edge handoff — tighter Edge polls find AUTHORISED sooner and let the
+   * client skip confirm+settle (already_authorised).
+   *
+   * HARD RULES unchanged:
+   * - ACS URL present → requires_3ds immediately (never suppress SCA)
+   * - AUTHORISED only when payment AND order are authorised
+   * - failures stay terminal
+   */
+  const settleStartedAt = Date.now();
+  let latest = args.payment;
+  let iteration = 0;
+  while (Date.now() - settleStartedAt <= SAVED_CARD_PREAUTH_SETTLE_MAX_MS) {
+    if (iteration > 0) {
+      await new Promise((resolve) => setTimeout(resolve, SAVED_CARD_PREAUTH_SETTLE_POLL_MS));
+    }
+    iteration += 1;
+    latest = await retrieveRevolutOrderPayment(args.environment, args.secretKey, latest.id);
+    const state = String(latest.state ?? "");
+    args.logStep("Revolut saved-card payment poll", {
+      paymentId: latest.id,
+      state,
+      elapsed_ms: Date.now() - settleStartedAt,
+      iteration,
+    });
+
+    if (isRevolutPaymentFailedState(state)) {
+      return { kind: "failed", reason: latest.decline_reason ?? state };
+    }
+    if (isRevolutPaymentAuthenticationChallenge(latest)) {
+      const acsUrl = latest.authentication_challenge?.acs_url?.trim();
+      if (acsUrl) {
+        return { kind: "requires_3ds", paymentId: latest.id, acsUrl };
+      }
+      // Challenge without ACS — keep polling (frictionless / ACS URL pending).
+    }
+    if (isRevolutPaymentAuthorisedState(state)) {
+      const order = await retrieveRevolutOrder(args.environment, args.secretKey, args.orderId);
+      const orderState = String(order.state ?? "").toUpperCase();
+      args.logStep("Revolut saved-card order confirm", {
+        orderId: args.orderId,
+        orderState,
+        paymentState: state,
+        elapsed_ms: Date.now() - settleStartedAt,
+      });
+      if (isRevolutAuthorisedState(orderState)) {
+        return { kind: "authorised" };
+      }
+      if (["FAILED", "CANCELLED", "CANCELED", "DECLINED"].includes(orderState)) {
+        return { kind: "failed", reason: orderState };
+      }
+      // Payment authorised, order still settling — keep polling.
+    }
+  }
+
+  const finalState = String(latest.state ?? "");
+  if (isRevolutPaymentFailedState(finalState)) {
+    return { kind: "failed", reason: latest.decline_reason ?? finalState };
+  }
+  if (isRevolutPaymentAuthenticationChallenge(latest) && latest.authentication_challenge?.acs_url) {
+    return {
+      kind: "requires_3ds",
+      paymentId: latest.id,
+      acsUrl: latest.authentication_challenge.acs_url,
+    };
+  }
+  if (isRevolutPaymentAuthorisedState(finalState)) {
+    const order = await retrieveRevolutOrder(args.environment, args.secretKey, args.orderId);
+    const orderState = String(order.state ?? "").toUpperCase();
+    if (isRevolutAuthorisedState(orderState)) {
+      return { kind: "authorised" };
+    }
+    return { kind: "in_flight", paymentState: `${finalState}/order:${orderState}` };
+  }
+  return { kind: "in_flight", paymentState: finalState };
+}
+
+function revolutPreauthMilestones(holdStartedAt: number): {
+  booking_milestones: { hold_start_ms: number; hold_authorised_ms: number; hold_duration_ms: number };
+} {
+  const holdAuthorisedAt = Date.now();
+  return {
+    booking_milestones: {
+      hold_start_ms: holdStartedAt,
+      hold_authorised_ms: holdAuthorisedAt,
+      hold_duration_ms: holdAuthorisedAt - holdStartedAt,
+    },
+  };
+}
+
+function revolutSavedCardAuthorisedResponse(args: {
+  orderId: string;
+  authorisedAmountPence: number;
+  estimatedTotalPence: number;
+  bufferPence: number;
+  publicKey: string | null;
+  idempotent?: boolean;
+  paymentSessionId?: string | null;
+  corsHeaders: Record<string, string>;
+  waterfallFragment?: { booking_waterfall: import("./bookingWaterfallSSOT.ts").BookingWaterfallServerStepInput[] };
+  holdStartedAt?: number;
+  edgeTiming?: PreauthEdgeTiming | null;
+}): Response {
+  return jsonResponseWithPreauthTiming({
+    success: true,
+    provider: "revolut",
+    payment_intent_id: args.orderId,
+    provider_order_id: args.orderId,
+    payment_session_id: args.paymentSessionId ?? null,
+    revolut_public_key: args.publicKey,
+    authorised_amount_pence: args.authorisedAmountPence,
+    estimated_total_pence: args.estimatedTotalPence,
+    buffer_pence: args.bufferPence,
+    status: "AUTHORISED",
+    saved_card_flow: true,
+    saved_card_authorised: true,
+    idempotent: args.idempotent === true,
+    ...(args.holdStartedAt ? revolutPreauthMilestones(args.holdStartedAt) : {}),
+    ...(args.waterfallFragment ?? {}),
+  }, args.corsHeaders, 200, args.edgeTiming);
+}
+
+function revolutPreauthJsonResponse(args: {
+  order: { id: string; token?: string; checkout_url?: string; state?: string };
+  authorisedAmountPence: number;
+  estimatedTotalPence: number;
+  bufferPence: number;
+  publicKey: string | null;
+  idempotent?: boolean;
+  savedCardContext?: boolean;
+  savedCardBlockingReason?: string | null;
+  paymentSessionId?: string | null;
+  corsHeaders: Record<string, string>;
+  waterfallFragment?: { booking_waterfall: import("./bookingWaterfallSSOT.ts").BookingWaterfallServerStepInput[] };
+  holdStartedAt?: number;
+  edgeTiming?: PreauthEdgeTiming | null;
+  receivableResponseFields?: Record<string, unknown>;
+}): Response {
+  const token = args.order.token ?? null;
+  if (!token) {
+    return jsonResponseWithPreauthTiming({
+      error: humanizeRevolutPreauthCustomerError("Revolut checkout token missing from order response"),
+      code: "PAYMENT_SETUP_FAILED",
+      charge_state: "no_charge",
+    }, args.corsHeaders, 500, args.edgeTiming);
+  }
+
+  const savedCardVerify = args.savedCardContext === true;
+  const blockingReason = args.savedCardBlockingReason
+    ?? (savedCardVerify ? "provider_token_missing_in_db" : null);
+
+  return jsonResponseWithPreauthTiming({
+    success: true,
+    provider: "revolut",
+    payment_intent_id: args.order.id,
+    client_secret: token,
+    provider_order_id: args.order.id,
+    payment_session_id: args.paymentSessionId ?? null,
+    provider_checkout_token: token,
+    provider_checkout_url: args.order.checkout_url ?? null,
+    revolut_public_key: args.publicKey,
+    authorised_amount_pence: args.authorisedAmountPence,
+    estimated_total_pence: args.estimatedTotalPence,
+    buffer_pence: args.bufferPence,
+    status: args.order.state ?? "PENDING",
+    idempotent: args.idempotent === true,
+    saved_card_flow: savedCardVerify,
+    requires_revolut_verify_checkout: savedCardVerify,
+    provider_token_missing: savedCardVerify,
+    saved_card_blocking_reason: blockingReason,
+    requires_new_card_checkout: !savedCardVerify,
+    ...(args.receivableResponseFields ?? {}),
+    ...(args.holdStartedAt
+      ? { booking_milestones: { hold_start_ms: args.holdStartedAt, checkout_open_ms: Date.now() } }
+      : {}),
+    ...(args.waterfallFragment ?? {}),
+  }, args.corsHeaders, 200, args.edgeTiming);
+}

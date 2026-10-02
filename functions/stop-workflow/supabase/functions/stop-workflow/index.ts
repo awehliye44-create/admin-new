@@ -1,0 +1,4579 @@
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
+import { requireAuthenticatedUser } from "../_shared/edgeAuth.ts";
+import {
+  OPERATIONAL_CASH_VIOLATION,
+  completeTripCashDecision,
+  decideStopWorkflowCaller,
+  tripVisibleToDriver,
+} from "../_shared/stopWorkflowSecurity.ts";
+import {
+  buildAuthoritativeTripStopRows,
+  needsTripStopsReconstruction,
+} from "../_shared/ensureTripStopsFromAuthoritative.ts";
+import { getDriverCommissionPct } from "../_shared/commission.ts";
+import { resolveTripFare, type TripFareRow } from "../_shared/tripFareSSOT.ts";
+import {
+  buildSettlementTripRow,
+  calculateTripSettlementFromTripRow,
+  resolveTripTierPercent,
+  tripSettlementDbColumns,
+} from "../_shared/tripSettlement.ts";
+import {
+  securityHeaders,
+  jsonHeaders,
+  checkRateLimit,
+  getClientIP,
+  rateLimitResponse,
+  handleCORSPreflight,
+  successResponse,
+  errorResponse,
+  isValidUUID,
+  isValidAction,
+  validationErrorResponse,
+} from "../_shared/security.ts";
+import {
+  buildPickupWaitingSnapshot,
+  buildStopWaitingSnapshot,
+  loadAdminWaitingConfig,
+  resolveFrozenOrLiveWaitingConfig,
+  resolveFrozenWaitingConfigOrNull,
+  type AdminWaitingConfigSnapshot,
+} from "../_shared/waitingAdminConfig.ts";
+import {
+  closeOpenWaitingSegments,
+  computePickupChargeFromCountedSeconds,
+  computeStopChargeFromCountedSeconds,
+  resolveEffectiveWaitingRadiusMeters,
+  resolveTrustedDriverLocation,
+  syncWaitingGeofenceClock,
+  type TrustedDriverLocation,
+} from "../_shared/waitingSegmentClock.ts";
+import {
+  logStackedPromotionSkipped,
+  handleQueuedTripAfterPaymentFailure,
+  tryPromoteStackedTripAfterCompletion,
+} from "../_shared/stackedRideLifecycle.ts";
+import {
+  executeDriverQueuedStackedCancel,
+  executeDriverTerminalCancel,
+} from "../_shared/driverTripCancel.ts";
+import {
+  mapStopWorkflowActionToLifecycleAction,
+  validateTripActionTransition,
+  type TripStopRecord,
+} from "../_shared/tripLifecycle.ts";
+import {
+  logRequestDuration,
+  startRequestTimer,
+  withDuration,
+  createRequestId,
+  createStageClock,
+  finishEdgeRequestLog,
+} from "../_shared/edgeRequestTiming.ts";
+import { invokeFinalizeTripCapture as invokeFinalizeTripCaptureWithRetry } from "../_shared/invokeFinalizeTripCapture.ts";
+import { postTripEarningNetCanonical } from "../_shared/canonicalTypedWalletPostingSSOT.ts";
+import { isCustomerAppTipChannelEligible } from "../_shared/tipChannelEligibilitySSOT.ts";
+import {
+  TIP_WINDOW_MS,
+  TIP_WINDOW_STATUS,
+} from "../../../shared/tipWindowConstants.ts";
+import { invoiceTipPenceFromConfirmedCapture, isFareCapturedBlockingTipWindow } from "../../../shared/tripPaymentFinalised.ts";
+import {
+  isCardPaymentMethod,
+  recordTripCaptureFailure,
+  requiresProviderSettlement,
+} from "../_shared/digitalPaymentCapture.ts";
+import { tripProviderOrderId } from "../_shared/tripPaymentProviderSSOT.ts";
+import { notifyCustomerTripLifecycle } from "../_shared/customerTripLifecycleNotify.ts";
+import { finalizeRideAssignmentSideEffects } from "../_shared/rideAssignmentFinalize.ts";
+import { assertPlatformCollectedCompletionPaymentGate } from "../_shared/executeFareIncreaseModificationPayment.ts";
+import { scheduleEdgeBackground } from "../_shared/scheduleEdgeBackground.ts";
+import {
+  createStopWorkflowLifecyclePerfClock,
+  normalizeLifecyclePerfId,
+  type StopWorkflowLifecyclePerfClock,
+} from "../_shared/stopWorkflowLifecyclePerf.ts";
+
+const RATE_LIMIT_CONFIG = {
+  limit: 60,
+  windowMs: 60000,
+  keyPrefix: 'stop-workflow'
+};
+
+const nonNegInt = (value: unknown): number => {
+  const n = Number(value);
+  if (!Number.isFinite(n) || n <= 0) return 0;
+  return Math.round(n);
+};
+
+const VALID_ACTIONS = [
+  'start_journey_to_pickup',
+  'arrive_pickup',
+  'start_trip',
+  'arrive_stop',
+  'next_stop',
+  'drive_to_next',
+  'complete_trip',
+  'driver_cancel',
+  'cancel_queued_stacked',
+];
+
+/**
+ * MULTI-STOP WORKFLOW EDGE FUNCTION
+ * 
+ * Actions:
+ * A) arrive_pickup - Mark pickup (stop_index=0) as ARRIVED, set arrived_at
+ * B) start_trip - Set started_at, advance to next stop (index 1+)
+ * C) arrive_stop - Mark current stop as ARRIVED (for stops after pickup)
+ * D) next_stop - Advance to next stop (skip any SKIPPED)
+ * E) complete_trip - End the trip (only when at final stop)
+ * 
+ * Rules:
+ * - current_stop_index can NEVER revert backwards
+ * - Stops advance in sequence without jumps
+ * - Idempotent operations (safe to retry)
+ */
+
+type StopStatus = 'pending' | 'current' | 'completed' | 'skipped';
+type TripStatus =
+  | 'accepted'
+  | 'driver_assigned'
+  | 'confirmed'
+  | 'arrived'
+  | 'arrived_pickup'
+  | 'arrived_at_pickup'
+  | 'in_progress'
+  | 'completed'
+  | 'cancelled';
+
+const ARRIVED_AT_PICKUP_STATUSES = new Set([
+  'arrived',
+  'arrived_pickup',
+  'arrived_at_pickup',
+  'at_pickup',
+  'pickup_waiting',
+]);
+
+const CAN_ARRIVE_FROM_STATUSES = new Set([
+  'driver_assigned',
+  'accepted',
+  'confirmed',
+  'en_route',
+  'en_route_to_pickup',
+  'driver_en_route',
+  'enroute_to_pickup',
+  'driver_arriving',
+  'queued',
+]);
+
+const CANONICAL_ARRIVED_STATUS: TripStatus = 'arrived_at_pickup';
+
+/** Terminal trips cannot be progressed via stop-workflow. */
+const TRIP_TERMINAL_STATUSES = new Set([
+  'cancelled',
+  'canceled',
+  'customer_cancelled',
+  'driver_cancelled',
+  'completed',
+  'no_show',
+  'no-show',
+  'expired',
+  'declined',
+]);
+
+/**
+ * Columns safe to write when PostgREST reports missing schema (PGRST204).
+ * Includes pass-2 multi-stop fields from 20260606120000 so stop waiting /
+ * destination mirrors are not silently dropped on retry.
+ */
+const PROD_SAFE_TRIP_COLUMNS = new Set([
+  'started_at',
+  'status',
+  'current_stop_index',
+  'current_stop_id',
+  'current_destination_index',
+  'current_destination_type',
+  'arrived_at',
+  'pickup_arrived_at',
+  'pickup_waiting_started_at',
+  'completed_at',
+  'updated_at',
+  'total_waiting_charge_pence',
+  'waiting_charge_pence',
+  'stop_charge_total_pence',
+  'paid_waiting_started_at',
+  'pickup_waiting_charge_pence',
+  'pickup_paid_waiting_started_at',
+  'pickup_waiting_finalized_at',
+  'pickup_waiting_intervals_charged',
+  'pickup_waiting_chargeable_seconds',
+  'pickup_waiting_last_tick_at',
+  'free_wait_expires_at',
+  'grace_period_expired_at',
+  'waiting_minutes',
+  'stop_arrived_at',
+  'stop_waiting_started_at',
+  'stop_waiting_free_seconds',
+  'stop_waiting_paid_started_at',
+  'stop_waiting_finalized_at',
+  'stop_waiting_status',
+  'stop_waiting_charge_amount',
+  'pickup_waiting_admin_config',
+]);
+
+function normTripStatus(status: string | null | undefined): string {
+  return String(status || '').trim().toLowerCase().replace(/-/g, '_');
+}
+
+function isTripTerminalStatus(status: string | null | undefined): boolean {
+  const s = normTripStatus(status);
+  if (!s) return false;
+  if (TRIP_TERMINAL_STATUSES.has(s)) return true;
+  return s.includes('cancelled') || s.includes('canceled');
+}
+
+function pickProdSafeTripPayload(payload: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(payload)) {
+    if (PROD_SAFE_TRIP_COLUMNS.has(key)) out[key] = value;
+  }
+  if (!('updated_at' in out)) {
+    out.updated_at = new Date().toISOString();
+  }
+  return out;
+}
+
+function isSchemaColumnError(err: { message?: string; code?: string } | null): boolean {
+  if (!err) return false;
+  const msg = String(err.message || '').toLowerCase();
+  return err.code === 'PGRST204' || msg.includes('column') || msg.includes('schema cache');
+}
+
+/**
+ * Atomically create/start exactly one pickup waiting instance on Arrived.
+ * Prefer DB RPC start_pickup_waiting_on_arrive (FOR UPDATE + trigger freeze).
+ * Idempotent: never reset an existing pickup_waiting_started_at.
+ */
+async function ensurePickupWaitingStarted(
+  supabase: ReturnType<typeof createClient>,
+  tripId: string,
+  trip: { arrived_at?: string | null; pickup_waiting_started_at?: string | null },
+  pickupStop: { id: string; arrived_at?: string | null; waiting_started_at?: string | null } | null | undefined,
+  now: string,
+): Promise<
+  | { ok: true; startedAt: string; tripRow: TripWaitingBillingCtx | null }
+  | { ok: false; error: string }
+> {
+  if (trip.pickup_waiting_started_at) {
+    return {
+      ok: true,
+      startedAt: trip.pickup_waiting_started_at,
+      tripRow: null,
+    };
+  }
+
+  const { data: rpcData, error: rpcError } = await supabase.rpc(
+    "start_pickup_waiting_on_arrive",
+    { p_trip_id: tripId, p_now: now },
+  );
+
+  if (!rpcError && rpcData && typeof rpcData === "object") {
+    const row = rpcData as Record<string, unknown>;
+    if (row.ok === true && typeof row.started_at === "string" && row.started_at.trim()) {
+      console.log("[stop-workflow] PICKUP_WAITING_STARTED", {
+        trip_id: tripId,
+        pickup_waiting_started_at: row.started_at,
+        via: "start_pickup_waiting_on_arrive",
+        already_started: row.already_started === true,
+      });
+      return {
+        ok: true,
+        startedAt: row.started_at,
+        tripRow: {
+          pickup_waiting_started_at: row.started_at as string,
+          pickup_waiting_admin_config: row.pickup_waiting_admin_config ?? null,
+          free_wait_expires_at:
+            typeof row.free_wait_expires_at === "string" ? row.free_wait_expires_at : null,
+          arrived_at: (row.arrived_at as string | null) ?? trip.arrived_at ?? null,
+          pickup_arrived_at: (row.pickup_arrived_at as string | null) ?? null,
+          pickup_waiting_charge_pence:
+            typeof row.pickup_waiting_charge_pence === "number"
+              ? row.pickup_waiting_charge_pence
+              : 0,
+          pickup_waiting_counted_seconds:
+            typeof row.pickup_waiting_counted_seconds === "number"
+              ? row.pickup_waiting_counted_seconds
+              : 0,
+          service_area_id: (row.service_area_id as string | null) ?? null,
+          vehicle_type_id: (row.vehicle_type_id as string | null) ?? null,
+          driver_id: (row.driver_id as string | null) ?? null,
+        } as TripWaitingBillingCtx,
+      };
+    }
+    if (row.ok === false && typeof row.error === "string") {
+      return { ok: false, error: row.error };
+    }
+  }
+
+  if (rpcError) {
+    console.warn("[stop-workflow] PICKUP_WAITING_RPC_FALLBACK", {
+      trip_id: tripId,
+      message: rpcError.message,
+    });
+  }
+
+  // Fallback: legacy Edge UPDATE path (pre-migration / RPC unavailable).
+  const waitingStartAt = now;
+  const tripPayload: Record<string, unknown> = {
+    pickup_waiting_started_at: waitingStartAt,
+    updated_at: now,
+  };
+  if (trip.arrived_at) {
+    tripPayload.pickup_arrived_at = trip.arrived_at;
+  }
+  const { data: updated, error } = await supabase
+    .from("trips")
+    .update(tripPayload)
+    .eq("id", tripId)
+    .select(ARRIVE_WAITING_TRIP_SELECT)
+    .single();
+  if (error) {
+    const safe = await updateTripSafe(supabase, tripId, tripPayload);
+    if (safe.error) {
+      console.error("[stop-workflow] PICKUP_WAITING_START_FAILED", {
+        trip_id: tripId,
+        message: safe.error.message,
+      });
+      return { ok: false, error: safe.error.message };
+    }
+  }
+  if (pickupStop?.id && !pickupStop.waiting_started_at) {
+    void supabase
+      .from("trip_stops")
+      .update({
+        waiting_started_at: waitingStartAt,
+        updated_at: now,
+      })
+      .eq("id", pickupStop.id);
+  }
+  console.log("[stop-workflow] PICKUP_WAITING_STARTED", {
+    trip_id: tripId,
+    pickup_waiting_started_at: waitingStartAt,
+    via: "edge_update_fallback",
+  });
+  return {
+    ok: true,
+    startedAt: waitingStartAt,
+    tripRow: (updated as TripWaitingBillingCtx | null) ?? null,
+  };
+}
+
+/**
+ * Freeze pickup waiting on Start Trip from counted in-radius seconds only.
+ * Never charge full wall-time from pickup_waiting_started_at.
+ */
+async function finalizePickupWaitingOnStartTrip(
+  supabase: ReturnType<typeof createClient>,
+  trip: TripWaitingBillingCtx & {
+    id?: string;
+    stop_waiting_charge_pence?: number | null;
+    pickup_latitude?: number | null;
+    pickup_longitude?: number | null;
+  },
+  tripId: string,
+  nowIso: string,
+  opts?: {
+    driverLat?: number;
+    driverLng?: number;
+    pickupLat?: number | null;
+    pickupLng?: number | null;
+  },
+): Promise<{
+  pickup_waiting_charge_pence: number;
+  intervals_charged: number;
+  already_finalized: boolean;
+  counted_seconds: number;
+}> {
+  if (trip.pickup_waiting_finalized_at) {
+    return {
+      pickup_waiting_charge_pence: trip.pickup_waiting_charge_pence ?? 0,
+      intervals_charged: trip.pickup_waiting_intervals_charged ?? 0,
+      already_finalized: true,
+      counted_seconds: 0,
+    };
+  }
+
+  const startedAt =
+    typeof trip.pickup_waiting_started_at === 'string' && trip.pickup_waiting_started_at.trim()
+      ? trip.pickup_waiting_started_at
+      : null;
+
+  if (!startedAt) {
+    await updateTripSafe(supabase, tripId, {
+      pickup_waiting_finalized_at: nowIso,
+      pickup_waiting_charge_pence: trip.pickup_waiting_charge_pence ?? 0,
+      pickup_waiting_intervals_charged: 0,
+      pickup_waiting_counted_seconds: 0,
+      updated_at: nowIso,
+    });
+    return {
+      pickup_waiting_charge_pence: trip.pickup_waiting_charge_pence ?? 0,
+      intervals_charged: 0,
+      already_finalized: false,
+      counted_seconds: 0,
+    };
+  }
+
+  const frozenOnly = resolveFrozenWaitingConfigOrNull(trip.pickup_waiting_admin_config);
+  const live =
+    frozenOnly == null
+      ? await loadAdminWaitingConfig(
+        supabase,
+        trip.service_area_id ?? null,
+        trip.vehicle_type_id ?? null,
+      )
+      : null;
+  const config =
+    frozenOnly ??
+    resolveFrozenOrLiveWaitingConfig(trip.pickup_waiting_admin_config, live!);
+
+  const pickupLat = opts?.pickupLat ?? trip.pickup_latitude ?? null;
+  const pickupLng = opts?.pickupLng ?? trip.pickup_longitude ?? null;
+  const driverId = trip.driver_id ?? null;
+  if (driverId && pickupLat != null && pickupLng != null) {
+    await syncWaitingGeofenceClock(supabase, {
+      tripId,
+      driverId,
+      locationType: 'pickup',
+      target: {
+        lat: pickupLat,
+        lng: pickupLng,
+        radiusMeters: resolveEffectiveWaitingRadiusMeters(
+          config.pickup_radius_meters,
+          config.pickup_radius_enabled,
+        ),
+        radiusEnabled: config.pickup_radius_enabled,
+      },
+      bodyLat: opts?.driverLat ?? null,
+      bodyLng: opts?.driverLng ?? null,
+      nowIso,
+    });
+  }
+
+  const countedSeconds = await closeOpenWaitingSegments(supabase, {
+    tripId,
+    locationType: 'pickup',
+    nowIso,
+  });
+
+  if (!config.pickup_paid_waiting_enabled || !config.config_available) {
+    await updateTripSafe(supabase, tripId, {
+      pickup_waiting_finalized_at: nowIso,
+      pickup_waiting_charge_pence: 0,
+      pickup_waiting_intervals_charged: 0,
+      pickup_waiting_counted_seconds: countedSeconds,
+      free_wait_expires_at:
+        trip.free_wait_expires_at ??
+        new Date(
+          new Date(startedAt).getTime() + config.free_pickup_waiting_seconds * 1000,
+        ).toISOString(),
+      updated_at: nowIso,
+    });
+    return {
+      pickup_waiting_charge_pence: 0,
+      intervals_charged: 0,
+      already_finalized: false,
+      counted_seconds: countedSeconds,
+    };
+  }
+
+  const charged = computePickupChargeFromCountedSeconds({
+    countedSeconds,
+    freeWaitSeconds: config.free_pickup_waiting_seconds,
+    ratePencePerMinute: config.pickup_paid_waiting_rate_pence_per_minute,
+    intervalSeconds: config.waiting_charge_interval_seconds,
+    maxMinutes: config.pickup_waiting_max_minutes,
+  });
+  const paidSeconds = Math.max(
+    0,
+    countedSeconds - config.free_pickup_waiting_seconds,
+  );
+
+  const stopWaiting = trip.stop_waiting_charge_pence ?? 0;
+  const updatePayload: Record<string, unknown> = {
+    pickup_waiting_finalized_at: nowIso,
+    pickup_waiting_charge_pence: charged.charge_pence,
+    pickup_waiting_intervals_charged: charged.intervals_charged,
+    pickup_waiting_chargeable_seconds: charged.paid_seconds_capped,
+    pickup_waiting_counted_seconds: countedSeconds,
+    pickup_waiting_last_tick_at: nowIso,
+    total_waiting_charge_pence: charged.charge_pence + stopWaiting,
+    waiting_charge_pence: charged.charge_pence + stopWaiting,
+    updated_at: nowIso,
+  };
+  if (!trip.pickup_paid_waiting_started_at && charged.charge_pence > 0) {
+    updatePayload.pickup_paid_waiting_started_at = nowIso;
+  }
+  if (!trip.grace_period_expired_at && paidSeconds > 0) {
+    updatePayload.grace_period_expired_at = nowIso;
+  }
+
+  await updateTripSafe(supabase, tripId, updatePayload);
+  console.log('[stop-workflow] PICKUP_WAITING_FINALIZED_ON_START_TRIP', {
+    trip_id: tripId,
+    pickup_waiting_charge_pence: charged.charge_pence,
+    intervals_charged: charged.intervals_charged,
+    interval_seconds: charged.interval_seconds,
+    paid_seconds: charged.paid_seconds_capped,
+    counted_in_radius_seconds: countedSeconds,
+    rate_pence_per_minute: config.pickup_paid_waiting_rate_pence_per_minute,
+    note: 'charge_from_counted_segments_not_wall_time',
+  });
+
+  return {
+    pickup_waiting_charge_pence: charged.charge_pence,
+    intervals_charged: charged.intervals_charged,
+    already_finalized: false,
+    counted_seconds: countedSeconds,
+  };
+}
+
+/** Update trips using full payload when migration columns exist; fall back to prod-safe subset. */
+async function updateTripSafe(
+  supabase: ReturnType<typeof createClient>,
+  tripId: string,
+  payload: Record<string, unknown>,
+): Promise<{ error: { message: string; code?: string } | null }> {
+  const full = { ...payload };
+  if (!full.updated_at) full.updated_at = new Date().toISOString();
+
+  const { error: fullErr } = await supabase.from('trips').update(full).eq('id', tripId);
+  if (!fullErr) return { error: null };
+
+  if (!isSchemaColumnError(fullErr)) {
+    return { error: fullErr };
+  }
+
+  console.warn('[stop-workflow] trip update retry with prod-safe columns:', fullErr.message);
+  const minimal = pickProdSafeTripPayload(full);
+  const { error: retryErr } = await supabase.from('trips').update(minimal).eq('id', tripId);
+  return { error: retryErr };
+}
+
+interface WorkflowRequest {
+  trip_id: string;
+  driver_id: string;
+  action:
+    | 'arrive_pickup'
+    | 'start_trip'
+    | 'arrive_stop'
+    | 'next_stop'
+    | 'drive_to_next'
+    | 'complete_trip'
+    | 'driver_cancel'
+    | 'cancel_queued_stacked';
+  cancel_reason?: string;
+  driver_lat?: number;
+  driver_lng?: number;
+  /** Client tap correlation id — folded into Edge stages / ops_logs. */
+  perf_id?: string;
+}
+
+type DispatchWaitingSettings = {
+  enable_stop_waiting_charge?: boolean;
+  stop_radius_enabled?: boolean;
+  stop_radius_meters?: number;
+  stop_waiting_charge_interval_seconds?: number;
+  stop_waiting_grace_period_seconds?: number;
+  stop_waiting_rate_pence_per_minute?: number;
+  stop_waiting_max_minutes?: number | null;
+  pickup_radius_enabled?: boolean;
+  pickup_radius_meters?: number;
+  /** Internal: which table supplied stop radius (for observability). */
+  _stop_radius_source?: 'dispatch_settings' | 'stop_waiting_settings';
+};
+
+type TripStopRow = {
+  id: string;
+  stop_index?: number;
+  type: string;
+  status?: string;
+  lat?: number | null;
+  lng?: number | null;
+  arrived_at?: string | null;
+  waiting_charge_active?: boolean | null;
+  waiting_started_at?: string | null;
+  waiting_stopped_at?: string | null;
+  waiting_total_amount_pence?: number | null;
+};
+
+/** Haversine distance in meters */
+function haversineMeters(lat1: number, lng1: number, lat2: number, lng2: number): number {
+  const R = 6371000;
+  const dLat = ((lat2 - lat1) * Math.PI) / 180;
+  const dLng = ((lng2 - lng1) * Math.PI) / 180;
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos((lat1 * Math.PI) / 180) *
+      Math.cos((lat2 * Math.PI) / 180) *
+      Math.sin(dLng / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+type StopRadiusCheckResult =
+  | { ok: true }
+  | {
+    ok: false;
+    current_distance_meters: number;
+    required_radius_meters: number;
+  };
+
+const OUTSIDE_RADIUS_ERROR = 'OUTSIDE_RADIUS';
+
+/** Standard blocked response when driver is outside admin pickup/stop radius. */
+function outsideRadiusResponse(
+  scope: 'pickup' | 'stop',
+  check: Extract<StopRadiusCheckResult, { ok: false }>,
+): Response {
+  const distanceM =
+    check.current_distance_meters >= 0 ? check.current_distance_meters : null;
+  const allowedM = check.required_radius_meters;
+  const message =
+    distanceM != null
+      ? scope === 'pickup'
+        ? `You must be within ${allowedM}m of the pickup. Currently ${distanceM}m away.`
+        : `You must be within ${allowedM}m of the stop. Currently ${distanceM}m away.`
+      : scope === 'pickup'
+        ? 'Driver location is required to arrive at pickup.'
+        : 'Driver location is required to arrive at this stop.';
+
+  return errorResponse(OUTSIDE_RADIUS_ERROR, message, 400, {
+    blocked_reason: OUTSIDE_RADIUS_ERROR,
+    scope,
+    distance_meters: distanceM,
+    allowed_radius_meters: allowedM,
+    current_distance_meters: distanceM,
+    required_radius_meters: allowedM,
+  });
+}
+
+type ResolvedWaitingRadius = {
+  enabled: boolean;
+  meters: number | null;
+  source: 'dispatch_settings' | 'stop_waiting_settings' | 'missing' | 'default_100m';
+};
+
+function resolveWaitingRadius(
+  scope: 'pickup' | 'stop',
+  settings: DispatchWaitingSettings,
+  tripId?: string,
+): ResolvedWaitingRadius {
+  const enabled = scope === 'pickup'
+    ? settings.pickup_radius_enabled ?? true
+    : settings.stop_radius_enabled ?? true;
+  const raw = scope === 'pickup'
+    ? settings.pickup_radius_meters
+    : settings.stop_radius_meters;
+  const source = scope === 'stop' && settings._stop_radius_source === 'stop_waiting_settings'
+    ? 'stop_waiting_settings'
+    : typeof raw === 'number' && raw > 0
+      ? 'dispatch_settings'
+      : 'missing';
+  const configured = typeof raw === 'number' && raw > 0 ? raw : null;
+  // When radius is enabled but meters missing/0 → default 100m (normal pickup/stop).
+  const meters = enabled
+    ? resolveEffectiveWaitingRadiusMeters(configured, true)
+    : configured;
+
+  if (meters != null) {
+    console.log('[stop-workflow] WAITING_RADIUS_BACKEND_USED', {
+      trip_id: tripId ?? null,
+      scope,
+      allowed_radius_meters: meters,
+      radius_enabled: enabled,
+      source: configured != null ? source : 'default_100m',
+    });
+  } else {
+    console.log('[stop-workflow] WAITING_RADIUS_MISSING_CONFIG', {
+      trip_id: tripId ?? null,
+      scope,
+      radius_enabled: enabled,
+    });
+  }
+
+  return { enabled, meters, source: configured != null ? source : 'default_100m' as ResolvedWaitingRadius['source'] };
+}
+
+function enrichWaitingRadiusSuccessFields(
+  base: Record<string, unknown>,
+  waitingResult: PickupWaitingStartResult | StopWaitingStartResult,
+): Record<string, unknown> {
+  const arrivalRecorded = true;
+  const waitingStatus = waitingResult.waiting_status;
+  const distanceMeters = waitingResult.distance_meters ?? null;
+  const allowedRadiusMeters = waitingResult.allowed_radius_meters ?? null;
+  return {
+    ...base,
+    arrival_recorded: arrivalRecorded,
+    arrivalRecorded,
+    waiting_status: waitingStatus,
+    waitingStatus,
+    distance_meters: distanceMeters,
+    distanceMeters,
+    allowed_radius_meters: allowedRadiusMeters,
+    allowedRadiusMeters,
+  };
+}
+
+type TripWaitingBillingCtx = {
+  service_area_id?: string | null;
+  vehicle_type_id?: string | null;
+  driver_id?: string | null;
+  arrived_at?: string | null;
+  pickup_arrived_at?: string | null;
+  driver_arrived_at?: string | null;
+  pickup_waiting_started_at?: string | null;
+  pickup_waiting_admin_config?: unknown;
+  free_wait_expires_at?: string | null;
+  pickup_waiting_finalized_at?: string | null;
+  pickup_waiting_intervals_charged?: number | null;
+  stop_arrived_at?: string | null;
+  pickup_paid_waiting_started_at?: string | null;
+  pickup_waiting_charge_pence?: number | null;
+  grace_period_expired_at?: string | null;
+  stop_waiting_paid_started_at?: string | null;
+  stop_waiting_charge_pence?: number | null;
+  stop_waiting_status?: string | null;
+  total_waiting_charge_pence?: number | null;
+};
+
+/** Merge stub re-select with original trip so SA / vehicle SSOT is never dropped. */
+function mergeTripWaitingCtx(
+  original: TripWaitingBillingCtx,
+  stub: TripWaitingBillingCtx | null | undefined,
+): TripWaitingBillingCtx {
+  return {
+    ...original,
+    ...(stub ?? {}),
+    service_area_id: stub?.service_area_id ?? original.service_area_id ?? null,
+    vehicle_type_id: stub?.vehicle_type_id ?? original.vehicle_type_id ?? null,
+    pickup_waiting_started_at:
+      stub?.pickup_waiting_started_at ?? original.pickup_waiting_started_at ?? null,
+    pickup_waiting_admin_config:
+      stub?.pickup_waiting_admin_config ?? original.pickup_waiting_admin_config ?? null,
+    free_wait_expires_at: stub?.free_wait_expires_at ?? original.free_wait_expires_at ?? null,
+    arrived_at: stub?.arrived_at ?? original.arrived_at ?? null,
+    pickup_arrived_at: stub?.pickup_arrived_at ?? original.pickup_arrived_at ?? null,
+  };
+}
+
+const ARRIVE_WAITING_TRIP_SELECT =
+  "id, status, arrived_at, pickup_arrived_at, pickup_waiting_started_at, pickup_waiting_admin_config, free_wait_expires_at, pickup_waiting_charge_pence, pickup_paid_waiting_started_at, pickup_waiting_finalized_at, pickup_waiting_intervals_charged, pickup_waiting_counted_seconds, stop_waiting_counted_seconds, waiting_geofence_status, waiting_geofence_distance_m, service_area_id, vehicle_type_id, driver_id, financial_model, updated_at";
+
+function resolveWaitingStatusFromResult(
+  waitingResult: PickupWaitingStartResult | StopWaitingStartResult,
+): "not_started" | "blocked_outside_radius" | "free_waiting" {
+  if (waitingResult.waiting_status === "blocked_outside_radius") return "blocked_outside_radius";
+  if (waitingResult.waiting_status === "free_waiting") return "free_waiting";
+  return "not_started";
+}
+
+function tripWaitingBillingFields(trip: TripWaitingBillingCtx): Record<string, unknown> {
+  return {
+    pickup_waiting_paid_started_at: trip.pickup_paid_waiting_started_at ?? null,
+    pickup_waiting_charge_pence: trip.pickup_waiting_charge_pence ?? 0,
+    active_stop_waiting_state: trip.stop_waiting_status ?? null,
+    stop_waiting_paid_started_at: trip.stop_waiting_paid_started_at ?? null,
+    stop_waiting_charge_pence: trip.stop_waiting_charge_pence ?? 0,
+    pickup_waiting_counted_seconds:
+      (trip as { pickup_waiting_counted_seconds?: number | null }).pickup_waiting_counted_seconds ?? 0,
+    stop_waiting_counted_seconds:
+      (trip as { stop_waiting_counted_seconds?: number | null }).stop_waiting_counted_seconds ?? 0,
+    waiting_geofence_status:
+      (trip as { waiting_geofence_status?: string | null }).waiting_geofence_status ?? null,
+  };
+}
+
+async function enrichArrivalWaitingSnapshot(
+  supabase: ReturnType<typeof createClient>,
+  base: Record<string, unknown>,
+  waitingResult: PickupWaitingStartResult | StopWaitingStartResult,
+  ctx: {
+    scope: "pickup" | "stop";
+    trip: TripWaitingBillingCtx;
+    trip_id?: string;
+    stop?: { arrived_at?: string | null };
+  },
+): Promise<Record<string, unknown>> {
+  const existingFrozen = ctx.trip.pickup_waiting_admin_config;
+  // Skip Admin round-trips when trip already has a usable freeze (idempotent Arrive / re-entry).
+  const frozenOnly =
+    ctx.scope === "pickup" ? resolveFrozenWaitingConfigOrNull(existingFrozen) : null;
+  const liveConfig =
+    frozenOnly == null
+      ? await loadAdminWaitingConfig(
+        supabase,
+        ctx.trip.service_area_id ?? null,
+        ctx.trip.vehicle_type_id ?? null,
+      )
+      : null;
+  const config: AdminWaitingConfigSnapshot =
+    frozenOnly ??
+    (ctx.scope === "pickup" && existingFrozen && liveConfig
+      ? resolveFrozenOrLiveWaitingConfig(existingFrozen, liveConfig)
+      : liveConfig!);
+
+  if (ctx.scope === "pickup" && ctx.trip_id) {
+    const waitingAnchorIso =
+      typeof ctx.trip.pickup_waiting_started_at === "string" &&
+        ctx.trip.pickup_waiting_started_at.trim()
+        ? ctx.trip.pickup_waiting_started_at
+        : null;
+    const freeWaitExpiresAt =
+      waitingAnchorIso != null
+        ? new Date(
+          new Date(waitingAnchorIso).getTime() +
+            config.free_pickup_waiting_seconds * 1000,
+        ).toISOString()
+        : null;
+
+    const existingObj =
+      existingFrozen && typeof existingFrozen === "object" && !Array.isArray(existingFrozen)
+        ? (existingFrozen as Record<string, unknown>)
+        : {};
+    const alreadyFareFrozen = existingObj.pickup_grace_source === "fare_pricing";
+    const alreadyPersisted =
+      typeof existingObj.frozen_at === "string" &&
+      existingObj.frozen_at.trim().length > 0 &&
+      (typeof ctx.trip.free_wait_expires_at === "string" &&
+        ctx.trip.free_wait_expires_at.trim().length > 0);
+
+    // Always MERGE provenance; never replace a good freeze with a bare snapshot
+    // that strips waiting_context / driver_id / frozen_at.
+    const frozenConfig: Record<string, unknown> = alreadyFareFrozen
+      ? {
+        ...existingObj,
+        waiting_context: existingObj.waiting_context ?? "pickup",
+        driver_id: existingObj.driver_id ?? ctx.trip.driver_id ?? null,
+        service_area_id: existingObj.service_area_id ?? ctx.trip.service_area_id ?? null,
+        vehicle_type_id: existingObj.vehicle_type_id ?? ctx.trip.vehicle_type_id ?? null,
+        trip_id: existingObj.trip_id ?? ctx.trip_id,
+        frozen_at: existingObj.frozen_at ?? new Date().toISOString(),
+      }
+      : {
+        ...existingObj,
+        ...config,
+        waiting_context: "pickup",
+        driver_id: ctx.trip.driver_id ?? null,
+        service_area_id: ctx.trip.service_area_id ?? null,
+        vehicle_type_id: ctx.trip.vehicle_type_id ?? null,
+        trip_id: ctx.trip_id,
+        frozen_at: existingObj.frozen_at ?? new Date().toISOString(),
+      };
+
+    // Skip redundant persist when freeze + free_wait_expires_at already durable.
+    if (!alreadyPersisted || !frozenOnly) {
+      const { error: cfgErr } = await updateTripSafe(supabase, ctx.trip_id, {
+        pickup_waiting_admin_config: frozenConfig,
+        ...(freeWaitExpiresAt && !ctx.trip.free_wait_expires_at
+          ? { free_wait_expires_at: freeWaitExpiresAt }
+          : freeWaitExpiresAt && !alreadyFareFrozen
+          ? { free_wait_expires_at: freeWaitExpiresAt }
+          : {}),
+      });
+      if (cfgErr) {
+        console.warn("[stop-workflow] PICKUP_WAITING_ADMIN_CONFIG_PERSIST_FAILED", {
+          trip_id: ctx.trip_id,
+          message: cfgErr.message,
+        });
+      } else {
+        console.log("[stop-workflow] PICKUP_WAITING_ADMIN_CONFIG_PERSISTED", {
+          trip_id: ctx.trip_id,
+          free_pickup_waiting_seconds: config.free_pickup_waiting_seconds,
+          free_wait_expires_at: freeWaitExpiresAt,
+          pickup_grace_source: config.pickup_grace_source,
+          skipped_admin_reload: frozenOnly != null,
+        });
+      }
+    }
+  }
+
+  const radiusFields = enrichWaitingRadiusSuccessFields(base, waitingResult);
+  const billing = tripWaitingBillingFields(ctx.trip);
+
+  const driverArrivedAt =
+    ctx.trip.pickup_arrived_at ??
+    ctx.trip.driver_arrived_at ??
+    ctx.trip.arrived_at ??
+    null;
+  const waitingStartedAt =
+    typeof ctx.trip.pickup_waiting_started_at === "string" &&
+      ctx.trip.pickup_waiting_started_at.trim()
+      ? ctx.trip.pickup_waiting_started_at
+      : null;
+  const pickupWaitingStatus =
+    ctx.scope === "pickup"
+      ? resolveWaitingStatusFromResult(waitingResult)
+      : waitingStartedAt
+        ? "free_waiting"
+        : "not_started";
+  // Timer/free-wait projection must anchor to pickup_waiting_started_at only.
+  // No-show / grace remaining use in-radius counted seconds (segment clock).
+  const pickupCountedSeconds = Math.max(
+    0,
+    Math.floor(
+      Number(
+        (ctx.trip as { pickup_waiting_counted_seconds?: number | null })
+          .pickup_waiting_counted_seconds ?? 0,
+      ),
+    ),
+  );
+  const pickupSnapshot = buildPickupWaitingSnapshot({
+    driverArrivedAt: waitingStartedAt,
+    waitingStatus: waitingStartedAt ? pickupWaitingStatus : "not_started",
+    config,
+    countedInRadiusSeconds: waitingStartedAt ? pickupCountedSeconds : null,
+  });
+
+  const stopArrivedAt = ctx.trip.stop_arrived_at ?? ctx.stop?.arrived_at ?? null;
+  const stopWaitingStatus =
+    ctx.scope === "stop"
+      ? resolveWaitingStatusFromResult(waitingResult)
+      : stopArrivedAt
+        ? "free_waiting"
+        : "not_started";
+  const stopSnapshot = buildStopWaitingSnapshot({
+    stopArrivedAt,
+    waitingStatus: stopWaitingStatus,
+    config,
+  });
+
+  const freeWaitExpiresAt =
+    waitingStartedAt != null
+      ? (ctx.trip.free_wait_expires_at ?? pickupSnapshot.pickup_waiting_free_expires_at)
+      : null;
+
+  return {
+    ...radiusFields,
+    ...billing,
+    driver_arrived_at: driverArrivedAt,
+    pickup_arrived_at: driverArrivedAt,
+    pickup_waiting_started_at: waitingStartedAt,
+    free_wait_expires_at: freeWaitExpiresAt,
+    pickup_waiting_state: pickupSnapshot.pickup_waiting_state,
+    pickup_waiting_free_expires_at: freeWaitExpiresAt,
+    pickup_waiting_elapsed_seconds: pickupSnapshot.pickup_waiting_elapsed_seconds,
+    pickup_waiting_grace_remaining_seconds: pickupSnapshot.pickup_waiting_grace_remaining_seconds,
+    no_show_eligible_at: pickupSnapshot.no_show_eligible_at,
+    no_show_eligible: pickupSnapshot.no_show_eligible,
+    no_show_remaining_seconds: pickupSnapshot.no_show_remaining_seconds,
+    pickup_waiting_counted_seconds: pickupCountedSeconds,
+    stop_waiting_counted_seconds: Math.max(
+      0,
+      Math.floor(
+        Number(
+          (ctx.trip as { stop_waiting_counted_seconds?: number | null })
+            .stop_waiting_counted_seconds ?? 0,
+        ),
+      ),
+    ),
+    waiting_geofence_status:
+      (ctx.trip as { waiting_geofence_status?: string | null }).waiting_geofence_status ??
+      null,
+    stop_arrived_at: stopSnapshot.stop_arrived_at,
+    stop_waiting_state: stopSnapshot.stop_waiting_state,
+    stop_waiting_free_expires_at: stopSnapshot.stop_waiting_free_expires_at,
+    stop_waiting_elapsed_seconds: stopSnapshot.stop_waiting_elapsed_seconds,
+    stop_waiting_grace_remaining_seconds: stopSnapshot.stop_waiting_grace_remaining_seconds,
+    admin_waiting_config_snapshot: config,
+    waiting_snapshot: ctx.scope === "pickup" ? pickupSnapshot : stopSnapshot,
+  };
+}
+
+/** Admin SSOT: dispatch_settings + stop_waiting_settings (stop radius). */
+async function checkStopArrivalRadius(
+  supabase: ReturnType<typeof createClient>,
+  serviceAreaId: string | null,
+  stop: TripStopRow,
+  driverLat: number | undefined,
+  driverLng: number | undefined,
+  tripId?: string,
+  preloadedSettings?: DispatchWaitingSettings | null,
+): Promise<StopRadiusCheckResult> {
+  const settings =
+    preloadedSettings ??
+    (await fetchDispatchWaitingSettings(supabase, serviceAreaId));
+  const radius = resolveWaitingRadius('stop', settings, tripId);
+  const radiusEnabled = radius.enabled;
+  const radiusMeters = radius.meters;
+
+  if (!radiusEnabled || radiusMeters == null) {
+    return { ok: true };
+  }
+
+  if (stop.lat == null || stop.lng == null) {
+    return { ok: true };
+  }
+
+  if (typeof driverLat !== 'number' || typeof driverLng !== 'number') {
+    return {
+      ok: false,
+      current_distance_meters: -1,
+      required_radius_meters: radiusMeters,
+    };
+  }
+
+  const distance = haversineMeters(driverLat, driverLng, stop.lat, stop.lng);
+  if (distance > radiusMeters) {
+    return {
+      ok: false,
+      current_distance_meters: Math.round(distance),
+      required_radius_meters: radiusMeters,
+    };
+  }
+
+  return { ok: true };
+}
+
+type PickupWaitingStartResult = {
+  started: boolean;
+  waiting_status: 'not_started' | 'blocked_outside_radius' | 'free_waiting';
+  allowed_radius_meters?: number | null;
+  distance_meters?: number | null;
+  start_error?: string;
+  /** Trip waiting fields after canonical start (avoids confirming SELECT). */
+  tripRow?: TripWaitingBillingCtx | null;
+  startedAt?: string | null;
+};
+
+type StopWaitingStartResult = {
+  started: boolean;
+  waiting_status: 'not_started' | 'blocked_outside_radius' | 'free_waiting';
+  graceSeconds: number;
+  allowed_radius_meters?: number | null;
+  distance_meters?: number | null;
+  /** Geofence segment observability (money fail-closed when not opened). */
+  stop_waiting_segment_created?: boolean;
+  stop_waiting_segment_id?: string | null;
+  stop_waiting_segment_stop_id?: string | null;
+  stop_waiting_geofence_skip_reason?: string | null;
+  stop_waiting_geofence_open_ms?: number | null;
+};
+
+/**
+ * P0 #2: successful Arrived always starts exactly one pickup waiting instance.
+ * Radius may still be reported for UI / paid-charge enforcement in tick,
+ * but pickup_waiting_started_at must not remain NULL after Arrived.
+ */
+async function tryStartPickupWaiting(
+  supabase: ReturnType<typeof createClient>,
+  ctx: {
+    tripId: string;
+    trip: {
+      arrived_at?: string | null;
+      pickup_waiting_started_at?: string | null;
+      service_area_id?: string | null;
+      driver_id?: string | null;
+    };
+    pickupStop: { id: string; arrived_at?: string | null; waiting_started_at?: string | null } | null | undefined;
+    pickupLat: number | null;
+    pickupLng: number | null;
+    driverLat: number | undefined;
+    driverLng: number | undefined;
+    now: string;
+    perf?: StopWorkflowLifecyclePerfClock | null;
+  },
+): Promise<PickupWaitingStartResult> {
+  const { tripId, trip, pickupStop, pickupLat, pickupLng, driverLat, driverLng, now, perf } = ctx;
+
+  if (trip.pickup_waiting_started_at) {
+    perf?.mark("waiting_existing_state_end");
+    const radiusSettings = await fetchDispatchWaitingSettings(
+      supabase,
+      trip.service_area_id ?? null,
+    );
+    const radius = resolveWaitingRadius('pickup', radiusSettings, tripId);
+    let distanceM: number | null = null;
+    if (trip.driver_id && pickupLat != null && pickupLng != null) {
+      perf?.mark("waiting_geofence_start");
+      const clock = await syncWaitingGeofenceClock(supabase, {
+        tripId,
+        driverId: trip.driver_id,
+        locationType: 'pickup',
+        target: {
+          lat: pickupLat,
+          lng: pickupLng,
+          radiusMeters: resolveEffectiveWaitingRadiusMeters(radius.meters, radius.enabled),
+          radiusEnabled: radius.enabled,
+        },
+        bodyLat: driverLat ?? null,
+        bodyLng: driverLng ?? null,
+        nowIso: now,
+      });
+      perf?.mark("waiting_geofence_end");
+      distanceM = clock.distanceMeters ?? null;
+    }
+    return {
+      started: true,
+      waiting_status: 'free_waiting',
+      allowed_radius_meters: radius.meters,
+      distance_meters: distanceM,
+      startedAt: trip.pickup_waiting_started_at,
+      tripRow: null,
+    };
+  }
+
+  perf?.mark("waiting_config_start");
+  const settings = await fetchDispatchWaitingSettings(supabase, trip.service_area_id ?? null);
+  perf?.mark("waiting_config_end");
+  const radius = resolveWaitingRadius('pickup', settings, tripId);
+  const radiusEnabled = radius.enabled;
+  const radiusMeters = radius.meters;
+
+  console.log('[stop-workflow] WAITING_RADIUS_ADMIN_CONFIG_LOADED', {
+    trip_id: tripId,
+    scope: 'pickup',
+    service_area_id: trip.service_area_id ?? null,
+    pickup_radius_enabled: radiusEnabled,
+    pickup_radius_meters: radiusMeters,
+    source: radius.source,
+  });
+
+  let outsideRadius = false;
+  let distanceM: number | null = null;
+  let allowedRadius: number | null = radiusMeters;
+
+  // Sync radius check — reuse preloaded settings (no second SA config fetch).
+  if (radiusEnabled) {
+    console.log('[stop-workflow] WAITING_RADIUS_CHECK_STARTED', {
+      trip_id: tripId,
+      scope: 'pickup',
+      driver_lat: driverLat ?? null,
+      driver_lng: driverLng ?? null,
+    });
+    const check = await checkPickupArrivalRadius(
+      supabase,
+      trip.service_area_id ?? null,
+      pickupLat,
+      pickupLng,
+      driverLat,
+      driverLng,
+      tripId,
+      settings,
+    );
+    if (!check.ok) {
+      outsideRadius = true;
+      distanceM =
+        check.current_distance_meters >= 0 ? check.current_distance_meters : null;
+      allowedRadius = check.required_radius_meters;
+      console.log('[stop-workflow] WAITING_RADIUS_CHECK_OUTSIDE', {
+        trip_id: tripId,
+        scope: 'pickup',
+        distance_meters: distanceM,
+        allowed_radius_meters: allowedRadius,
+        note: 'waiting_still_starts_on_arrived',
+      });
+    } else {
+      console.log('[stop-workflow] WAITING_RADIUS_CHECK_INSIDE', { trip_id: tripId, scope: 'pickup' });
+    }
+  } else {
+    console.log('[stop-workflow] WAITING_RADIUS_CHECK_STARTED', {
+      trip_id: tripId,
+      scope: 'pickup',
+      radius_enforced: false,
+    });
+  }
+
+  const anchor = trip.arrived_at || pickupStop?.arrived_at || now;
+  // Parallel: canonical waiting start + trusted GPS ladder (independent).
+  perf?.mark("waiting_canonical_rpc_start");
+  const trustedPromise: Promise<TrustedDriverLocation | null> =
+    trip.driver_id && pickupLat != null && pickupLng != null
+      ? resolveTrustedDriverLocation(supabase, trip.driver_id, Date.parse(now))
+      : Promise.resolve(null);
+
+  const [startResult, trusted] = await Promise.all([
+    ensurePickupWaitingStarted(
+      supabase,
+      tripId,
+      { ...trip, arrived_at: anchor },
+      pickupStop,
+      now,
+    ),
+    trustedPromise,
+  ]);
+  perf?.mark("waiting_canonical_rpc_end");
+
+  if (!startResult.ok) {
+    return {
+      started: false,
+      waiting_status: 'not_started',
+      allowed_radius_meters: allowedRadius,
+      distance_meters: distanceM,
+      start_error: startResult.error,
+    };
+  }
+
+  if (trip.driver_id && pickupLat != null && pickupLng != null) {
+    perf?.mark("waiting_geofence_start");
+    const clock = await syncWaitingGeofenceClock(supabase, {
+      tripId,
+      driverId: trip.driver_id,
+      locationType: 'pickup',
+      target: {
+        lat: pickupLat,
+        lng: pickupLng,
+        radiusMeters: resolveEffectiveWaitingRadiusMeters(radiusMeters, radiusEnabled),
+        radiusEnabled,
+      },
+      bodyLat: driverLat ?? null,
+      bodyLng: driverLng ?? null,
+      nowIso: now,
+      trusted,
+      trustedResolved: true,
+    });
+    perf?.mark("waiting_geofence_end");
+    distanceM = clock.distanceMeters ?? distanceM;
+    outsideRadius = !clock.inside && radiusEnabled;
+    console.log('[stop-workflow] PICKUP_WAITING_GEOFENCE_SYNCED', {
+      trip_id: tripId,
+      status: clock.status,
+      counted_seconds: clock.countedSeconds,
+      used_source: clock.usedSource,
+      trusted_overrides_body: clock.trustedOverridesBody,
+    });
+  }
+
+  return {
+    started: true,
+    waiting_status: 'free_waiting',
+    allowed_radius_meters: allowedRadius,
+    distance_meters: distanceM,
+    startedAt: startResult.startedAt,
+    tripRow: startResult.tripRow,
+  };
+}
+
+/** Start stop waiting session on Arrived; radius only gates money segments. */
+async function tryStartStopWaiting(
+  supabase: ReturnType<typeof createClient>,
+  trip: { id: string; service_area_id?: string | null; driver_id?: string | null },
+  stop: TripStopRow,
+  driverLat: number | undefined,
+  driverLng: number | undefined,
+  perf?: StopWorkflowLifecyclePerfClock | null,
+): Promise<StopWaitingStartResult> {
+  if (stop.waiting_charge_active && stop.waiting_started_at) {
+    // Keep session; refresh geofence clock for pause/resume.
+    let segmentCreated = false;
+    let segmentId: string | null = null;
+    let skipReason: string | null = "skipped_no_coords";
+    let geofenceOpenMs: number | null = null;
+    let distanceM: number | null = null;
+    let allowedRadius: number | null = null;
+    if (stop.lat != null && stop.lng != null && trip.driver_id) {
+      const settings = await fetchDispatchWaitingSettings(supabase, trip.service_area_id ?? null);
+      const radius = resolveWaitingRadius('stop', settings, trip.id);
+      allowedRadius = radius.meters;
+      const geofenceStarted = Date.now();
+      const clock = await syncWaitingGeofenceClock(supabase, {
+        tripId: trip.id,
+        driverId: trip.driver_id,
+        locationType: 'stop',
+        stopId: stop.id,
+        stopIndex: stop.stop_index ?? null,
+        target: {
+          lat: stop.lat,
+          lng: stop.lng,
+          radiusMeters: resolveEffectiveWaitingRadiusMeters(radius.meters, radius.enabled),
+          radiusEnabled: radius.enabled,
+        },
+        bodyLat: driverLat ?? null,
+        bodyLng: driverLng ?? null,
+      });
+      geofenceOpenMs = Math.max(0, Date.now() - geofenceStarted);
+      distanceM = clock.distanceMeters;
+      segmentCreated = clock.segmentOpened;
+      segmentId = clock.segmentId;
+      skipReason = clock.skipReason;
+      console.log('[stop-workflow] STOP_WAITING_GEOFENCE_SYNCED', {
+        trip_id: trip.id,
+        stop_id: stop.id,
+        status: clock.status,
+        counted_seconds: clock.countedSeconds,
+        used_source: clock.usedSource,
+        trusted_overrides_body: clock.trustedOverridesBody,
+        segment_opened: clock.segmentOpened,
+        segment_id: clock.segmentId,
+        skip_reason: clock.skipReason,
+        distance_meters: clock.distanceMeters,
+        note: clock.segmentOpened
+          ? 'in_radius_segment_open'
+          : 'money_fail_closed_no_chargeable_segment',
+        path: 'idempotent_refresh',
+      });
+    }
+    return {
+      started: false,
+      waiting_status: 'free_waiting',
+      graceSeconds: 0,
+      allowed_radius_meters: allowedRadius,
+      distance_meters: distanceM,
+      stop_waiting_segment_created: segmentCreated,
+      stop_waiting_segment_id: segmentId,
+      stop_waiting_segment_stop_id: stop.id,
+      stop_waiting_geofence_skip_reason: skipReason,
+      stop_waiting_geofence_open_ms: geofenceOpenMs,
+    };
+  }
+
+  perf?.mark("waiting_config_start");
+  const settings = await fetchDispatchWaitingSettings(supabase, trip.service_area_id ?? null);
+  perf?.mark("waiting_config_end");
+  const radius = resolveWaitingRadius('stop', settings, trip.id);
+  const radiusEnabled = radius.enabled;
+  const radiusMeters = radius.meters;
+  console.log('[stop-workflow] WAITING_RADIUS_ADMIN_CONFIG_LOADED', {
+    trip_id: trip.id,
+    scope: 'stop',
+    stop_id: stop.id,
+    service_area_id: trip.service_area_id ?? null,
+    stop_radius_enabled: radiusEnabled,
+    stop_radius_meters: radiusMeters,
+    source: radius.source,
+  });
+
+  console.log('[stop-workflow] WAITING_RADIUS_CHECK_STARTED', {
+    trip_id: trip.id,
+    scope: 'stop',
+    stop_id: stop.id,
+    driver_lat: driverLat ?? null,
+    driver_lng: driverLng ?? null,
+    note: 'workflow_flexible_radius_money_only',
+  });
+
+  // Parallel: stop waiting start + trusted GPS (independent).
+  perf?.mark("waiting_canonical_rpc_start");
+  const trustedPromise: Promise<TrustedDriverLocation | null> =
+    trip.driver_id && stop.lat != null && stop.lng != null
+      ? resolveTrustedDriverLocation(supabase, trip.driver_id, Date.now())
+      : Promise.resolve(null);
+
+  const [waitingStart, trusted] = await Promise.all([
+    startStopWaitingOnArrive(supabase, trip, stop, settings),
+    trustedPromise,
+  ]);
+  perf?.mark("waiting_canonical_rpc_end");
+
+  let distanceM: number | null = null;
+  let allowedRadius: number | null = radiusMeters;
+  let segmentCreated = false;
+  let segmentId: string | null = null;
+  let skipReason: string | null = "skipped_no_coords";
+  let geofenceOpenMs: number | null = null;
+  if (stop.lat != null && stop.lng != null && trip.driver_id) {
+    perf?.mark("waiting_geofence_start");
+    const geofenceStarted = Date.now();
+    const clock = await syncWaitingGeofenceClock(supabase, {
+      tripId: trip.id,
+      driverId: trip.driver_id,
+      locationType: 'stop',
+      stopId: stop.id,
+      stopIndex: stop.stop_index ?? null,
+      target: {
+        lat: stop.lat,
+        lng: stop.lng,
+        radiusMeters: resolveEffectiveWaitingRadiusMeters(radiusMeters, radiusEnabled),
+        radiusEnabled,
+      },
+      bodyLat: driverLat ?? null,
+      bodyLng: driverLng ?? null,
+      trusted,
+      trustedResolved: true,
+    });
+    geofenceOpenMs = Math.max(0, Date.now() - geofenceStarted);
+    perf?.mark("waiting_geofence_end");
+    distanceM = clock.distanceMeters;
+    allowedRadius = radiusMeters;
+    segmentCreated = clock.segmentOpened;
+    segmentId = clock.segmentId;
+    skipReason = clock.skipReason;
+    console.log('[stop-workflow] STOP_WAITING_GEOFENCE_SYNCED', {
+      trip_id: trip.id,
+      stop_id: stop.id,
+      status: clock.status,
+      counted_seconds: clock.countedSeconds,
+      used_source: clock.usedSource,
+      trusted_overrides_body: clock.trustedOverridesBody,
+      segment_opened: clock.segmentOpened,
+      segment_id: clock.segmentId,
+      skip_reason: clock.skipReason,
+      distance_meters: clock.distanceMeters,
+      note: clock.segmentOpened
+        ? 'in_radius_segment_open'
+        : 'money_fail_closed_no_chargeable_segment',
+    });
+  }
+
+  return {
+    started: waitingStart.started,
+    waiting_status: waitingStart.started ? 'free_waiting' : 'not_started',
+    graceSeconds: waitingStart.graceSeconds,
+    allowed_radius_meters: allowedRadius,
+    distance_meters: distanceM,
+    stop_waiting_segment_created: segmentCreated,
+    stop_waiting_segment_id: segmentId,
+    stop_waiting_segment_stop_id: stop.id,
+    stop_waiting_geofence_skip_reason: skipReason,
+    stop_waiting_geofence_open_ms: geofenceOpenMs,
+  };
+}
+
+/** Admin SSOT: dispatch_settings.pickup_radius_meters (+ pickup_radius_enabled). */
+async function checkPickupArrivalRadius(
+  supabase: ReturnType<typeof createClient>,
+  serviceAreaId: string | null,
+  pickupLat: number | null | undefined,
+  pickupLng: number | null | undefined,
+  driverLat: number | undefined,
+  driverLng: number | undefined,
+  tripId?: string,
+  preloadedSettings?: DispatchWaitingSettings | null,
+): Promise<StopRadiusCheckResult> {
+  const settings =
+    preloadedSettings ??
+    (await fetchDispatchWaitingSettings(supabase, serviceAreaId));
+  const radius = resolveWaitingRadius('pickup', settings, tripId);
+  const radiusEnabled = radius.enabled;
+  const radiusMeters = radius.meters;
+
+  if (!radiusEnabled || radiusMeters == null) {
+    return { ok: true };
+  }
+
+  if (pickupLat == null || pickupLng == null) {
+    return { ok: true };
+  }
+
+  if (typeof driverLat !== 'number' || typeof driverLng !== 'number') {
+    return {
+      ok: false,
+      current_distance_meters: -1,
+      required_radius_meters: radiusMeters,
+    };
+  }
+
+  const distance = haversineMeters(driverLat, driverLng, pickupLat, pickupLng);
+  if (distance > radiusMeters) {
+    return {
+      ok: false,
+      current_distance_meters: Math.round(distance),
+      required_radius_meters: radiusMeters,
+    };
+  }
+
+  return { ok: true };
+}
+
+async function writeTripAudit(
+  supabase: ReturnType<typeof createClient>,
+  row: {
+    trip_id: string;
+    driver_id: string;
+    event_type: string;
+    details?: Record<string, unknown>;
+  },
+): Promise<void> {
+  try {
+    await supabase.from('audit_logs').insert({
+      trip_id: row.trip_id,
+      driver_id: row.driver_id,
+      event_type: row.event_type,
+      details: row.details ?? {},
+      created_at: new Date().toISOString(),
+    });
+  } catch (e) {
+    console.warn('[stop-workflow] audit_logs insert failed:', row.event_type, e);
+  }
+}
+
+async function writeFareAudit(
+  supabase: ReturnType<typeof createClient>,
+  row: {
+    trip_id: string;
+    event_type: string;
+    adjustment_pence?: number;
+    metadata?: Record<string, unknown>;
+  },
+): Promise<void> {
+  try {
+    await supabase.from('fare_audit_logs').insert({
+      trip_id: row.trip_id,
+      event_type: row.event_type,
+      adjustment_pence: row.adjustment_pence ?? null,
+      metadata: row.metadata ?? {},
+      created_at: new Date().toISOString(),
+    });
+  } catch (e) {
+    console.warn('[stop-workflow] fare_audit_logs insert failed:', row.event_type, e);
+  }
+}
+
+/** Card trips must capture via finalize-trip-and-capture — never mark captured without provider capture. */
+async function invokeFinalizeTripCapture(
+  supabaseUrl: string,
+  serviceRoleKey: string,
+  tripId: string,
+  tipPence: number,
+): Promise<{ ok: boolean; error?: string; body?: Record<string, unknown> }> {
+  const result = await invokeFinalizeTripCaptureWithRetry({
+    supabaseUrl,
+    serviceRoleKey,
+    tripId,
+    tipPence,
+    source: "stop-workflow:complete_trip",
+  });
+  return {
+    ok: result.ok,
+    error: result.error,
+    body: result.body,
+  };
+}
+
+async function fetchDispatchWaitingSettings(
+  supabase: ReturnType<typeof createClient>,
+  serviceAreaId: string | null,
+): Promise<DispatchWaitingSettings> {
+  const dispatchCols =
+    'enable_stop_waiting_charge, stop_radius_enabled, stop_radius_meters, stop_waiting_charge_interval_seconds, stop_waiting_grace_period_seconds, stop_waiting_rate_pence_per_minute, stop_waiting_max_minutes, pickup_radius_enabled, pickup_radius_meters';
+  const stopWaitingCols =
+    'stop_radius_enabled, stop_radius_meters, stop_waiting_charge_interval_seconds, stop_waiting_grace_period_seconds, stop_waiting_rate_pence_per_minute, stop_waiting_max_minutes';
+
+  let settings: DispatchWaitingSettings | null = null;
+  let stopWaitingRow: Record<string, unknown> | null = null;
+
+  if (serviceAreaId) {
+    // Independent SA-scoped reads — parallelize.
+    const [dispatchRes, stopWaitingRes] = await Promise.all([
+      supabase
+        .from('dispatch_settings')
+        .select(dispatchCols)
+        .eq('service_area_id', serviceAreaId)
+        .maybeSingle(),
+      supabase
+        .from('stop_waiting_settings')
+        .select(stopWaitingCols)
+        .eq('service_area_id', serviceAreaId)
+        .maybeSingle(),
+    ]);
+    if (dispatchRes.data) settings = dispatchRes.data as DispatchWaitingSettings;
+    if (stopWaitingRes.data) stopWaitingRow = stopWaitingRes.data as Record<string, unknown>;
+  } else {
+    const { data } = await supabase
+      .from('dispatch_settings')
+      .select(dispatchCols)
+      .is('service_area_id', null)
+      .maybeSingle();
+    if (data) settings = data as DispatchWaitingSettings;
+  }
+
+  const merged: DispatchWaitingSettings = { ...(settings ?? {}) };
+
+  if (stopWaitingRow) {
+    if (typeof stopWaitingRow.stop_radius_meters === 'number') {
+      merged.stop_radius_meters = stopWaitingRow.stop_radius_meters;
+      merged._stop_radius_source = 'stop_waiting_settings';
+    }
+    if (typeof stopWaitingRow.stop_radius_enabled === 'boolean') {
+      merged.stop_radius_enabled = stopWaitingRow.stop_radius_enabled;
+    }
+    if (typeof stopWaitingRow.stop_waiting_charge_interval_seconds === 'number') {
+      merged.stop_waiting_charge_interval_seconds = stopWaitingRow.stop_waiting_charge_interval_seconds;
+    }
+    if (typeof stopWaitingRow.stop_waiting_grace_period_seconds === 'number') {
+      merged.stop_waiting_grace_period_seconds = stopWaitingRow.stop_waiting_grace_period_seconds;
+    }
+    if (typeof stopWaitingRow.stop_waiting_rate_pence_per_minute === 'number') {
+      merged.stop_waiting_rate_pence_per_minute = stopWaitingRow.stop_waiting_rate_pence_per_minute;
+    }
+    if (stopWaitingRow.stop_waiting_max_minutes != null) {
+      merged.stop_waiting_max_minutes = stopWaitingRow.stop_waiting_max_minutes as number | null;
+    }
+  }
+
+  if (!merged._stop_radius_source && typeof merged.stop_radius_meters === 'number') {
+    merged._stop_radius_source = 'dispatch_settings';
+  }
+
+  return merged;
+}
+
+/** Aggregate stop waiting into trips fare columns (customer/driver/admin SSOT). */
+async function updateTripTotalWaiting(
+  supabase: ReturnType<typeof createClient>,
+  tripId: string,
+): Promise<number> {
+  const { data: allStops } = await supabase
+    .from('trip_stops')
+    .select('waiting_total_amount_pence')
+    .eq('trip_id', tripId);
+
+  const total = (allStops ?? []).reduce(
+    (sum: number, s: { waiting_total_amount_pence?: number | null }) =>
+      sum + (s.waiting_total_amount_pence || 0),
+    0,
+  );
+
+  await supabase
+    .from('trips')
+    .update({
+      total_waiting_charge_pence: total,
+      stop_waiting_charge_pence: total,
+      stop_charge_total_pence: total,
+    })
+    .eq('id', tripId);
+  return total;
+}
+
+async function syncTripDestinationFields(
+  supabase: ReturnType<typeof createClient>,
+  tripId: string,
+  stop: TripStopRow | null | undefined,
+  extra: Record<string, unknown> = {},
+): Promise<void> {
+  if (!stop) return;
+  await updateTripSafe(supabase, tripId, {
+    current_stop_index: stop.stop_index ?? null,
+    current_destination_index: stop.stop_index ?? null,
+    current_destination_type: stop.type,
+    current_stop_id: stop.id,
+    ...extra,
+  });
+}
+
+async function isStopWaitingChargeEnabled(
+  supabase: ReturnType<typeof createClient>,
+  serviceAreaId: string | null,
+): Promise<boolean> {
+  const settings = await fetchDispatchWaitingSettings(supabase, serviceAreaId);
+  return settings.enable_stop_waiting_charge !== false;
+}
+
+/**
+ * Finalize stop waiting from counted in-radius seconds only (idempotent).
+ * Prefers one transactional RPC (Phase 4); falls back to Edge sequential path.
+ */
+async function finalizeStopWaitingCharge(
+  supabase: ReturnType<typeof createClient>,
+  trip: { id: string; service_area_id?: string | null; driver_id?: string | null },
+  stop: {
+    id: string;
+    stop_index?: number | null;
+    lat?: number | null;
+    lng?: number | null;
+    arrived_at?: string | null;
+    waiting_charge_active?: boolean | null;
+    waiting_started_at?: string | null;
+    waiting_stopped_at?: string | null;
+    waiting_total_amount_pence?: number | null;
+  },
+  opts?: { driverLat?: number; driverLng?: number },
+  perf?: StopWorkflowLifecyclePerfClock | null,
+): Promise<{ chargePence: number; alreadyFinalized: boolean; countedSeconds: number }> {
+  if (stop.waiting_stopped_at) {
+    return {
+      chargePence: stop.waiting_total_amount_pence || 0,
+      alreadyFinalized: true,
+      countedSeconds: 0,
+    };
+  }
+
+  if (!stop.waiting_charge_active || !stop.waiting_started_at) {
+    return { chargePence: 0, alreadyFinalized: false, countedSeconds: 0 };
+  }
+
+  if (trip.driver_id) {
+    perf?.mark("waiting_canonical_rpc_start");
+    const nowIso = new Date().toISOString();
+    const { data: rpcData, error: rpcErr } = await supabase.rpc(
+      "finalize_stop_waiting_charge",
+      {
+        p_trip_id: trip.id,
+        p_stop_id: stop.id,
+        p_driver_id: trip.driver_id,
+        p_now: nowIso,
+        p_body_lat: opts?.driverLat ?? null,
+        p_body_lng: opts?.driverLng ?? null,
+      },
+    );
+    perf?.mark("waiting_canonical_rpc_end");
+    if (!rpcErr && rpcData && typeof rpcData === "object") {
+      const row = rpcData as Record<string, unknown>;
+      if (row.ok === true) {
+        return {
+          chargePence: typeof row.charge_pence === "number" ? row.charge_pence : 0,
+          alreadyFinalized: row.already_finalized === true,
+          countedSeconds: typeof row.counted_seconds === "number" ? row.counted_seconds : 0,
+        };
+      }
+    }
+    if (rpcErr) {
+      console.warn("[stop-workflow] finalize_stop_waiting_charge RPC failed; Edge fallback", {
+        trip_id: trip.id,
+        stop_id: stop.id,
+        message: rpcErr.message,
+      });
+    }
+  }
+
+  const config = await loadAdminWaitingConfig(supabase, trip.service_area_id ?? null);
+  const gracePeriod = config.free_stop_waiting_seconds;
+  const ratePPM = config.stop_waiting_rate_pence_per_minute;
+  const maxMinutes = config.stop_waiting_max_minutes;
+  const nowIso = new Date().toISOString();
+
+  if (trip.driver_id && stop.lat != null && stop.lng != null) {
+    perf?.mark("waiting_geofence_start");
+    await syncWaitingGeofenceClock(supabase, {
+      tripId: trip.id,
+      driverId: trip.driver_id,
+      locationType: 'stop',
+      stopId: stop.id,
+      stopIndex: stop.stop_index ?? null,
+      target: {
+        lat: stop.lat,
+        lng: stop.lng,
+        radiusMeters: resolveEffectiveWaitingRadiusMeters(
+          config.stop_radius_meters,
+          config.stop_radius_enabled,
+        ),
+        radiusEnabled: config.stop_radius_enabled,
+      },
+      bodyLat: opts?.driverLat ?? null,
+      bodyLng: opts?.driverLng ?? null,
+      nowIso,
+    });
+    perf?.mark("waiting_geofence_end");
+  }
+
+  const countedSeconds = await closeOpenWaitingSegments(supabase, {
+    tripId: trip.id,
+    locationType: 'stop',
+    stopId: stop.id,
+    nowIso,
+  });
+
+  const charged = computeStopChargeFromCountedSeconds({
+    countedSeconds,
+    freeWaitSeconds: gracePeriod,
+    ratePencePerMinute: ratePPM,
+    maxMinutes,
+  });
+  const totalPence = charged.charge_pence;
+
+  console.log("STOP_WAITING_FINALIZE_COUNTED_SEGMENTS", {
+    trip_id: trip.id,
+    stop_id: stop.id,
+    counted_in_radius_seconds: countedSeconds,
+    free_stop_waiting_seconds: gracePeriod,
+    paid_seconds: charged.paid_seconds,
+    charge_pence: totalPence,
+    note: 'charge_from_counted_segments_not_wall_time',
+  });
+
+  await supabase
+    .from('trip_stops')
+    .update({
+      waiting_charge_active: false,
+      waiting_stopped_at: nowIso,
+      waiting_total_amount_pence: totalPence,
+      waiting_total_seconds: countedSeconds,
+      last_waiting_charge_update_at: nowIso,
+    })
+    .eq('id', stop.id);
+
+  await updateTripTotalWaiting(supabase, trip.id);
+
+  return { chargePence: totalPence, alreadyFinalized: false, countedSeconds };
+}
+
+/** Start stop waiting after driver taps Arrive at Stop (no GPS auto-start). */
+async function startStopWaitingOnArrive(
+  supabase: ReturnType<typeof createClient>,
+  trip: { id: string; service_area_id?: string | null },
+  stop: TripStopRow,
+  preloadedSettings?: DispatchWaitingSettings | null,
+): Promise<{ started: boolean; idempotent: boolean; graceSeconds: number }> {
+  if (stop.type !== 'stop') {
+    return { started: false, idempotent: true, graceSeconds: 0 };
+  }
+  if (stop.waiting_charge_active && stop.waiting_started_at) {
+    return { started: false, idempotent: true, graceSeconds: 0 };
+  }
+
+  const settings =
+    preloadedSettings ??
+    (await fetchDispatchWaitingSettings(supabase, trip.service_area_id ?? null));
+  if (settings.enable_stop_waiting_charge === false) {
+    return { started: false, idempotent: true, graceSeconds: 0 };
+  }
+
+  // Grace from merged dispatch + stop_waiting_settings (already loaded for radius).
+  // Do not re-fetch fare/dispatch/stop_waiting via loadAdminWaitingConfig here.
+  const graceSeconds =
+    typeof settings.stop_waiting_grace_period_seconds === 'number' &&
+      Number.isFinite(settings.stop_waiting_grace_period_seconds)
+      ? Math.max(0, Math.floor(settings.stop_waiting_grace_period_seconds))
+      : 0;
+  const now = new Date().toISOString();
+  const stopArrivedAt = stop.arrived_at ?? now;
+
+  await supabase
+    .from('trip_stops')
+    .update({
+      waiting_charge_active: true,
+      waiting_started_at: stopArrivedAt,
+      waiting_stopped_at: null,
+      waiting_total_amount_pence: 0,
+      waiting_total_seconds: 0,
+      last_waiting_charge_update_at: now,
+    })
+    .eq('id', stop.id);
+
+  const { error: mirrorErr } = await updateTripSafe(supabase, trip.id, {
+    stop_arrived_at: stopArrivedAt,
+    stop_waiting_started_at: stopArrivedAt,
+    stop_waiting_free_seconds: graceSeconds,
+    stop_waiting_paid_started_at: null,
+    stop_waiting_finalized_at: null,
+    stop_waiting_status: 'free_waiting',
+    stop_waiting_charge_amount: 0,
+    current_stop_index: stop.stop_index ?? null,
+  });
+  if (mirrorErr) {
+    console.error('[stop-workflow] STOP_WAITING_TRIP_MIRROR_UPDATE_FAILED', {
+      trip_id: trip.id,
+      stop_id: stop.id,
+      stop_index: stop.stop_index ?? null,
+      error: mirrorErr.message,
+    });
+  } else {
+    console.log('[stop-workflow] STOP_WAITING_TRIP_MIRROR_UPDATED', {
+      trip_id: trip.id,
+      stop_id: stop.id,
+      stop_index: stop.stop_index ?? null,
+      stop_waiting_started_at: stopArrivedAt,
+    });
+  }
+
+  return { started: true, idempotent: false, graceSeconds };
+}
+
+/** True when admin SSOT requires GPS radius before stop arrive/waiting. */
+async function isStopRadiusEnforced(
+  supabase: ReturnType<typeof createClient>,
+  serviceAreaId: string | null,
+): Promise<boolean> {
+  const settings = await fetchDispatchWaitingSettings(supabase, serviceAreaId);
+  return settings.stop_radius_enabled ?? true;
+}
+
+/**
+ * Revert orphan stop waiting when driver is outside admin radius.
+ * Clears arrived_at so driver must re-confirm inside radius.
+ */
+async function clearStaleStopWaitingOutsideRadius(
+  supabase: ReturnType<typeof createClient>,
+  tripId: string,
+  stop: TripStopRow,
+  reason: string,
+): Promise<void> {
+  const now = new Date().toISOString();
+  console.log('[stop-workflow] STOP_WAITING_CLEARED_OUTSIDE_RADIUS', {
+    trip_id: tripId,
+    stop_id: stop.id,
+    stop_index: stop.stop_index ?? null,
+    reason,
+  });
+
+  await supabase
+    .from('trip_stops')
+    .update({
+      arrived_at: null,
+      waiting_charge_active: false,
+      waiting_started_at: null,
+      waiting_stopped_at: null,
+      waiting_total_amount_pence: 0,
+      waiting_total_seconds: 0,
+      last_waiting_charge_update_at: null,
+      updated_at: now,
+    })
+    .eq('id', stop.id);
+
+  await updateTripSafe(supabase, tripId, {
+    stop_arrived_at: null,
+    stop_waiting_started_at: null,
+    stop_waiting_paid_started_at: null,
+    stop_waiting_finalized_at: null,
+    stop_waiting_status: 'none',
+    stop_waiting_charge_amount: 0,
+    updated_at: now,
+  });
+}
+
+Deno.serve(async (req) => {
+  const elapsed = startRequestTimer();
+  const requestId = createRequestId();
+  console.log("[stop-workflow] Request received:", req.method);
+
+  // Handle CORS preflight
+  if (req.method === "OPTIONS") {
+    return handleCORSPreflight();
+  }
+
+  // Rate limiting
+  const clientIP = getClientIP(req);
+  const rateLimitResult = checkRateLimit(clientIP, RATE_LIMIT_CONFIG);
+  if (!rateLimitResult.allowed) {
+    console.warn("[stop-workflow] Rate limit exceeded for IP:", clientIP);
+    return rateLimitResponse(rateLimitResult);
+  }
+
+  try {
+    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+    const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+    const anonKey = Deno.env.get("SUPABASE_ANON_KEY")!;
+    
+    // Service role client for DB operations (bypasses RLS)
+    const supabase = createClient(supabaseUrl, serviceRoleKey);
+    
+    // Auth header for user verification
+    const authHeader = req.headers.get('Authorization');
+
+    const body: WorkflowRequest = await req.json();
+    const { trip_id, driver_id: requestedDriverId, action, driver_lat, driver_lng, cancel_reason } = body;
+    const perfId = normalizeLifecyclePerfId(body.perf_id);
+    const lifecycleActions = new Set([
+      "arrive_pickup",
+      "start_trip",
+      "arrive_stop",
+      "drive_to_next",
+      "next_stop",
+      "complete_trip",
+    ]);
+    const lifecyclePerf: StopWorkflowLifecyclePerfClock | null =
+      lifecycleActions.has(action) ? createStopWorkflowLifecyclePerfClock(elapsed) : null;
+    lifecyclePerf?.mark("edge_receive");
+
+    /** Always attach fresh trip + stops so clients render backend truth only. */
+    let completeTripStagesMs: Record<string, number> | null = null;
+    let lifecycleStagesMs: Record<string, number> | null = null;
+    let lifecycleDurationsMs: Record<string, number | null> | null = null;
+    const respondOk = async (
+      payload: Record<string, unknown>,
+      opts?: { skipSnapshotRefresh?: boolean },
+    ) => {
+      lifecyclePerf?.mark("response_build_start");
+      const duration_ms = elapsed();
+      let tripSnapshot: Record<string, unknown> | null = null;
+      let stopsSnapshot: unknown[] = [];
+      const skipRefresh = Boolean(opts?.skipSnapshotRefresh && payload.trip);
+      if (!skipRefresh) {
+        try {
+          const [{ data: tripRow }, { data: stopsRows }] = await Promise.all([
+            supabase
+              .from("trips")
+              .select(
+                "id, status, dispatch_status, arrived_at, pickup_arrived_at, started_at, completed_at, current_stop_index, current_stop_id, pickup_waiting_started_at, pickup_paid_waiting_started_at, pickup_waiting_charge_pence, pickup_waiting_admin_config, free_wait_expires_at, pickup_waiting_finalized_at, pickup_waiting_intervals_charged, stop_waiting_charge_pence, stop_charge_total_pence, final_fare_pence, final_customer_fare_pence, locked_base_fare_pence, driver_id, financial_model, payment_status, payment_method, updated_at",
+              )
+              .eq("id", trip_id)
+              .maybeSingle(),
+            supabase
+              .from("trip_stops")
+              .select("*")
+              .eq("trip_id", trip_id)
+              .order("stop_index", { ascending: true }),
+          ]);
+          tripSnapshot = (tripRow as Record<string, unknown> | null) ?? null;
+          stopsSnapshot = Array.isArray(stopsRows) ? stopsRows : [];
+        } catch (snapErr) {
+          console.warn("[stop-workflow] failed to attach trip snapshot", snapErr);
+        }
+      } else {
+        tripSnapshot = (payload.trip as Record<string, unknown>) ?? null;
+        stopsSnapshot = Array.isArray(payload.stops) ? (payload.stops as unknown[]) : [];
+      }
+      lifecyclePerf?.mark("response_build_end");
+      lifecyclePerf?.mark("edge_response");
+      if (lifecyclePerf) {
+        lifecycleStagesMs = lifecyclePerf.snapshot();
+        lifecycleDurationsMs = lifecyclePerf.durations();
+      }
+      const stagesPayload = completeTripStagesMs ?? lifecycleStagesMs;
+      logRequestDuration("stop-workflow", duration_ms, {
+        request_id: requestId,
+        action,
+        trip_id,
+        ...(perfId ? { perf_id: perfId } : {}),
+        ...(stagesPayload ? { stages_ms: stagesPayload } : {}),
+        ...(lifecycleDurationsMs ? { lifecycle_durations_ms: lifecycleDurationsMs } : {}),
+      });
+      finishEdgeRequestLog("stop-workflow", duration_ms, {
+        request_id: requestId,
+        action,
+        trip_id,
+        ...(perfId ? { perf_id: perfId } : {}),
+        ...(stagesPayload ? { stages_ms: stagesPayload } : {}),
+        ...(lifecycleDurationsMs ? { lifecycle_durations_ms: lifecycleDurationsMs } : {}),
+      });
+      return successResponse(
+        withDuration(
+          {
+            ...payload,
+            trip: payload.trip ?? tripSnapshot,
+            stops: payload.stops ?? stopsSnapshot,
+            ...(perfId ? { perf_id: perfId } : {}),
+            ...(completeTripStagesMs
+              ? { complete_trip_stages_ms: completeTripStagesMs }
+              : {}),
+            ...(lifecycleStagesMs
+              ? { lifecycle_perf_stages_ms: lifecycleStagesMs }
+              : {}),
+            ...(lifecycleDurationsMs
+              ? { lifecycle_perf_durations_ms: lifecycleDurationsMs }
+              : {}),
+          },
+          duration_ms,
+          { source: "stop-workflow", requestId },
+        ),
+      );
+    };
+
+    console.log("[stop-workflow] Action:", action, "Trip:", trip_id, "Driver:", requestedDriverId);
+    if (action === "arrive_pickup") {
+      console.log("[stop-workflow] ARRIVED_TRANSITION_REQUEST", {
+        trip_id,
+        driver_id: requestedDriverId,
+      });
+    }
+
+    // Input validation
+    const validationErrors: Record<string, string> = {};
+
+    if (!trip_id) {
+      validationErrors.trip_id = "trip_id is required";
+    } else if (!isValidUUID(trip_id)) {
+      validationErrors.trip_id = "trip_id must be a valid UUID";
+    }
+
+    if (!action) {
+      validationErrors.action = "action is required";
+    } else if (!isValidAction(action, VALID_ACTIONS)) {
+      validationErrors.action = `action must be one of: ${VALID_ACTIONS.join(', ')}`;
+    }
+
+    if (Object.keys(validationErrors).length > 0) {
+      console.log("[stop-workflow] Validation failed:", validationErrors);
+      return validationErrorResponse(validationErrors);
+    }
+
+    // Caller identity is auth.getUser() via requireAuthenticatedUser.
+    // Body driver_id is never an authorization source. No proven internal
+    // service_role caller of stop-workflow exists, so a service-role bearer
+    // without a driver user JWT is denied.
+    lifecyclePerf?.mark("auth_start");
+    let verifiedUserId: string | null = null;
+    let driverIdForUser: string | null = null;
+    if (authHeader) {
+      const auth = await requireAuthenticatedUser(req, supabaseUrl, anonKey);
+      if (!auth.ok) return auth.response;
+      verifiedUserId = auth.userId;
+      const { data: driver } = await supabase
+        .from("drivers")
+        .select("id")
+        .eq("user_id", auth.userId)
+        .maybeSingle();
+      driverIdForUser = driver?.id ?? null;
+    }
+
+    const caller = decideStopWorkflowCaller({
+      hasAuthorizationHeader: Boolean(authHeader),
+      userId: verifiedUserId,
+      driverIdForUser,
+      bodyDriverId: requestedDriverId,
+    });
+    if (!caller.ok) {
+      return errorResponse(caller.code, caller.message, caller.status);
+    }
+    const driver_id = caller.driverId;
+    if (caller.ignoredBodyDriverId) {
+      console.warn("[stop-workflow] SECURITY: ignored body driver_id spoof", {
+        claimed: requestedDriverId,
+        resolved: driver_id,
+      });
+    }
+
+    console.log("[stop-workflow] Authorized driver:", driver_id);
+    lifecyclePerf?.mark("auth_end");
+
+    // Fetch trip — explicit columns only (retired scan_go / locked_driver_id must never be selected).
+    lifecyclePerf?.mark("reads_start");
+    const { data: trip, error: tripError } = await supabase
+      .from("trips")
+      .select(
+        "id, status, dispatch_status, dispatch_mode, service_area_id, vehicle_type_id, region_id, passenger_id, driver_id, confirmed_driver_id, previous_driver_id, pickup_address, dropoff_address, pickup_latitude, pickup_longitude, dropoff_latitude, dropoff_longitude, stops, total_stops, arrived_at, pickup_arrived_at, started_at, completed_at, cancelled_at, current_stop_index, current_stop_id, pickup_waiting_started_at, pickup_paid_waiting_started_at, pickup_waiting_charge_pence, pickup_waiting_admin_config, free_wait_expires_at, pickup_waiting_finalized_at, pickup_waiting_intervals_charged, stop_waiting_charge_pence, stop_charge_total_pence, stop_arrived_at, stop_waiting_started_at, final_fare_pence, final_customer_fare_pence, locked_base_fare_pence, financial_model, payment_status, payment_method, payment_provider, provider_order_id, payment_intent_id, payment_session_id, booking_source, corporate_account_id, tip_amount_pence, tip_pence, cash_authorized_at, scheduled_at, airport_charge_pence, driver_started_journey_to_pickup_at, special_instructions, stacked_trip_id, tip_window_expires_at, tip_window_closed_at, capture_amount_pence, updated_at",
+      )
+      .eq("id", trip_id)
+      .single();
+
+    if (tripError || !trip) {
+      console.log("[stop-workflow] trip_not_found:", tripError);
+      return errorResponse("trip_not_found", "Trip not found", 404);
+    }
+
+    // Ownership before any trip-status disclosure. Missing and unassigned
+    // trips share trip_not_found so an unrelated driver cannot probe existence.
+    // A pending/accepted offer remains a legitimate first-assignment claim.
+    const assignedDriverId =
+      trip.confirmed_driver_id ?? trip.driver_id ?? null;
+    let claimOfferId: string | null = null;
+    if (assignedDriverId !== driver_id) {
+      const { data: offer } = await supabase
+        .from("ride_offers")
+        .select("id, status")
+        .eq("trip_id", trip_id)
+        .eq("driver_id", driver_id)
+        .in("status", ["pending", "accepted"])
+        .limit(1)
+        .maybeSingle();
+      const visibility = tripVisibleToDriver({
+        tripExists: true,
+        assignedDriverId,
+        callerDriverId: driver_id,
+        hasPendingOrAcceptedOffer: Boolean(offer),
+      });
+      if (!visibility.visible) {
+        console.log("[stop-workflow] trip_not_found: caller not assigned");
+        return errorResponse("trip_not_found", "Trip not found", 404);
+      }
+      claimOfferId = offer?.id ?? null;
+    }
+
+    if (isTripTerminalStatus(trip.status) && action !== "driver_cancel" && action !== "cancel_queued_stacked") {
+      const s = normTripStatus(trip.status);
+      const isCancelled = s.includes("cancelled") || s.includes("canceled") || s === "no_show";
+      const errorCode = isCancelled ? "TRIP_CANCELLED" : "trip_terminal";
+      console.log("[stop-workflow] trip_terminal:", trip_id, trip.status, action, "→", errorCode);
+      return errorResponse(
+        errorCode,
+        isCancelled
+          ? `Trip was cancelled (${trip.status}); action ${action} is not allowed`
+          : `Trip is terminal (${trip.status}); action ${action} is not allowed`,
+        409,
+        { trip_status: trip.status },
+      );
+    }
+
+    if (claimOfferId) {
+      if (isTripTerminalStatus(trip.status)) {
+        return errorResponse(
+          "trip_terminal",
+          `Trip is terminal (${trip.status}); offer is no longer valid`,
+          409,
+          { trip_status: trip.status },
+        );
+      }
+
+      // Driver has a valid offer on a live trip — assign them atomically
+      console.log("[stop-workflow] Driver has active offer, assigning to trip");
+      await supabase
+        .from("trips")
+        .update({
+          driver_id: driver_id,
+          confirmed_driver_id: driver_id,
+          status: 'accepted',
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", trip_id);
+
+      trip.driver_id = driver_id;
+      trip.confirmed_driver_id = driver_id;
+      trip.status = 'accepted';
+
+      // First assignment via stop-workflow claim — same Customer driver_assigned path as accept-offer.
+      try {
+        const finalize = await finalizeRideAssignmentSideEffects(supabase, {
+          tripId: trip_id,
+          offerId: claimOfferId,
+          driverId: driver_id,
+          source: "edge_stop_workflow_offer_claim",
+          acceptedVia: "stop_workflow_offer_claim",
+        });
+        if (!finalize.ok) {
+          console.warn("[stop-workflow] offer-claim finalize incomplete:", finalize);
+        }
+      } catch (finalizeErr) {
+        console.warn("[stop-workflow] offer-claim finalize failed:", finalizeErr);
+      }
+    }
+
+    // Driver cancel SSOT — no stop progression required
+    if (action === "cancel_queued_stacked") {
+      const result = await executeDriverQueuedStackedCancel(supabase, trip_id, driver_id);
+      if (!result.ok) {
+        return errorResponse(result.code, result.message, result.status);
+      }
+      return await respondOk({ success: true, action: result.action, ...result.detail });
+    }
+
+    if (action === "driver_cancel") {
+      const result = await executeDriverTerminalCancel(supabase, {
+        tripId: trip_id,
+        driverId: driver_id,
+        cancelReason: cancel_reason ?? "",
+        rawStatus: String(trip.status ?? ""),
+        trip: trip as Record<string, unknown>,
+      });
+      if (!result.ok) {
+        return errorResponse(result.code, result.message, result.status);
+      }
+      return await respondOk({ success: true, action: result.action, ...result.detail });
+    }
+
+    // Fetch all stops ordered by index
+    let { data: stops, error: stopsError } = await supabase
+      .from("trip_stops")
+      .select("*")
+      .eq("trip_id", trip_id)
+      .order("stop_index", { ascending: true });
+
+    if (stopsError) {
+      console.error("[stop-workflow] Error fetching stops:", stopsError);
+      return errorResponse("FETCH_ERROR", "Failed to fetch stops", 500);
+    }
+
+    // Reconstruct missing / flattened trip_stops from authoritative trip vias.
+    // Never treat empty workflow rows as proof the trip is single pickup→dropoff.
+    // DB SSOT: ensure_trip_stops_for_assignment (includes trips.stops intermediates).
+    if (
+      needsTripStopsReconstruction({
+        existingRows: stops,
+        stopsJson: trip.stops,
+      })
+    ) {
+      console.log("[stop-workflow] Reconstructing trip_stops from authoritative trip data", {
+        trip_id,
+        existing_count: stops?.length ?? 0,
+        via_declarations: Array.isArray(trip.stops) ? trip.stops.length : 0,
+      });
+
+      const { error: ensureErr } = await supabase.rpc("ensure_trip_stops_for_assignment", {
+        p_trip_id: trip_id,
+      });
+      if (ensureErr) {
+        console.error("[stop-workflow] ensure_trip_stops_for_assignment failed:", ensureErr);
+      }
+
+      {
+        const { data: ensuredStops, error: ensuredErr } = await supabase
+          .from("trip_stops")
+          .select("*")
+          .eq("trip_id", trip_id)
+          .order("stop_index", { ascending: true });
+        if (ensuredErr) {
+          console.error("[stop-workflow] Error re-fetching stops after ensure:", ensuredErr);
+          return errorResponse("FETCH_ERROR", "Failed to fetch stops", 500);
+        }
+        stops = ensuredStops || [];
+      }
+
+      // Empty-only Edge fallback when RPC could not seed rows — still includes vias.
+      if (!stops || stops.length === 0) {
+        const stopsToCreate = buildAuthoritativeTripStopRows({
+          id: trip_id,
+          pickup_address: trip.pickup_address,
+          pickup_latitude: trip.pickup_latitude,
+          pickup_longitude: trip.pickup_longitude,
+          dropoff_address: trip.dropoff_address,
+          dropoff_latitude: trip.dropoff_latitude,
+          dropoff_longitude: trip.dropoff_longitude,
+          stops: trip.stops,
+        });
+
+        const { error: createError } = await supabase
+          .from("trip_stops")
+          .insert(stopsToCreate);
+
+        if (createError) {
+          console.error("[stop-workflow] Failed to reconstruct stops:", createError);
+          return errorResponse("CREATE_STOPS_ERROR", "Failed to create missing stops", 500);
+        }
+
+        const { data: newStops, error: newStopsErr } = await supabase
+          .from("trip_stops")
+          .select("*")
+          .eq("trip_id", trip_id)
+          .order("stop_index", { ascending: true });
+        if (newStopsErr) {
+          console.error("[stop-workflow] Error fetching reconstructed stops:", newStopsErr);
+          return errorResponse("FETCH_ERROR", "Failed to fetch stops", 500);
+        }
+        stops = newStops || [];
+        console.log("[stop-workflow] Reconstructed", stops.length, "stops from authoritative trip data");
+      }
+
+      // Fail closed if vias remain on the trip but workflow is still flattened.
+      if (
+        needsTripStopsReconstruction({
+          existingRows: stops,
+          stopsJson: trip.stops,
+        })
+      ) {
+        console.error("[stop-workflow] STOP_STOPS_STILL_FLATTENED", {
+          trip_id,
+          stops_count: stops?.length ?? 0,
+          via_declarations: Array.isArray(trip.stops) ? trip.stops.length : 0,
+        });
+        return errorResponse(
+          "CREATE_STOPS_ERROR",
+          "Failed to reconstruct intermediate stops from authoritative trip data",
+          500,
+        );
+      }
+    }
+
+    const now = new Date().toISOString();
+    const currentIndex = trip.current_stop_index || 0;
+    const currentStop = stops?.find(s => s.stop_index === currentIndex);
+
+    console.log("[stop-workflow] Current index:", currentIndex, "Stops count:", stops?.length, "Current stop status:", currentStop?.status);
+    lifecyclePerf?.mark("reads_end");
+
+    // Backend safety: queued stacked rides cannot be progressed until promoted
+    if (trip.status === 'queued') {
+      logStackedPromotionSkipped({
+        trip_id,
+        driver_id,
+        action,
+        queued_trip_id: trip_id,
+        reason: "queued_trip_cannot_progress_before_promotion",
+      });
+      return errorResponse(
+        "invalid_status",
+        "Queued stacked ride cannot start before current trip is fully completed",
+        409
+      );
+    }
+
+    if (
+      isTripTerminalStatus(trip.status) &&
+      action !== 'complete_trip' &&
+      action !== 'driver_cancel' &&
+      action !== 'cancel_queued_stacked'
+    ) {
+      console.log("[stop-workflow] trip_terminal:", trip_id, trip.status, action);
+      return errorResponse(
+        "trip_terminal",
+        `Trip is terminal (${trip.status}); action ${action} is not allowed`,
+        409,
+        { trip_status: trip.status },
+      );
+    }
+
+    const lifecycleAction = mapStopWorkflowActionToLifecycleAction(action);
+    if (lifecycleAction) {
+      const lifecycleStops: TripStopRecord[] = (stops ?? []).map((s) => ({
+        stop_index: s.stop_index,
+        type: s.type as TripStopRecord["type"],
+        status: s.status as TripStopRecord["status"],
+        arrived_at: s.arrived_at ?? null,
+      }));
+      const lifecycleCheck = validateTripActionTransition(
+        lifecycleAction,
+        {
+          status: trip.status,
+          started_at: trip.started_at ?? null,
+          arrived_at: trip.arrived_at ?? null,
+          completed_at: trip.completed_at ?? null,
+          current_stop_index: trip.current_stop_index ?? null,
+        },
+        lifecycleStops,
+      );
+      if (!lifecycleCheck.allowed && !lifecycleCheck.idempotent) {
+        console.log("[stop-workflow] LIFECYCLE_TRANSITION_BLOCKED", {
+          trip_id,
+          driver_id,
+          action,
+          current_state: lifecycleCheck.current_state,
+          reason: lifecycleCheck.reason,
+        });
+        return errorResponse(
+          "INVALID_LIFECYCLE_TRANSITION",
+          lifecycleCheck.reason ?? "Action not allowed for current trip state",
+          409,
+          { current_state: lifecycleCheck.current_state },
+        );
+      }
+    }
+
+    // Handle actions
+    switch (action) {
+      case 'start_journey_to_pickup': {
+        const nowIso = new Date().toISOString();
+        const scheduledAt = trip.scheduled_at as string | null;
+        const airportChargePence = Number(trip.airport_charge_pence ?? 0);
+        const existingStartedAt = trip.driver_started_journey_to_pickup_at as string | null;
+
+        if (!scheduledAt) {
+          return errorResponse(
+            "invalid_trip_type",
+            "Start journey to pickup is only available for prebooked trips",
+            409,
+          );
+        }
+
+        if (airportChargePence <= 0) {
+          return errorResponse(
+            "invalid_trip_type",
+            "Start journey to pickup is only available for airport trips",
+            409,
+          );
+        }
+
+        if (trip.arrived_at || ARRIVED_AT_PICKUP_STATUSES.has(String(trip.status || '').toLowerCase())) {
+          return errorResponse(
+            "invalid_status",
+            "Cannot start journey after arriving at pickup",
+            409,
+          );
+        }
+
+        if (existingStartedAt) {
+          console.log("[stop-workflow] DRIVER_STARTED_JOURNEY_TO_PICKUP", {
+            trip_id,
+            driver_id,
+            idempotent: true,
+            driver_started_journey_to_pickup_at: existingStartedAt,
+          });
+          return await respondOk({
+            success: true,
+            idempotent: true,
+            action: 'start_journey_to_pickup',
+            driver_started_journey_to_pickup_at: existingStartedAt,
+          });
+        }
+
+        const { error: journeyUpdateError } = await updateTripSafe(supabase, trip_id, {
+          driver_started_journey_to_pickup_at: nowIso,
+          updated_at: nowIso,
+        });
+
+        if (journeyUpdateError) {
+          console.error("[stop-workflow] start_journey_to_pickup failed:", journeyUpdateError);
+          return errorResponse("rpc_error", "Failed to record journey start", 500, journeyUpdateError);
+        }
+
+        console.log("[stop-workflow] DRIVER_STARTED_JOURNEY_TO_PICKUP", {
+          trip_id,
+          driver_id,
+          driver_started_journey_to_pickup_at: nowIso,
+        });
+        console.log("[stop-workflow] AIRPORT_PROTECTION_ACTIVATED", {
+          trip_id,
+          driver_id,
+          airport_charge_pence: airportChargePence,
+          scheduled_at: scheduledAt,
+        });
+
+        return await respondOk({
+          success: true,
+          action: 'start_journey_to_pickup',
+          driver_started_journey_to_pickup_at: nowIso,
+        });
+      }
+
+      case 'arrive_pickup': {
+        lifecyclePerf?.mark("validation_start");
+        const pickupStop = stops?.find(s => s.stop_index === 0);
+
+        if (!pickupStop) {
+          return errorResponse("NO_PICKUP", "Pickup stop not found", 400);
+        }
+
+        const tripAlreadyArrived = ARRIVED_AT_PICKUP_STATUSES.has(
+          String(trip.status || '').toLowerCase()
+        );
+        // Multi-stop bookings may pre-set pickup status=current without arrived_at.
+        // Arrival is recorded only when arrived_at is set (not status alone).
+        const stopAlreadyArrived = !!pickupStop.arrived_at;
+
+        const pickupLat = pickupStop.lat ?? trip.pickup_latitude ?? null;
+        const pickupLng = pickupStop.lng ?? trip.pickup_longitude ?? null;
+        const pickupDriverLat = typeof driver_lat === 'number' ? driver_lat : undefined;
+        const pickupDriverLng = typeof driver_lng === 'number' ? driver_lng : undefined;
+
+        // Idempotent: stop and trip both reflect arrival — ensure waiting started once
+        if (stopAlreadyArrived && tripAlreadyArrived) {
+          const waitingResult = await tryStartPickupWaiting(supabase, {
+            tripId: trip_id,
+            trip,
+            pickupStop,
+            pickupLat,
+            pickupLng,
+            driverLat: pickupDriverLat,
+            driverLng: pickupDriverLng,
+            now,
+          });
+          if (waitingResult.start_error) {
+            return errorResponse(
+              "PICKUP_WAITING_START_FAILED",
+              waitingResult.start_error,
+              500,
+            );
+          }
+          const { data: syncedTrip } = await supabase
+            .from("trips")
+            .select(ARRIVE_WAITING_TRIP_SELECT)
+            .eq("id", trip_id)
+            .single();
+          const billingTrip = mergeTripWaitingCtx(trip, syncedTrip as TripWaitingBillingCtx | null);
+          if (!billingTrip.pickup_waiting_started_at) {
+            return errorResponse(
+              "PICKUP_WAITING_START_FAILED",
+              "pickup_waiting_started_at missing after Arrived",
+              500,
+            );
+          }
+          console.log("[stop-workflow] ARRIVED_RPC_RESPONSE", {
+            trip_id,
+            idempotent: true,
+            trip_status: trip.status,
+            waiting_started: waitingResult.started,
+            waiting_status: waitingResult.waiting_status,
+            pickup_waiting_started_at: billingTrip.pickup_waiting_started_at ?? null,
+          });
+          return await respondOk(await enrichArrivalWaitingSnapshot(supabase, {
+            success: true,
+            idempotent: true,
+            action: 'arrive_pickup',
+            arrival_status: 'arrived',
+            waiting_started: waitingResult.started,
+            waiting_status: waitingResult.waiting_status,
+            allowed_radius_meters: waitingResult.allowed_radius_meters ?? null,
+            distance_meters: waitingResult.distance_meters ?? null,
+            trip: syncedTrip ?? {
+              id: trip_id,
+              status: trip.status,
+              arrived_at: trip.arrived_at,
+              pickup_waiting_started_at: billingTrip.pickup_waiting_started_at,
+              financial_model: trip.financial_model,
+            },
+          }, waitingResult, { scope: 'pickup', trip: billingTrip, trip_id }), {
+            skipSnapshotRefresh: true,
+          });
+        }
+
+        // Stop arrived but trip still pre-pickup — sync trip arrival (partial prior write)
+        if (stopAlreadyArrived && !tripAlreadyArrived) {
+          const arrivedAnchor = trip.arrived_at || pickupStop.arrived_at || now;
+          const { error: syncTripError } = await updateTripSafe(supabase, trip_id, {
+            status: CANONICAL_ARRIVED_STATUS,
+            arrived_at: arrivedAnchor,
+            pickup_arrived_at: arrivedAnchor,
+            updated_at: now,
+          });
+
+          if (syncTripError) {
+            console.error("[stop-workflow] ARRIVED_RPC_ERROR sync trip:", syncTripError);
+            return errorResponse("rpc_error", "Failed to sync trip arrival status", 500, syncTripError);
+          }
+
+          console.log("[stop-workflow] ARRIVAL_MARKED_PICKUP_SUCCESS", {
+            trip_id,
+            driver_id,
+            idempotent: true,
+            synced_trip_status: true,
+          });
+
+          const waitingResult = await tryStartPickupWaiting(supabase, {
+            tripId: trip_id,
+            trip: { ...trip, arrived_at: arrivedAnchor, status: CANONICAL_ARRIVED_STATUS },
+            pickupStop,
+            pickupLat,
+            pickupLng,
+            driverLat: pickupDriverLat,
+            driverLng: pickupDriverLng,
+            now,
+          });
+          if (waitingResult.start_error) {
+            return errorResponse(
+              "PICKUP_WAITING_START_FAILED",
+              waitingResult.start_error,
+              500,
+            );
+          }
+
+          const { data: syncedTrip } = await supabase
+            .from("trips")
+            .select(ARRIVE_WAITING_TRIP_SELECT)
+            .eq("id", trip_id)
+            .single();
+          const billingTrip = mergeTripWaitingCtx(
+            { ...trip, arrived_at: arrivedAnchor, pickup_arrived_at: arrivedAnchor },
+            syncedTrip as TripWaitingBillingCtx | null,
+          );
+          if (!billingTrip.pickup_waiting_started_at) {
+            return errorResponse(
+              "PICKUP_WAITING_START_FAILED",
+              "pickup_waiting_started_at missing after Arrived",
+              500,
+            );
+          }
+
+          console.log("[stop-workflow] ARRIVED_RPC_RESPONSE", {
+            trip_id,
+            idempotent: true,
+            synced_trip_status: true,
+            waiting_started: waitingResult.started,
+            waiting_status: waitingResult.waiting_status,
+            pickup_waiting_started_at: billingTrip.pickup_waiting_started_at ?? null,
+          });
+          return await respondOk(await enrichArrivalWaitingSnapshot(supabase, {
+            success: true,
+            idempotent: true,
+            action: 'arrive_pickup',
+            arrival_status: 'arrived',
+            waiting_started: waitingResult.started,
+            waiting_status: waitingResult.waiting_status,
+            allowed_radius_meters: waitingResult.allowed_radius_meters ?? null,
+            distance_meters: waitingResult.distance_meters ?? null,
+            trip: syncedTrip,
+          }, waitingResult, { scope: 'pickup', trip: billingTrip, trip_id }), {
+            skipSnapshotRefresh: true,
+          });
+        }
+
+        if (trip.started_at || trip.status === 'in_progress') {
+          return errorResponse(
+            "INVALID_STATUS",
+            "Trip already started; cannot mark arrived at pickup",
+            409
+          );
+        }
+
+        if (
+          !CAN_ARRIVE_FROM_STATUSES.has(String(trip.status || '').toLowerCase()) &&
+          !tripAlreadyArrived
+        ) {
+          console.log("[stop-workflow] ARRIVED_RPC_ERROR invalid status:", trip.status);
+          return errorResponse(
+            "INVALID_STATUS",
+            `Cannot arrive at pickup from status: ${trip.status}`,
+            409
+          );
+        }
+
+        const { error: stopUpdateError } = await supabase
+          .from("trip_stops")
+          .update({
+            status: 'current' as StopStatus,
+            arrived_at: now,
+            updated_at: now,
+          })
+          .eq("id", pickupStop.id);
+
+        if (stopUpdateError) {
+          console.error("[stop-workflow] ARRIVED_RPC_ERROR stop:", stopUpdateError);
+          return errorResponse("UPDATE_FAILED", "Failed to update pickup stop", 500);
+        }
+
+        lifecyclePerf?.mark("validation_end");
+        lifecyclePerf?.mark("canonical_mutation_start");
+        const { error: tripUpdateError } = await updateTripSafe(supabase, trip_id, {
+          status: CANONICAL_ARRIVED_STATUS,
+          arrived_at: now,
+          pickup_arrived_at: now,
+          updated_at: now,
+        });
+
+        if (tripUpdateError) {
+          console.error("[stop-workflow] ARRIVED_RPC_ERROR trip:", tripUpdateError);
+          return errorResponse("rpc_error", "Failed to update trip status", 500, tripUpdateError);
+        }
+
+        console.log("[stop-workflow] ARRIVAL_MARKED_PICKUP_SUCCESS", {
+          trip_id,
+          driver_id,
+        });
+        lifecyclePerf?.mark("canonical_mutation_end");
+
+        lifecyclePerf?.mark("waiting_ssot_start");
+        const waitingResult = await tryStartPickupWaiting(supabase, {
+          tripId: trip_id,
+          trip: { ...trip, arrived_at: now, status: CANONICAL_ARRIVED_STATUS },
+          pickupStop: { ...pickupStop, arrived_at: now },
+          pickupLat,
+          pickupLng,
+          driverLat: pickupDriverLat,
+          driverLng: pickupDriverLng,
+          now,
+          perf: lifecyclePerf,
+        });
+        if (waitingResult.start_error) {
+          return errorResponse(
+            "PICKUP_WAITING_START_FAILED",
+            waitingResult.start_error,
+            500,
+          );
+        }
+
+        // Prefer RPC/update RETURNING row — skip confirming trips SELECT when present.
+        const billingTrip = mergeTripWaitingCtx(
+          {
+            ...trip,
+            arrived_at: now,
+            pickup_arrived_at: now,
+            pickup_waiting_started_at:
+              waitingResult.startedAt ?? trip.pickup_waiting_started_at ?? null,
+          },
+          waitingResult.tripRow ?? null,
+        );
+        if (!billingTrip.pickup_waiting_started_at) {
+          return errorResponse(
+            "PICKUP_WAITING_START_FAILED",
+            "pickup_waiting_started_at missing after Arrived",
+            500,
+          );
+        }
+
+        const updatedTrip = {
+          ...billingTrip,
+          status: CANONICAL_ARRIVED_STATUS,
+          id: trip_id,
+        };
+
+        // CANONICAL_ARRIVE_CONFIRMED: arrival + pickup_waiting_started_at durable.
+        lifecyclePerf?.mark("waiting_ssot_end");
+        lifecyclePerf?.mark("CANONICAL_CONFIRMED");
+        console.log("[stop-workflow] ARRIVED_RPC_RESPONSE", {
+          trip_id,
+          driver_id,
+          trip_status: updatedTrip?.status,
+          waiting_started: waitingResult.started,
+          waiting_status: waitingResult.waiting_status,
+          pickup_waiting_started_at: billingTrip.pickup_waiting_started_at ?? null,
+        });
+
+        // P2 — audit + customer driver_arrived must not delay Driver UI.
+        const passengerIdForNotify =
+          typeof trip.passenger_id === "string" ? trip.passenger_id : null;
+        const isMultiStopTrip = (stops?.length ?? 0) > 2;
+        scheduleEdgeBackground(async () => {
+          await writeTripAudit(supabase, {
+            trip_id,
+            driver_id,
+            event_type: 'ARRIVE_AT_PICKUP_TAPPED',
+            details: { arrived_at: now },
+          });
+          await notifyCustomerTripLifecycle(supabase, {
+            passengerId: passengerIdForNotify,
+            tripId: trip_id,
+            event: "driver_arrived",
+          });
+          if (waitingResult.started) {
+            await writeTripAudit(supabase, {
+              trip_id,
+              driver_id,
+              event_type: 'PICKUP_WAITING_STARTED',
+              details: { arrived_at: now, multi_stop: isMultiStopTrip },
+            });
+            if (isMultiStopTrip) {
+              console.log('[stop-workflow] PICKUP_WAITING_STARTED_MULTI_STOP', {
+                trip_id,
+                driver_id,
+                stops_count: stops?.length ?? 0,
+                pickup_waiting_started_at: billingTrip.pickup_waiting_started_at ?? null,
+              });
+            }
+          }
+        }, "arrive_pickup_p2");
+
+        // P0 money: freeze waiting admin config + build waiting_snapshot (keep on-path).
+        lifecyclePerf?.mark("enrich_start");
+        const enriched = await enrichArrivalWaitingSnapshot(supabase, {
+          success: true,
+          action: 'arrive_pickup',
+          arrival_status: 'arrived',
+          waiting_started: waitingResult.started,
+          waiting_status: waitingResult.waiting_status,
+          allowed_radius_meters: waitingResult.allowed_radius_meters ?? null,
+          distance_meters: waitingResult.distance_meters ?? null,
+          trip: updatedTrip,
+        }, waitingResult, { scope: 'pickup', trip: billingTrip, trip_id });
+        lifecyclePerf?.mark("enrich_end");
+        return await respondOk(enriched, { skipSnapshotRefresh: true });
+      }
+
+      case 'start_trip': {
+        lifecyclePerf?.mark("validation_start");
+        console.log("[stop-workflow] START_TRIP_PAYLOAD", {
+          trip_id,
+          driver_id,
+          trip_status: trip.status,
+          started_at: trip.started_at,
+          current_stop_index: trip.current_stop_index,
+        });
+
+        const pickupStop = stops?.find(s => s.stop_index === 0);
+        
+        if (!pickupStop) {
+          return errorResponse("invalid_status", "Pickup stop not found", 400);
+        }
+
+        if (isTripTerminalStatus(trip.status)) {
+          return errorResponse(
+            "trip_terminal",
+            `Cannot start trip in status: ${trip.status}`,
+            409,
+            { trip_status: trip.status },
+          );
+        }
+
+        // Auto-arrive at pickup if not yet arrived (handles race conditions)
+        if (pickupStop.status !== 'current' && !pickupStop.arrived_at) {
+          console.log("[stop-workflow] Auto-arriving at pickup before start_trip");
+          await supabase
+            .from("trip_stops")
+            .update({ status: 'current' as StopStatus, arrived_at: now, updated_at: now })
+            .eq("id", pickupStop.id);
+          await updateTripSafe(supabase, trip_id, {
+            status: CANONICAL_ARRIVED_STATUS,
+            arrived_at: now,
+            pickup_arrived_at: now,
+            updated_at: now,
+          });
+          pickupStop.status = 'current';
+          pickupStop.arrived_at = now;
+          // P0 #2: auto-arrive must still create the pickup waiting instance.
+          const autoWait = await ensurePickupWaitingStarted(
+            supabase,
+            trip_id,
+            {
+              arrived_at: now,
+              pickup_waiting_started_at: trip.pickup_waiting_started_at ?? null,
+            },
+            pickupStop,
+            now,
+          );
+          if (autoWait.ok) {
+            trip.pickup_waiting_started_at = autoWait.startedAt;
+            trip.arrived_at = now;
+            trip.pickup_arrived_at = now;
+          } else {
+            console.error("[stop-workflow] AUTO_ARRIVE_WAITING_START_FAILED", {
+              trip_id,
+              error: autoWait.error,
+            });
+          }
+        }
+
+        // Idempotency: already started — waiting already frozen on first start
+        if (trip.started_at) {
+          console.log("[stop-workflow] Trip already started (idempotent)");
+          return await respondOk({
+            success: true,
+            idempotent: true,
+            message: "Trip already started",
+            pickup_waiting_charge_pence: trip.pickup_waiting_charge_pence ?? 0,
+            pickup_waiting_finalized_at: trip.pickup_waiting_finalized_at ?? null,
+          });
+        }
+
+        lifecyclePerf?.mark("validation_end");
+        lifecyclePerf?.mark("waiting_ssot_start");
+
+        // Phase 5: one transactional RPC = pickup waiting finalize + Start transition.
+        let startRpcUsed = false;
+        let waitingFinal: {
+          pickup_waiting_charge_pence: number;
+          intervals_charged: number;
+          already_finalized: boolean;
+          counted_seconds: number;
+        } | null = null;
+        let rpcNextStopIndex: number | null = null;
+        let rpcNextStopId: string | null = null;
+
+        if (typeof trip.driver_id === "string" && trip.driver_id) {
+          lifecyclePerf?.mark("waiting_canonical_rpc_start");
+          const { data: startRpc, error: startRpcErr } = await supabase.rpc(
+            "finalize_pickup_waiting_and_start_trip",
+            {
+              p_trip_id: trip_id,
+              p_driver_id: trip.driver_id,
+              p_now: now,
+              p_body_lat: typeof driver_lat === "number" ? driver_lat : null,
+              p_body_lng: typeof driver_lng === "number" ? driver_lng : null,
+            },
+          );
+          lifecyclePerf?.mark("waiting_canonical_rpc_end");
+          lifecyclePerf?.mark("waiting_ssot_end");
+
+          if (!startRpcErr && startRpc && typeof startRpc === "object") {
+            const row = startRpc as Record<string, unknown>;
+            if (row.ok === true) {
+              startRpcUsed = true;
+              waitingFinal = {
+                pickup_waiting_charge_pence:
+                  typeof row.charge_pence === "number" ? row.charge_pence : 0,
+                intervals_charged:
+                  typeof row.intervals_charged === "number" ? row.intervals_charged : 0,
+                already_finalized:
+                  row.already_finalized === true ||
+                  row.idempotent === true ||
+                  row.already_started === true,
+                counted_seconds:
+                  typeof row.counted_seconds === "number" ? row.counted_seconds : 0,
+              };
+              rpcNextStopIndex =
+                typeof row.next_stop_index === "number" ? row.next_stop_index : null;
+              rpcNextStopId =
+                typeof row.next_stop_id === "string" ? row.next_stop_id : null;
+
+              // Sync in-memory pickup/next for P2 + response
+              pickupStop.status = "completed";
+              pickupStop.completed_at = now;
+              const nextFromRpc =
+                (rpcNextStopId
+                  ? stops?.find((s) => s.id === rpcNextStopId)
+                  : null) ??
+                (rpcNextStopIndex != null
+                  ? stops?.find((s) => s.stop_index === rpcNextStopIndex)
+                  : null) ??
+                null;
+              if (nextFromRpc) {
+                nextFromRpc.status = "current";
+              }
+
+              console.log("[stop-workflow] START_TRIP_WAITING_FINALIZED", {
+                trip_id,
+                via: "finalize_pickup_waiting_and_start_trip_rpc",
+                charge_pence: waitingFinal.pickup_waiting_charge_pence,
+                already_finalized: waitingFinal.already_finalized,
+                counted_seconds: waitingFinal.counted_seconds,
+                distance_meters: row.distance_meters ?? null,
+                used_source: row.used_source ?? null,
+              });
+
+              lifecyclePerf?.mark("canonical_mutation_start");
+              lifecyclePerf?.mark("canonical_mutation_end");
+              lifecyclePerf?.mark("CANONICAL_CONFIRMED");
+
+              if (row.idempotent === true || row.already_started === true) {
+                return await respondOk({
+                  success: true,
+                  idempotent: true,
+                  message: "Trip already started",
+                  pickup_waiting_charge_pence: waitingFinal.pickup_waiting_charge_pence,
+                  pickup_waiting_finalized_at: trip.pickup_waiting_finalized_at ?? now,
+                  start_waiting_finalize_via: "rpc",
+                });
+              }
+
+              const nextStop = nextFromRpc;
+              console.log("[stop-workflow] START_TRIP success, next stop:", nextStop?.stop_index || "none", {
+                pickup_waiting_charge_pence: waitingFinal.pickup_waiting_charge_pence,
+                intervals_charged: waitingFinal.intervals_charged,
+                already_finalized: waitingFinal.already_finalized,
+                via: "finalize_pickup_waiting_and_start_trip_rpc",
+              });
+              const startPassengerId =
+                typeof trip.passenger_id === "string" ? trip.passenger_id : null;
+              scheduleEdgeBackground(async () => {
+                if (!waitingFinal!.already_finalized) {
+                  await writeTripAudit(supabase, {
+                    trip_id,
+                    driver_id,
+                    event_type: "PICKUP_WAITING_FINALIZED",
+                    details: {
+                      pickup_waiting_charge_pence: waitingFinal!.pickup_waiting_charge_pence,
+                      intervals_charged: waitingFinal!.intervals_charged,
+                      via: "finalize_pickup_waiting_and_start_trip_rpc",
+                    },
+                  });
+                  if (waitingFinal!.pickup_waiting_charge_pence > 0) {
+                    await writeFareAudit(supabase, {
+                      trip_id,
+                      event_type: "PICKUP_WAITING_CHARGE_ADDED_TO_FARE",
+                      adjustment_pence: waitingFinal!.pickup_waiting_charge_pence,
+                      metadata: {
+                        intervals_charged: waitingFinal!.intervals_charged,
+                        source: "start_trip",
+                        via: "finalize_pickup_waiting_and_start_trip_rpc",
+                      },
+                    });
+                  }
+                }
+                await writeTripAudit(supabase, {
+                  trip_id,
+                  driver_id,
+                  event_type: "START_TRIP_TAPPED",
+                  details: {
+                    next_stop_index: nextStop?.stop_index ?? null,
+                    pickup_waiting_charge_pence: waitingFinal!.pickup_waiting_charge_pence,
+                    pickup_waiting_intervals_charged: waitingFinal!.intervals_charged,
+                  },
+                });
+                await notifyCustomerTripLifecycle(supabase, {
+                  passengerId: startPassengerId,
+                  tripId: trip_id,
+                  event: "trip_started",
+                });
+              }, "start_trip_p2");
+              return await respondOk({
+                success: true,
+                action: "start_trip",
+                next_stop_index: nextStop?.stop_index || null,
+                pickup_waiting_charge_pence: waitingFinal.pickup_waiting_charge_pence,
+                pickup_waiting_intervals_charged: waitingFinal.intervals_charged,
+                start_waiting_finalize_via: "rpc",
+                trip: {
+                  id: trip_id,
+                  status: "in_progress",
+                  started_at: now,
+                  pickup_waiting_charge_pence: waitingFinal.pickup_waiting_charge_pence,
+                  pickup_waiting_intervals_charged: waitingFinal.intervals_charged,
+                  current_stop_index: nextStop?.stop_index ?? trip.current_stop_index ?? null,
+                },
+              }, { skipSnapshotRefresh: true });
+            } else if (typeof row.error === "string") {
+              const err = row.error;
+              if (err === "must_arrive_pickup") {
+                return errorResponse(
+                  "MUST_ARRIVE_PICKUP",
+                  "Arrive at pickup before starting the trip",
+                  409,
+                );
+              }
+              if (err === "trip_terminal") {
+                return errorResponse(
+                  "trip_terminal",
+                  `Cannot start trip in status: ${String(row.trip_status ?? trip.status)}`,
+                  409,
+                  { trip_status: row.trip_status ?? trip.status },
+                );
+              }
+              if (err === "pickup_stop_not_found") {
+                return errorResponse("invalid_status", "Pickup stop not found", 400);
+              }
+              console.warn("[stop-workflow] start_trip RPC soft-fail; Edge fallback", {
+                trip_id,
+                error: err,
+              });
+            }
+          } else if (startRpcErr) {
+            console.warn("[stop-workflow] start_trip RPC failed; Edge fallback", {
+              trip_id,
+              message: startRpcErr.message,
+            });
+          }
+        }
+
+        if (!startRpcUsed) {
+          waitingFinal = await finalizePickupWaitingOnStartTrip(
+            supabase,
+            trip as TripWaitingBillingCtx & {
+              pickup_latitude?: number | null;
+              pickup_longitude?: number | null;
+            },
+            trip_id,
+            now,
+            {
+              driverLat: typeof driver_lat === "number" ? driver_lat : undefined,
+              driverLng: typeof driver_lng === "number" ? driver_lng : undefined,
+              pickupLat: trip.pickup_latitude ?? null,
+              pickupLng: trip.pickup_longitude ?? null,
+            },
+          );
+          lifecyclePerf?.mark("waiting_ssot_end");
+
+          // Waiting finalize is P0 (money). Audit rows are P2 — schedule after canonical start.
+
+          // Mark pickup as completed
+          lifecyclePerf?.mark("canonical_mutation_start");
+          await supabase
+            .from("trip_stops")
+            .update({ status: "completed" as StopStatus, completed_at: now, updated_at: now })
+            .eq("id", pickupStop.id);
+
+          // Find next stop (index 1)
+          const nextStop = stops?.find((s) => s.stop_index === 1);
+          const totalStops = stops?.length || 0;
+
+          if (nextStop) {
+            // Set next stop as current
+            await supabase
+              .from("trip_stops")
+              .update({ status: "current" as StopStatus, updated_at: now })
+              .eq("id", nextStop.id);
+
+            const { error: startTripUpdateError } = await updateTripSafe(supabase, trip_id, {
+              started_at: now,
+              status: "in_progress" as TripStatus,
+              current_stop_index: 1,
+              current_destination_index: 1,
+              current_destination_type: nextStop.type,
+              current_stop_id: nextStop.id,
+              stop_waiting_status: "none",
+              stop_arrived_at: null,
+              stop_waiting_started_at: null,
+              stop_waiting_paid_started_at: null,
+              stop_waiting_finalized_at: null,
+              stop_waiting_charge_amount: 0,
+              updated_at: now,
+            });
+
+            if (startTripUpdateError) {
+              console.error("[stop-workflow] START_TRIP trip update failed:", startTripUpdateError);
+              return errorResponse("rpc_error", "Failed to start trip", 500, startTripUpdateError);
+            }
+          } else {
+            const { error: startTripUpdateError } = await updateTripSafe(supabase, trip_id, {
+              started_at: now,
+              status: "in_progress" as TripStatus,
+              updated_at: now,
+            });
+
+            if (startTripUpdateError) {
+              console.error("[stop-workflow] START_TRIP trip update failed:", startTripUpdateError);
+              return errorResponse("rpc_error", "Failed to start trip", 500, startTripUpdateError);
+            }
+          }
+
+          console.log("[stop-workflow] START_TRIP success, next stop:", nextStop?.stop_index || "none", {
+            pickup_waiting_charge_pence: waitingFinal.pickup_waiting_charge_pence,
+            intervals_charged: waitingFinal.intervals_charged,
+            already_finalized: waitingFinal.already_finalized,
+            via: "edge_fallback",
+            total_stops: totalStops,
+          });
+          // CANONICAL_START_CONFIRMED: started_at + in_progress + waiting finalized.
+          lifecyclePerf?.mark("canonical_mutation_end");
+          lifecyclePerf?.mark("CANONICAL_CONFIRMED");
+          const startPassengerId =
+            typeof trip.passenger_id === "string" ? trip.passenger_id : null;
+          scheduleEdgeBackground(async () => {
+            if (!waitingFinal!.already_finalized) {
+              await writeTripAudit(supabase, {
+                trip_id,
+                driver_id,
+                event_type: "PICKUP_WAITING_FINALIZED",
+                details: {
+                  pickup_waiting_charge_pence: waitingFinal!.pickup_waiting_charge_pence,
+                  intervals_charged: waitingFinal!.intervals_charged,
+                },
+              });
+              if (waitingFinal!.pickup_waiting_charge_pence > 0) {
+                await writeFareAudit(supabase, {
+                  trip_id,
+                  event_type: "PICKUP_WAITING_CHARGE_ADDED_TO_FARE",
+                  adjustment_pence: waitingFinal!.pickup_waiting_charge_pence,
+                  metadata: {
+                    intervals_charged: waitingFinal!.intervals_charged,
+                    source: "start_trip",
+                  },
+                });
+              }
+            }
+            await writeTripAudit(supabase, {
+              trip_id,
+              driver_id,
+              event_type: "START_TRIP_TAPPED",
+              details: {
+                next_stop_index: nextStop?.stop_index ?? null,
+                pickup_waiting_charge_pence: waitingFinal!.pickup_waiting_charge_pence,
+                pickup_waiting_intervals_charged: waitingFinal!.intervals_charged,
+              },
+            });
+            await notifyCustomerTripLifecycle(supabase, {
+              passengerId: startPassengerId,
+              tripId: trip_id,
+              event: "trip_started",
+            });
+          }, "start_trip_p2");
+          return await respondOk({
+            success: true,
+            action: "start_trip",
+            next_stop_index: nextStop?.stop_index || null,
+            pickup_waiting_charge_pence: waitingFinal.pickup_waiting_charge_pence,
+            pickup_waiting_intervals_charged: waitingFinal.intervals_charged,
+            start_waiting_finalize_via: "edge_fallback",
+            trip: {
+              id: trip_id,
+              status: "in_progress",
+              started_at: now,
+              pickup_waiting_charge_pence: waitingFinal.pickup_waiting_charge_pence,
+              pickup_waiting_intervals_charged: waitingFinal.intervals_charged,
+              current_stop_index: nextStop?.stop_index ?? trip.current_stop_index ?? null,
+            },
+          }, { skipSnapshotRefresh: true });
+        }
+
+        // Unreachable: both RPC and fallback return
+        return errorResponse("rpc_error", "Failed to start trip", 500);
+      }
+
+      case 'arrive_stop': {
+        lifecyclePerf?.mark("validation_start");
+        // Must have started trip
+        if (!trip.started_at) {
+          return errorResponse("NOT_STARTED", "Trip not started yet", 400);
+        }
+
+        if (!currentStop) {
+          return errorResponse("NO_STOP", "No current stop found", 400);
+        }
+
+        if (currentStop.type === 'pickup') {
+          return errorResponse("INVALID_STOP", "Use arrive_pickup for pickup", 400);
+        }
+
+        console.log("[stop-workflow] STOP_ARRIVE_TAP_RECEIVED", {
+          trip_id,
+          stop_id: currentStop.id,
+          stop_index: currentStop.stop_index,
+        });
+        console.log("[stop-workflow] STOP_RADIUS_CHECK_STARTED", {
+          trip_id,
+          stop_id: currentStop.id,
+          driver_lat: driver_lat ?? null,
+          driver_lng: driver_lng ?? null,
+        });
+
+        const stopDriverLat = typeof driver_lat === 'number' ? driver_lat : undefined;
+        const stopDriverLng = typeof driver_lng === 'number' ? driver_lng : undefined;
+
+        // Idempotency: already arrived — try waiting start when inside radius
+        if (currentStop.status === 'current' && currentStop.arrived_at) {
+          lifecyclePerf?.mark("waiting_ssot_start");
+          const waitingResult = await tryStartStopWaiting(
+            supabase,
+            trip,
+            currentStop,
+            stopDriverLat,
+            stopDriverLng,
+            lifecyclePerf,
+          );
+          lifecyclePerf?.mark("waiting_ssot_end");
+          lifecyclePerf?.mark("CANONICAL_CONFIRMED");
+
+          console.log("[stop-workflow] Already arrived at stop (idempotent)", {
+            waiting_started: waitingResult.started,
+            waiting_status: waitingResult.waiting_status,
+          });
+          // Re-emit with stable notificationId so background Customer can still
+          // hydrate if the first push was missed (FCM tag dedupes duplicates).
+          if (currentStop.type === "stop") {
+            const idempotentStopPassengerId =
+              typeof trip.passenger_id === "string" ? trip.passenger_id : null;
+            scheduleEdgeBackground(async () => {
+              await notifyCustomerTripLifecycle(supabase, {
+                passengerId: idempotentStopPassengerId,
+                tripId: trip_id,
+                event: "intermediate_stop_arrived",
+                stopIndex: currentStop.stop_index,
+                notificationId: `intermediate_stop_arrived-${trip_id}-${currentStop.stop_index}`,
+              });
+            }, "arrive_stop_idempotent_p2");
+          }
+          // Must include stops: skipSnapshotRefresh otherwise leaves Driver on en_route_stop
+          // (trip.status stays in_progress; phase needs stop.arrived_at).
+          const idempotentStops = (stops ?? []).map((s) =>
+            s.id === currentStop.id
+              ? {
+                ...s,
+                status: "current" as StopStatus,
+                arrived_at: currentStop.arrived_at,
+                waiting_charge_active:
+                  waitingResult.started || Boolean(currentStop.waiting_charge_active),
+                waiting_started_at:
+                  currentStop.waiting_started_at ??
+                  (waitingResult.started ? currentStop.arrived_at : null),
+              }
+              : s
+          );
+          return await respondOk(await enrichArrivalWaitingSnapshot(supabase, {
+            success: true,
+            idempotent: true,
+            action: 'arrive_stop',
+            arrival_status: 'arrived',
+            stop_id: currentStop.id,
+            stop_index: currentStop.stop_index,
+            waiting_started: waitingResult.started,
+            waiting_status: waitingResult.waiting_status,
+            allowed_radius_meters: waitingResult.allowed_radius_meters ?? null,
+            distance_meters: waitingResult.distance_meters ?? null,
+            stop_waiting_segment_created: waitingResult.stop_waiting_segment_created ?? false,
+            stop_waiting_segment_id: waitingResult.stop_waiting_segment_id ?? null,
+            stop_waiting_segment_stop_id: waitingResult.stop_waiting_segment_stop_id ?? currentStop.id,
+            stop_waiting_geofence_skip_reason:
+              waitingResult.stop_waiting_geofence_skip_reason ?? null,
+            stop_waiting_geofence_open_ms:
+              waitingResult.stop_waiting_geofence_open_ms ?? null,
+            trip: {
+              id: trip_id,
+              status: trip.status,
+              started_at: trip.started_at,
+              stop_arrived_at: currentStop.arrived_at,
+              stop_waiting_started_at:
+                currentStop.waiting_started_at ??
+                (waitingResult.started ? currentStop.arrived_at : null),
+              stop_waiting_status: waitingResult.started
+                ? "free_waiting"
+                : trip.stop_waiting_status ?? null,
+              current_stop_index: currentStop.stop_index,
+              current_stop_id: currentStop.id,
+            },
+            stops: idempotentStops,
+          }, waitingResult, { scope: 'stop', trip, stop: currentStop }), {
+            skipSnapshotRefresh: true,
+          });
+        }
+
+        // Record arrival first — waiting start is radius-gated separately
+        lifecyclePerf?.mark("validation_end");
+        lifecyclePerf?.mark("canonical_mutation_start");
+        await supabase
+          .from("trip_stops")
+          .update({ status: 'current' as StopStatus, arrived_at: now, updated_at: now })
+          .eq("id", currentStop.id);
+
+        await syncTripDestinationFields(supabase, trip_id, currentStop, {
+          stop_arrived_at: now,
+        });
+
+        console.log("[stop-workflow] ARRIVAL_MARKED_STOP_SUCCESS", {
+          trip_id,
+          stop_id: currentStop.id,
+          stop_index: currentStop.stop_index,
+        });
+        lifecyclePerf?.mark("canonical_mutation_end");
+
+        lifecyclePerf?.mark("waiting_ssot_start");
+        const waitingResult = await tryStartStopWaiting(
+          supabase,
+          trip,
+          { ...currentStop, arrived_at: now },
+          stopDriverLat,
+          stopDriverLng,
+          lifecyclePerf,
+        );
+        lifecyclePerf?.mark("waiting_ssot_end");
+        lifecyclePerf?.mark("CANONICAL_CONFIRMED");
+
+        console.log("[stop-workflow] ARRIVE_STOP success at index:", currentStop.stop_index);
+        // CANONICAL stop arrival + waiting start done. P2: audit + customer notify.
+        const stopPassengerId =
+          typeof trip.passenger_id === "string" ? trip.passenger_id : null;
+        const stopIndexForNotify = currentStop.stop_index;
+        const stopIdForAudit = currentStop.id;
+        const stopType = currentStop.type;
+        scheduleEdgeBackground(async () => {
+          await writeTripAudit(supabase, {
+            trip_id,
+            driver_id,
+            event_type: 'ARRIVE_AT_STOP_TAPPED',
+            details: { stop_id: stopIdForAudit, stop_index: stopIndexForNotify },
+          });
+          if (waitingResult.started) {
+            await writeTripAudit(supabase, {
+              trip_id,
+              driver_id,
+              event_type: 'STOP_WAITING_STARTED',
+              details: {
+                stop_id: stopIdForAudit,
+                grace_seconds: waitingResult.graceSeconds,
+              },
+            });
+          }
+          if (stopType === "stop") {
+            await notifyCustomerTripLifecycle(supabase, {
+              passengerId: stopPassengerId,
+              tripId: trip_id,
+              event: "intermediate_stop_arrived",
+              stopIndex: stopIndexForNotify,
+              notificationId: `intermediate_stop_arrived-${trip_id}-${stopIndexForNotify}`,
+            });
+          }
+        }, "arrive_stop_p2");
+        lifecyclePerf?.mark("enrich_start");
+        const arrivedStops = (stops ?? []).map((s) =>
+          s.id === currentStop.id
+            ? {
+              ...s,
+              status: "current" as StopStatus,
+              arrived_at: now,
+              waiting_charge_active: waitingResult.started,
+              waiting_started_at: waitingResult.started ? now : null,
+            }
+            : s
+        );
+        const stopEnriched = await enrichArrivalWaitingSnapshot(supabase, {
+          success: true,
+          action: 'arrive_stop',
+          arrival_status: 'arrived',
+          stop_id: currentStop.id,
+          stop_index: currentStop.stop_index,
+          is_final: currentStop.type === 'dropoff',
+          waiting_started: waitingResult.started,
+          waiting_status: waitingResult.waiting_status,
+          allowed_radius_meters: waitingResult.allowed_radius_meters ?? null,
+          distance_meters: waitingResult.distance_meters ?? null,
+          stop_waiting_segment_created: waitingResult.stop_waiting_segment_created ?? false,
+          stop_waiting_segment_id: waitingResult.stop_waiting_segment_id ?? null,
+          stop_waiting_segment_stop_id: waitingResult.stop_waiting_segment_stop_id ?? currentStop.id,
+          stop_waiting_geofence_skip_reason:
+            waitingResult.stop_waiting_geofence_skip_reason ?? null,
+          stop_waiting_geofence_open_ms:
+            waitingResult.stop_waiting_geofence_open_ms ?? null,
+          trip: {
+            id: trip_id,
+            status: trip.status,
+            started_at: trip.started_at,
+            stop_arrived_at: now,
+            stop_waiting_started_at: waitingResult.started ? now : null,
+            stop_waiting_status: waitingResult.started ? "free_waiting" : null,
+            current_stop_index: currentStop.stop_index,
+            current_stop_id: currentStop.id,
+          },
+          stops: arrivedStops,
+        }, waitingResult, {
+          scope: 'stop',
+          trip: { ...trip, stop_arrived_at: now },
+          stop: { ...currentStop, arrived_at: now },
+        });
+        lifecyclePerf?.mark("enrich_end");
+        return await respondOk(stopEnriched, { skipSnapshotRefresh: true });
+      }
+
+      case 'next_stop':
+      case 'drive_to_next': {
+        lifecyclePerf?.mark("validation_start");
+        const workflowAction = action === 'drive_to_next' ? 'drive_to_next' : 'next_stop';
+
+        // Must have started trip
+        if (!trip.started_at) {
+          return errorResponse("NOT_STARTED", "Trip not started yet", 400);
+        }
+
+        if (!currentStop) {
+          return errorResponse("NO_STOP", "No current stop found", 400);
+        }
+
+        // Idempotent: stop already completed (double-tap Drive to Next)
+        if (currentStop.status === 'completed') {
+          const alreadyNext = stops?.find(
+            (s) => s.stop_index > currentIndex && s.status === 'current',
+          );
+          if (alreadyNext) {
+            console.log("[stop-workflow] drive_to_next idempotent — stop already advanced");
+            const idempotentPassengerId =
+              typeof trip.passenger_id === "string" ? trip.passenger_id : null;
+            scheduleEdgeBackground(async () => {
+              await notifyCustomerTripLifecycle(supabase, {
+                passengerId: idempotentPassengerId,
+                tripId: trip_id,
+                event: "next_leg_started",
+                stopIndex: alreadyNext.stop_index,
+                notificationId: `next_leg_started-${trip_id}-${alreadyNext.stop_index}`,
+              });
+            }, "drive_to_next_idempotent_p2");
+            return await respondOk({
+              success: true,
+              idempotent: true,
+              action: workflowAction,
+              previous_index: currentIndex,
+              new_index: alreadyNext.stop_index,
+              is_final: alreadyNext.type === 'dropoff',
+            });
+          }
+        }
+
+        // Intermediate stops require explicit Arrive at Stop before Drive to Next
+        if (currentStop.type === 'stop' && !currentStop.arrived_at) {
+          return errorResponse(
+            "MUST_ARRIVE_AT_STOP",
+            "Tap Arrive at Stop before driving to the next destination",
+            409,
+          );
+        }
+
+        if (currentStop.type === 'dropoff') {
+          return errorResponse(
+            "USE_COMPLETE_TRIP",
+            "At final destination — use Complete Trip",
+            409,
+          );
+        }
+
+        console.log("[stop-workflow] STOP_WAITING_END_REQUESTED", {
+          trip_id,
+          stop_id: currentStop.id,
+          stop_index: currentStop.stop_index,
+        });
+
+        lifecyclePerf?.mark("validation_end");
+        lifecyclePerf?.mark("waiting_ssot_start");
+
+        // Phase 4: one transactional RPC = waiting finalize + leg advance.
+        let driveRpcUsed = false;
+        let finalizeResult: {
+          chargePence: number;
+          alreadyFinalized: boolean;
+          countedSeconds: number;
+        } | null = null;
+        let nextStop: TripStopRow | null = null;
+        let rpcNewIndex: number | null = null;
+        let rpcIsFinal = false;
+
+        if (typeof trip.driver_id === "string" && trip.driver_id) {
+          lifecyclePerf?.mark("waiting_canonical_rpc_start");
+          const { data: driveRpc, error: driveRpcErr } = await supabase.rpc(
+            "finalize_stop_waiting_and_drive_to_next",
+            {
+              p_trip_id: trip_id,
+              p_stop_id: currentStop.id,
+              p_driver_id: trip.driver_id,
+              p_now: now,
+              p_body_lat: typeof driver_lat === "number" ? driver_lat : null,
+              p_body_lng: typeof driver_lng === "number" ? driver_lng : null,
+            },
+          );
+          lifecyclePerf?.mark("waiting_canonical_rpc_end");
+          lifecyclePerf?.mark("waiting_ssot_end");
+
+          if (!driveRpcErr && driveRpc && typeof driveRpc === "object") {
+            const row = driveRpc as Record<string, unknown>;
+            if (row.ok === true) {
+              driveRpcUsed = true;
+              finalizeResult = {
+                chargePence: typeof row.charge_pence === "number" ? row.charge_pence : 0,
+                alreadyFinalized: row.already_finalized === true || row.idempotent === true,
+                countedSeconds:
+                  typeof row.counted_seconds === "number" ? row.counted_seconds : 0,
+              };
+              rpcNewIndex = typeof row.new_index === "number" ? row.new_index : null;
+              rpcIsFinal = row.is_final === true;
+              const newStopId = typeof row.new_stop_id === "string" ? row.new_stop_id : null;
+              nextStop =
+                (newStopId
+                  ? stops?.find((s) => s.id === newStopId)
+                  : null) ??
+                stops?.find((s) => s.stop_index === rpcNewIndex) ??
+                null;
+
+              console.log("[stop-workflow] STOP_WAITING_ENDED_BACKEND_ACCEPTED", {
+                trip_id,
+                stop_id: currentStop.id,
+                charge_pence: finalizeResult.chargePence,
+                already_finalized: finalizeResult.alreadyFinalized,
+                via: "finalize_stop_waiting_and_drive_to_next_rpc",
+                counted_seconds: finalizeResult.countedSeconds,
+                distance_meters: row.distance_meters ?? null,
+                used_source: row.used_source ?? null,
+              });
+
+              lifecyclePerf?.mark("canonical_mutation_start");
+              lifecyclePerf?.mark("canonical_mutation_end");
+              lifecyclePerf?.mark("CANONICAL_CONFIRMED");
+            } else if (typeof row.error === "string") {
+              const err = row.error;
+              if (err === "must_arrive_at_stop") {
+                return errorResponse(
+                  "MUST_ARRIVE_AT_STOP",
+                  "Tap Arrive at Stop before driving to the next destination",
+                  409,
+                );
+              }
+              if (err === "use_complete_trip") {
+                return errorResponse(
+                  "USE_COMPLETE_TRIP",
+                  "At final destination — use Complete Trip",
+                  409,
+                );
+              }
+              if (err === "no_next_stop") {
+                return errorResponse("NO_NEXT_STOP", "No more stops available", 400);
+              }
+              if (err === "not_started") {
+                return errorResponse("NOT_STARTED", "Trip not started yet", 400);
+              }
+              console.warn("[stop-workflow] drive_to_next RPC soft-fail; Edge fallback", {
+                trip_id,
+                error: err,
+              });
+            }
+          } else if (driveRpcErr) {
+            console.warn("[stop-workflow] drive_to_next RPC failed; Edge fallback", {
+              trip_id,
+              message: driveRpcErr.message,
+            });
+          }
+        }
+
+        if (!driveRpcUsed) {
+          const { data: stopForFinalize } = await supabase
+            .from("trip_stops")
+            .select(
+              "id, stop_index, lat, lng, arrived_at, waiting_charge_active, waiting_started_at, waiting_stopped_at, waiting_total_amount_pence",
+            )
+            .eq("id", currentStop.id)
+            .single();
+
+          finalizeResult = await finalizeStopWaitingCharge(
+            supabase,
+            trip,
+            stopForFinalize ?? currentStop,
+            {
+              driverLat: typeof driver_lat === "number" ? driver_lat : undefined,
+              driverLng: typeof driver_lng === "number" ? driver_lng : undefined,
+            },
+            lifecyclePerf,
+          );
+          lifecyclePerf?.mark("waiting_ssot_end");
+
+          console.log("[stop-workflow] STOP_WAITING_ENDED_BACKEND_ACCEPTED", {
+            trip_id,
+            stop_id: currentStop.id,
+            charge_pence: finalizeResult.chargePence,
+            already_finalized: finalizeResult.alreadyFinalized,
+            via: "edge_fallback",
+          });
+
+          await updateTripSafe(supabase, trip_id, {
+            stop_waiting_finalized_at: now,
+            stop_waiting_status: "finalized",
+            stop_waiting_charge_amount: finalizeResult.chargePence,
+            updated_at: now,
+          });
+
+          lifecyclePerf?.mark("canonical_mutation_start");
+          await supabase
+            .from("trip_stops")
+            .update({
+              status: "completed" as StopStatus,
+              arrived_at: currentStop.arrived_at || now,
+              completed_at: now,
+              updated_at: now,
+            })
+            .eq("id", currentStop.id);
+
+          const nextStops =
+            stops?.filter((s) => s.stop_index > currentIndex && s.status !== "skipped") ||
+            [];
+          nextStop = nextStops.length > 0 ? nextStops[0]! : null;
+
+          if (!nextStop) {
+            console.log("[stop-workflow] No next stop available");
+            return errorResponse("NO_NEXT_STOP", "No more stops available", 400);
+          }
+
+          await supabase
+            .from("trip_stops")
+            .update({ status: "current" as StopStatus, updated_at: now })
+            .eq("id", nextStop.id);
+
+          const { error: advanceErr } = await updateTripSafe(supabase, trip_id, {
+            current_stop_index: nextStop.stop_index,
+            current_destination_index: nextStop.stop_index,
+            current_destination_type: nextStop.type,
+            current_stop_id: nextStop.id,
+            stop_arrived_at: null,
+            stop_waiting_started_at: null,
+            stop_waiting_paid_started_at: null,
+            stop_waiting_finalized_at: null,
+            stop_waiting_status: nextStop.type === "stop" ? "none" : null,
+            stop_waiting_charge_amount: 0,
+            updated_at: now,
+          });
+          if (advanceErr) {
+            console.error("[stop-workflow] drive_to_next trip update failed:", advanceErr);
+            return errorResponse("rpc_error", "Failed to advance trip", 500, advanceErr);
+          }
+          lifecyclePerf?.mark("canonical_mutation_end");
+          lifecyclePerf?.mark("CANONICAL_CONFIRMED");
+          rpcNewIndex = nextStop.stop_index;
+          rpcIsFinal = nextStop.type === "dropoff";
+        }
+
+        if (!finalizeResult || !nextStop) {
+          return errorResponse("NO_NEXT_STOP", "No more stops available", 400);
+        }
+
+        console.log(
+          "[stop-workflow] NEXT_STOP success:",
+          currentIndex,
+          "->",
+          nextStop.stop_index,
+        );
+        const drivePassengerId =
+          typeof trip.passenger_id === "string" ? trip.passenger_id : null;
+        const nextIndex = nextStop.stop_index;
+        const nextStopId = nextStop.id;
+        const driveStopId = currentStop.id;
+        const driveStopIndex = currentStop.stop_index;
+        const driveChargePence = finalizeResult.chargePence;
+        const driveAlreadyFinalized = finalizeResult.alreadyFinalized;
+        scheduleEdgeBackground(async () => {
+          await writeTripAudit(supabase, {
+            trip_id,
+            driver_id,
+            event_type: "DRIVE_TO_NEXT_TAPPED",
+            details: { stop_id: driveStopId, stop_index: driveStopIndex },
+          });
+          if (!driveAlreadyFinalized) {
+            await writeTripAudit(supabase, {
+              trip_id,
+              driver_id,
+              event_type: "STOP_WAITING_FINALIZED",
+              details: {
+                stop_id: driveStopId,
+                charge_pence: driveChargePence,
+              },
+            });
+            if (driveChargePence > 0) {
+              await writeFareAudit(supabase, {
+                trip_id,
+                event_type: "STOP_WAITING_CHARGE_ADDED_TO_FARE",
+                adjustment_pence: driveChargePence,
+                metadata: { stop_id: driveStopId },
+              });
+            }
+          }
+          await writeTripAudit(supabase, {
+            trip_id,
+            driver_id,
+            event_type: "TRIP_ADVANCED_TO_NEXT_DESTINATION",
+            details: {
+              from_index: currentIndex,
+              to_index: nextIndex,
+              next_stop_id: nextStopId,
+            },
+          });
+          await notifyCustomerTripLifecycle(supabase, {
+            passengerId: drivePassengerId,
+            tripId: trip_id,
+            event: "next_leg_started",
+            stopIndex: nextIndex,
+            notificationId: `next_leg_started-${trip_id}-${nextIndex}`,
+          });
+        }, "drive_to_next_p2");
+        const advancedStops = (stops ?? []).map((s) => {
+          if (s.id === currentStop.id) {
+            return {
+              ...s,
+              status: "completed" as StopStatus,
+              arrived_at: s.arrived_at || now,
+              completed_at: now,
+              waiting_charge_active: false,
+              waiting_stopped_at: s.waiting_stopped_at ?? now,
+              waiting_total_amount_pence: driveChargePence,
+              waiting_total_seconds: finalizeResult!.countedSeconds,
+            };
+          }
+          if (s.id === nextStop!.id) {
+            return {
+              ...s,
+              status: "current" as StopStatus,
+              arrived_at: null,
+            };
+          }
+          return s;
+        });
+        return await respondOk({
+          success: true,
+          action: workflowAction,
+          previous_index: currentIndex,
+          new_index: rpcNewIndex ?? nextStop.stop_index,
+          is_final: rpcIsFinal || nextStop.type === "dropoff",
+          waiting_charge_pence: finalizeResult.chargePence,
+          counted_seconds: finalizeResult.countedSeconds,
+          drive_next_waiting_finalize_via: driveRpcUsed ? "rpc" : "edge_fallback",
+          trip: {
+            id: trip_id,
+            status: trip.status,
+            started_at: trip.started_at,
+            current_stop_index: nextStop.stop_index,
+            current_stop_id: nextStop.id,
+            stop_arrived_at: null,
+            stop_waiting_started_at: null,
+            stop_waiting_status: nextStop.type === "stop" ? "none" : null,
+          },
+          stops: advancedStops,
+        }, { skipSnapshotRefresh: true });
+      }
+
+
+      case 'complete_trip': {
+        const stages = createStageClock(elapsed);
+        stages.mark('complete_case_enter');
+        // Must have started trip
+        if (!trip.started_at) {
+          return errorResponse("NOT_STARTED", "Trip not started yet", 400);
+        }
+
+        // Idempotency: already completed
+        if (trip.status === 'completed') {
+          console.log("[stop-workflow] Trip already completed (idempotent)");
+          stages.mark('idempotent_already_completed');
+          completeTripStagesMs = stages.snapshot();
+          return await respondOk({ success: true, idempotent: true, message: "Trip already completed" });
+        }
+
+        // Fail-closed: unresolved positive increment OR under-protected committed
+        // payable blocks completion (MK-260916-030). Race-safe via FOR UPDATE RPC.
+        {
+          const gateResult = await assertPlatformCollectedCompletionPaymentGate(
+            supabase,
+            trip_id,
+          );
+          if (!gateResult.ok) {
+            console.error("[stop-workflow]", gateResult.code, {
+              trip_id,
+              protected: gateResult.protectedPence,
+              required: gateResult.requiredPence,
+            });
+            return errorResponse(
+              gateResult.code,
+              gateResult.message,
+              gateResult.code === "UNRESOLVED_MODIFICATION_CHECK_FAILED" ? 503 : 409,
+            );
+          }
+        }
+
+        // Obsolete PLATFORM_COLLECTED cash. Fail closed before waiting,
+        // status, or ledger writes. DRIVER_COLLECTED cash is not this path.
+        if (completeTripCashDecision(trip) === "fail_closed_operational_cash") {
+          console.error("[stop-workflow]", OPERATIONAL_CASH_VIOLATION, { trip_id });
+          return errorResponse(
+            "FINANCIAL_MODEL_VIOLATION",
+            OPERATIONAL_CASH_VIOLATION,
+            409,
+          );
+        }
+
+        const finalStop = stops?.find(s => s.type === 'dropoff');
+        if (!finalStop) {
+          return errorResponse("NO_DROPOFF", "Final stop not found", 400);
+        }
+
+        // P0: Close any open intermediate stop waiting before completion (multi-stop SSOT).
+        stages.mark('waiting_finalize_start');
+        for (const stopRow of stops ?? []) {
+          if (
+            stopRow.type === 'stop' &&
+            stopRow.waiting_charge_active &&
+            !stopRow.waiting_stopped_at
+          ) {
+            await finalizeStopWaitingCharge(supabase, trip, stopRow, {
+              driverLat: typeof driver_lat === 'number' ? driver_lat : undefined,
+              driverLng: typeof driver_lng === 'number' ? driver_lng : undefined,
+            });
+          }
+        }
+        await updateTripTotalWaiting(supabase, trip_id);
+        stages.mark('waiting_finalize_end');
+
+        stages.mark('fare_lookup_start');
+        const { data: tripBeforeComplete } = await supabase
+          .from("trips")
+          .select("*")
+          .eq("id", trip_id)
+          .single();
+
+        const resolvedFare = resolveTripFare((tripBeforeComplete ?? trip) as TripFareRow);
+        const finalFarePence = resolvedFare.final_fare_pence;
+        const finalFareMajor = finalFarePence / 100;
+        const totalWaitingPence =
+          resolvedFare.arrival_waiting_charge_pence + resolvedFare.stop_waiting_charge_pence;
+        stages.mark('fare_lookup_end');
+
+        // ── PHASE 1: Complete stops + trip status + resolve commission (PARALLEL) ──
+        const incompleteStopIds = (stops || [])
+          .filter(s => s.status !== 'completed' && s.status !== 'skipped')
+          .map(s => s.id);
+
+        // Stamp the tip window in the same write as status=completed. The invoice
+        // trigger fires on that status change and re-reads the committed row; a
+        // later stamp loses the race and can email before capture.
+        const tripForTipWindow = (tripBeforeComplete ?? trip) as Record<string, unknown>;
+        // Capture and expiry both require provider_order_id. A session-only trip
+        // must not open a window they cannot close.
+        let tipWindowOrderId = String(tripForTipWindow.provider_order_id ?? "").trim();
+        let tipWindowOnComplete: {
+          tip_window_opened_at: string;
+          tip_window_expires_at: string;
+          tip_window_status: string;
+          tip_window_closed_at: null;
+        } | null = null;
+        if (
+          requiresProviderSettlement(tripForTipWindow)
+          && String(tripForTipWindow.financial_model ?? "").trim().toUpperCase() === "PLATFORM_COLLECTED"
+          && isCardPaymentMethod(tripForTipWindow.payment_method)
+          && isCustomerAppTipChannelEligible({
+            booking_source: tripForTipWindow.booking_source as string | null,
+            corporate_account_id: tripForTipWindow.corporate_account_id as string | null,
+          })
+          && tripForTipWindow.service_area_id
+          && (tipWindowOrderId || tripForTipWindow.payment_session_id)
+        ) {
+          if (!tipWindowOrderId && tripForTipWindow.payment_session_id) {
+            const { data: tipSession, error: tipSessionErr } = await supabase
+              .from("payment_sessions")
+              .select("provider_order_id")
+              .eq("id", String(tripForTipWindow.payment_session_id))
+              .maybeSingle();
+            if (tipSessionErr) {
+              console.error("[stop-workflow] tip window order lookup failed before completion", {
+                trip_id,
+                error: tipSessionErr.message,
+              });
+              return errorResponse(
+                "TIP_WINDOW_STAMP_UNAVAILABLE",
+                "Unable to open the tip window. Please try again.",
+                503,
+              );
+            }
+            tipWindowOrderId = String(tipSession?.provider_order_id ?? "").trim();
+            if (tipWindowOrderId) tripForTipWindow.provider_order_id = tipWindowOrderId;
+          }
+          if (!tipWindowOrderId) {
+            // No order to capture later. Do not stamp a window expiry cannot close.
+            console.error("[stop-workflow] tip window skipped; no provider order", { trip_id });
+          }
+        }
+        if (
+          tipWindowOrderId
+          && requiresProviderSettlement(tripForTipWindow)
+          && String(tripForTipWindow.financial_model ?? "").trim().toUpperCase() === "PLATFORM_COLLECTED"
+          && isCardPaymentMethod(tripForTipWindow.payment_method)
+          && isCustomerAppTipChannelEligible({
+            booking_source: tripForTipWindow.booking_source as string | null,
+            corporate_account_id: tripForTipWindow.corporate_account_id as string | null,
+          })
+          && tripForTipWindow.service_area_id
+          // MK-260926-001: never open a tip window when fare is already captured.
+          && !isFareCapturedBlockingTipWindow({
+            paymentStatus: tripForTipWindow.payment_status as string | null,
+            captureAmountPence: tripForTipWindow.capture_amount_pence as number | null,
+          })
+        ) {
+          const { data: tipAreaEarly, error: tipAreaEarlyErr } = await supabase
+            .from("service_areas")
+            .select("tips_enabled")
+            .eq("id", tripForTipWindow.service_area_id as string)
+            .maybeSingle();
+          if (tipAreaEarlyErr) {
+            // Do not complete until we know whether to stamp the window.
+            // A failed read used to complete with no stamp, and the invoice
+            // trigger could then run before capture.
+            console.error("[stop-workflow] tips_enabled read failed before completion", {
+              trip_id,
+              error: tipAreaEarlyErr.message,
+            });
+            return errorResponse(
+              "TIP_WINDOW_STAMP_UNAVAILABLE",
+              "Unable to open the tip window. Please try again.",
+              503,
+            );
+          }
+          if (tipAreaEarly?.tips_enabled === true) {
+            tipWindowOnComplete = {
+              tip_window_opened_at: now,
+              tip_window_expires_at: new Date(
+                new Date(now).getTime() + TIP_WINDOW_MS,
+              ).toISOString(),
+              tip_window_status: TIP_WINDOW_STATUS.OPEN,
+              tip_window_closed_at: null,
+            };
+          }
+        }
+
+        stages.mark('completion_writes_start');
+        const [, , commissionResult, driverRegionResult] = await Promise.all([
+          incompleteStopIds.length > 0
+            ? supabase
+                .from("trip_stops")
+                .update({
+                  status: 'completed' as StopStatus,
+                  completed_at: now,
+                  arrived_at: now,
+                  updated_at: now,
+                })
+                .in("id", incompleteStopIds)
+            : Promise.resolve(),
+          supabase
+            .from("trips")
+            .update({
+              status: 'completed' as TripStatus,
+              // SSOT: dispatch_status must be 'completed' simultaneously with status='completed'.
+              // Admin panel reads dispatch_status — without this, trips appear stuck in prior state.
+              // promote_stacked_trip also sets 'completed' on Trip A; this is the primary write.
+              dispatch_status: 'completed',
+              completed_at: now,
+              fare: finalFareMajor,
+              estimated_fare: finalFareMajor,
+              final_fare_pence: finalFarePence,
+              final_customer_fare_pence:
+                nonNegInt((tripBeforeComplete ?? trip).final_customer_fare_pence) || finalFarePence,
+              pickup_waiting_charge_pence: resolvedFare.arrival_waiting_charge_pence,
+              stop_waiting_charge_pence: resolvedFare.stop_waiting_charge_pence,
+              stop_charge_total_pence: resolvedFare.stop_waiting_charge_pence,
+              total_waiting_charge_pence: totalWaitingPence,
+              waiting_charge_pence: totalWaitingPence,
+              ...(tipWindowOrderId && !String((tripBeforeComplete ?? trip).provider_order_id ?? "").trim()
+                ? { provider_order_id: tipWindowOrderId }
+                : {}),
+              ...(tipWindowOnComplete ?? {}),
+              updated_at: now,
+            })
+            .eq("id", trip_id),
+          getDriverCommissionPct(supabase, driver_id, (tripBeforeComplete ?? trip).service_area_id),
+          supabase
+            .from('drivers')
+            .select('region_id, total_trips, regions(currency_code)')
+            .eq('id', driver_id)
+            .single(),
+        ]);
+        stages.mark('completion_writes_end');
+
+        // Queued stacked trips may exist even if stacked_trip_id link was cleared (max 2–3).
+        const { count: remainingQueuedCount } = await supabase
+          .from("trips")
+          .select("id", { count: "exact", head: true })
+          .eq("status", "queued")
+          .or(`driver_id.eq.${driver_id},confirmed_driver_id.eq.${driver_id}`);
+        const hasStackedTrip =
+          trip.stacked_trip_id != null || (remainingQueuedCount ?? 0) > 0;
+
+        if (!hasStackedTrip) {
+          // No stacked trip — clear current_trip_id (fire-and-forget is fine here)
+          await supabase
+            .from("drivers")
+            .update({ current_trip_id: null, updated_at: now })
+            .eq("id", driver_id);
+        } else {
+          console.log(
+            "[stop-workflow] Stacked queue present:",
+            {
+              stacked_trip_id: trip.stacked_trip_id,
+              remaining_queued: remainingQueuedCount ?? 0,
+            },
+            "- keeping current_trip_id for post-trip promotion",
+          );
+        }
+
+        // ── PHASE 2: SSOT fare + payment (P0: card → finalize-trip-and-capture) ──
+        stages.mark('settlement_start');
+        const { data: tripAfterComplete } = await supabase
+          .from("trips")
+          .select("*")
+          .eq("id", trip_id)
+          .single();
+
+        const fareTrip = tripAfterComplete ?? trip;
+        const regionData = driverRegionResult?.data?.regions as { currency_code?: string } | null;
+        const ledgerCurrency = regionData?.currency_code || null;
+
+        const CS_MAP: Record<string, string> = { GBP:'£',USD:'$',EUR:'€',INR:'₹',AED:'د.إ',CAD:'C$',AUD:'A$',KES:'KSh',NGN:'₦',ZAR:'R',PKR:'₨',BDT:'৳' };
+        const cs = ledgerCurrency ? (CS_MAP[ledgerCurrency.toUpperCase()] || '') : '';
+
+        const commissionPct = Number(commissionResult);
+        const tipAmountPence = fareTrip.tip_amount_pence || fareTrip.tip_pence || 0;
+        const cashDecision = completeTripCashDecision(fareTrip);
+        if (cashDecision === "fail_closed_operational_cash") {
+          console.error("[stop-workflow]", OPERATIONAL_CASH_VIOLATION, { trip_id });
+          return errorResponse(
+            "FINANCIAL_MODEL_VIOLATION",
+            OPERATIONAL_CASH_VIOLATION,
+            409,
+          );
+        }
+        const tripFinancialModel =
+          String(fareTrip.financial_model ?? "").trim().toUpperCase();
+        const mayPostDriverWalletLedger = tripFinancialModel === "PLATFORM_COLLECTED";
+        // EXISTING CODE REPAIRED — Revolut Payment Session / provider_order_id gate.
+        const needsProviderSettlement = requiresProviderSettlement(fareTrip);
+        const providerOrderId = tripProviderOrderId(fareTrip);
+        const isCardPaymentMethodFlag = isCardPaymentMethod(fareTrip.payment_method);
+
+        // Settle from fare row with waiting forced in — never ride-only final_customer.
+        const settlementRow = buildSettlementTripRow({
+          trip: {
+            ...fareTrip,
+            airport_charge_pence: resolvedFare.airport_charge_pence,
+            accepted_commission_percent: fareTrip.accepted_commission_percent,
+            driver_tier_commission_percent: resolveTripTierPercent({
+              ...fareTrip,
+              commission_pct: fareTrip.commission_pct ?? commissionPct,
+            }),
+            commission_pct: fareTrip.commission_pct ?? commissionPct,
+          },
+          finalFarePence,
+          tipPence: tipAmountPence,
+          pickupWaitingChargePence: resolvedFare.arrival_waiting_charge_pence,
+          stopWaitingChargePence: resolvedFare.stop_waiting_charge_pence,
+        });
+        const settlement = calculateTripSettlementFromTripRow(settlementRow);
+        if (!settlement) {
+          return errorResponse("SETTLEMENT_FAILED", "Unable to compute trip settlement", 500);
+        }
+        const commissionableFarePence = settlement.commissionable_fare_pence;
+        const commissionPence = settlement.commission_pence;
+        const driverNetBeforeTip = settlement.driver_net_pence;
+        const driverTotalEarnings = settlement.driver_total_earnings_pence;
+
+        console.log("[stop-workflow] SSOT fare breakdown:", JSON.stringify({
+          finalFarePence,
+          stop_waiting_charge_pence: resolvedFare.stop_waiting_charge_pence,
+          pickup_waiting_charge_pence: resolvedFare.arrival_waiting_charge_pence,
+          commissionableFarePence,
+          commissionPct: settlement.tier_percent_used,
+          commissionPence,
+          driverNetBeforeTip,
+          tipAmountPence,
+          driverTotalEarnings,
+          cashDecision,
+          needsProviderSettlement,
+          provider_order_id: providerOrderId,
+          payment_provider: fareTrip.payment_provider ?? null,
+          ledgerCurrency,
+        }));
+
+        // Increment driver's total_trips (parallel with ledger work)
+        const currentTotalTrips = driverRegionResult?.data?.total_trips || 0;
+        const tripIncrementPromise = supabase
+          .from("drivers")
+          .update({ total_trips: currentTotalTrips + 1 })
+          .eq("id", driver_id);
+
+        // P0: Revolut card / Apple Pay / Google Pay — capture via existing finalize-trip-and-capture.
+        // Tip-eligible Customer App card trips: defer capture for TIP_WINDOW_MS, post TEN immediately.
+        // Other channels: capture immediately; TEN after provider-confirmed capture.
+        if (needsProviderSettlement) {
+          stages.mark('payment_capture_start');
+          let tipsEnabledForArea = false;
+          if (fareTrip.service_area_id) {
+            const { data: tipArea } = await supabase
+              .from("service_areas")
+              .select("tips_enabled")
+              .eq("id", fareTrip.service_area_id)
+              .maybeSingle();
+            tipsEnabledForArea = tipArea?.tips_enabled === true;
+          }
+          const deferCaptureForTipWindow =
+            Boolean(providerOrderId) &&
+            tipsEnabledForArea &&
+            mayPostDriverWalletLedger &&
+            isCardPaymentMethodFlag &&
+            isCustomerAppTipChannelEligible({
+              booking_source: fareTrip.booking_source,
+              corporate_account_id: fareTrip.corporate_account_id,
+            }) &&
+            // MK-260926-001: fare already captured → capture immediately, no tip window.
+            !isFareCapturedBlockingTipWindow({
+              paymentStatus: fareTrip.payment_status,
+              captureAmountPence: fareTrip.capture_amount_pence,
+            });
+
+          let tipWindowDeferred = false;
+          if (deferCaptureForTipWindow) {
+            const completedAtIso = String(fareTrip.completed_at ?? now);
+            const expiresAtIso = new Date(
+              new Date(completedAtIso).getTime() + TIP_WINDOW_MS,
+            ).toISOString();
+            const { error: tipWindowStampErr } = await supabase.from("trips").update({
+              ...tripSettlementDbColumns(settlement),
+              tip_amount_pence: tipAmountPence,
+              tip_pence: tipAmountPence,
+              final_fare_pence: finalFarePence,
+              final_customer_fare_pence:
+                nonNegInt(fareTrip.final_customer_fare_pence) || finalFarePence,
+              tip_window_opened_at: completedAtIso,
+              tip_window_expires_at: expiresAtIso,
+              tip_window_status: TIP_WINDOW_STATUS.OPEN,
+              tip_window_closed_at: null,
+              updated_at: new Date().toISOString(),
+            }).eq("id", trip_id);
+
+            if (tipWindowStampErr && !tipWindowOnComplete) {
+              // Fail open to immediate capture — never skip both stamp and finalize.
+              // If the completion write already opened the window, do not capture here.
+              console.error("[stop-workflow] tip window stamp failed; capturing immediately", {
+                trip_id,
+                error: tipWindowStampErr.message,
+              });
+            } else {
+              tipWindowDeferred = true;
+              const tenPence = Math.max(
+                0,
+                settlement.driver_net_pence + settlement.airport_charge_pence,
+              );
+              if (tenPence > 0) {
+                try {
+                  await postTripEarningNetCanonical(supabase, {
+                    driverId: driver_id,
+                    tripId: trip_id,
+                    driverNetPence: tenPence,
+                    tipPence: 0,
+                    currency: ledgerCurrency ?? "GBP",
+                    commissionPct: settlement.tier_percent_used,
+                    paymentId: providerOrderId,
+                  });
+                } catch (tenErr) {
+                  console.error("[stop-workflow] deferred tip-window TEN post failed", {
+                    trip_id,
+                    error: tenErr instanceof Error ? tenErr.message : String(tenErr),
+                  });
+                }
+              }
+
+              console.log("[PAYMENT_AUDIT]", JSON.stringify({
+                stage: "tip_window_capture_deferred",
+                trip_id,
+                provider_order_id: providerOrderId,
+                tip_window_expires_at: expiresAtIso,
+                tip_window_ms: TIP_WINDOW_MS,
+                driver_net_pence: settlement.driver_net_pence,
+                source: "stop-workflow:complete_trip",
+              }));
+            }
+          }
+          if (!tipWindowDeferred && tipWindowOnComplete) {
+            // Completion write already opened the window. Do not finalize — that
+            // capture is refused while the window is open and would miss TEN.
+            tipWindowDeferred = true;
+            const tenPence = Math.max(
+              0,
+              settlement.driver_net_pence + settlement.airport_charge_pence,
+            );
+            if (tenPence > 0) {
+              try {
+                await postTripEarningNetCanonical(supabase, {
+                  driverId: driver_id,
+                  tripId: trip_id,
+                  driverNetPence: tenPence,
+                  tipPence: 0,
+                  currency: ledgerCurrency ?? "GBP",
+                  commissionPct: settlement.tier_percent_used,
+                  paymentId: providerOrderId,
+                });
+              } catch (tenErr) {
+                console.error("[stop-workflow] deferred tip-window TEN post failed", {
+                  trip_id,
+                  error: tenErr instanceof Error ? tenErr.message : String(tenErr),
+                });
+              }
+            }
+          }
+          if (!tipWindowDeferred) {
+          await supabase.from("trips").update({
+            ...tripSettlementDbColumns(settlement),
+            tip_amount_pence: tipAmountPence,
+            tip_pence: tipAmountPence,
+            final_fare_pence: finalFarePence,
+            final_customer_fare_pence:
+              nonNegInt(fareTrip.final_customer_fare_pence) || finalFarePence,
+            updated_at: new Date().toISOString(),
+          }).eq("id", trip_id);
+
+          const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
+          const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+          console.log("[PAYMENT_AUDIT]", JSON.stringify({
+            stage: "auto_capture_trigger",
+            trip_id,
+            provider_order_id: providerOrderId,
+            payment_session_id: fareTrip.payment_session_id ?? null,
+            source: "stop-workflow:complete_trip",
+            driver_net_pence: settlement.driver_net_pence,
+          }));
+          let finalizeResult: { ok: boolean; error?: string; body?: Record<string, unknown> };
+          try {
+            finalizeResult = await invokeFinalizeTripCapture(
+              supabaseUrl,
+              serviceRoleKey,
+              trip_id,
+              0,
+            );
+          } catch (finalizeErr) {
+            finalizeResult = {
+              ok: false,
+              error: finalizeErr instanceof Error
+                ? finalizeErr.message
+                : String(finalizeErr),
+            };
+          }
+          if (!finalizeResult.ok) {
+            console.error("[stop-workflow] finalize-trip-and-capture failed:", finalizeResult.error);
+            const bodyStatus = String(
+              (finalizeResult.body as { status?: string } | undefined)?.status ?? "",
+            ).toLowerCase();
+            const bodyOkFlag = (finalizeResult.body as { success?: boolean } | undefined)?.success;
+            // Durable shortfall/recovery/incremental outcomes must NOT be clobbered to capture_failed.
+            const isDurableRecovery =
+              bodyStatus.includes("shortfall") ||
+              bodyStatus.includes("recovery") ||
+              bodyStatus.includes("partial_capture") ||
+              bodyStatus.includes("additional_authorisation") ||
+              bodyStatus.includes("incremental");
+
+            const { data: freshPay } = await supabase
+              .from("trips")
+              .select("payment_status, payment_hold_status")
+              .eq("id", trip_id)
+              .maybeSingle();
+            const freshStatus = String(freshPay?.payment_status ?? "").toLowerCase();
+            const freshHold = String(freshPay?.payment_hold_status ?? "").toLowerCase();
+            const alreadyShortfall =
+              freshStatus === "payment_shortfall" ||
+              freshHold.includes("shortfall") ||
+              freshHold.includes("recovery");
+
+            if (isDurableRecovery || alreadyShortfall || bodyOkFlag === true) {
+              const hold = isDurableRecovery
+                ? (bodyStatus.includes("additional_authorisation") || bodyStatus.includes("incremental")
+                  ? (bodyStatus.includes("fail")
+                    ? "incremental_authorisation_failed"
+                    : "incremental_authorisation_pending")
+                  : (bodyStatus || "payment_shortfall"))
+                : (freshHold || "payment_shortfall");
+              await supabase.from("trips").update({
+                payment_status: alreadyShortfall || bodyStatus.includes("shortfall") ||
+                    bodyStatus.includes("recovery") || bodyStatus.includes("partial_capture")
+                  ? "payment_shortfall"
+                  : (bodyStatus.includes("fail") ? "capture_failed" : "authorized"),
+                payment_hold_status: hold,
+                updated_at: new Date().toISOString(),
+              }).eq("id", trip_id);
+            } else {
+              await recordTripCaptureFailure(
+                supabase,
+                trip_id,
+                finalizeResult.error ?? "Auto capture failed",
+                providerOrderId,
+              );
+              // Durable settlement outcome — never leave authorized+draft after complete.
+              await supabase.from("trips").update({
+                payment_status: "capture_failed",
+                payment_hold_status: "capture_failed",
+                updated_at: new Date().toISOString(),
+              }).eq("id", trip_id);
+              if (hasStackedTrip) {
+                await handleQueuedTripAfterPaymentFailure(supabase, {
+                  currentTripId: trip_id,
+                  driverId: driver_id,
+                  paymentStatus: "capture_failed",
+                });
+              }
+            }
+          } else {
+            console.log("[stop-workflow] finalize-trip-and-capture invoked", finalizeResult.body);
+            const bodyStatus = String(
+              (finalizeResult.body as { status?: string } | undefined)?.status ?? "",
+            ).toLowerCase();
+            if (
+              bodyStatus.includes("shortfall") ||
+              bodyStatus.includes("recovery") ||
+              bodyStatus.includes("additional_authorisation") ||
+              bodyStatus.includes("incremental") ||
+              bodyStatus.includes("partial_capture")
+            ) {
+              const colsStatus = bodyStatus.includes("shortfall") ||
+                  bodyStatus.includes("recovery") ||
+                  bodyStatus.includes("partial_capture")
+                ? "payment_shortfall"
+                : bodyStatus.includes("fail")
+                ? "capture_failed"
+                : "authorized";
+              await supabase.from("trips").update({
+                payment_status: colsStatus,
+                payment_hold_status: bodyStatus.includes("additional_authorisation") ||
+                    bodyStatus.includes("incremental")
+                  ? (bodyStatus.includes("fail")
+                    ? "incremental_authorisation_failed"
+                    : "incremental_authorisation_pending")
+                  : bodyStatus,
+                updated_at: new Date().toISOString(),
+              }).eq("id", trip_id);
+            }
+          }
+          }
+        } else if (isCardPaymentMethodFlag && !needsProviderSettlement) {
+          // Card trip without usable provider order/session — persist explicit failure.
+          console.error("[stop-workflow] card trip missing provider settlement identity", {
+            trip_id,
+            payment_method: fareTrip.payment_method,
+            payment_provider: fareTrip.payment_provider ?? null,
+            payment_session_id: fareTrip.payment_session_id ?? null,
+          });
+          await supabase.from("trips").update({
+            payment_status: "capture_failed",
+            payment_hold_status: "provider_authorisation_missing",
+            updated_at: new Date().toISOString(),
+          }).eq("id", trip_id);
+        }
+        if (needsProviderSettlement || isCardPaymentMethodFlag) {
+          stages.mark('payment_capture_end');
+        }
+        stages.mark('settlement_end');
+
+        const skipCardLedgerInStopWorkflow = needsProviderSettlement;
+        if ((commissionableFarePence > 0 || tipAmountPence > 0) && !skipCardLedgerInStopWorkflow && mayPostDriverWalletLedger) {
+          stages.mark('wallet_ledger_start');
+          if (cashDecision !== "not_cash") {
+            console.error("[stop-workflow]", OPERATIONAL_CASH_VIOLATION, { trip_id, cashDecision });
+            return errorResponse(
+              "FINANCIAL_MODEL_VIOLATION",
+              OPERATIONAL_CASH_VIOLATION,
+              409,
+            );
+          }
+          // No provider capture on this path. A claimed tip is not collected money.
+          const ledgerTipPence = invoiceTipPenceFromConfirmedCapture({
+            paymentMethod: fareTrip.payment_method,
+            captureAmountPence: fareTrip.capture_amount_pence,
+            finalFarePence: finalFarePence,
+            requestedTipPence: tipAmountPence,
+          });
+          // Check all existing ledger entries in parallel
+          const ledgerTypes = ['TRIP_EARNING_NET', 'PLATFORM_COMMISSION'];
+          if (ledgerTipPence > 0) ledgerTypes.push('DRIVER_TIP_CREDIT');
+
+          const existingChecks = await Promise.all(
+            ledgerTypes.map(type =>
+              supabase
+                .from("driver_wallet_ledger")
+                .select("id")
+                .eq("related_trip_id", trip_id)
+                .eq("type", type)
+                .maybeSingle()
+                .then(r => ({ type, exists: !!r.data }))
+            )
+          );
+          const existsMap = Object.fromEntries(existingChecks.map(c => [c.type, c.exists]));
+
+          // Build all inserts + trip fare update in parallel
+          const parallelOps: any[] = [];
+
+          const tripFareUpdate: Record<string, unknown> = {
+            ...tripSettlementDbColumns(settlement),
+            tip_amount_pence: tipAmountPence,
+            tip_pence: tipAmountPence,
+            final_fare_pence: finalFarePence,
+            final_customer_fare_pence:
+              nonNegInt(fareTrip.final_customer_fare_pence) || finalFarePence,
+          };
+          // Card payment_status is owned by finalize-trip-and-capture + provider webhook
+
+          parallelOps.push(
+            supabase.from("trips").update(tripFareUpdate).eq("id", trip_id),
+          );
+
+          if (!existsMap['TRIP_EARNING_NET']) {
+            parallelOps.push(
+              postTripEarningNetCanonical(supabase, {
+                driverId: driver_id,
+                tripId: trip_id,
+                driverNetPence: driverNetBeforeTip + settlement.airport_charge_pence,
+                tipPence: ledgerTipPence,
+                currency: ledgerCurrency || 'GBP',
+                commissionPct: settlement.tier_percent_used,
+              }).then(() => ({ data: null, error: null })),
+            );
+          } else if (ledgerTipPence > 0 && !existsMap['DRIVER_TIP_CREDIT']) {
+            // TEN already posted. Canonical poster was skipped, so add the covered tip only.
+            parallelOps.push(
+              supabase.from("driver_wallet_ledger").insert({
+                driver_id,
+                related_trip_id: trip_id,
+                type: 'DRIVER_TIP_CREDIT',
+                amount_pence: ledgerTipPence,
+                currency: ledgerCurrency || 'GBP',
+                description: `Tip from passenger (${cs}${(ledgerTipPence / 100).toFixed(2)})`,
+              })
+            );
+          }
+
+          if (!existsMap['PLATFORM_COMMISSION']) {
+            parallelOps.push(
+              supabase.from("driver_wallet_ledger").insert({
+                driver_id,
+                related_trip_id: trip_id,
+                type: 'PLATFORM_COMMISSION',
+                amount_pence: commissionPence,
+                currency: ledgerCurrency || 'GBP',
+                description: `Platform commission ${settlement.tier_percent_used}% on ${cs}${(commissionableFarePence / 100).toFixed(2)} (card)`,
+              })
+            );
+          }
+
+          // Fire all ledger inserts + fare update + trip increment in parallel
+          parallelOps.push(tripIncrementPromise);
+          await Promise.all(parallelOps);
+          stages.mark('wallet_ledger_end');
+        } else {
+          // No fare — just increment trips
+          await tripIncrementPromise;
+        }
+
+        // Server-side stacked promotion — do not wait for driver post-trip rating UI.
+        // RPC falls back to stack_position when stacked_trip_id is null (Admin max 2–3).
+        if (hasStackedTrip) {
+          stages.mark('stacked_promotion_start');
+          const promotion = await tryPromoteStackedTripAfterCompletion(
+            supabase,
+            driver_id,
+            trip_id,
+          );
+          stages.mark('stacked_promotion_end');
+          console.log("[stop-workflow] STACKED_TRIP_PROMOTION_AFTER_COMPLETE", {
+            completed_trip_id: trip_id,
+            stacked_trip_id: trip.stacked_trip_id,
+            remaining_queued: remainingQueuedCount ?? 0,
+            promoted: promotion.promoted,
+            detail: promotion.detail ?? null,
+          });
+        }
+
+        console.log("[stop-workflow] COMPLETE_TRIP success");
+        // Financial + status completion already durable. P2: customer notify + tap audit.
+        stages.mark('notification_enqueue');
+        const completePassengerId =
+          typeof trip.passenger_id === "string" ? trip.passenger_id : null;
+        const completeFinalStopIndex = finalStop.stop_index;
+        scheduleEdgeBackground(async () => {
+          await writeTripAudit(supabase, {
+            trip_id,
+            driver_id,
+            event_type: 'COMPLETE_TRIP_TAPPED',
+            details: { final_stop_index: completeFinalStopIndex },
+          });
+          await notifyCustomerTripLifecycle(supabase, {
+            passengerId: completePassengerId,
+            tripId: trip_id,
+            event: "trip_completed",
+          });
+        }, "complete_trip_p2");
+        stages.mark('response_ready');
+        completeTripStagesMs = stages.snapshot();
+        return await respondOk({ success: true, action: 'complete_trip' });
+      }
+
+      default:
+        return errorResponse("INVALID_ACTION", `Unknown action: ${action}`, 400);
+    }
+
+  } catch (error) {
+    console.error("[stop-workflow] Error:", error);
+    return errorResponse("INTERNAL_ERROR", "Internal server error", 500);
+  }
+});

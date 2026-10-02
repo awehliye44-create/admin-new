@@ -1,0 +1,970 @@
+import { createClient } from "npm:@supabase/supabase-js@2.57.2";
+import { resolveCustomerPreauthBasePence } from "../_shared/customerDisplayFare.ts";
+import { loadCustomerNegotiationView } from "../_shared/customerNegotiationView.ts";
+import { buildServiceAreaConfigPayload } from "../_shared/serviceAreaConfigSSOT.ts";
+import { buildTripCommunicationConfigForTrip } from "../_shared/tripCommunicationConfigBuilder.ts";
+import { computeLiveTripFarePreview } from "../_shared/liveTripFareSSOT.ts";
+import { getCurrencySymbol } from "../_shared/currency.ts";
+import { serveWithEdgeTiming } from "../_shared/edgeFunctionTiming.ts";
+import { releaseHoldOnTripTerminal } from "../_shared/holdReleaseSSOT.ts";
+import {
+  isScheduledHandoverOpenJobStatus,
+  isScheduledInstantConversionPending,
+  isScheduledWorkflowOrigin,
+} from "../_shared/scheduledHandoverHoldLock.ts";
+import { expireTripWhenSearchExhaustedAndNotifyCustomer } from "../_shared/customerTripLifecycleNotify.ts";
+import { loadAdminWaitingConfig } from "../_shared/waitingAdminConfig.ts";
+import {
+  attachGetActiveTripTiming,
+  createGetActiveTripEdgeTiming,
+  isGetActiveTripKnownTripIdShape,
+  parseGetActiveTripPurpose,
+  type GetActiveTripPurpose,
+} from "../_shared/getActiveTripEdgeTimingSSOT.ts";
+
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+};
+
+/** Keep in sync with customer app PUBLISH_STATUSES + useCustomerLiveLocationPublisher. */
+/** Live customer phases — excludes `queued` (stacked ride waiting on Trip A). */
+const CUSTOMER_LIVE_PRE_PICKUP_STATES = [
+  "accepted",
+  "confirmed",
+  "driver_assigned",
+  "en_route",
+  "en_route_to_pickup",
+  "enroute_to_pickup",
+  "driver_en_route",
+  "driver_arriving",
+  "arrived",
+  "arrived_pickup",
+  "arrived_at_pickup",
+  "at_pickup",
+  "pickup_waiting",
+  "waiting",
+] as const;
+
+const SCHEDULED_LIVE_STATES = [
+  ...CUSTOMER_LIVE_PRE_PICKUP_STATES,
+  "in_progress",
+  "completing",
+];
+
+type TripRow = Record<string, any>;
+
+function parseTimeMs(value: unknown): number | null {
+  if (typeof value !== "string" || !value) return null;
+  const ms = new Date(value).getTime();
+  return Number.isFinite(ms) ? ms : null;
+}
+
+function isScheduledTrip(row: TripRow): boolean {
+  const bookingType = String(row.booking_type ?? row.trip_type ?? "").toLowerCase();
+  if (bookingType === "instant" || bookingType === "immediate") return false;
+  if (bookingType === "scheduled") return true;
+  return row.is_scheduled === true;
+}
+
+/** Keep in sync with activeTripRestoreCore — HELD / preconfirm / activation-armed. */
+const SCHEDULED_PREACTIVATION_STATUSES = new Set([
+  "admin_held",
+  "awaiting_activation_accept",
+  "driver_assigned",
+  "scheduled_committed",
+]);
+
+function scheduledDispatchWindowReached(row: TripRow, nowMs: number): boolean {
+  const dispatchMode = String(row.dispatch_mode ?? "").toLowerCase();
+  if (dispatchMode === "instant") return true;
+  const scheduledStatus = String(row.scheduled_status ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/-/g, "_");
+  // Admin HELD / preconfirm / awaiting activation NRO: clocks alone must not
+  // treat the trip as Customer live (Finding / Assigned).
+  if (SCHEDULED_PREACTIVATION_STATUSES.has(scheduledStatus)) {
+    return false;
+  }
+
+  return [
+    row.scheduled_broadcast_at,
+    row.scheduled_convert_at,
+    row.scheduled_at,
+  ].some((value) => {
+    const ms = parseTimeMs(value);
+    return ms !== null && ms <= nowMs;
+  });
+}
+
+const TERMINAL_TRIP_STATUSES = new Set([
+  "completed",
+  "cancelled",
+  "canceled",
+  "customer_cancelled",
+  "customer_canceled",
+  "expired",
+  "expired_no_driver",
+  "no_show",
+  "failed",
+]);
+
+const SEARCHING_TRIP_STATUSES = new Set([
+  "pending",
+  "searching",
+  "offered",
+  "offering",
+  "broadcasting",
+  "searching_new_driver",
+  "driver_cancelled",
+]);
+
+const ACTIVE_REMATCH_DISPATCH = new Set([
+  "broadcasting",
+  "searching",
+  "offering",
+  "offered",
+]);
+
+const ASSIGNED_DISPATCH = new Set([
+  "assigned",
+  "accepted",
+  "confirmed",
+  "en_route",
+  "enroute",
+  "arriving",
+  "arrived",
+  "in_progress",
+  "started",
+]);
+
+function isDriverAssignedDespiteCancelledStatus(row: TripRow): boolean {
+  if (row.cancelled_by !== "driver") return false;
+  if (row.cancel_reason !== "driver_cancelled") return false;
+  const confirmed = row.confirmed_driver_id;
+  if (!(typeof confirmed === "string" && confirmed.trim().length > 0)) return false;
+  const dispatch = String(row.dispatch_status ?? "").trim().toLowerCase();
+  return ASSIGNED_DISPATCH.has(dispatch);
+}
+
+function isActiveDriverCancelRematchDespiteStatus(row: TripRow, nowMs: number): boolean {
+  if (row.cancelled_by !== "driver") return false;
+  if (row.cancel_reason !== "driver_cancelled") return false;
+  const confirmed = row.confirmed_driver_id;
+  if (typeof confirmed === "string" && confirmed.trim().length > 0) return false;
+  const driver = row.driver_id;
+  if (typeof driver === "string" && driver.trim().length > 0) return false;
+  const dispatch = String(row.dispatch_status ?? "").trim().toLowerCase();
+  if (!ACTIVE_REMATCH_DISPATCH.has(dispatch)) return false;
+  if (!row.searching_expires_at) return false;
+  const deadlineMs = new Date(row.searching_expires_at).getTime();
+  return Number.isFinite(deadlineMs) && nowMs < deadlineMs;
+}
+
+function isSearchWindowExpiredForCustomer(row: TripRow, nowMs: number): boolean {
+  if (isScheduledInstantConversionPending(row)) return false;
+  const status = String(row.status ?? "").toLowerCase();
+  if (!SEARCHING_TRIP_STATUSES.has(status)) return false;
+  if (row.driver_id || row.confirmed_driver_id) return false;
+
+  const expiresRaw = (row as { searching_expires_at?: string | null }).searching_expires_at;
+  if (expiresRaw) {
+    const expiresMs = new Date(expiresRaw).getTime();
+    if (!(Number.isFinite(expiresMs) && nowMs >= expiresMs)) return false;
+    // Past stamp on scheduled-origin jobs is expire-RPC SSOT — do not Home
+    // locally (live offers / stale booking stamp after convert).
+    if (isScheduledWorkflowOrigin(row)) return false;
+    return true;
+  }
+
+  // Converted scheduled rematch without a stamped window must not be treated
+  // as already expired — that is the MK-006 created_at TTL class.
+  if (isScheduledWorkflowOrigin(row)) return false;
+
+  if (status === "searching_new_driver" || status === "driver_cancelled") {
+    return true;
+  }
+
+  return false;
+}
+
+function isCustomerLiveTrip(row: TripRow, nowMs: number): boolean {
+  const status = String(row.status ?? "").toLowerCase();
+  if (!status) return false;
+
+  if (TERMINAL_TRIP_STATUSES.has(status)) {
+    if (isActiveDriverCancelRematchDespiteStatus(row, nowMs)) return true;
+    if (isDriverAssignedDespiteCancelledStatus(row)) return true;
+    return false;
+  }
+
+  if (SEARCHING_TRIP_STATUSES.has(status)) {
+    if (isSearchWindowExpiredForCustomer(row, nowMs)) return false;
+  }
+  // Scheduled broadcast / fare-offer / rematch is live before pickup.
+  // Do not drop negotiating/dispatching just because they are outside the
+  // instant searching TTL set (MK-260817-006).
+  if (
+    isScheduledInstantConversionPending(row) &&
+    isScheduledHandoverOpenJobStatus(status)
+  ) {
+    return true;
+  }
+
+  const dispatchMode = String(row.dispatch_mode ?? "").trim().toLowerCase();
+  const scheduledStatus = String(row.scheduled_status ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/-/g, "_");
+  // Same-trip conversion is on the instant nearby-card path even while
+  // is_scheduled remains true (historical booking type).
+  if (dispatchMode === "instant" || scheduledStatus === "converted_to_instant") {
+    return true;
+  }
+
+  if (!isScheduledTrip(row)) return true;
+
+  // Preconfirm / HELD / activation-armed stay on Rides→Scheduled — never live.
+  if (SCHEDULED_PREACTIVATION_STATUSES.has(scheduledStatus)) {
+    return false;
+  }
+
+  const hasDriver = Boolean(row.driver_id || row.confirmed_driver_id);
+  return (
+    hasDriver &&
+    SCHEDULED_LIVE_STATES.includes(status) &&
+    scheduledDispatchWindowReached(row, nowMs)
+  );
+}
+
+
+serveWithEdgeTiming("get-active-trip", corsHeaders, async (req) => {
+  const timing = createGetActiveTripEdgeTiming();
+  try {
+    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+    const supabaseAnonKey = Deno.env.get("SUPABASE_ANON_KEY")!;
+    const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+
+    const authHeader = req.headers.get("Authorization");
+    if (!authHeader?.startsWith("Bearer ")) {
+      return new Response(
+        JSON.stringify({ error: "Unauthorized" }),
+        { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
+    }
+
+    let body: {
+      trip_id?: string | null;
+      tripId?: string | null;
+      purpose?: string | null;
+      mode?: string | null;
+    } = {};
+    try {
+      if (req.method === "POST") {
+        const text = await req.text();
+        if (text.trim()) body = JSON.parse(text);
+      }
+    } catch {
+      /* empty body ok */
+    }
+
+    const knownTripIdRaw =
+      (typeof body.trip_id === "string" && body.trip_id.trim()) ||
+      (typeof body.tripId === "string" && body.tripId.trim()) ||
+      "";
+    const knownTripId = isGetActiveTripKnownTripIdShape(knownTripIdRaw)
+      ? knownTripIdRaw.trim()
+      : null;
+    const purpose: GetActiveTripPurpose = parseGetActiveTripPurpose(
+      body.purpose ?? body.mode,
+    );
+    timing.setKnownTripId(Boolean(knownTripId));
+    timing.setPurpose(purpose);
+
+    timing.markAuthStart();
+    const supabaseAuth = createClient(supabaseUrl, supabaseAnonKey, {
+      global: { headers: { Authorization: authHeader } },
+    });
+    const { data: userData, error: userError } = await supabaseAuth.auth.getUser();
+    timing.markAuthEnd();
+
+    if (userError || !userData?.user) {
+      console.error("Auth error:", userError);
+      return new Response(
+        JSON.stringify({ error: "Unauthorized" }),
+        { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
+    }
+
+    const userId = userData.user.id;
+    console.log("Checking active trip for user:", userId, {
+      purpose,
+      known_trip_id: Boolean(knownTripId),
+    });
+
+    const supabase = createClient(supabaseUrl, supabaseServiceKey);
+
+    timing.markIdentityStart();
+    const { data: customers, error: customerError } = await supabase
+      .from("customers")
+      .select("id, active_trip_id")
+      .eq("user_id", userId);
+    timing.markIdentityEnd();
+
+    if (customerError) {
+      console.error("Failed to fetch customer:", customerError);
+      timing.markResponseStart();
+      return new Response(
+        JSON.stringify(attachGetActiveTripTiming({ activeTrip: null }, timing)),
+        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
+    }
+
+    const customer = customers?.[0];
+
+    const activeStates = [
+      "payment_pending",
+      "pending",
+      "searching",
+      "offered",
+      "offering",
+      "broadcasting",
+      "negotiating",
+      "driver_cancelled",
+      "searching_new_driver",
+      "queued",
+      ...CUSTOMER_LIVE_PRE_PICKUP_STATES,
+      "in_progress",
+      "completing",
+      "scheduled",
+    ];
+
+    const nowMs = Date.now();
+    let trip: TripRow | null = null;
+    let knownTripHit = false;
+    const loadedIds = new Set<string>();
+
+    const tryOwnedCandidate = async (
+      candidate: TripRow | undefined,
+      opts: { fromKnownHint: boolean; clearPointerIfTerminal: boolean },
+    ): Promise<boolean> => {
+      if (!candidate?.id || !customer) return false;
+      loadedIds.add(String(candidate.id));
+      // HARD: never trust client trip_id without ownership verification.
+      if (String(candidate.passenger_id ?? "") !== String(customer.id)) {
+        return false;
+      }
+      if (isCustomerLiveTrip(candidate, nowMs)) {
+        trip = candidate;
+        if (opts.fromKnownHint) knownTripHit = true;
+        return true;
+      }
+      if (
+        opts.clearPointerIfTerminal &&
+        TERMINAL_TRIP_STATUSES.has(String(candidate.status ?? "").toLowerCase())
+      ) {
+        await supabase
+          .from("customers")
+          .update({ active_trip_id: null })
+          .eq("user_id", userId);
+      }
+      return false;
+    };
+
+    timing.markTripStart();
+
+    // Known-trip fast path (Customer waiting ticks always send trip_id).
+    if (knownTripId && customer) {
+      const { data: rows } = await supabase
+        .from("trips")
+        .select("*")
+        .eq("id", knownTripId)
+        .limit(1);
+      await tryOwnedCandidate(rows?.[0] as TripRow | undefined, {
+        fromKnownHint: true,
+        clearPointerIfTerminal: customer.active_trip_id === knownTripId,
+      });
+    }
+    timing.setKnownTripHit(knownTripId ? knownTripHit : null);
+
+    // Pointer path (skip re-read when known hint already loaded that id).
+    if (!trip && customer?.active_trip_id) {
+      const pointerId = String(customer.active_trip_id);
+      if (!loadedIds.has(pointerId)) {
+        const { data: trips, error: tripError } = await supabase
+          .from("trips")
+          .select("*")
+          .eq("id", pointerId);
+
+        if (!tripError && trips?.[0]) {
+          const candidate = trips[0] as TripRow;
+          if (isCustomerLiveTrip(candidate, nowMs)) {
+            trip = candidate;
+          } else if (
+            // Full path only: searching expiry/hold release. Waiting ticks must
+            // not pay for expire+hold work when they already know a live trip_id.
+            purpose === "full" &&
+            isSearchWindowExpiredForCustomer(candidate, nowMs) &&
+            !isScheduledInstantConversionPending(candidate)
+          ) {
+            console.log("STALE_SEARCHING_TRIP_FOUND", {
+              trip_id: candidate.id,
+              status: candidate.status,
+              searching_expires_at: candidate.searching_expires_at ?? null,
+            });
+            const { expired: expiredByServer, rpcError: expireErr } =
+              await expireTripWhenSearchExhaustedAndNotifyCustomer(supabase, {
+                tripId: candidate.id,
+                passengerId:
+                  (candidate as { passenger_id?: string | null }).passenger_id ??
+                  customer?.id ??
+                  userId,
+              });
+            if (expireErr) {
+              console.warn("SEARCH_CYCLE_EXPIRED_BACKEND expire RPC failed:", candidate.id, expireErr);
+              trip = candidate;
+            } else if (expiredByServer === true) {
+              console.log("TRIP_MARKED_EXPIRED_NO_DRIVER", { trip_id: candidate.id });
+              try {
+                const holdRelease = await releaseHoldOnTripTerminal(supabase, {
+                  tripId: candidate.id,
+                  terminalReason: "no_driver_search_exhausted",
+                  source: "get-active-trip",
+                  idempotencyKey: `get_active_trip_expire_${candidate.id}`,
+                  forceRelease: true,
+                });
+                console.log("HOLD_RELEASE_AFTER_EXPIRE", { trip_id: candidate.id, ...holdRelease });
+              } catch (holdErr) {
+                console.error("HOLD_RELEASE_AFTER_EXPIRE failed (non-fatal):", candidate.id, holdErr);
+              }
+              await supabase
+                .from("customers")
+                .update({ active_trip_id: null })
+                .eq("user_id", userId);
+            } else {
+              console.log("SEARCH_WINDOW_STILL_ACTIVE_KEEP_LIVE", { trip_id: candidate.id });
+              trip = candidate;
+            }
+          } else {
+            console.log(
+              "Trip is not live for customer yet:",
+              candidate.id,
+              "status:",
+              candidate.status,
+              "scheduled:",
+              candidate.is_scheduled,
+            );
+            if (TERMINAL_TRIP_STATUSES.has(String(candidate.status ?? "").toLowerCase())) {
+              await supabase
+                .from("customers")
+                .update({ active_trip_id: null })
+                .eq("user_id", userId);
+            }
+          }
+        } else {
+          console.log("Trip not in active state, clearing reference");
+          await supabase
+            .from("customers")
+            .update({ active_trip_id: null })
+            .eq("user_id", userId);
+        }
+      }
+    }
+
+    // Broad search only when no known-trip hit and no pointer hit.
+    if (!trip && customer) {
+      const [instantResult, scheduledResult] = await Promise.all([
+        supabase
+          .from("trips")
+          .select("*")
+          .eq("passenger_id", customer.id)
+          .in("status", activeStates)
+          .or("is_scheduled.is.null,is_scheduled.eq.false")
+          .order("created_at", { ascending: false })
+          .limit(10),
+        supabase
+          .from("trips")
+          .select("*")
+          .eq("passenger_id", customer.id)
+          .eq("is_scheduled", true)
+          .in("status", [
+            ...SCHEDULED_LIVE_STATES,
+            "searching",
+            "offered",
+            "offering",
+            "broadcasting",
+            "searching_new_driver",
+            "pending",
+          ])
+          .order("created_at", { ascending: false })
+          .limit(10),
+      ]);
+      const instantTrip = (instantResult.data ?? []).find((candidate) =>
+        isCustomerLiveTrip(candidate as TripRow, nowMs)
+      ) ?? null;
+      const scheduledTrip = instantTrip
+        ? null
+        : (scheduledResult.data ?? []).find((candidate) =>
+          isCustomerLiveTrip(candidate as TripRow, nowMs)
+        ) ?? null;
+      const activated = instantTrip ?? scheduledTrip;
+      if (activated) {
+        trip = activated as TripRow;
+        await supabase
+          .from("customers")
+          .update({ active_trip_id: trip.id })
+          .eq("user_id", userId);
+        console.log("Backfilled active_trip_id for trip:", trip.id);
+      }
+    }
+    timing.markTripEnd();
+
+    if (!trip) {
+      console.log("No active trip for user");
+      timing.markResponseStart();
+      return new Response(
+        JSON.stringify(attachGetActiveTripTiming({ activeTrip: null }, timing)),
+        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
+    }
+
+    console.log("Found active trip:", trip.id, "status:", trip.status, {
+      purpose,
+      known_trip_hit: knownTripHit,
+    });
+
+    // ── WAITING FARE MINIMAL PATH ──────────────────────────────────────────
+    // Customer waiting ticks only soft-merge fare/waiting keys. Do not pay for
+    // service-area payment gateways, Revolut secrets, communication, route,
+    // driver photo, or open-mod enrichment on every Admin interval tick.
+    if (purpose === "waiting_fare") {
+      timing.setSkippedFullEnrich(true);
+
+      timing.markStopsStart();
+      const { data: tripStopsRows } = await supabase
+        .from("trip_stops")
+        .select(
+          "id, stop_index, type, address, status, arrived_at, lat, lng, waiting_charge_active, waiting_started_at, waiting_stopped_at, waiting_total_amount_pence",
+        )
+        .eq("trip_id", trip.id)
+        .order("stop_index", { ascending: true });
+      timing.markStopsEnd();
+
+      timing.markWaitingStart();
+      let adminWaitingConfig =
+        trip.pickup_waiting_admin_config ??
+        trip.admin_waiting_config_snapshot ??
+        null;
+      if (!adminWaitingConfig || typeof adminWaitingConfig !== "object") {
+        adminWaitingConfig = await loadAdminWaitingConfig(
+          supabase,
+          typeof trip.service_area_id === "string" ? trip.service_area_id : null,
+          typeof trip.vehicle_type_id === "string" ? trip.vehicle_type_id : null,
+        );
+      }
+      const displayFarePence = resolveCustomerPreauthBasePence(trip);
+      const liveFarePreview = computeLiveTripFarePreview({
+        final_customer_fare_pence: trip.final_customer_fare_pence ?? null,
+        final_fare_pence: trip.final_fare_pence ?? null,
+        locked_base_fare_pence: trip.locked_base_fare_pence ?? null,
+        pickup_waiting_charge_pence: trip.pickup_waiting_charge_pence ?? null,
+        stop_waiting_charge_pence: trip.stop_waiting_charge_pence ?? null,
+        stop_charge_total_pence: trip.stop_charge_total_pence ?? null,
+        customer_modification_charge_pence: trip.customer_modification_charge_pence ?? null,
+        modification_delta_pence: trip.modification_delta_pence ?? null,
+        accepted_commission_percent: trip.accepted_commission_percent ?? null,
+        driver_tier_commission_percent: trip.driver_tier_commission_percent ?? null,
+        commission_pct: trip.commission_pct ?? null,
+        commission_pence: trip.commission_pence ?? null,
+        gross_fare_pence: trip.gross_fare_pence ?? null,
+      });
+      timing.markWaitingEnd();
+
+      timing.markResponseStart();
+      return new Response(
+        JSON.stringify(attachGetActiveTripTiming({
+          activeTrip: {
+            id: trip.id,
+            tripCode: trip.trip_code,
+            status: trip.status,
+            updatedAt: trip.updated_at ?? null,
+            currentStopIndex: trip.current_stop_index ?? null,
+            arrivedAt: trip.arrived_at ?? null,
+            pickupWaitingStartedAt: trip.pickup_waiting_started_at ?? null,
+            pickupPaidWaitingStartedAt: trip.pickup_paid_waiting_started_at ?? null,
+            gracePeriodExpiredAt: trip.grace_period_expired_at ?? null,
+            freeWaitExpiresAt: trip.free_wait_expires_at ?? null,
+            pickupWaitingFreeExpiresAt: trip.free_wait_expires_at ?? null,
+            pickupWaitingAdminConfig: adminWaitingConfig,
+            adminWaitingConfigSnapshot: adminWaitingConfig,
+            pickupWaitingChargePence: trip.pickup_waiting_charge_pence ?? null,
+            stopWaitingChargePence: liveFarePreview.stop_waiting_charge_pence,
+            finalCustomerFarePence: liveFarePreview.final_customer_fare_pence,
+            currentCustomerTotalPence: liveFarePreview.current_customer_total_pence,
+            approvedModificationDeltaPence: liveFarePreview.approved_modification_delta_pence,
+            lockedBaseFarePence: trip.locked_base_fare_pence ?? null,
+            finalFarePence: trip.final_fare_pence ?? displayFarePence,
+            grossFarePence: trip.gross_fare_pence ?? null,
+            estimatedTotalPence: displayFarePence,
+            stopArrivedAt: trip.stop_arrived_at ?? null,
+            stopWaitingStartedAt: trip.stop_waiting_started_at ?? null,
+            stopWaitingStatus: trip.stop_waiting_status ?? null,
+            stopWaitingPaidStartedAt: trip.stop_waiting_paid_started_at ?? null,
+            stopChargeTotalPence: trip.stop_charge_total_pence ?? null,
+            waitingGeofenceStatus: trip.waiting_geofence_status ?? null,
+            waiting_geofence_status: trip.waiting_geofence_status ?? null,
+            pickupWaitingCountedSeconds: trip.pickup_waiting_counted_seconds ?? 0,
+            pickup_waiting_counted_seconds: trip.pickup_waiting_counted_seconds ?? 0,
+            stopWaitingCountedSeconds: trip.stop_waiting_counted_seconds ?? 0,
+            stop_waiting_counted_seconds: trip.stop_waiting_counted_seconds ?? 0,
+            tripStops: (tripStopsRows ?? []).map((stop) => ({
+              id: stop.id,
+              stop_index: stop.stop_index,
+              type: stop.type,
+              address: stop.address,
+              status: stop.status,
+              arrived_at: stop.arrived_at,
+              lat: stop.lat,
+              lng: stop.lng,
+              waiting_charge_active: stop.waiting_charge_active,
+              waiting_started_at: stop.waiting_started_at,
+              waiting_stopped_at: stop.waiting_stopped_at,
+              waiting_total_amount_pence: stop.waiting_total_amount_pence,
+            })),
+          },
+          purpose: "waiting_fare",
+        }, timing)),
+        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
+    }
+
+    // ── FULL PATH (legacy / non-waiting callers) ───────────────────────────
+    timing.setSkippedFullEnrich(false);
+
+    timing.markStopsStart();
+    timing.markSecondaryStart();
+    const [stopsResult, openModResult, routeCacheResult] = await Promise.all([
+      supabase
+        .from("trip_stops")
+        .select(
+          "id, stop_index, type, address, status, arrived_at, lat, lng, waiting_charge_active, waiting_started_at, waiting_stopped_at, waiting_total_amount_pence",
+        )
+        .eq("trip_id", trip.id)
+        .order("stop_index", { ascending: true }),
+      supabase
+        .from("trip_change_requests")
+        .select(
+          "id, status, payment_status, navigation_impacted, requires_approval, fare_delta_pence, new_fare_pence",
+        )
+        .eq("trip_id", trip.id)
+        .in("status", ["payment_required", "payment_pending", "pending_driver_approval"])
+        .order("created_at", { ascending: false })
+        .limit(1),
+      supabase
+        .from("trip_route_cache")
+        .select("polyline, updated_at, cached_at")
+        .eq("trip_id", trip.id)
+        .eq("leg", "full")
+        .maybeSingle(),
+    ]);
+    timing.markStopsEnd();
+
+    const tripStopsRows = stopsResult.data;
+    const openMod = openModResult.data?.[0] ?? null;
+    const routeCacheRow = routeCacheResult.data;
+    const lockedPastStopIds = (tripStopsRows ?? [])
+      .filter((s) => ["completed", "skipped", "arrived"].includes(String(s.status ?? "").toLowerCase()))
+      .map((s) => s.id);
+    const currentActiveStopSequence = (tripStopsRows ?? []).find((s) =>
+      !["completed", "skipped", "arrived"].includes(String(s.status ?? "").toLowerCase())
+      && s.type !== "pickup"
+    )?.stop_index
+      ?? (tripStopsRows ?? []).find((s) =>
+        !["completed", "skipped", "arrived"].includes(String(s.status ?? "").toLowerCase())
+      )?.stop_index
+      ?? trip.current_stop_index
+      ?? null;
+    const editableFutureStopIds = (tripStopsRows ?? [])
+      .filter((s) => {
+        const status = String(s.status ?? "").toLowerCase();
+        if (["completed", "skipped", "arrived"].includes(status)) return false;
+        if (s.type === "pickup") return false;
+        if (currentActiveStopSequence != null && (s.stop_index ?? 0) < currentActiveStopSequence) {
+          return false;
+        }
+        return true;
+      })
+      .map((s) => s.id);
+
+    const negotiating = String(trip.status ?? "") === "negotiating";
+    const resolvedDriverId = negotiating
+      ? null
+      : (trip.confirmed_driver_id || trip.driver_id);
+    const serviceAreaId = trip.service_area_id ?? null;
+
+    timing.markDriverStart();
+    timing.markRegionStart();
+    const [driverBundle, regionBuilt, communicationConfig, negotiation] = await Promise.all([
+      (async () => {
+        if (!resolvedDriverId) return null;
+        const [driverResult, profilePhotoResult] = await Promise.all([
+          supabase
+            .from("drivers")
+            .select("id,first_name,last_name,phone,profile_photo_url,rating,current_lat,current_lng")
+            .eq("id", resolvedDriverId)
+            .maybeSingle(),
+          supabase
+            .from("documents")
+            .select("file_url")
+            .eq("driver_id", resolvedDriverId)
+            .eq("document_type", "profile_photo")
+            .eq("status", "approved")
+            .order("created_at", { ascending: false })
+            .limit(1)
+            .maybeSingle(),
+        ]);
+        const driver = driverResult.data || null;
+        if (driver) {
+          const rawUrl = profilePhotoResult.data?.file_url || driver.profile_photo_url;
+          if (rawUrl) {
+            const bucketName = "driver-documents";
+            try {
+              const parsed = new URL(rawUrl);
+              const publicPrefix = `/storage/v1/object/public/${bucketName}/`;
+              const signedPrefix = `/storage/v1/object/sign/${bucketName}/`;
+              let storagePath: string | null = null;
+              if (parsed.pathname.includes(publicPrefix)) {
+                storagePath = decodeURIComponent(parsed.pathname.split(publicPrefix)[1] ?? "");
+              } else if (parsed.pathname.includes(signedPrefix)) {
+                storagePath = decodeURIComponent(parsed.pathname.split(signedPrefix)[1] ?? "");
+              }
+              if (storagePath) {
+                const { data: signedData } = await supabase.storage
+                  .from(bucketName)
+                  .createSignedUrl(storagePath, 3600);
+                if (signedData?.signedUrl) {
+                  driver.profile_photo_url = signedData.signedUrl;
+                }
+              }
+            } catch (e) {
+              console.warn("Failed to generate signed photo URL:", e);
+            }
+          }
+        }
+        return driver;
+      })(),
+      serviceAreaId
+        ? buildServiceAreaConfigPayload(supabase, serviceAreaId)
+        : Promise.resolve(null),
+      negotiating
+        ? Promise.resolve(null)
+        : buildTripCommunicationConfigForTrip(supabase, {
+          id: trip.id,
+          status: trip.status,
+          service_area_id: serviceAreaId,
+          driver_id: trip.driver_id ?? null,
+          confirmed_driver_id: trip.confirmed_driver_id ?? null,
+          passenger_id: trip.passenger_id ?? null,
+        }),
+      negotiating
+        ? loadCustomerNegotiationView(
+          supabase,
+          String(trip.id),
+          resolveCustomerPreauthBasePence(trip),
+        )
+        : Promise.resolve(null),
+    ]);
+    timing.markDriverEnd();
+    timing.markRegionEnd();
+    timing.markSecondaryEnd();
+
+    const driver = driverBundle;
+    let regionConfig: Awaited<ReturnType<typeof buildServiceAreaConfigPayload>> | null = null;
+    if (regionBuilt && !("error" in regionBuilt)) {
+      regionConfig = regionBuilt;
+    }
+
+    const displayFarePence = resolveCustomerPreauthBasePence(trip);
+    const displayFareMajor = displayFarePence / 100;
+    const liveFarePreview = computeLiveTripFarePreview({
+      final_customer_fare_pence: trip.final_customer_fare_pence ?? null,
+      final_fare_pence: trip.final_fare_pence ?? null,
+      locked_base_fare_pence: trip.locked_base_fare_pence ?? null,
+      pickup_waiting_charge_pence: trip.pickup_waiting_charge_pence ?? null,
+      stop_waiting_charge_pence: trip.stop_waiting_charge_pence ?? null,
+      stop_charge_total_pence: trip.stop_charge_total_pence ?? null,
+      customer_modification_charge_pence: trip.customer_modification_charge_pence ?? null,
+      modification_delta_pence: trip.modification_delta_pence ?? null,
+      accepted_commission_percent: trip.accepted_commission_percent ?? null,
+      driver_tier_commission_percent: trip.driver_tier_commission_percent ?? null,
+      commission_pct: trip.commission_pct ?? null,
+      commission_pence: trip.commission_pence ?? null,
+      gross_fare_pence: trip.gross_fare_pence ?? null,
+    });
+
+    const tripCurrencyCode = trip.currency_code
+      ? String(trip.currency_code).toUpperCase()
+      : regionConfig && !("error" in regionConfig)
+        ? regionConfig.currency_code
+        : null;
+    const tripDistanceUnit = trip.distance_unit
+      ?? (regionConfig && !("error" in regionConfig) ? regionConfig.distance_unit : null);
+    const tripCurrencySymbol = regionConfig && !("error" in regionConfig)
+      ? regionConfig.currency_symbol
+      : tripCurrencyCode
+        ? (() => {
+          const sym = getCurrencySymbol(tripCurrencyCode);
+          return sym === "—" ? null : sym;
+        })()
+        : null;
+
+    timing.markResponseStart();
+    return new Response(
+      JSON.stringify(attachGetActiveTripTiming({
+        activeTrip: {
+          id: trip.id,
+          tripCode: trip.trip_code,
+          status: trip.status,
+          passengerId: trip.passenger_id ?? null,
+          pickupAddress: trip.pickup_address,
+          dropoffAddress: trip.dropoff_address,
+          pickupLat: trip.pickup_latitude,
+          pickupLng: trip.pickup_longitude,
+          dropoffLat: trip.dropoff_latitude,
+          dropoffLng: trip.dropoff_longitude,
+          estimatedFare: displayFareMajor,
+          fare: trip.fare ?? displayFareMajor,
+          totalFare: displayFareMajor,
+          baseFare: trip.base_fare_pence != null ? trip.base_fare_pence / 100 : null,
+          finalFarePence: trip.final_fare_pence ?? displayFarePence,
+          finalCustomerFarePence: liveFarePreview.final_customer_fare_pence,
+          grossFarePence: trip.gross_fare_pence ?? null,
+          estimatedTotalPence: displayFarePence,
+          lockedBaseFarePence: trip.locked_base_fare_pence ?? null,
+          offerDiscountPence: trip.offer_discount_pence ?? trip.discount_pence ?? null,
+          fareLocked: trip.fare_locked ?? false,
+          fareSnapshotJson: trip.fare_snapshot_json ?? null,
+          currencyCode: tripCurrencyCode,
+          currency_code: tripCurrencyCode,
+          currency_symbol: tripCurrencySymbol,
+          serviceAreaId,
+          service_area_id: serviceAreaId,
+          vehicleTypeId: trip.vehicle_type_id ?? null,
+          regionId: trip.region_id ?? regionConfig?.region_id ?? null,
+          region_id: trip.region_id ?? regionConfig?.region_id ?? null,
+          distance_unit: tripDistanceUnit,
+          distanceUnit: tripDistanceUnit,
+          payment_provider: regionConfig && !("error" in regionConfig)
+            ? regionConfig.payment_provider
+            : null,
+          customer_payment_gateway: regionConfig && !("error" in regionConfig)
+            ? regionConfig.customer_payment_gateway
+            : null,
+          driver_payout_gateway: regionConfig && !("error" in regionConfig)
+            ? regionConfig.driver_payout_gateway
+            : null,
+          enabled_payment_methods: regionConfig && !("error" in regionConfig)
+            ? regionConfig.enabled_payment_methods
+            : null,
+          gateway_status: regionConfig && !("error" in regionConfig)
+            ? regionConfig.gateway_status
+            : null,
+          paymentGateways: regionConfig && !("error" in regionConfig)
+            ? regionConfig.paymentGateways
+            : null,
+          fareBreakdown: trip.fare_breakdown ?? null,
+          pricingMode: trip.pricing_mode ?? null,
+          distance: trip.estimated_distance_km ?? null,
+          duration: trip.estimated_duration_minutes ?? null,
+          updatedAt: trip.updated_at ?? null,
+          driverId: negotiating ? null : trip.driver_id,
+          driver: negotiating ? null : driver,
+          negotiation,
+          negotiation_disabled: trip.negotiation_disabled === true,
+          negotiation_locked_until: trip.negotiation_locked_until ?? null,
+          createdAt: trip.created_at,
+          scheduledAt: trip.scheduled_at,
+          scheduledStatus: trip.scheduled_status,
+          scheduledBroadcastAt: trip.scheduled_broadcast_at,
+          scheduledConvertAt: trip.scheduled_convert_at,
+          isScheduled: trip.is_scheduled,
+          dispatchMode: trip.dispatch_mode,
+          searchingExpiresAt: trip.searching_expires_at ?? null,
+          cancelledDriverIds: trip.cancelled_driver_ids ?? null,
+          cancelledBy: trip.cancelled_by ?? null,
+          cancelReason: trip.cancel_reason ?? null,
+          dispatchStatus: trip.dispatch_status ?? null,
+          currentBroadcastRound: trip.current_broadcast_round ?? null,
+          arrivedAt: trip.arrived_at ?? null,
+          pickupWaitingStartedAt: trip.pickup_waiting_started_at ?? null,
+          pickupPaidWaitingStartedAt: trip.pickup_paid_waiting_started_at ?? null,
+          gracePeriodExpiredAt: trip.grace_period_expired_at ?? null,
+          freeWaitExpiresAt: trip.free_wait_expires_at ?? null,
+          pickupWaitingFreeExpiresAt: trip.free_wait_expires_at ?? null,
+          pickupWaitingAdminConfig: trip.pickup_waiting_admin_config ?? null,
+          adminWaitingConfigSnapshot: trip.pickup_waiting_admin_config ?? null,
+          pickupWaitingChargePence: trip.pickup_waiting_charge_pence ?? null,
+          stopWaitingChargePence: liveFarePreview.stop_waiting_charge_pence,
+          approvedModificationDeltaPence: liveFarePreview.approved_modification_delta_pence,
+          currentCustomerTotalPence: liveFarePreview.current_customer_total_pence,
+          driverNetPreviewPence: liveFarePreview.driver_net_preview_pence,
+          commissionPercent: liveFarePreview.commission_percent,
+          fareDeltaPence: openMod?.fare_delta_pence ?? trip.modification_delta_pence ?? null,
+          modificationStatus: openMod?.status ?? trip.modification_status ?? null,
+          paymentConfirmationStatus: openMod?.payment_status ?? null,
+          driverApprovalStatus: openMod
+            ? (openMod.status === "pending_driver_approval"
+              ? "pending"
+              : openMod.navigation_impacted
+                ? "not_required"
+                : "not_required")
+            : null,
+          navigationImpacted: openMod?.navigation_impacted ?? null,
+          openModificationRequestId: openMod?.id ?? null,
+          currentActiveStopSequence,
+          lockedPastStopIds,
+          editableFutureStopIds,
+          routePolyline: routeCacheRow?.polyline ?? null,
+          routeCacheVersion: routeCacheRow?.updated_at ?? routeCacheRow?.cached_at ?? null,
+          currentStopIndex: trip.current_stop_index ?? null,
+          stopArrivedAt: trip.stop_arrived_at ?? null,
+          stopWaitingStartedAt: trip.stop_waiting_started_at ?? null,
+          stopWaitingStatus: trip.stop_waiting_status ?? null,
+          stopWaitingPaidStartedAt: trip.stop_waiting_paid_started_at ?? null,
+          stopChargeTotalPence: trip.stop_charge_total_pence ?? null,
+          waitingGeofenceStatus: trip.waiting_geofence_status ?? null,
+          waiting_geofence_status: trip.waiting_geofence_status ?? null,
+          pickupWaitingCountedSeconds: trip.pickup_waiting_counted_seconds ?? 0,
+          pickup_waiting_counted_seconds: trip.pickup_waiting_counted_seconds ?? 0,
+          stopWaitingCountedSeconds: trip.stop_waiting_counted_seconds ?? 0,
+          stop_waiting_counted_seconds: trip.stop_waiting_counted_seconds ?? 0,
+          tripStops: (tripStopsRows ?? []).map((stop) => ({
+            id: stop.id,
+            stop_index: stop.stop_index,
+            type: stop.type,
+            address: stop.address,
+            status: stop.status,
+            arrived_at: stop.arrived_at,
+            lat: stop.lat,
+            lng: stop.lng,
+            waiting_charge_active: stop.waiting_charge_active,
+            waiting_started_at: stop.waiting_started_at,
+            waiting_stopped_at: stop.waiting_stopped_at,
+            waiting_total_amount_pence: stop.waiting_total_amount_pence,
+          })),
+          communicationConfig,
+        },
+        purpose: "full",
+      }, timing)),
+      { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+    );
+  } catch (error: unknown) {
+    console.error("Get active trip error:", error);
+    const message = error instanceof Error ? error.message : "Unknown error";
+    return new Response(
+      JSON.stringify({ error: message }),
+      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+    );
+  }
+});

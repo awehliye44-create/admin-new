@@ -1,0 +1,1336 @@
+// ─────────────────────────────────────────────────────────────────────────────
+// Central Pricing Engine — single source of truth for ALL fare calculations.
+//
+// Used by: calculate-fare (estimate per vehicle), estimate-fare (single fare),
+//          finalize-trip-and-capture (final charge).
+//
+// Calculation order:
+//   STEP 1  Detect pickup/dropoff zones (highest priority wins)
+//   STEP 2  Apply zone-route overrides (fixed fare + airport surcharge)
+//   STEP 3  Apply base distance + time pricing (skipped if fixed fare)
+//   STEP 4  Waiting / cancellation hooks (consumed by lifecycle endpoints)
+//   STEP 5  Apply offers (only on the ride fare, not on fees)
+// ─────────────────────────────────────────────────────────────────────────────
+
+export type LatLng = { lat: number; lng: number };
+
+export type ZoneRow = {
+  id: string;
+  name: string;
+  shape_type: string | null;
+  zone_type?: string | null;
+  metadata?: unknown;
+  priority: number | null;
+  center_lat: number | null;
+  center_lng: number | null;
+  radius_meters: number | null;
+  geo_boundary: unknown;
+};
+
+export type FareDetailLine = {
+  label: string;
+  amount: number;
+};
+
+/** Columns that exist on production `zone_route_pricing` (no pickup_fee/dropoff_fee). */
+export const ZONE_ROUTE_PRICING_SELECT =
+  "id, from_zone_id, to_zone_id, vehicle_type_id, fixed_fare, airport_pickup_fee, airport_dropoff_fee, airport_charge, priority, is_active, service_area_id";
+
+export type ZoneRoutePricingRow = {
+  id: string;
+  from_zone_id: string;
+  to_zone_id: string;
+  vehicle_type_id: string | null;
+  fixed_fare: number | null;             // money units (e.g. £)
+  airport_pickup_fee?: number | null;    // surcharge when pickup is route from_zone
+  airport_dropoff_fee?: number | null;   // surcharge when dropoff is route to_zone
+  airport_charge?: number | null;        // legacy single surcharge column
+  priority: number | null;
+  is_active: boolean;
+  service_area_id?: string | null;
+};
+
+export type DistanceBand = {
+  /** From distance in the region's distance unit (km or mile). */
+  from: number;
+  /** Exclusive upper bound; null = and above. */
+  to: number | null;
+  /** Rate per unit in minor currency (pence/cents). */
+  rate_pence: number;
+};
+
+export type FarePricingRow = Record<string, unknown> & {
+  pricing_mode?: string | null;
+  base_fare_pence?: number | null;
+  per_km_rate_pence?: number | null;
+  per_min_rate_pence?: number | null;
+  booking_fee_pence?: number | null;
+  minimum_fare_pence?: number | null;
+  /** Tiered distance pricing from admin `fare_pricing_settings.distance_pricing_bands`. */
+  distance_pricing_bands?: DistanceBand[] | null;
+  enable_surge?: boolean | null;
+  surge_multiplier_default?: number | null;
+  peak_hour_multiplier?: number | null;
+  zone_multiplier?: number | null;
+  traffic_multiplier?: number | null;
+  demand_supply_multiplier?: number | null;
+};
+
+/** Columns used by `calculateFare` / quote path — avoid `select("*")`. */
+export const FARE_PRICING_SETTINGS_QUOTE_SELECT =
+  "vehicle_type_id, pricing_mode, base_fare_pence, per_km_rate_pence, per_min_rate_pence, booking_fee_pence, minimum_fare_pence, distance_pricing_bands, enable_surge, surge_multiplier_default, peak_hour_multiplier, zone_multiplier, traffic_multiplier, demand_supply_multiplier";
+
+/** Columns used by zone containment + airport metadata on the quote path. */
+export const CUSTOM_ZONES_QUOTE_SELECT =
+  "id, name, shape_type, zone_type, metadata, priority, center_lat, center_lng, radius_meters, geo_boundary, service_area_id, region_id";
+
+export type DistanceBandUsage = {
+  from_distance: number;
+  to_distance: number | null;
+  distance_used: number;
+  rate_per_unit_pence: number;
+  charge_pence: number;
+  unit: "mi" | "km";
+};
+
+export type DistancePricingMode = "flat" | "bands";
+
+/** Exclusive selector that the UI must branch on. Mixing breakdowns is a bug. */
+export type FareSource = "route_fixed" | "standard_fixed" | "standard_dynamic";
+
+/** How the trip fare was calculated — distinct from fare_pricing_settings pricing_mode (fixed/dynamic). */
+export type TripPricingMode = "ROUTE_PRICING" | "NORMAL_DISTANCE_TIME";
+
+export interface FareBreakdown {
+  base_fare: number;            // money units
+  zone_applied: string | null;  // "<from> → <to>" when a zone route hit
+  pickup_zone: string | null;
+  dropoff_zone: string | null;
+  pickup_zone_id: string | null;
+  dropoff_zone_id: string | null;
+  /** Ride / route fare only (excludes airport surcharges). */
+  trip_fare: number;
+  /** Airport surcharge from admin pricing (0 when not configured). */
+  airport_charge: number;
+  airport_charge_source: AirportChargeSource;
+  airport_pickup_fee: number;
+  airport_dropoff_fee: number;
+  /** Canonical lines for apps — built once from the same numbers as final_fare. */
+  fare_details: FareDetailLine[];
+  surcharge: number;            // reserved (currently 0; populated by future zone surcharge rules)
+  distance_cost: number;
+  time_cost: number;
+  /**
+   * Per-distance rate after multiplier, in money units **per region distance unit**
+   * (km or mile, depending on the region). The UI must label this with the same
+   * unit returned by the edge function (`distanceUnit`) and must NOT convert it.
+   */
+  per_km_rate: number;
+  /** Per-minute rate after multiplier, in money units. */
+  per_min_rate: number;
+  booking_fee: number;
+  minimum_fare: number;
+  multiplier: number;
+  fixed_fare_applied: boolean;
+  /** Authoritative source the UI must render. */
+  fare_source: FareSource;
+  /** ROUTE_PRICING when a zone_route_pricing row with fixed_fare applies; else distance+time. */
+  pricing_mode: TripPricingMode;
+  /** flat = per_km_rate_pence; bands = distance_pricing_bands from admin. */
+  distance_pricing_mode: DistancePricingMode;
+  /** Human-readable band summary for UI when distance_pricing_mode is bands. */
+  distance_band_summary: string | null;
+  /** Used Admin bands for this trip — spans and charges from the engine, not the client. */
+  distance_bands: DistanceBandUsage[];
+  /** Ride subtotal before minimum fare floor (money units). */
+  subtotal_before_minimum: number;
+  /** True when minimum_fare raised the trip fare above subtotal. */
+  minimum_applied: boolean;
+  /** True only when an active zone_route_pricing row matches from→to with fixed_fare > 0. */
+  route_match: boolean;
+  /** id of zone_route_pricing row used, if any. */
+  matched_route_id: string | null;
+  final_fare: number;           // money units (ALWAYS authoritative)
+  final_fare_pence: number;
+}
+
+/** Calculated ride fare (pence) used as preset-negotiation base — final visible fare, not route trip component alone. */
+export function negotiationBaseFarePenceFromBreakdown(
+  breakdown: Pick<FareBreakdown, "trip_fare" | "airport_charge" | "final_fare" | "pricing_mode">,
+): number {
+  const finalFare = Number(breakdown.final_fare);
+  if (Number.isFinite(finalFare) && finalFare > 0) {
+    return Math.round(finalFare * 100);
+  }
+  const tripFare = Number(breakdown.trip_fare);
+  const airport = Number(breakdown.airport_charge) || 0;
+  if (breakdown.pricing_mode === "ROUTE_PRICING" && Number.isFinite(tripFare) && tripFare > 0) {
+    return Math.round((tripFare + airport) * 100);
+  }
+  if (Number.isFinite(tripFare) && tripFare > 0) {
+    return Math.round(tripFare * 100);
+  }
+  return 0;
+}
+
+// ── Geometry ────────────────────────────────────────────────────────────────
+
+function pointInRing(lat: number, lng: number, ring: number[][]): boolean {
+  // ray-casting; ring entries are [lng, lat]
+  let inside = false;
+  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+    const xi = ring[i][0], yi = ring[i][1];
+    const xj = ring[j][0], yj = ring[j][1];
+    const intersects =
+      yi > lat !== yj > lat &&
+      lng < ((xj - xi) * (lat - yi)) / ((yj - yi) || 1e-12) + xi;
+    if (intersects) inside = !inside;
+  }
+  return inside;
+}
+
+function pointInPolygon(point: LatLng, geo: unknown): boolean {
+  if (!geo || typeof geo !== "object") return false;
+  const g = geo as Record<string, unknown>;
+  const type = String(g.type || "").toLowerCase();
+  const coords = g.coordinates as unknown;
+  if (!Array.isArray(coords)) return false;
+
+  if (type === "polygon") {
+    const rings = coords as number[][][];
+    if (rings.length === 0 || !Array.isArray(rings[0])) return false;
+    if (!pointInRing(point.lat, point.lng, rings[0])) return false;
+    for (let i = 1; i < rings.length; i++) {
+      if (pointInRing(point.lat, point.lng, rings[i])) return false; // hole
+    }
+    return true;
+  }
+  if (type === "multipolygon") {
+    for (const poly of coords as number[][][][]) {
+      if (poly.length === 0) continue;
+      if (pointInPolygon(point, { type: "Polygon", coordinates: poly })) return true;
+    }
+  }
+  return false;
+}
+
+function haversineMeters(a: LatLng, b: LatLng): number {
+  const R = 6371000;
+  const toRad = (d: number) => (d * Math.PI) / 180;
+  const dLat = toRad(b.lat - a.lat);
+  const dLng = toRad(b.lng - a.lng);
+  const lat1 = toRad(a.lat);
+  const lat2 = toRad(b.lat);
+  const h =
+    Math.sin(dLat / 2) ** 2 + Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLng / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(h));
+}
+
+function zoneContainsPoint(point: LatLng, z: ZoneRow): boolean {
+  const shape = (z.shape_type || "polygon").toLowerCase();
+  if (shape === "circle") {
+    if (z.center_lat == null || z.center_lng == null || !z.radius_meters) return false;
+    const d = haversineMeters(point, { lat: z.center_lat, lng: z.center_lng });
+    return d <= z.radius_meters;
+  }
+  return pointInPolygon(point, z.geo_boundary);
+}
+
+/** All active zones containing `point`, highest priority first. */
+export function zonesContainingPoint(point: LatLng | null, zones: ZoneRow[]): ZoneRow[] {
+  if (!point || !Number.isFinite(point.lat) || !Number.isFinite(point.lng)) return [];
+  const matches = zones.filter((z) => zoneContainsPoint(point, z));
+  matches.sort((a, b) => (b.priority ?? 0) - (a.priority ?? 0));
+  return matches;
+}
+
+/** Returns the highest-priority active zone containing `point`, or null. */
+export function detectZone(point: LatLng | null, zones: ZoneRow[]): ZoneRow | null {
+  const matches = zonesContainingPoint(point, zones);
+  return matches.length > 0 ? matches[0] : null;
+}
+
+const AIRPORT_ZONE_NAME =
+  /\b(airport|heathrow|gatwick|stansted|luton|city\s*airport|lhr|lgw|stn|ltn)\b/i;
+
+/** True when admin marked the zone as an airport (zone_type, metadata, or name). */
+export function isAirportZone(zone: ZoneRow | null): boolean {
+  if (!zone) return false;
+  const zoneType = String(zone.zone_type ?? "").toLowerCase();
+  if (zoneType === "airport") return true;
+  const name = String(zone.name ?? "").trim();
+  if (name && AIRPORT_ZONE_NAME.test(name)) return true;
+  if (zone.metadata && typeof zone.metadata === "object") {
+    const meta = zone.metadata as Record<string, unknown>;
+    if (meta.is_airport === true || meta.isAirport === true) return true;
+  }
+  return false;
+}
+
+/** Optional per-zone airport fee from admin metadata (money units). */
+export function getZoneAirportFee(zone: ZoneRow | null): number {
+  if (!zone?.metadata || typeof zone.metadata !== "object") return 0;
+  const meta = zone.metadata as Record<string, unknown>;
+  const raw = meta.airport_fee ?? meta.airportFee ?? meta.airport_charge ?? meta.airportCharge;
+  const n = Number(raw);
+  return Number.isFinite(n) && n > 0 ? n : 0;
+}
+
+function positiveMoney(v: unknown): number {
+  const n = Number(v);
+  return Number.isFinite(n) && n > 0 ? n : 0;
+}
+
+function routeEndpointAirportPickupFee(
+  route: ZoneRoutePricingRow | null,
+  pickupZone: ZoneRow | null,
+): number {
+  if (!route || !pickupZone || pickupZone.id !== route.from_zone_id) return 0;
+  return positiveMoney(route.airport_pickup_fee);
+}
+
+function routeEndpointAirportDropoffFee(
+  route: ZoneRoutePricingRow | null,
+  dropoffZone: ZoneRow | null,
+): number {
+  if (!route || !dropoffZone || dropoffZone.id !== route.to_zone_id) return 0;
+  return positiveMoney(route.airport_dropoff_fee);
+}
+
+export type AirportChargeSource =
+  | "none"
+  | "zone_route_pricing.airport_pickup_fee"
+  | "zone_route_pricing.airport_dropoff_fee"
+  | "zone_route_pricing.airport_charge"
+  | "service_area_pricing_settings.airport_charge"
+  | "custom_zones.metadata.airport_charge";
+
+export type ResolvedAirportCharge = {
+  airportPickupFee: number;
+  airportDropoffFee: number;
+  airportCharge: number;
+  airportChargeSource: AirportChargeSource;
+};
+
+export type GetAirportChargeInput = {
+  pickupZone: ZoneRow | null;
+  dropoffZone: ZoneRow | null;
+  serviceAreaPricingSettings?: Record<string, unknown> | null;
+  routePricing: ZoneRoutePricingRow | null;
+};
+
+/**
+ * Airport surcharge from admin DB only (no hardcoded defaults).
+ * Priority: route pickup/dropoff fee → route.airport_charge → service area → zone metadata → 0.
+ */
+export function resolveAirportChargeFromAdmin(
+  input: GetAirportChargeInput,
+): ResolvedAirportCharge {
+  try {
+    const route = input.routePricing;
+    const airportPickupFee = round2(
+      routeEndpointAirportPickupFee(route, input.pickupZone),
+    );
+    if (airportPickupFee > 0) {
+      return {
+        airportPickupFee,
+        airportDropoffFee: 0,
+        airportCharge: airportPickupFee,
+        airportChargeSource: "zone_route_pricing.airport_pickup_fee",
+      };
+    }
+
+    const airportDropoffFee = round2(
+      routeEndpointAirportDropoffFee(route, input.dropoffZone),
+    );
+    if (airportDropoffFee > 0) {
+      return {
+        airportPickupFee: 0,
+        airportDropoffFee,
+        airportCharge: airportDropoffFee,
+        airportChargeSource: "zone_route_pricing.airport_dropoff_fee",
+      };
+    }
+
+    const routeCharge = round2(positiveMoney(route?.airport_charge));
+    if (routeCharge > 0) {
+      return {
+        airportPickupFee: 0,
+        airportDropoffFee: 0,
+        airportCharge: routeCharge,
+        airportChargeSource: "zone_route_pricing.airport_charge",
+      };
+    }
+
+    const settings = input.serviceAreaPricingSettings;
+    const serviceAreaCharge = round2(
+      positiveMoney(settings?.airport_charge ?? settings?.airportCharge),
+    );
+    if (serviceAreaCharge > 0) {
+      return {
+        airportPickupFee: 0,
+        airportDropoffFee: 0,
+        airportCharge: serviceAreaCharge,
+        airportChargeSource: "service_area_pricing_settings.airport_charge",
+      };
+    }
+
+    const airportZone = isAirportZone(input.pickupZone)
+      ? input.pickupZone
+      : isAirportZone(input.dropoffZone)
+        ? input.dropoffZone
+        : null;
+    const zoneCharge = round2(getZoneAirportFee(airportZone));
+    if (zoneCharge > 0) {
+      return {
+        airportPickupFee: 0,
+        airportDropoffFee: 0,
+        airportCharge: zoneCharge,
+        airportChargeSource: "custom_zones.metadata.airport_charge",
+      };
+    }
+
+    return {
+      airportPickupFee: 0,
+      airportDropoffFee: 0,
+      airportCharge: 0,
+      airportChargeSource: "none",
+    };
+  } catch {
+    return {
+      airportPickupFee: 0,
+      airportDropoffFee: 0,
+      airportCharge: 0,
+      airportChargeSource: "none",
+    };
+  }
+}
+
+/** Single airport surcharge (pickup OR dropoff endpoint fee, else cascade). Always returns ≥ 0. */
+export function getAirportCharge(input: GetAirportChargeInput): number {
+  return resolveAirportChargeFromAdmin(input).airportCharge;
+}
+
+/** @deprecated Prefer resolveAirportChargeFromAdmin — kept for existing tests/callers. */
+export function resolveAirportCharge(
+  pickupZone: ZoneRow | null,
+  dropoffZone: ZoneRow | null,
+  _zoneRoutes: ZoneRoutePricingRow[],
+  _vehicleTypeId: string | null,
+  matchedRoute: ZoneRoutePricingRow | null,
+  serviceAreaPricingSettings?: Record<string, unknown> | null,
+): number {
+  return getAirportCharge({
+    pickupZone,
+    dropoffZone,
+    routePricing: matchedRoute,
+    serviceAreaPricingSettings,
+  });
+}
+
+/** Canonical route-pricing fields for API responses (calculate-fare, estimate-fare, trip snapshots). */
+export type RoutePricingApiFields = {
+  pricingMode: TripPricingMode;
+  routeName: string | null;
+  vehicleCategory: string | null;
+  routeFixedFare: number | null;
+  airportCharge: number;
+  totalFare: number;
+};
+
+export function buildRoutePricingApiFields(
+  breakdown: Pick<
+    FareBreakdown,
+    "pricing_mode" | "zone_applied" | "trip_fare" | "airport_charge" | "final_fare"
+  >,
+  vehicleCategory?: string | null,
+): RoutePricingApiFields {
+  return {
+    pricingMode: breakdown.pricing_mode,
+    routeName: breakdown.zone_applied,
+    vehicleCategory: vehicleCategory ?? null,
+    routeFixedFare: breakdown.pricing_mode === "ROUTE_PRICING"
+      ? round2(breakdown.trip_fare)
+      : null,
+    airportCharge: round2(breakdown.airport_charge),
+    totalFare: round2(breakdown.final_fare),
+  };
+}
+
+function parseDistanceBands(raw: unknown): DistanceBand[] {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .map((b) => {
+      if (!b || typeof b !== "object") return null;
+      const row = b as Record<string, unknown>;
+      const from = Number(row.from);
+      const rate = Number(row.rate_pence);
+      if (!Number.isFinite(from) || !Number.isFinite(rate)) return null;
+      const toRaw = row.to;
+      const to = toRaw == null ? null : Number(toRaw);
+      return {
+        from,
+        to: to != null && Number.isFinite(to) ? to : null,
+        rate_pence: rate,
+      } satisfies DistanceBand;
+    })
+    .filter((b): b is DistanceBand => b != null);
+}
+
+function formatBandRateMajor(ratePence: number, unitShort: string): string {
+  const major = round2(ratePence / 100);
+  return `${major.toFixed(2)}/${unitShort}`;
+}
+
+/** Summarise configured bands for customer breakdown UI. */
+export function summariseDistanceBands(
+  bands: DistanceBand[],
+  distanceUnit: string | null | undefined,
+): string {
+  const unitShort = String(distanceUnit || "km").toLowerCase().startsWith("mi") ? "mi" : "km";
+  const sorted = [...bands].sort((a, b) => (a.from ?? 0) - (b.from ?? 0));
+  return sorted
+    .map((b) => {
+      const upper = b.to == null ? "+" : `–${b.to}`;
+      return `${b.from}${upper} ${unitShort} @ ${formatBandRateMajor(b.rate_pence, unitShort)}`;
+    })
+    .join(", ");
+}
+
+/**
+ * Distance charge in money units.
+ * Uses admin `distance_pricing_bands` when non-empty; else flat per_km_rate_pence.
+ */
+export function calculateDistanceChargeMoney(input: {
+  distanceKm: number;
+  distanceUnit?: string | null;
+  perKmRatePence?: number | null;
+  distancePricingBands?: unknown;
+  multiplier?: number;
+}): {
+  charge: number;
+  usedBands: boolean;
+  bandSummary: string | null;
+  bands: DistanceBandUsage[];
+} {
+  const multiplier = input.multiplier ?? 1;
+  const isMiles = String(input.distanceUnit || "km").toLowerCase().startsWith("mi");
+  const tripDist = isMiles ? input.distanceKm / KM_PER_MILE : input.distanceKm;
+  const bands = parseDistanceBands(input.distancePricingBands);
+  const unit: DistanceBandUsage["unit"] = isMiles ? "mi" : "km";
+
+  if (bands.length === 0) {
+    const perUnit = penceToUnit(input.perKmRatePence) * multiplier;
+    return {
+      charge: round2(tripDist * perUnit),
+      usedBands: false,
+      bandSummary: null,
+      bands: [],
+    };
+  }
+
+  const sorted = [...bands].sort((a, b) => (a.from ?? 0) - (b.from ?? 0));
+  let chargePence = 0;
+  const used: DistanceBandUsage[] = [];
+  for (const b of sorted) {
+    const upper = b.to == null ? Infinity : b.to;
+    const span = Math.max(0, Math.min(tripDist, upper) - (b.from ?? 0));
+    if (span <= 0) continue;
+    const raw = span * (b.rate_pence ?? 0);
+    chargePence += raw;
+    used.push({
+      from_distance: b.from ?? 0,
+      to_distance: b.to,
+      distance_used: round2(span),
+      rate_per_unit_pence: Math.round((b.rate_pence ?? 0) * multiplier),
+      charge_pence: Math.round(raw * multiplier),
+      unit,
+    });
+  }
+  return {
+    charge: round2((chargePence / 100) * multiplier),
+    usedBands: true,
+    bandSummary: summariseDistanceBands(bands, input.distanceUnit),
+    bands: used,
+  };
+}
+
+/** Build display lines — same amounts that feed final_fare. */
+export function buildFareDetails(input: {
+  pricingMode: TripPricingMode;
+  tripFare: number;
+  airportCharge: number;
+  baseFare?: number;
+  distanceCost?: number;
+  timeCost?: number;
+  bookingFee?: number;
+  minimumApplied?: boolean;
+  minimumFare?: number;
+  subtotalBeforeMinimum?: number;
+  distancePricingMode?: DistancePricingMode;
+  distanceBandSummary?: string | null;
+}): FareDetailLine[] {
+  const airport = round2(input.airportCharge);
+  const tripFare = round2(input.tripFare);
+
+  if (input.pricingMode === "ROUTE_PRICING") {
+    const lines: FareDetailLine[] = [{ label: "Trip fare", amount: tripFare }];
+    if (airport > 0) {
+      lines.push({ label: "Airport charge", amount: airport });
+    }
+    return lines;
+  }
+
+  const lines: FareDetailLine[] = [];
+  const base = round2(input.baseFare ?? 0);
+  const distance = round2(input.distanceCost ?? 0);
+  const time = round2(input.timeCost ?? 0);
+  const booking = round2(input.bookingFee ?? 0);
+
+  if (base > 0) lines.push({ label: "Base fare", amount: base });
+  if (distance > 0) {
+    lines.push({ label: "Distance charge", amount: distance });
+  }
+  if (time > 0) lines.push({ label: "Time charge", amount: time });
+  if (booking > 0) lines.push({ label: "Booking fee", amount: booking });
+
+  if (input.minimumApplied && input.minimumFare != null) {
+    const subtotal = round2(input.subtotalBeforeMinimum ?? 0);
+    const adjustment = round2(input.minimumFare - subtotal);
+    if (adjustment > 0) {
+      lines.push({ label: "Minimum fare adjustment", amount: adjustment });
+    }
+  }
+
+  if (lines.length === 0) {
+    lines.push({ label: "Fare", amount: tripFare });
+  }
+
+  if (airport > 0) {
+    lines.push({ label: "Airport charge", amount: airport });
+  }
+  return lines;
+}
+
+/**
+ * Best matching zone_route_pricing row for from→to.
+ * Prefers vehicle-specific, then service-area-specific, then priority.
+ */
+export function findZoneRoutePricing(
+  routes: ZoneRoutePricingRow[],
+  fromZoneId: string,
+  toZoneId: string,
+  serviceAreaId: string | null,
+  vehicleTypeId: string | null,
+): ZoneRoutePricingRow | null {
+  const candidates = routes.filter(
+    (r) =>
+      r.is_active &&
+      r.from_zone_id === fromZoneId &&
+      r.to_zone_id === toZoneId &&
+      (r.vehicle_type_id == null || r.vehicle_type_id === vehicleTypeId) &&
+      (r.service_area_id == null || !serviceAreaId || r.service_area_id === serviceAreaId),
+  );
+  if (candidates.length === 0) return null;
+  candidates.sort((a, b) => {
+    const av = a.vehicle_type_id && a.vehicle_type_id === vehicleTypeId ? 2 : a.vehicle_type_id ? 0 : 1;
+    const bv = b.vehicle_type_id && b.vehicle_type_id === vehicleTypeId ? 2 : b.vehicle_type_id ? 0 : 1;
+    if (av !== bv) return bv - av;
+    const as = a.service_area_id && a.service_area_id === serviceAreaId ? 2 : a.service_area_id ? 0 : 1;
+    const bs = b.service_area_id && b.service_area_id === serviceAreaId ? 2 : b.service_area_id ? 0 : 1;
+    if (as !== bs) return bs - as;
+    return (b.priority ?? 0) - (a.priority ?? 0);
+  });
+  return candidates[0];
+}
+
+/** @deprecated Use findZoneRoutePricing — kept for existing imports/tests. */
+export function pickZoneRoute(
+  routes: ZoneRoutePricingRow[],
+  fromZoneId: string,
+  toZoneId: string,
+  vehicleTypeId: string | null,
+): ZoneRoutePricingRow | null {
+  return findZoneRoutePricing(routes, fromZoneId, toZoneId, null, vehicleTypeId);
+}
+
+type RoutePricingContext = {
+  pickupZone: ZoneRow | null;
+  dropoffZone: ZoneRow | null;
+  route: ZoneRoutePricingRow | null;
+  fixedApplied: boolean;
+};
+
+/** Resolve zones + route row; tries all zone pairs at each endpoint when needed. */
+function resolveRoutePricingContext(input: {
+  pickup: LatLng | null;
+  dropoff: LatLng | null;
+  zones: ZoneRow[];
+  zoneRoutes: ZoneRoutePricingRow[];
+  serviceAreaId: string | null;
+  vehicleTypeId: string | null;
+  pickupZoneId?: string | null;
+  dropoffZoneId?: string | null;
+  /** When set (quote path), skip re-scanning the same pickup/dropoff polygons. */
+  pickupContainingZones?: ZoneRow[] | null;
+  dropoffContainingZones?: ZoneRow[] | null;
+}): RoutePricingContext {
+  const { zones, zoneRoutes, serviceAreaId, vehicleTypeId } = input;
+  const pickup = input.pickup;
+  const dropoff = input.dropoff;
+
+  const routeHasFixedFare = (route: ZoneRoutePricingRow | null) =>
+    route != null && positiveMoney(route.fixed_fare) > 0;
+
+  if (input.pickupZoneId && input.dropoffZoneId && input.pickupZoneId !== input.dropoffZoneId) {
+    const route = findZoneRoutePricing(
+      zoneRoutes,
+      input.pickupZoneId,
+      input.dropoffZoneId,
+      serviceAreaId,
+      vehicleTypeId,
+    );
+    if (routeHasFixedFare(route)) {
+      return {
+        pickupZone: zones.find((z) => z.id === input.pickupZoneId) ?? null,
+        dropoffZone: zones.find((z) => z.id === input.dropoffZoneId) ?? null,
+        route,
+        fixedApplied: true,
+      };
+    }
+  }
+
+  if (pickup && dropoff) {
+    const pickupZones = input.pickupContainingZones
+      ?? zonesContainingPoint(pickup, zones);
+    const dropoffZones = input.dropoffContainingZones
+      ?? zonesContainingPoint(dropoff, zones);
+    for (const pz of pickupZones) {
+      for (const dz of dropoffZones) {
+        if (pz.id === dz.id) continue;
+        const route = findZoneRoutePricing(
+          zoneRoutes,
+          pz.id,
+          dz.id,
+          serviceAreaId,
+          vehicleTypeId,
+        );
+        if (routeHasFixedFare(route)) {
+          return { pickupZone: pz, dropoffZone: dz, route, fixedApplied: true };
+        }
+      }
+    }
+  }
+
+  const pickupZone = input.pickupContainingZones
+    ? (input.pickupContainingZones[0] ?? null)
+    : (pickup ? detectZone(pickup, zones) : null);
+  const dropoffZone = input.dropoffContainingZones
+    ? (input.dropoffContainingZones[0] ?? null)
+    : (dropoff ? detectZone(dropoff, zones) : null);
+  const route =
+    pickupZone && dropoffZone && pickupZone.id !== dropoffZone.id
+      ? findZoneRoutePricing(
+        zoneRoutes,
+        pickupZone.id,
+        dropoffZone.id,
+        serviceAreaId,
+        vehicleTypeId,
+      )
+      : null;
+
+  return {
+    pickupZone,
+    dropoffZone,
+    route,
+    fixedApplied: routeHasFixedFare(route),
+  };
+}
+
+/** JSON persisted on trips / offer snapshots for driver + dispatch surfaces. */
+export function fareBreakdownToTripSnapshot(
+  breakdown: FareBreakdown,
+  extras?: {
+    pickupZoneId?: string | null;
+    dropoffZoneId?: string | null;
+    vehicleCategory?: string | null;
+  },
+): Record<string, unknown> {
+  const routeFields = buildRoutePricingApiFields(breakdown, extras?.vehicleCategory);
+  return {
+    tripFare: breakdown.trip_fare,
+    trip_fare: breakdown.trip_fare,
+    trip_fare_pence: Math.round(breakdown.trip_fare * 100),
+    routeFixedFare: routeFields.routeFixedFare,
+    routeName: routeFields.routeName,
+    vehicleCategory: routeFields.vehicleCategory,
+    airportCharge: breakdown.airport_charge,
+    airport_charge: breakdown.airport_charge,
+    airport_charge_pence: Math.round(breakdown.airport_charge * 100),
+    airportChargeSource: breakdown.airport_charge_source,
+    airportPickupFee: breakdown.airport_pickup_fee,
+    airportDropoffFee: breakdown.airport_dropoff_fee,
+    fareDetails: breakdown.fare_details,
+    pricing_mode: breakdown.pricing_mode,
+    pricingMode: breakdown.pricing_mode,
+    tripPricingMode: breakdown.pricing_mode,
+    fareSource: breakdown.fare_source,
+    routeMatch: breakdown.route_match,
+    matchedRouteId: breakdown.matched_route_id,
+    zoneApplied: breakdown.zone_applied,
+    fixedFareApplied: breakdown.fixed_fare_applied,
+    distance_pricing_mode: breakdown.distance_pricing_mode,
+    distance_band_summary: breakdown.distance_band_summary,
+    distance_bands: breakdown.distance_bands,
+    subtotal_before_minimum: breakdown.subtotal_before_minimum,
+    minimum_applied: breakdown.minimum_applied,
+    totalFare: breakdown.final_fare,
+    total_fare_pence: breakdown.final_fare_pence,
+    pickup_zone_id: extras?.pickupZoneId ?? null,
+    dropoff_zone_id: extras?.dropoffZoneId ?? null,
+  };
+}
+
+// ── Helpers ─────────────────────────────────────────────────────────────────
+
+const penceToUnit = (v: number | null | undefined) => (Number(v) || 0) / 100;
+const round2 = (v: number) => Math.round(v * 100) / 100;
+const clampMul = (v: number | null | undefined) => {
+  const n = Number(v) || 1;
+  return n > 0 ? n : 1;
+};
+
+function dynamicMultiplier(fp: FarePricingRow): number {
+  if ((String(fp.pricing_mode || "fixed")).toLowerCase() !== "dynamic") return 1;
+  return [
+    fp.enable_surge ? clampMul(fp.surge_multiplier_default) : 1,
+    clampMul(fp.peak_hour_multiplier),
+    clampMul(fp.zone_multiplier),
+    clampMul(fp.traffic_multiplier),
+    clampMul(fp.demand_supply_multiplier),
+  ].reduce((a, b) => a * b, 1);
+}
+
+// ── Engine ──────────────────────────────────────────────────────────────────
+
+export interface CalculateFareInput {
+  pricing: FarePricingRow;
+  distanceKm: number;
+  durationMin: number;
+  pickup?: LatLng | null;
+  dropoff?: LatLng | null;
+  /**
+   * Ordered intermediate stops between pickup and dropoff (Customer / booking
+   * quote contract). Local stops do not create fare legs; special pricing-zone
+   * waypoints (airport / zone_route_pricing endpoints) become boundaries.
+   */
+  stops?: LatLng[] | null;
+  zones?: ZoneRow[];
+  zoneRoutes?: ZoneRoutePricingRow[];
+  serviceAreaId?: string | null;
+  serviceAreaPricingSettings?: Record<string, unknown> | null;
+  vehicleTypeId?: string | null;
+  /** When set (e.g. from resolve_zone at booking), used before geometry detection. */
+  pickupZoneId?: string | null;
+  dropoffZoneId?: string | null;
+  /**
+   * Precomputed `zonesContainingPoint` results for the quote pickup/dropoff.
+   * Avoids re-scanning the same polygons once per vehicle on Choose Ride.
+   */
+  pickupContainingZones?: ZoneRow[] | null;
+  dropoffContainingZones?: ZoneRow[] | null;
+  /**
+   * Region's distance unit ("km" or "mile"). The admin UI labels the per-distance
+   * rate using this unit (e.g. "Per mile Rate"), so the stored `per_km_rate_pence`
+   * value is actually money-per-region-unit. The engine converts trip distance
+   * into the same unit before multiplying so admin intent matches engine output.
+   */
+  distanceUnit?: string | null;
+}
+
+const KM_PER_MILE = 1.609344;
+
+export type PricingBoundaryWaypoint = {
+  point: LatLng;
+  zone: ZoneRow | null;
+  /** Index into the full [pickup, ...stops, dropoff] list. */
+  waypointIndex: number;
+};
+
+export type MeaningfulPricingLeg = {
+  from: LatLng;
+  to: LatLng;
+  fromZone: ZoneRow | null;
+  toZone: ZoneRow | null;
+};
+
+/** Zone ids that appear on any active zone_route_pricing row. */
+export function collectRouteParticipatingZoneIds(
+  zoneRoutes: ZoneRoutePricingRow[],
+): Set<string> {
+  const ids = new Set<string>();
+  for (const r of zoneRoutes) {
+    if (!r.is_active) continue;
+    if (r.from_zone_id) ids.add(r.from_zone_id);
+    if (r.to_zone_id) ids.add(r.to_zone_id);
+  }
+  return ids;
+}
+
+/**
+ * Prefer airport / route-participating custom zones over a generic containing
+ * zone so Heathrow is not masked by a broader service polygon.
+ */
+export function resolveWaypointPricingZone(
+  point: LatLng | null,
+  zones: ZoneRow[],
+  routeZoneIds: Set<string>,
+): ZoneRow | null {
+  const containing = zonesContainingPoint(point, zones);
+  if (containing.length === 0) return null;
+  const special = containing.find(
+    (z) => isAirportZone(z) || routeZoneIds.has(z.id),
+  );
+  return special ?? containing[0] ?? null;
+}
+
+export function isSpecialPricingZone(
+  zone: ZoneRow | null,
+  routeZoneIds: Set<string>,
+): boolean {
+  if (!zone) return false;
+  return isAirportZone(zone) || routeZoneIds.has(zone.id);
+}
+
+/**
+ * Build ordered journey points: pickup → stops → dropoff.
+ * Invalid coordinates are dropped.
+ */
+export function buildOrderedJourneyWaypoints(input: {
+  pickup?: LatLng | null;
+  dropoff?: LatLng | null;
+  stops?: LatLng[] | null;
+}): LatLng[] {
+  const out: LatLng[] = [];
+  const push = (p: LatLng | null | undefined) => {
+    if (!p || !Number.isFinite(p.lat) || !Number.isFinite(p.lng)) return;
+    out.push({ lat: p.lat, lng: p.lng });
+  };
+  push(input.pickup ?? null);
+  for (const s of input.stops ?? []) push(s);
+  push(input.dropoff ?? null);
+  return out;
+}
+
+/**
+ * Pricing boundaries: journey start, special-zone intermediates that change
+ * the pricing zone, and journey end. Local same-area stops are not boundaries.
+ */
+export function buildPricingBoundaryWaypoints(input: {
+  pickup?: LatLng | null;
+  dropoff?: LatLng | null;
+  stops?: LatLng[] | null;
+  zones: ZoneRow[];
+  zoneRoutes: ZoneRoutePricingRow[];
+}): PricingBoundaryWaypoint[] {
+  const waypoints = buildOrderedJourneyWaypoints(input);
+  if (waypoints.length === 0) return [];
+  const routeZoneIds = collectRouteParticipatingZoneIds(input.zoneRoutes);
+  const annotated = waypoints.map((point, waypointIndex) => ({
+    point,
+    zone: resolveWaypointPricingZone(point, input.zones, routeZoneIds),
+    waypointIndex,
+  }));
+
+  const boundaries: PricingBoundaryWaypoint[] = [annotated[0]];
+  for (let i = 1; i < annotated.length - 1; i++) {
+    const cur = annotated[i];
+    if (!isSpecialPricingZone(cur.zone, routeZoneIds)) continue;
+    const prev = boundaries[boundaries.length - 1];
+    const prevId = prev.zone?.id ?? null;
+    const curId = cur.zone?.id ?? null;
+    if (curId != null && curId !== prevId) {
+      boundaries.push(cur);
+    }
+  }
+  const last = annotated[annotated.length - 1];
+  const lastBoundary = boundaries[boundaries.length - 1];
+  if (last.waypointIndex !== lastBoundary.waypointIndex) {
+    boundaries.push(last);
+  }
+  return boundaries;
+}
+
+/**
+ * Meaningful directional legs between consecutive pricing boundaries.
+ * MK → local → Heathrow → one leg. MK → Heathrow → MK → two legs.
+ */
+export function resolveMeaningfulPricingLegs(input: {
+  pickup?: LatLng | null;
+  dropoff?: LatLng | null;
+  stops?: LatLng[] | null;
+  zones: ZoneRow[];
+  zoneRoutes: ZoneRoutePricingRow[];
+}): MeaningfulPricingLeg[] {
+  const boundaries = buildPricingBoundaryWaypoints(input);
+  if (boundaries.length < 2) return [];
+  const legs: MeaningfulPricingLeg[] = [];
+  for (let i = 0; i < boundaries.length - 1; i++) {
+    const from = boundaries[i];
+    const to = boundaries[i + 1];
+    legs.push({
+      from: from.point,
+      to: to.point,
+      fromZone: from.zone,
+      toZone: to.zone,
+    });
+  }
+  return legs;
+}
+
+function allocateLegDistanceShare(
+  legs: MeaningfulPricingLeg[],
+  totalDistanceKm: number,
+  totalDurationMin: number,
+): Array<{ distanceKm: number; durationMin: number }> {
+  if (legs.length === 0) return [];
+  const weights = legs.map((leg) => {
+    const m = haversineMeters(leg.from, leg.to);
+    return Number.isFinite(m) && m > 0 ? m : 0;
+  });
+  const sum = weights.reduce((a, b) => a + b, 0);
+  if (sum <= 0) {
+    const evenD = totalDistanceKm / legs.length;
+    const evenT = totalDurationMin / legs.length;
+    return legs.map(() => ({ distanceKm: evenD, durationMin: evenT }));
+  }
+  return weights.map((w) => ({
+    distanceKm: totalDistanceKm * (w / sum),
+    durationMin: totalDurationMin * (w / sum),
+  }));
+}
+
+function combineLegBreakdowns(
+  legs: FareBreakdown[],
+  fallback: FareBreakdown,
+): FareBreakdown {
+  if (legs.length === 0) return fallback;
+  if (legs.length === 1) return legs[0];
+
+  const tripFare = round2(legs.reduce((s, l) => s + l.trip_fare, 0));
+  const airportCharge = round2(legs.reduce((s, l) => s + l.airport_charge, 0));
+  const airportPickupFee = round2(
+    legs.reduce((s, l) => s + l.airport_pickup_fee, 0),
+  );
+  const airportDropoffFee = round2(
+    legs.reduce((s, l) => s + l.airport_dropoff_fee, 0),
+  );
+  const finalFare = round2(tripFare + airportCharge);
+  const allFixed = legs.every((l) => l.fixed_fare_applied);
+  const anyFixed = legs.some((l) => l.fixed_fare_applied);
+  const zoneParts = legs
+    .map((l) => l.zone_applied)
+    .filter((z): z is string => typeof z === "string" && z.length > 0);
+  const first = legs[0];
+  const last = legs[legs.length - 1];
+  const tripPricingMode: TripPricingMode = allFixed
+    ? "ROUTE_PRICING"
+    : anyFixed
+      ? "ROUTE_PRICING"
+      : "NORMAL_DISTANCE_TIME";
+  const isDynamic = first.fare_source === "standard_dynamic";
+  const fareSource: FareSource = allFixed
+    ? "route_fixed"
+    : anyFixed
+      ? "route_fixed"
+      : isDynamic
+        ? "standard_dynamic"
+        : "standard_fixed";
+
+  const fareDetails = buildFareDetails({
+    pricingMode: tripPricingMode,
+    tripFare,
+    airportCharge,
+    baseFare: allFixed ? 0 : legs.reduce((s, l) => s + l.base_fare, 0),
+    distanceCost: allFixed ? 0 : legs.reduce((s, l) => s + l.distance_cost, 0),
+    timeCost: allFixed ? 0 : legs.reduce((s, l) => s + l.time_cost, 0),
+    bookingFee: allFixed ? 0 : first.booking_fee,
+    minimumApplied: false,
+    minimumFare: first.minimum_fare,
+    subtotalBeforeMinimum: 0,
+    distancePricingMode: "flat",
+    distanceBandSummary: null,
+  });
+
+  // Annotate multi-leg zone path for debugging / UI.
+  if (zoneParts.length > 1) {
+    fareDetails[0] = {
+      label: `Trip fare (${zoneParts.join(" + ")})`,
+      amount: tripFare,
+    };
+  }
+
+  return {
+    base_fare: round2(allFixed ? tripFare : legs.reduce((s, l) => s + l.base_fare, 0)),
+    zone_applied: zoneParts.length > 0 ? zoneParts.join(" + ") : null,
+    pickup_zone: first.pickup_zone,
+    dropoff_zone: last.dropoff_zone,
+    pickup_zone_id: first.pickup_zone_id,
+    dropoff_zone_id: last.dropoff_zone_id,
+    trip_fare: tripFare,
+    airport_charge: airportCharge,
+    airport_charge_source: legs.find((l) => l.airport_charge > 0)?.airport_charge_source ??
+      "none",
+    airport_pickup_fee: airportPickupFee,
+    airport_dropoff_fee: airportDropoffFee,
+    fare_details: fareDetails,
+    surcharge: 0,
+    distance_cost: round2(allFixed ? 0 : legs.reduce((s, l) => s + l.distance_cost, 0)),
+    time_cost: round2(allFixed ? 0 : legs.reduce((s, l) => s + l.time_cost, 0)),
+    per_km_rate: allFixed ? 0 : first.per_km_rate,
+    per_min_rate: allFixed ? 0 : first.per_min_rate,
+    booking_fee: round2(allFixed ? 0 : first.booking_fee),
+    minimum_fare: first.minimum_fare,
+    multiplier: allFixed ? 1 : first.multiplier,
+    fixed_fare_applied: allFixed,
+    fare_source: fareSource,
+    pricing_mode: tripPricingMode,
+    distance_pricing_mode: allFixed ? "flat" : first.distance_pricing_mode,
+    distance_band_summary: allFixed ? null : first.distance_band_summary,
+    distance_bands: allFixed ? [] : legs.flatMap((l) => l.distance_bands),
+    subtotal_before_minimum: 0,
+    minimum_applied: false,
+    route_match: legs.some((l) => l.route_match),
+    matched_route_id: legs.map((l) => l.matched_route_id).filter(Boolean).join(",") ||
+      null,
+    final_fare: finalFare,
+    final_fare_pence: Math.round(finalFare * 100),
+  };
+}
+
+/**
+ * Single origin→destination fare (no waypoint orchestration).
+ * Used for one-way quotes and as the per-leg calculator for multi-boundary journeys.
+ */
+export function calculateFareSingleLeg(input: CalculateFareInput): FareBreakdown {
+  const { pricing, distanceKm, durationMin } = input;
+  const zones = input.zones ?? [];
+  const zoneRoutes = input.zoneRoutes ?? [];
+
+  const {
+    pickupZone,
+    dropoffZone,
+    route,
+    fixedApplied,
+  } = resolveRoutePricingContext({
+    pickup: input.pickup ?? null,
+    dropoff: input.dropoff ?? null,
+    zones,
+    zoneRoutes,
+    serviceAreaId: input.serviceAreaId ?? null,
+    vehicleTypeId: input.vehicleTypeId ?? null,
+    pickupZoneId: input.pickupZoneId ?? null,
+    dropoffZoneId: input.dropoffZoneId ?? null,
+    pickupContainingZones: input.pickupContainingZones,
+    dropoffContainingZones: input.dropoffContainingZones,
+  });
+
+  const fixedFare = fixedApplied && route?.fixed_fare != null
+    ? Number(route.fixed_fare)
+    : null;
+
+  let airportPickupFee = 0;
+  let airportDropoffFee = 0;
+  let airportCharge = 0;
+  let airportChargeSource: AirportChargeSource = "none";
+  try {
+    ({
+      airportPickupFee,
+      airportDropoffFee,
+      airportCharge,
+      airportChargeSource,
+    } = resolveAirportChargeFromAdmin({
+      pickupZone,
+      dropoffZone,
+      routePricing: fixedApplied ? route : null,
+      serviceAreaPricingSettings: input.serviceAreaPricingSettings,
+    }));
+  } catch {
+    airportPickupFee = 0;
+    airportDropoffFee = 0;
+    airportCharge = 0;
+    airportChargeSource = "none";
+  }
+
+  const baseFare = penceToUnit(pricing.base_fare_pence);
+  const perKm = penceToUnit(pricing.per_km_rate_pence);
+  const perMin = penceToUnit(pricing.per_min_rate_pence);
+  const bookingFee = penceToUnit(pricing.booking_fee_pence);
+  const minimumFare = penceToUnit(pricing.minimum_fare_pence);
+  const multiplier = dynamicMultiplier(pricing);
+
+  let distanceCost = 0;
+  let timeCost = 0;
+  let rideFare = 0;
+  let distancePricingMode: DistancePricingMode = "flat";
+  let distanceBandSummary: string | null = null;
+  let distanceBandsUsed: DistanceBandUsage[] = [];
+  let subtotalBeforeMinimum = 0;
+  let minimumAppliedFlag = false;
+
+  if (fixedApplied) {
+    rideFare = fixedFare!;
+  } else {
+    const distanceResult = calculateDistanceChargeMoney({
+      distanceKm,
+      distanceUnit: input.distanceUnit,
+      perKmRatePence: pricing.per_km_rate_pence,
+      distancePricingBands: pricing.distance_pricing_bands,
+      multiplier,
+    });
+    distanceCost = distanceResult.charge;
+    timeCost = durationMin * perMin * multiplier;
+    subtotalBeforeMinimum = round2(baseFare + distanceCost + timeCost + bookingFee);
+    minimumAppliedFlag = subtotalBeforeMinimum < minimumFare;
+    rideFare = Math.max(subtotalBeforeMinimum, minimumFare);
+    distancePricingMode = distanceResult.usedBands ? "bands" : "flat";
+    distanceBandSummary = distanceResult.bandSummary;
+    distanceBandsUsed = distanceResult.bands;
+  }
+
+  const surcharge = 0;
+  const tripFare = round2(rideFare);
+  const finalFare = round2(tripFare + airportCharge + surcharge);
+  const tripPricingMode: TripPricingMode = fixedApplied
+    ? "ROUTE_PRICING"
+    : "NORMAL_DISTANCE_TIME";
+  const fareDetails = buildFareDetails({
+    pricingMode: tripPricingMode,
+    tripFare,
+    airportCharge,
+    baseFare: fixedApplied ? 0 : baseFare,
+    distanceCost: fixedApplied ? 0 : distanceCost,
+    timeCost: fixedApplied ? 0 : timeCost,
+    bookingFee: fixedApplied ? 0 : bookingFee,
+    minimumApplied: fixedApplied ? false : minimumAppliedFlag,
+    minimumFare: fixedApplied ? 0 : minimumFare,
+    subtotalBeforeMinimum: fixedApplied ? 0 : subtotalBeforeMinimum,
+    distancePricingMode: fixedApplied ? "flat" : distancePricingMode,
+    distanceBandSummary: fixedApplied ? null : distanceBandSummary,
+  });
+
+  const isDynamic = String(pricing.pricing_mode || "fixed").toLowerCase() === "dynamic";
+  const fareSource: FareSource = fixedApplied
+    ? "route_fixed"
+    : isDynamic
+      ? "standard_dynamic"
+      : "standard_fixed";
+
+  return {
+    base_fare: round2(fixedApplied ? fixedFare! : baseFare),
+    zone_applied:
+      fixedApplied && pickupZone && dropoffZone
+        ? `${pickupZone.name} → ${dropoffZone.name}`
+        : null,
+    pickup_zone: pickupZone?.name ?? null,
+    dropoff_zone: dropoffZone?.name ?? null,
+    pickup_zone_id: pickupZone?.id ?? null,
+    dropoff_zone_id: dropoffZone?.id ?? null,
+    trip_fare: tripFare,
+    airport_charge: airportCharge,
+    airport_charge_source: airportChargeSource,
+    airport_pickup_fee: airportPickupFee,
+    airport_dropoff_fee: airportDropoffFee,
+    fare_details: fareDetails,
+    surcharge,
+    distance_cost: round2(fixedApplied ? 0 : distanceCost),
+    time_cost: round2(fixedApplied ? 0 : timeCost),
+    per_km_rate: round2(fixedApplied ? 0 : perKm * multiplier),
+    per_min_rate: round2(fixedApplied ? 0 : perMin * multiplier),
+    booking_fee: round2(fixedApplied ? 0 : bookingFee),
+    minimum_fare: round2(minimumFare),
+    multiplier: round2(fixedApplied ? 1 : multiplier),
+    fixed_fare_applied: fixedApplied,
+    fare_source: fareSource,
+    pricing_mode: tripPricingMode,
+    distance_pricing_mode: fixedApplied ? "flat" : distancePricingMode,
+    distance_band_summary: fixedApplied ? null : distanceBandSummary,
+    distance_bands: fixedApplied ? [] : distanceBandsUsed,
+    subtotal_before_minimum: fixedApplied ? 0 : subtotalBeforeMinimum,
+    minimum_applied: fixedApplied ? false : minimumAppliedFlag,
+    route_match: fixedApplied && route != null,
+    matched_route_id: fixedApplied ? (route?.id ?? null) : null,
+    final_fare: finalFare,
+    final_fare_pence: Math.round(finalFare * 100),
+  };
+}
+
+/**
+ * The single source of truth.  All edge functions doing fare math MUST go
+ * through this function so estimate, display, and capture stay in lock-step.
+ *
+ * Waypoint rules (stops):
+ * - Local stops inside the same pricing area do not create extra fixed-fare
+ *   segments; Custom Zone matching uses origin → final destination.
+ * - Special pricing-zone stops (airport / zone_route_pricing endpoints) become
+ *   directional boundaries; each consecutive pair is priced independently and
+ *   summed. No invented stop fee. No silent reverse-row mirroring.
+ */
+export function calculateFare(input: CalculateFareInput): FareBreakdown {
+  const zones = input.zones ?? [];
+  const zoneRoutes = input.zoneRoutes ?? [];
+  const stops = input.stops ?? [];
+
+  // No intermediates → identical to historical single-leg behaviour.
+  if (!stops.length) {
+    return calculateFareSingleLeg(input);
+  }
+
+  const legs = resolveMeaningfulPricingLegs({
+    pickup: input.pickup ?? null,
+    dropoff: input.dropoff ?? null,
+    stops,
+    zones,
+    zoneRoutes,
+  });
+
+  // One meaningful pair (e.g. MK → local → Heathrow): price origin→destination
+  // once with full route distance — local stops must not break fixed fare.
+  if (legs.length <= 1) {
+    return calculateFareSingleLeg({
+      ...input,
+      pickup: legs[0]?.from ?? input.pickup,
+      dropoff: legs[0]?.to ?? input.dropoff,
+      pickupZoneId: undefined,
+      dropoffZoneId: undefined,
+      // Recompute for possibly remapped endpoints.
+      pickupContainingZones: undefined,
+      dropoffContainingZones: undefined,
+      stops: [],
+    });
+  }
+
+  // Special-zone intermediate(s): price each directional crossing independently.
+  const shares = allocateLegDistanceShare(
+    legs,
+    input.distanceKm,
+    input.durationMin,
+  );
+  const legBreakdowns = legs.map((leg, i) =>
+    calculateFareSingleLeg({
+      ...input,
+      pickup: leg.from,
+      dropoff: leg.to,
+      pickupZoneId: leg.fromZone?.id ?? null,
+      dropoffZoneId: leg.toZone?.id ?? null,
+      pickupContainingZones: undefined,
+      dropoffContainingZones: undefined,
+      distanceKm: shares[i]?.distanceKm ?? 0,
+      durationMin: shares[i]?.durationMin ?? 0,
+      stops: [],
+    })
+  );
+
+  const fallback = calculateFareSingleLeg({ ...input, stops: [] });
+  return combineLegBreakdowns(legBreakdowns, fallback);
+}

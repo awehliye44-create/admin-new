@@ -1,0 +1,1586 @@
+/**
+ * ONECAB commission vs driver payout visibility — shared types + helpers.
+ *
+ * CRITICAL: Financial Reconciliation SSOT owns all finance calculations.
+ * See financialReconciliationSSOT.ts for canonical formulas.
+ *
+ * ONECAB gross commission = sum(trips.commission_pence) only.
+ * Never use provider available balance, captured revenue, or driver payable as commission.
+ */
+
+import {
+  buildReconciliationCheck,
+  buildSplitReconciliationCheck,
+  confirmedCapturePence,
+  type FinanceDataSourceBadge,
+  type PaymentSessionMoneyRow,
+  type SSOTComputedMetrics,
+  SSOT_VERSION,
+} from "./financialReconciliationSSOT.ts";
+import { resolveLockedPromotionPence } from "./tripSettlement.ts";
+import { excludeTripFromPlatformCollectedFinance } from "./commissionWalletSSOT.ts";
+import {
+  classifyPayoutReconciliation,
+  classifyProviderVerificationStatus,
+  classifyRefundReconciliation,
+  classifyReleaseReconciliation,
+  evaluateSettlementCaptureIdentity,
+  onecabNetFromSessionFee,
+  resolveFrTripAuditStatus,
+  type CaptureReconciliationStatus,
+} from "./frTripAuditComparisonSSOT.ts";
+import {
+  classifyDriverCreditHealth,
+  DRIVER_CREDIT_HEALTH,
+  isDriverCreditExceptionHealth,
+  mapDriverCreditHealthToWalletReconciliationStatus,
+  sumActiveDriverWalletCreditForTrip,
+  TERMINAL_FEE_TRIP_STATUSES,
+} from "./driverCreditMonitoringSSOT.ts";
+import {
+  FR_EXPECTED_STAMP_STATUS,
+  resolveFrDriverExpectedEntitlement,
+} from "./frDriverExpectedEntitlementSSOT.ts";
+import {
+  captureClassificationToMatchStatus,
+  readPersistedCaptureBreakdown,
+  type PaymentSessionCaptureBreakdown,
+} from "./paymentSessionsCaptureBreakdownSSOT.ts";
+import {
+  evaluateFrCaptureCompositionIdentityClosed,
+} from "./frCaptureCompositionIdentitySSOT.ts";
+import {
+  deriveTripFinancialAuditStatuses,
+  deriveTripReconciliationBadge,
+  deriveTripCaptureStatusLabel,
+  type TripAuditLedgerRecord,
+  type TripAuditPaymentRecord,
+  type TripAuditPayoutRecord,
+  type TripAuditStatusBadge,
+} from "./tripFinancialAuditStatus.ts";
+import {
+  computeSettlementTotalPence,
+  EXTRA_PAYMENT_TOLERANCE_PENCE,
+  resolveCustomerPayablePenceForAudit,
+} from "./extraPaymentRecoverySSOT.ts";
+import {
+  getTripAvailablePayoutCreatedPence,
+  getTripDebtRecoveredPence,
+  getTripDriverNetPence,
+  getTripSettlementFarePence,
+} from "./tripSettlementFinanceSSOT.ts";
+import {
+  classifyFrProviderFeeFromSession,
+  resolveCanonicalPaymentSessionMoneyByTrip,
+  resolveTripCommissionAfterPromotionPence,
+  resolveTripPrePromotionCommissionableFarePence,
+  type CanonicalPaymentSessionMoney,
+} from "./frPerTripAuditSSOT.ts";
+
+export { SSOT_VERSION, type FinanceDataSourceBadge };
+
+export type OnecabSettlementStatus =
+  | "calculated_only"
+  | "pending_provider_settlement"
+  | "available_in_provider_balance"
+  | "paid_to_onecab_bank"
+  | "reconciled";
+
+export type TripFinanceRow = {
+  commission_pence: number | null;
+  provider_fee_pence: number | null;
+  onecab_net_pence: number | null;
+  driver_net_pence: number | null;
+  gross_fare_pence: number | null;
+  final_fare_pence: number | null;
+  commissionable_fare_pence: number | null;
+  capture_amount_pence: number | null;
+  tip_pence: number | null;
+  tip_amount_pence: number | null;
+  payment_method: string | null;
+  provider_settlement_verified: boolean | null;
+  driver_tier_commission_percent: number | null;
+  commission_pct: number | null;
+  completed_at: string | null;
+  /** Phase 7: DRIVER_COLLECTED_COMMISSION_WALLET trips excluded from UK gross. */
+  financial_model?: string | null;
+};
+
+export type PayoutFailureRow = {
+  amount_pence: number | null;
+  error_message: string | null;
+  created_at: string | null;
+};
+
+const COUNTABLE_OUTCOMES = ["COMPLETED", "NO_SHOW", "LATE_PASSENGER_CANCELLATION"];
+const DEFAULT_COMMISSION_RATE = 0.15;
+
+export function commissionableRevenuePence(row: TripFinanceRow): number {
+  return Math.max(
+    0,
+    row.commissionable_fare_pence ??
+      row.final_fare_pence ??
+      row.capture_amount_pence ??
+      0,
+  );
+}
+
+export function customerRevenuePence(row: TripFinanceRow): number {
+  // Phase 7: CW trips — customer paid driver; ONECAB customer collection = 0.
+  if (excludeTripFromPlatformCollectedFinance(row)) return 0;
+
+  const tip = Math.max(0, row.tip_pence ?? row.tip_amount_pence ?? 0);
+  const method = String(row.payment_method ?? "").toLowerCase();
+  const isCash = method === "cash" || method.includes("cash");
+
+  // Cash: customer paid the fare (no Payment Session capture).
+  if (isCash) return commissionableRevenuePence(row) + tip;
+
+  // Digital/card: Payment Sessions owns capture — never invent from trips.capture_amount_pence.
+  return 0;
+}
+
+export function tripGrossCommissionPence(row: TripFinanceRow): number {
+  // Phase 7: CW commission lives on COMMISSION_WALLET_DEDUCTION, not trips.commission_pence UK gross.
+  if (excludeTripFromPlatformCollectedFinance(row)) return 0;
+  return Math.max(0, row.commission_pence ?? 0);
+}
+
+
+export function tripProviderFeePence(row: TripFinanceRow): number {
+  return Math.max(0, row.provider_fee_pence ?? 0);
+}
+
+export function tripOnecabNetPence(row: TripFinanceRow): number | null {
+  // Consume stored net only — never invent gross − fee when unknown. Do not clamp negatives.
+  if (row.onecab_net_pence != null) return row.onecab_net_pence;
+  return null;
+}
+
+/** Stored driver net only — never derives fare − commission. */
+export function tripDriverNetPence(row: TripFinanceRow): number | null {
+  if (row.driver_net_pence != null) return Math.max(0, row.driver_net_pence);
+  return null;
+}
+
+/** Audit/display driver net — ledger TRIP_EARNING_NET first, then trips.driver_net_pence. */
+export function tripDriverNetPenceForAudit(
+  row: TripFinanceRow,
+  ledger: TripAuditLedgerRecord[] = [],
+): number | null {
+  return getTripDriverNetPence({
+    driver_net_pence: row.driver_net_pence,
+    ledger,
+  });
+}
+
+export function sumTripFinanceMetrics(rows: TripFinanceRow[]) {
+  let totalCustomerRevenue = 0;
+  let totalCommissionableRevenue = 0;
+  let driverGrossEarnings = 0;
+  let driverNetEarnings = 0;
+  let grossCommission = 0;
+  let providerFees = 0;
+  let onecabNet = 0;
+  let verifiedOnecabNet = 0;
+  let unverifiedOnecabNet = 0;
+  let verifiedCount = 0;
+
+  for (const row of rows) {
+    const commissionable = commissionableRevenuePence(row);
+    const customerRev = customerRevenuePence(row);
+    const grossComm = tripGrossCommissionPence(row);
+    const providerFee = tripProviderFeePence(row);
+    const net = tripOnecabNetPence(row);
+    const driverNet = tripDriverNetPence(row) ?? 0;
+
+    totalCustomerRevenue += customerRev;
+    totalCommissionableRevenue += commissionable;
+    driverGrossEarnings += commissionable;
+    driverNetEarnings += driverNet;
+    grossCommission += grossComm;
+    providerFees += providerFee;
+    if (net != null) onecabNet += net;
+
+    if (row.provider_settlement_verified === true) {
+      if (net != null) verifiedOnecabNet += net;
+      verifiedCount += 1;
+    } else if (net != null) {
+      unverifiedOnecabNet += net;
+    }
+  }
+
+  const maxCommissionAtDefaultRate = Math.round(totalCommissionableRevenue * DEFAULT_COMMISSION_RATE);
+  const commissionExceedsCap = grossCommission > maxCommissionAtDefaultRate + 5;
+
+  return {
+    tripCount: rows.length,
+    total_customer_revenue_pence: totalCustomerRevenue,
+    total_commissionable_revenue_pence: totalCommissionableRevenue,
+    driver_gross_earnings_pence: driverGrossEarnings,
+    driver_net_earnings_pence: driverNetEarnings,
+    onecab_gross_commission_pence: grossCommission,
+    provider_fee_pence: providerFees,
+    onecab_net_pence: onecabNet,
+    verified_onecab_net_pence: verifiedOnecabNet,
+    unverified_onecab_net_pence: unverifiedOnecabNet,
+    verified_trip_count: verifiedCount,
+    max_commission_at_15_percent_pence: maxCommissionAtDefaultRate,
+    commission_exceeds_15_percent_cap: commissionExceedsCap,
+  };
+}
+
+/** @deprecated use sumTripFinanceMetrics */
+export function sumTripCommissions(rows: TripFinanceRow[]) {
+  const m = sumTripFinanceMetrics(rows);
+  return {
+    gross: m.onecab_gross_commission_pence,
+    providerFee: m.provider_fee_pence,
+    net: m.onecab_net_pence,
+    verifiedNet: m.verified_onecab_net_pence,
+    unverifiedNet: m.unverified_onecab_net_pence,
+    verifiedCount: m.verified_trip_count,
+    tripCount: m.tripCount,
+  };
+}
+
+export function classifyOnecabSettlementStatus(args: {
+  calculatedOnecabNetPence: number;
+  verifiedOnecabNetPence: number;
+  providerAvailablePence: number;
+  providerPendingPence: number;
+  verifiedTripCount: number;
+  tripCount: number;
+}): OnecabSettlementStatus {
+  const {
+    calculatedOnecabNetPence,
+    verifiedOnecabNetPence,
+    providerAvailablePence,
+    providerPendingPence,
+    verifiedTripCount,
+    tripCount,
+  } = args;
+
+  if (calculatedOnecabNetPence <= 0) return "calculated_only";
+  if (verifiedTripCount === 0) return "calculated_only";
+  if (verifiedTripCount < tripCount || providerPendingPence > 0) {
+    return "pending_provider_settlement";
+  }
+  if (providerAvailablePence >= verifiedOnecabNetPence && verifiedOnecabNetPence > 0) {
+    return "available_in_provider_balance";
+  }
+  if (providerPendingPence > 0) return "pending_provider_settlement";
+  return "calculated_only";
+}
+
+/**
+ * Provider cash partition — NOT ONECAB commission.
+ * platform_cash_after_driver_liability = provider available − driver payable − pending transfers
+ */
+export function partitionProviderPlatformCash(args: {
+  providerAvailablePence: number;
+  driverPayoutLiabilityPence: number;
+  pendingTransfersPence: number;
+}) {
+  const allocatedToDrivers = args.driverPayoutLiabilityPence + args.pendingTransfersPence;
+  const unallocatedPlatformCash = args.providerAvailablePence - allocatedToDrivers;
+  return {
+    provider_available_platform_balance_pence: args.providerAvailablePence,
+    driver_payout_liability_pence: args.driverPayoutLiabilityPence,
+    pending_transfers_pence: args.pendingTransfersPence,
+    unallocated_platform_cash_pence: unallocatedPlatformCash,
+  };
+}
+
+export function reconcileProviderBalance(args: {
+  providerAvailablePence: number;
+  calculatedOnecabNetPence: number;
+  availableDriverPayablePence: number;
+  pendingTransfersPence: number;
+  tolerancePence?: number;
+}) {
+  const tolerance = args.tolerancePence ?? 100;
+  const partition = partitionProviderPlatformCash({
+    providerAvailablePence: args.providerAvailablePence,
+    driverPayoutLiabilityPence: args.availableDriverPayablePence,
+    pendingTransfersPence: args.pendingTransfersPence,
+  });
+
+  const expectedCash =
+    args.calculatedOnecabNetPence +
+    args.availableDriverPayablePence +
+    args.pendingTransfersPence;
+  const reserves = args.providerAvailablePence - expectedCash;
+  const delta = Math.abs(reserves);
+  const reconciles = delta <= tolerance;
+
+  return {
+    provider_available_balance_pence: args.providerAvailablePence,
+    /** Trip-derived ONECAB net after provider fees — NOT (provider balance − driver payable) */
+    calculated_onecab_net_pence: args.calculatedOnecabNetPence,
+    available_driver_payable_pence: args.availableDriverPayablePence,
+    pending_transfers_pence: args.pendingTransfersPence,
+    unallocated_platform_cash_pence: partition.unallocated_platform_cash_pence,
+    reserves_or_adjustments_pence: reserves,
+    reconciles,
+    mismatch_warning: reconciles
+      ? null
+      : "Provider balance reconciliation mismatch.",
+  };
+}
+
+export function parseInsufficientFundsReason(errorMessage: string | null): string | null {
+  if (!errorMessage) return null;
+  const lower = errorMessage.toLowerCase();
+  if (lower.includes("insufficient") && (lower.includes("fund") || lower.includes("balance"))) {
+    return "Provider available balance was lower than requested driver payout.";
+  }
+  return null;
+}
+
+export function buildInsufficientFundsDiagnosis(args: {
+  failureReason: string | null;
+  requestedPayoutPence: number;
+  providerAvailablePence: number;
+  providerPendingPence: number;
+  calculatedOnecabNetPence: number;
+  driverPendingSettlementPence: number;
+}): string[] {
+  const diagnoses: string[] = [];
+  const insufficient = parseInsufficientFundsReason(args.failureReason);
+
+  if (insufficient) diagnoses.push(insufficient);
+  if (args.requestedPayoutPence > args.providerAvailablePence) {
+    diagnoses.push("Driver payout amount exceeded provider available balance.");
+  }
+  if (args.providerPendingPence > 0 && args.providerAvailablePence < args.requestedPayoutPence) {
+    diagnoses.push("Provider funds are pending, not available.");
+  }
+  if (args.calculatedOnecabNetPence > 0 && args.providerAvailablePence < args.requestedPayoutPence) {
+    diagnoses.push("ONECAB commission was calculated on trips but provider available cash is lower than driver payout request.");
+  }
+  if (args.driverPendingSettlementPence > 0) {
+    diagnoses.push("Driver funds are pending next payout cycle.");
+  }
+  if (diagnoses.length === 0 && args.failureReason) {
+    diagnoses.push("Driver Connect transfer failed.");
+  }
+  return diagnoses;
+}
+
+export function computeSafePayoutAmount(args: {
+  driverAvailablePence: number;
+  providerAvailablePence: number;
+  minimumPayoutPence?: number;
+}) {
+  const min = args.minimumPayoutPence ?? 100;
+  const capped = Math.min(Math.max(0, args.driverAvailablePence), Math.max(0, args.providerAvailablePence));
+  return {
+    payout_amount_pence: capped,
+    partial: capped < args.driverAvailablePence && capped > 0,
+    blocked: capped < min,
+    waiting_for_provider_funds: args.providerAvailablePence < args.driverAvailablePence,
+  };
+}
+
+export const COUNTABLE_FINANCIAL_OUTCOMES = COUNTABLE_OUTCOMES;
+
+/** SSOT finance reconciliation payload — all admin finance surfaces read from this shape. */
+export type FinanceReconciliationSummary = {
+  customer_revenue: {
+    card_customer_revenue_pence: number;
+    refunded_amount_pence: number;
+    net_card_revenue_pence: number;
+    /** @deprecated Use card_customer_revenue_pence */
+    total_customer_revenue_pence: number;
+    /** @deprecated Use net_card_revenue_pence for card revenue */
+    net_customer_revenue_pence: number;
+    commissionable_revenue_pence: number;
+  };
+  driver_money: {
+    card_driver_payable_pence: number;
+    driver_wallet_balance_pence: number;
+    driver_available_payout_pence: number;
+    driver_pending_payout_pence: number;
+    driver_paid_out_pence: number;
+    driver_payout_liability_pence: number;
+    in_flight_cashout_pence: number;
+    /** @deprecated Lifetime earnings — use Driver Earnings screen */
+    driver_gross_earnings_pence?: number;
+    /** @deprecated use card_driver_payable_pence */
+    driver_net_earnings_pence?: number;
+  };
+  onecab_money: {
+    onecab_card_commission_pence: number;
+    onecab_gross_commission_pence: number;
+    provider_processing_fee_pence: number;
+    onecab_card_net_commission_pence: number;
+    total_commission_earned_pence: number;
+    net_platform_revenue_pence: number;
+    /** Alias of net_platform_revenue_pence */
+    onecab_net_commission_pence: number;
+    onecab_bank_payout_pence: number;
+    onecab_commission_status: OnecabSettlementStatus;
+    onecab_commission_status_label: string;
+  };
+  provider_money: {
+    provider_name: string;
+    provider_available_balance_pence: number;
+    provider_pending_balance_pence: number;
+    provider_health_status: "healthy" | "degraded" | "failing" | "unknown";
+    last_webhook_received_at: string | null;
+  };
+  reconciliation_check: {
+    card_reconciliation: {
+      card_customer_revenue_pence: number;
+      card_driver_payable_pence: number;
+      onecab_card_commission_pence: number;
+      expected_sum_pence: number;
+      variance_pence: number;
+      delta_pence: number;
+      balanced: boolean;
+      status: "BALANCED" | "RECONCILIATION_MISMATCH";
+    };
+
+    net_customer_revenue_pence: number;
+    driver_paid_out_pence: number;
+    driver_remaining_liability_pence: number;
+    driver_net_earnings_pence: number;
+    onecab_gross_commission_pence: number;
+    onecab_net_commission_pence: number;
+    provider_processing_fee_pence: number;
+    adjustments_pence: number;
+    expected_sum_pence: number;
+    variance_pence: number;
+    delta_pence: number;
+    balanced: boolean;
+    status: "BALANCED" | "RECONCILIATION_MISMATCH" | "balanced" | "reconciliation_error";
+  };
+  ssot?: {
+    version: string;
+    data_source_badge: FinanceDataSourceBadge;
+    customer_revenue_source: string;
+  };
+  pending_provider_confirmation?: {
+    label: string;
+    trip_count: number;
+    expected_revenue_pence: number;
+    expected_commission_pence: number;
+    expected_driver_net_pence: number;
+  };
+};
+
+export type TripFinancialAuditRow = {
+  trip_id: string;
+  trip_code: string | null;
+  date: string | null;
+  driver_id: string | null;
+  customer_name: string | null;
+  driver_name: string | null;
+  payment_method: string | null;
+  provider_payment_id?: string | null;
+  /** Payment Sessions SSOT id when linked — navigation only. */
+  payment_session_id?: string | null;
+  /**
+   * Digital: confirmed Payment Sessions capture only (null when unknown — never invent £0).
+   * Cash: settlement total from trip snapshot.
+   */
+  customer_paid_pence: number | null;
+  /** Pre-discount gross fare from trip record (SSOT). */
+  gross_fare_pence: number;
+  /** max(0, gross_fare − final_fare) — backend only. */
+  discount_pence: number;
+  /** Fare after discount, before tip/extras. */
+  final_fare_pence: number;
+  /** Canonical final customer fare (alias of final_fare_pence for FR DTO contract). */
+  final_customer_fare_pence?: number | null;
+  /** Settlement total (fare + tip + fees) — same as customer_paid_pence for audit rows. */
+  settlement_total_pence: number;
+  /** Confirmed capture from Payment Sessions — null when unconfirmed (never invent £0). */
+  captured_pence: number | null;
+  /** Cumulative refund from Payment Sessions — null when evidence unavailable. */
+  refunded_pence: number | null;
+  /** Capture − refund; null when capture unknown (never invent £0). */
+  net_customer_payment_pence: number | null;
+  service_area_id?: string | null;
+  provider_state?: string | null;
+  provider_verified_at?: string | null;
+  provider_verification_status?: "VERIFIED" | "STALE" | "UNKNOWN" | null;
+  release_reconciliation_status?: string | null;
+  refund_reconciliation_status?: string | null;
+  warnings?: string[];
+  /** Amount still owed when captured < settlement. */
+  outstanding_pence: number;
+  capture_mismatch: boolean;
+  driver_net_pence: number | null;
+  /** Cash commission debt recovered from card earnings on this trip. */
+  debt_recovered_pence: number;
+  /** driver_net − debt_recovered — amount added to available payout liability. */
+  available_payout_created_pence: number | null;
+  onecab_gross_commission_pence: number;
+  processing_fee_pence: number | null;
+  /** Gross commission − PS provider fee; null when fee pending under sessions map. */
+  onecab_net_pence: number | null;
+  driver_payout: TripAuditStatusBadge;
+  onecab_commission: TripAuditStatusBadge;
+  provider: TripAuditStatusBadge;
+  /** @deprecated Use driver_payout.label */
+  driver_payout_status?: string;
+  /** @deprecated Use onecab_commission.label */
+  onecab_commission_status?: string;
+  /** @deprecated Use provider.label */
+  provider_status?: string;
+  trip_status?: string | null;
+  financial_outcome?: string | null;
+  currency_code?: string | null;
+  created_at?: string | null;
+  payment_status?: string | null;
+  capture_status?: string | null;
+  reconciliation_status?: TripAuditStatusBadge;
+  /** Ride fare (commissionable base) — backend SSOT. */
+  ride_fare_pence?: number | null;
+  airport_charge_pence?: number | null;
+  tip_pence?: number | null;
+  /** Pre-capture authorisation / hold amount when known. */
+  authorised_pence?: number | null;
+  /** Released hold amount when known (null = unconfirmed). */
+  released_pence?: number | null;
+  fee_status?: "PENDING_PROVIDER_FEE" | "CONFIRMED" | null;
+  /** Alias of available_payout_created_pence for wallet-credit comparison. */
+  wallet_credit_pence?: number | null;
+  /** Customer payable − captured (null when either side unknown). */
+  variance_pence?: number | null;
+  /** Capture variance = captured − final_customer_fare (null when unknown). */
+  capture_variance_pence?: number | null;
+  /** Wallet credit − driver net (null when either side unknown). */
+  wallet_variance_pence?: number | null;
+  payout_variance_pence?: number | null;
+  payout_amount_pence?: number | null;
+  capture_reconciliation_status?: string | null;
+  wallet_reconciliation_status?: string | null;
+  payout_reconciliation_status?: string | null;
+  wallet_status?: string | null;
+  /** Payment evidence availability for digital trips. */
+  payment_evidence_status?:
+    | "PAYMENT_SESSIONS"
+    | "NO_PAYMENT_SESSION"
+    | "PAYMENT_EVIDENCE_UNAVAILABLE"
+    | "CASH"
+    | null;
+  settlement_formula_version?: string | null;
+  /** From Payment Sessions capture breakdown SSOT — FR consume-only. */
+  variance_reason?: string | null;
+  capture_classification?: string | null;
+  ps_expected_capture_pence?: number | null;
+  /** PS capture component — never FR-invented. */
+  pickup_waiting_charge_pence?: number | null;
+  stop_waiting_charge_pence?: number | null;
+  capture_breakdown?: {
+    ride_fare_pence: number | null;
+    pickup_waiting_charge_pence: number | null;
+    stop_waiting_charge_pence: number | null;
+    airport_charge_pence?: number | null;
+    tip_pence?: number | null;
+    expected_capture_pence: number | null;
+    provider_captured_pence: number | null;
+    variance_pence: number | null;
+    variance_reason: string | null;
+    capture_classification: string;
+  } | null;
+  settlement_identity_balanced?: boolean | null;
+  /** Settled receivable recovery — historical shortfall evidence, not open. */
+  resolved_by_receivable_recovery?: boolean | null;
+  receivable_recovery_status?: string | null;
+  settled_receivable_original_pence?: number | null;
+  recovery_payment_session_id?: string | null;
+  trip_fare_component_pence?: number | null;
+  receivable_component_pence?: number | null;
+  /** Platform-funded customer promotion subsidy (marketing cost) deducted in the FR identity. */
+  platform_promotion_subsidy_pence?: number | null;
+  /** Authoritative consume-only trip audit status. WALLET_MISMATCH is displayed/filtered. */
+  fr_trip_audit_status?: string | null;
+  /** Canonical driver credit health (OK / MISSING / …). FR primary detection owner. */
+  driver_credit_health?: string | null;
+  expected_driver_credit_pence?: number | null;
+  actual_driver_credit_pence?: number | null;
+  credit_difference_pence?: number | null;
+  credit_eligibility_at?: string | null;
+  /** Canonical entitlement stamp — missing => EXPECTED_STAMP_MISSING, never expected zero. */
+  expected_stamp_status?: string | null;
+  /**
+   * Display-only expected / actual component breakdown (stored stamps + ledger types).
+   * Null components mean legacy unavailable — UI must show Unknown, never £0.00.
+   */
+  expected_fare_net_pence?: number | null;
+  expected_airport_component_pence?: number | null;
+  expected_tip_component_pence?: number | null;
+  actual_trip_earning_net_pence?: number | null;
+  actual_settlement_corrections_pence?: number | null;
+  actual_tip_credit_pence?: number | null;
+};
+
+export type TripAuditSourceRow = TripFinanceRow & {
+  id: string;
+  platform_promotion_subsidy_pence?: number | null;
+  trip_code?: string | null;
+  status?: string | null;
+  refund_amount_pence?: number | null;
+  outstanding_balance_pence?: number | null;
+  payment_coverage_status?: string | null;
+  airport_charge_pence?: number | null;
+  other_pass_through_charges_pence?: number | null;
+  pickup_waiting_charge_pence?: number | null;
+  stop_waiting_charge_pence?: number | null;
+  stop_charge_total_pence?: number | null;
+  no_show_charge_pence?: number | null;
+  customer_modification_charge_pence?: number | null;
+  destination_change_adjustment_pence?: number | null;
+  extras_pence?: number | null;
+  final_customer_fare_pence?: number | null;
+  payment_status?: string | null;
+  financial_outcome?: string | null;
+  provider_payment_id?: string | null;
+  provider_charge_id?: string | null;
+  provider_status?: string | null;
+  driver_id?: string | null;
+  passenger_name?: string | null;
+  service_area_id?: string | null;
+  created_at?: string | null;
+  driver?: { first_name?: string | null; last_name?: string | null } | null;
+};
+
+export type TripFinancialAuditContext = {
+  paymentByTripId: Map<string, TripAuditPaymentRecord>;
+  paymentsByTripId: Map<string, TripAuditPaymentRecord[]>;
+  payoutsByTripId: Map<string, TripAuditPayoutRecord[]>;
+  ledgerByTripId: Map<string, TripAuditLedgerRecord[]>;
+  /** Payment Sessions money SSOT — preferred for customer capture/auth/release/refund/fee. */
+  paymentSessionByTripId?: Map<string, import("./financialReconciliationSSOT.ts").PaymentSessionMoneyByTrip>;
+  currencyCodeByServiceAreaId?: Map<string, string>;
+  defaultCurrencyCode?: string | null;
+};
+
+export function sumRefundedAmountPence(rows: Array<{ refund_amount_pence?: number | null }>): number {
+  return rows.reduce((s, r) => s + Math.max(0, r.refund_amount_pence ?? 0), 0);
+}
+
+export function commissionableRevenueFromCaptured(args: {
+  capturedPence: number;
+  tipPence: number;
+  airportPence: number;
+  /** @deprecated Slice 4 / v2 — pass-through is commissionable; ignored. */
+  passThroughPence?: number;
+  refundedPence: number;
+}): number {
+  // v2: do not strip pass-through — commissionable = capture − tip − airport − refund.
+  return Math.max(
+    0,
+    args.capturedPence - args.tipPence - args.airportPence - args.refundedPence,
+  );
+}
+
+const SETTLEMENT_CORRECTION_LEDGER_TYPES = new Set([
+  "CORRECTION",
+  "ADMIN_CORRECTION",
+  "ADJUSTMENT",
+  "MANUAL_ADJUSTMENT",
+  "LEDGER_REVERSAL",
+]);
+
+/** Display-only ledger component sums — never invents earnings. */
+export function sumTripAuditLedgerComponentPence(
+  ledger: TripAuditLedgerRecord[],
+  types: ReadonlySet<string>,
+): number | null {
+  if (!ledger || ledger.length === 0) return null;
+  let sum = 0;
+  let matched = false;
+  for (const entry of ledger) {
+    const type = String(entry.type ?? "").toUpperCase();
+    if (!types.has(type)) continue;
+    matched = true;
+    sum += Math.round(Number(entry.amount_pence ?? 0));
+  }
+  return matched ? sum : null;
+}
+
+/** Assemble SSOT reconciliation payload from canonical metrics. */
+export function buildFinanceReconciliationSummary(args: {
+  ssot: SSOTComputedMetrics;
+  commissionableRevenuePence: number;
+  driverWalletBalancePence: number;
+  inFlightCashoutPence: number;
+  settlementStatus: OnecabSettlementStatus;
+  settlementStatusLabel: string;
+  providerHealthStatus: FinanceReconciliationSummary["provider_money"]["provider_health_status"];
+  lastWebhookReceivedAt: string | null;
+  onecabBankPayoutPence?: number;
+  tolerancePence?: number;
+  dataSourceBadge?: FinanceDataSourceBadge;
+  /** When true, BALANCED status uses trip-earnings split (correct for date-filtered reports). */
+  periodScoped?: boolean;
+  /** Period tip total — required for settlement identity (defaults to 0 = false mismatch). */
+  driverTipsPence?: number;
+  /**
+   * Period airport total as a separate allocation leg.
+   * Pass 0 when airport is already folded into driver_net stamps.
+   */
+  airportChargesPence?: number;
+}): FinanceReconciliationSummary {
+  const m = args.ssot;
+  const driverAvailablePayout = Math.max(0, m.driver_available_now_pence - args.inFlightCashoutPence);
+
+  const split = m.ledger_split;
+  const splitReconciliation = buildSplitReconciliationCheck({
+    ledger: split,
+    driverTipsPence: args.driverTipsPence ?? 0,
+    airportChargesPence: args.airportChargesPence ?? 0,
+    tolerancePence: args.tolerancePence,
+  });
+
+  return {
+    customer_revenue: {
+      card_customer_revenue_pence: split.card_customer_revenue_pence,
+      refunded_amount_pence: m.refunded_amount_pence,
+      net_card_revenue_pence: split.net_card_revenue_pence,
+      total_customer_revenue_pence: split.card_customer_revenue_pence,
+      net_customer_revenue_pence: split.net_card_revenue_pence,
+      commissionable_revenue_pence: args.commissionableRevenuePence,
+    },
+    driver_money: {
+      card_driver_payable_pence: split.card_driver_payable_pence,
+      driver_wallet_balance_pence: args.driverWalletBalancePence,
+      driver_available_payout_pence: driverAvailablePayout,
+      driver_pending_payout_pence: m.driver_pending_payout_pence,
+      driver_paid_out_pence: m.driver_paid_out_pence,
+      driver_payout_liability_pence: m.driver_remaining_liability_pence,
+      in_flight_cashout_pence: args.inFlightCashoutPence,
+      driver_gross_earnings_pence: m.driver_gross_earnings_pence,
+      driver_net_earnings_pence: m.driver_net_earnings_pence,
+    },
+    onecab_money: {
+      onecab_card_commission_pence: split.onecab_card_commission_pence,
+      onecab_gross_commission_pence: m.onecab_gross_commission_pence,
+      provider_processing_fee_pence: m.provider_processing_fee_pence,
+      onecab_card_net_commission_pence: m.onecab_card_net_commission_pence,
+      total_commission_earned_pence: m.total_commission_earned_pence,
+      net_platform_revenue_pence: m.net_platform_revenue_pence,
+      onecab_net_commission_pence: m.net_platform_revenue_pence,
+      onecab_bank_payout_pence: args.onecabBankPayoutPence ?? 0,
+
+      onecab_commission_status: args.settlementStatus,
+      onecab_commission_status_label: args.settlementStatusLabel,
+    },
+    provider_money: {
+      provider_name: "Revolut",
+      provider_available_balance_pence: m.provider_available_balance_pence,
+      provider_pending_balance_pence: m.provider_pending_balance_pence,
+      provider_health_status: args.providerHealthStatus,
+      last_webhook_received_at: args.lastWebhookReceivedAt,
+    },
+    reconciliation_check: {
+      card_reconciliation: splitReconciliation.card_reconciliation,
+      net_customer_revenue_pence: split.card_customer_revenue_pence,
+      driver_paid_out_pence: m.driver_paid_out_pence,
+      driver_remaining_liability_pence: m.driver_remaining_liability_pence,
+      driver_net_earnings_pence: split.card_driver_payable_pence,
+      onecab_gross_commission_pence: m.total_commission_earned_pence,
+      onecab_net_commission_pence: m.net_platform_revenue_pence,
+      provider_processing_fee_pence: m.provider_processing_fee_pence,
+      adjustments_pence: m.adjustments_pence,
+      expected_sum_pence: splitReconciliation.card_reconciliation.expected_sum_pence,
+      variance_pence: Math.abs(splitReconciliation.card_reconciliation.variance_pence),
+      delta_pence: Math.abs(splitReconciliation.card_reconciliation.delta_pence),
+      balanced: splitReconciliation.balanced,
+      status: splitReconciliation.status,
+    },
+    ssot: {
+      version: SSOT_VERSION,
+      data_source_badge: args.dataSourceBadge ?? "LIVE",
+      customer_revenue_source: formatCustomerRevenueSourceLabel(m.customer_revenue_source),
+    },
+    pending_provider_confirmation: m.pending_trip_count > 0
+      ? {
+        label: "Expected / Pending provider confirmation",
+        trip_count: m.pending_trip_count,
+        expected_revenue_pence: m.pending_provider_confirmation_revenue_pence,
+        expected_commission_pence: m.pending_provider_confirmation_commission_pence,
+        expected_driver_net_pence: m.pending_provider_confirmation_driver_net_pence,
+      }
+      : undefined,
+  };
+}
+
+function formatCustomerRevenueSourceLabel(
+  source: import("./financialReconciliationSSOT.ts").CustomerRevenueSourceLabel,
+): string {
+  switch (source) {
+    case "payment_sessions_captured":
+      return "Reconciled — Payment Sessions captures only";
+    case "payments_captured":
+      return "Reconciled — captured payments only";
+    case "expected_pending_provider_confirmation":
+      return "Expected / Pending provider confirmation";
+    case "trips_capture_fallback_pending":
+      return "Expected / Pending provider confirmation (trip capture fallback)";
+    case "trips_final_fare_fallback_pending":
+      return "Expected / Pending provider confirmation (trip fare fallback)";
+    default:
+      return String(source);
+  }
+}
+
+export function computeAuditCaptureMismatch(args: {
+  payment_method: string | null;
+  settlement_pence: number;
+  captured_pence: number;
+  outstanding_balance_pence?: number | null;
+  payment_coverage_status?: string | null;
+}): boolean {
+  if ((args.payment_method ?? "").toLowerCase() === "cash") return false;
+  if ((args.payment_coverage_status ?? "").toLowerCase() === "captured") return false;
+  const outstanding = computeAuditOutstandingPence({
+    settlement_pence: args.settlement_pence,
+    captured_pence: args.captured_pence,
+    outstanding_balance_pence: args.outstanding_balance_pence,
+  });
+  return outstanding > EXTRA_PAYMENT_TOLERANCE_PENCE;
+}
+
+export function computeAuditOutstandingPence(args: {
+  settlement_pence: number;
+  captured_pence: number;
+  outstanding_balance_pence?: number | null;
+}): number {
+  const computed = Math.max(0, args.settlement_pence - args.captured_pence);
+  const stored = Math.max(0, args.outstanding_balance_pence ?? 0);
+
+  if (args.captured_pence >= args.settlement_pence - EXTRA_PAYMENT_TOLERANCE_PENCE) {
+    return 0;
+  }
+  if (stored === 0 && computed <= EXTRA_PAYMENT_TOLERANCE_PENCE) {
+    return 0;
+  }
+  if (
+    stored > 0 &&
+    Math.abs(stored - computed) <= EXTRA_PAYMENT_TOLERANCE_PENCE
+  ) {
+    return stored;
+  }
+  return computed > 0 ? computed : stored;
+}
+
+export function mapTripToFinancialAuditRow(
+  row: TripAuditSourceRow,
+  context: TripFinancialAuditContext = {
+    paymentByTripId: new Map(),
+    paymentsByTripId: new Map(),
+    payoutsByTripId: new Map(),
+    ledgerByTripId: new Map(),
+  },
+): TripFinancialAuditRow {
+  const payment = context.paymentByTripId.get(row.id) ?? null;
+  const tripPayments = context.paymentsByTripId.get(row.id) ?? [];
+  const ledger = context.ledgerByTripId.get(row.id) ?? [];
+  const sessionsMapPresent = context.paymentSessionByTripId != null;
+  const session = context.paymentSessionByTripId?.get(row.id) ?? null;
+  const sessionAmbiguous = (session as CanonicalPaymentSessionMoney | null)?.session_resolution_status
+    === "PAYMENT_SESSION_AMBIGUOUS";
+
+  // Hard ownership: customer capture ONLY from Payment Sessions.
+  // Never invent from legacy payments or trips.capture_amount_pence.
+  const captured = session?.captured_amount_pence != null && session.captured_amount_pence > 0
+    ? session.captured_amount_pence
+    : null;
+
+  const method = String(row.payment_method ?? "").toLowerCase();
+  const isCash = method === "cash" || method.includes("cash");
+  const payment_evidence_status = isCash
+    ? "CASH" as const
+    : !sessionsMapPresent
+    ? "PAYMENT_EVIDENCE_UNAVAILABLE" as const
+    : session == null
+    ? "NO_PAYMENT_SESSION" as const
+    : "PAYMENT_SESSIONS" as const;
+
+  // Refunds: Payment Sessions only — never trip fallback invent; NULL ≠ £0.
+  const refunded = !sessionsMapPresent || session == null
+    ? null
+    : (session.refunded_amount_pence == null
+      ? null
+      : Math.max(0, Number(session.refunded_amount_pence)));
+  const settlementTotal = computeSettlementTotalPence(row);
+  const customerPayablePence = resolveCustomerPayablePenceForAudit({
+    trip: row,
+    settlementTotalPence: settlementTotal,
+    capturedPence: captured,
+  });
+  // Digital customer paid = confirmed PS capture only. Never invent £0 from missing evidence.
+  const customerPaid = isCash
+    ? settlementTotal
+    : (captured != null ? captured : null);
+  const grossFarePence = Math.max(0, Number(row.gross_fare_pence ?? row.commissionable_fare_pence ?? 0));
+  const finalFarePence = Math.max(0, Number(row.final_fare_pence ?? 0));
+  const discountPence = Math.max(0, grossFarePence - finalFarePence);
+  const driverName = row.driver
+    ? [row.driver.first_name, row.driver.last_name].filter(Boolean).join(" ").trim() || null
+    : null;
+
+  // Badge derivation may see PS capture via payment.captured — never trip invent.
+  const paymentForStatus = {
+    status: payment?.status ?? session?.status ?? null,
+    provider_status: payment?.provider_status ?? null,
+    captured_amount_pence: captured,
+    provider_payment_id: payment?.provider_payment_id ?? null,
+    provider_available_on: payment?.provider_available_on ?? null,
+  };
+
+  const statuses = deriveTripFinancialAuditStatuses({
+    trip: row,
+    payment: paymentForStatus,
+    payouts: context.payoutsByTripId.get(row.id) ?? [],
+    ledger,
+  });
+
+  const statusInput = {
+    trip: row,
+    payment: paymentForStatus,
+    payouts: context.payoutsByTripId.get(row.id) ?? [],
+    ledger,
+  };
+
+  // Outstanding only when capture known — do not invent £0 as confirmed capture for GREEN.
+  const outstanding = captured == null
+    ? Math.max(0, row.outstanding_balance_pence ?? customerPayablePence)
+    : computeAuditOutstandingPence({
+      settlement_pence: customerPayablePence,
+      captured_pence: captured,
+      outstanding_balance_pence: row.outstanding_balance_pence,
+    });
+
+  // Expected driver net resolved after PS fee / provider verification context.
+  let expectedDriverNet: number | null = null;
+  let tripEntitlement: ReturnType<typeof resolveFrDriverExpectedEntitlement>;
+  const walletEarning = sumActiveDriverWalletCreditForTrip({
+    ledger,
+    trip_driver_id: row.driver_id ?? null,
+  });
+  const walletCredit = walletEarning.correct_driver_credit_pence > 0
+    ? walletEarning.correct_driver_credit_pence
+    : null;
+  const debtRecovered = getTripDebtRecoveredPence(ledger);
+
+  const paymentIntentId =
+    row.provider_payment_id ??
+    payment?.provider_payment_id ??
+    tripPayments.find((p) => p.provider_payment_id)?.provider_payment_id ??
+    null;
+
+  const grossCommission = tripGrossCommissionPence(row);
+  const commissionAfterPromotion = resolveTripCommissionAfterPromotionPence(row);
+  const lockedPromotionPence = resolveLockedPromotionPence(row);
+  const platformPromotionSubsidyPence = Math.max(
+    0,
+    Math.round(Number(row.platform_promotion_subsidy_pence ?? 0)),
+  );
+  const prePromotionCommissionable = resolveTripPrePromotionCommissionableFarePence(row);
+
+  const feeClass = classifyFrProviderFeeFromSession({
+    provider_processing_fee_pence: session?.provider_processing_fee_pence,
+    fee_status: session?.fee_status,
+    sessionsMapPresent: sessionsMapPresent && session != null && !sessionAmbiguous,
+    fee_confirmed_at: session?.provider_state_verified_at ?? null,
+  });
+  const processingFeePence = feeClass.confirmed_provider_fee_pence;
+  const fee_status = !sessionsMapPresent || session == null || sessionAmbiguous
+    ? null
+    : (feeClass.fee_status === "PENDING" || feeClass.fee_status === "UNAVAILABLE"
+      ? "PENDING_PROVIDER_FEE" as const
+      : "CONFIRMED" as const);
+  const onecabNet = feeClass.confirmed_provider_fee_pence != null
+    ? onecabNetFromSessionFee({
+      gross_commission_pence: grossCommission,
+      provider_processing_fee_pence: feeClass.confirmed_provider_fee_pence,
+      sessionsMapPresent: sessionsMapPresent && session != null && !sessionAmbiguous,
+    })
+    : null;
+
+  const authorisedPence = session?.authorised_amount_pence != null
+    ? Math.max(0, session.authorised_amount_pence)
+    : null;
+  const releasedPence = session?.released_amount_pence != null
+    ? Math.max(0, session.released_amount_pence)
+    : null;
+
+  // Payment Sessions owns expected capture / variance / classification.
+  // Prefer typed capture composition when present (fare+tip+receivable).
+  // Never compare provider capture against trip fare alone when receivable
+  // recovery is part of the planned capture target.
+  const persistedBreakdown = readPersistedCaptureBreakdown(session?.metadata ?? null);
+  const psCaptureBreakdown: PaymentSessionCaptureBreakdown | null = persistedBreakdown;
+  const compositionEval = evaluateFrCaptureCompositionIdentityClosed({
+    session: session
+      ? {
+        trip_fare_component_pence: (session as {
+          trip_fare_component_pence?: number | null;
+        }).trip_fare_component_pence,
+        tip_component_pence: (session as { tip_component_pence?: number | null }).tip_component_pence,
+        receivable_component_pence: (session as {
+          receivable_component_pence?: number | null;
+        }).receivable_component_pence,
+        buffer_pence: (session as { buffer_pence?: number | null }).buffer_pence,
+        provider_capture_target_pence: (session as {
+          provider_capture_target_pence?: number | null;
+        }).provider_capture_target_pence,
+        metadata: session.metadata ?? null,
+        captured_amount_pence: session.captured_amount_pence ?? null,
+        purpose: (session as { purpose?: string | null }).purpose ?? null,
+      }
+      : null,
+    actual_captured_pence: captured,
+  });
+  const compositionIdentity = compositionEval.kind === "ok"
+    ? compositionEval.identity
+    : null;
+  const compositionFailClosed = compositionEval.kind === "fail_closed";
+  const tipPence = Math.max(
+    0,
+    Number(
+      compositionIdentity?.tip_component_pence
+        ?? psCaptureBreakdown?.tip_pence
+        ?? row.tip_pence
+        ?? row.tip_amount_pence
+        ?? 0,
+    ),
+  );
+  const airportPence = Math.max(
+    0,
+    Number(psCaptureBreakdown?.airport_charge_pence ?? row.airport_charge_pence ?? 0),
+  );
+  const expectedCapturePence = compositionFailClosed
+    ? null
+    : (compositionIdentity?.expected_provider_capture_pence
+      ?? psCaptureBreakdown?.expected_capture_pence
+      ?? null);
+  const captureVariance = compositionFailClosed
+    ? null
+    : (compositionIdentity?.capture_variance_pence
+      ?? psCaptureBreakdown?.variance_pence
+      ?? null);
+  const rideFareForCapture = compositionIdentity?.trip_fare_component_pence
+    ?? psCaptureBreakdown?.ride_fare_pence
+    ?? null;
+  // Customer capture variance is PS/composition-owned only — never settlement_total − captured.
+  const variancePence = captureVariance;
+
+  const provider_state = session?.provider_state ?? null;
+  const provider_verified_at = session?.provider_state_verified_at ?? null;
+  const provider_verification_status = sessionsMapPresent && session != null
+    ? classifyProviderVerificationStatus({
+      provider_state,
+      provider_verified_at,
+    })
+    : null;
+
+  tripEntitlement = resolveFrDriverExpectedEntitlement({
+    trip_id: row.id,
+    trip_code: row.trip_code ?? null,
+    trip_status: row.status ?? null,
+    financial_outcome: row.financial_outcome ?? null,
+    financial_model: row.financial_model ?? null,
+    driver_net_pence: row.driver_net_pence ?? null,
+    commission_pence: row.commission_pence ?? null,
+    tip_pence: row.tip_pence ?? null,
+    tip_amount_pence: row.tip_amount_pence ?? null,
+    airport_charge_pence: row.airport_charge_pence ?? null,
+    pickup_waiting_charge_pence: row.pickup_waiting_charge_pence ?? null,
+    stop_waiting_charge_pence: row.stop_waiting_charge_pence ?? null,
+    other_pass_through_charges_pence: row.other_pass_through_charges_pence ?? null,
+    no_show_charge_pence: row.no_show_charge_pence ?? null,
+    gross_fare_pence: row.gross_fare_pence ?? null,
+    final_customer_fare_pence: row.final_customer_fare_pence ?? null,
+    locked_base_fare_pence: (row as { locked_base_fare_pence?: number | null }).locked_base_fare_pence ?? null,
+    customer_modification_charge_pence: row.customer_modification_charge_pence ?? null,
+    provider_fee_pence: row.provider_fee_pence ?? null,
+    settlement_amount_pence: (row as { settlement_amount_pence?: number | null }).settlement_amount_pence ?? null,
+    captured_amount_pence: captured,
+    provider_processing_fee_pence: feeClass.confirmed_provider_fee_pence ?? session?.provider_processing_fee_pence ?? null,
+    captured_at: provider_verified_at ?? row.completed_at ?? null,
+    completed_at: row.completed_at ?? null,
+  });
+  expectedDriverNet = tripEntitlement.expected_stamp_status === FR_EXPECTED_STAMP_STATUS.EXPECTED_STAMP_MISSING
+    ? null
+    : tripEntitlement.expected_entitlement_pence;
+  const availablePayoutCreated = getTripAvailablePayoutCreatedPence({
+    driverNetPence: expectedDriverNet,
+    debtRecoveredPence: debtRecovered,
+  });
+
+  const psMatch = psCaptureBreakdown
+    ? captureClassificationToMatchStatus(psCaptureBreakdown.capture_classification)
+    : null;
+  const capture_reconciliation_status = isCash
+    ? "MATCHED"
+    : sessionAmbiguous
+    ? "PAYMENT_SESSION_AMBIGUOUS" as CaptureReconciliationStatus
+    : payment_evidence_status === "PAYMENT_EVIDENCE_UNAVAILABLE"
+    ? "PAYMENT_EVIDENCE_UNAVAILABLE"
+    : payment_evidence_status === "NO_PAYMENT_SESSION"
+    ? "NO_PAYMENT_SESSION"
+    : provider_verification_status === "STALE"
+    ? "PROVIDER_VERIFICATION_PENDING"
+    : captured == null || captured <= 0
+    ? "PAYMENT_SESSION_CAPTURE_MISMATCH"
+    : psMatch == null
+    ? "CAPTURE_AMOUNT_UNKNOWN" // PS breakdown not persisted yet — never invent OVERCAPTURE from trip fare
+    : psMatch === "MATCHED"
+    ? "MATCHED"
+    : psMatch === "UNEXPLAINED_OVERCAPTURE"
+    ? "OVERCAPTURE"
+    : psMatch === "CAPTURE_SHORTFALL"
+    ? "CAPTURE_SHORTFALL"
+    : "CAPTURE_AMOUNT_UNKNOWN";
+  const release_reconciliation_status = classifyReleaseReconciliation({
+    authorised_pence: authorisedPence,
+    captured_pence: captured,
+    released_pence: releasedPence,
+    release_evidence_status: session?.release_evidence_status != null
+      ? String(session.release_evidence_status)
+      : null,
+  });
+  const refund_reconciliation_status = classifyRefundReconciliation({
+    refunded_pence: refunded,
+  });
+  const walletEvidenceAvailable = context.ledgerByTripId != null;
+  const displayedWalletCredit = walletEvidenceAvailable
+    ? (walletCredit ?? 0)
+    : walletCredit;
+  const driverCredit = tripEntitlement.expected_stamp_status === FR_EXPECTED_STAMP_STATUS.EXPECTED_STAMP_MISSING
+    ? {
+      health: DRIVER_CREDIT_HEALTH.MISSING,
+      expected_driver_credit_pence: 0,
+      actual_driver_credit_pence: walletCredit ?? 0,
+      credit_difference_pence: 0,
+      credit_eligibility_at: null,
+    }
+    : classifyDriverCreditHealth({
+    financial_model: row.financial_model ?? null,
+    trip_status: row.status ?? null,
+    trip_driver_id: row.driver_id ?? null,
+    // Component basis only — fare net excludes tip. Tip added once via tip_pence.
+    // Never pass tip-inclusive expected_entitlement as driver_net_pence (double-count).
+    driver_net_pence: row.driver_net_pence == null
+      ? 0
+      : Math.max(0, Math.round(Number(row.driver_net_pence))),
+    tip_pence: tipPence,
+    ledger,
+    wallet_evidence_available: walletEvidenceAvailable,
+    provider_state: provider_state,
+    captured_pence: captured,
+    captured_at: provider_verified_at ?? row.completed_at ?? null,
+    released_pence: releasedPence,
+    refunded_pence: refunded,
+    fee_charged_at: provider_verified_at ?? row.completed_at ?? null,
+    is_terminal_fee_session: tripEntitlement.is_terminal_fee_outcome
+      || TERMINAL_FEE_TRIP_STATUSES.has(String(row.status ?? "").toLowerCase()),
+  });
+  const walletVariancePence = walletEvidenceAvailable
+    ? driverCredit.credit_difference_pence
+    : null;
+  const wallet_reconciliation_status = mapDriverCreditHealthToWalletReconciliationStatus(
+    driverCredit.health,
+  );
+  const payoutItems = context.payoutsByTripId.get(row.id) ?? [];
+  const payoutEvidenceAvailable = context.payoutsByTripId != null;
+  const payoutAmount = payoutItems.reduce(
+    (s, p) => s + Math.max(0, Number(p.driver_amount_pence ?? p.amount_pence ?? 0)),
+    0,
+  );
+  const payout_reconciliation_status = classifyPayoutReconciliation({
+    payoutEvidenceAvailable,
+    payout_status_label: statuses.driver_payout.label,
+    payout_amount_pence: payoutAmount > 0 ? payoutAmount : null,
+    eligible_amount_pence: availablePayoutCreated,
+  });
+  const payoutVariance = availablePayoutCreated == null || payoutAmount <= 0
+    ? null
+    : payoutAmount - availablePayoutCreated;
+
+  const warnings: string[] = [];
+  if (payment_evidence_status === "PAYMENT_EVIDENCE_UNAVAILABLE") {
+    warnings.push("PAYMENT_EVIDENCE_UNAVAILABLE");
+  }
+  if (payment_evidence_status === "NO_PAYMENT_SESSION") {
+    warnings.push("NO_PAYMENT_SESSION");
+  }
+  if (provider_verification_status === "STALE") {
+    warnings.push("PROVIDER_VERIFICATION_PENDING");
+  }
+  if (!walletEvidenceAvailable) warnings.push("WALLET_EVIDENCE_UNAVAILABLE");
+  if (!payoutEvidenceAvailable) warnings.push("PAYOUT_EVIDENCE_UNAVAILABLE");
+  if (fee_status === "PENDING_PROVIDER_FEE") warnings.push("PROVIDER_FEE_PENDING");
+  if (sessionAmbiguous) warnings.push("PAYMENT_SESSION_AMBIGUOUS");
+  if (psCaptureBreakdown == null && !isCash && payment_evidence_status === "PAYMENT_SESSIONS") {
+    warnings.push("PAYMENT_SESSION_CAPTURE_BREAKDOWN_PENDING");
+  }
+  if (compositionFailClosed) {
+    warnings.push("COMPOSITION_EVIDENCE_MISSING");
+  }
+  // Capture mismatch is PS classification only — never trip settlement vs capture.
+  const captureMismatchResolved = isCash
+    ? false
+    : capture_reconciliation_status === "OVERCAPTURE"
+      || capture_reconciliation_status === "CAPTURE_SHORTFALL"
+      || capture_reconciliation_status === "PAYMENT_SESSION_CAPTURE_MISMATCH"
+      || capture_reconciliation_status === "PAYMENT_SESSION_AMBIGUOUS"
+      || capture_reconciliation_status === "NO_PAYMENT_SESSION"
+      || (captured == null && payment_evidence_status === "PAYMENT_SESSIONS");
+
+  let reconciliation_status = deriveTripReconciliationBadge({
+    capture_mismatch: captureMismatchResolved,
+    captured_pence: captured,
+    refunded_pence: refunded,
+    settlement_total_pence: settlementTotal,
+    provider: statuses.provider,
+    financial_outcome: row.financial_outcome ?? null,
+    trip_status: row.status ?? null,
+    payment_status: row.payment_status ?? null,
+    capture_reconciliation_status,
+    release_reconciliation_status,
+    wallet_reconciliation_status,
+    payout_reconciliation_status,
+    fee_status,
+  });
+
+  const settlementIdentity = evaluateSettlementCaptureIdentity({
+    // Composition sessions: identity is actual vs planned capture target
+    // (fare+tip+receivable). Pass fare-leg-only capture into allocation identity
+    // so receivable recovery does not look like overcapture vs fare stamps.
+    captured_pence: compositionIdentity != null
+      ? Math.max(
+        0,
+        Math.round(Number(captured ?? 0))
+          - Math.max(0, compositionIdentity.receivable_component_pence),
+      )
+      : captured,
+    // Fare-only stamp — tip is a separate leg. Never pass tip-inclusive entitlement.
+    driver_net_pence: row.driver_net_pence == null
+      ? null
+      : Math.max(0, Math.round(Number(row.driver_net_pence))),
+    commission_pence: grossCommission,
+    commission_after_promotion_pence: commissionAfterPromotion,
+    platform_promotion_subsidy_pence: platformPromotionSubsidyPence,
+    airport_charge_pence: airportPence,
+    tips_pence: tipPence,
+  });
+  const settlementIdentityBalanced = compositionFailClosed
+    ? false
+    : (compositionIdentity != null
+      ? compositionIdentity.settlement_identity_balanced
+      : settlementIdentity.balanced);
+  const walletMismatchDiagnostic = isDriverCreditExceptionHealth(driverCredit.health);
+  // WALLET_MISMATCH is the authoritative displayed status. Do not replace it with a
+  // competing SETTLEMENT_MISMATCH when the wallet diagnostic already fired.
+  if (
+    (compositionFailClosed
+      || (compositionIdentity != null
+        ? compositionIdentity.settlement_identity_balanced === false
+        : (settlementIdentity.evaluable && !settlementIdentity.balanced)))
+    && !walletMismatchDiagnostic
+  ) {
+    reconciliation_status = {
+      ...reconciliation_status,
+      label: compositionFailClosed ? "COMPOSITION_EVIDENCE_MISSING" : "SETTLEMENT_MISMATCH",
+      tone: "red",
+    };
+  } else if (
+    compositionIdentity != null
+    && compositionIdentity.settlement_identity_balanced
+    && String(reconciliation_status.label ?? "").toUpperCase() === "SETTLEMENT_MISMATCH"
+  ) {
+    reconciliation_status = {
+      ...reconciliation_status,
+      label: "BALANCED",
+      tone: "green",
+    };
+  }
+
+  const capture_status = deriveTripCaptureStatusLabel(statusInput, captureMismatchResolved);
+  const paymentMethod = session?.payment_method ?? row.payment_method ?? null;
+
+  return {
+    trip_id: row.id,
+    trip_code: row.trip_code ?? null,
+    date: row.completed_at ?? null,
+    created_at: row.created_at ?? null,
+    driver_id: row.driver_id ?? null,
+    customer_name: row.passenger_name?.trim() || null,
+    driver_name: driverName,
+    payment_method: paymentMethod,
+    service_area_id: row.service_area_id ?? null,
+    provider_payment_id: paymentIntentId,
+    payment_session_id: session?.payment_session_id ?? null,
+    canonical_payment_session_ids: (session as CanonicalPaymentSessionMoney | null)
+      ?.canonical_payment_session_ids ?? (session?.payment_session_id ? [session.payment_session_id] : []),
+    payment_session_resolution_status: (session as CanonicalPaymentSessionMoney | null)
+      ?.session_resolution_status ?? "RESOLVED",
+    financial_model: row.financial_model ?? null,
+    locked_promotion_pence: lockedPromotionPence,
+    commission_after_promotion_pence: commissionAfterPromotion,
+    platform_promotion_subsidy_pence: platformPromotionSubsidyPence,
+    pre_promotion_commissionable_fare_pence: prePromotionCommissionable,
+    confirmed_provider_fee_pence: feeClass.confirmed_provider_fee_pence,
+    pending_provider_fee_pence: feeClass.pending_provider_fee_pence,
+    provider_fee_status: feeClass.fee_status,
+    provider_fee_source: feeClass.fee_source,
+    customer_paid_pence: customerPaid,
+    gross_fare_pence: grossFarePence,
+    discount_pence: discountPence,
+    final_fare_pence: finalFarePence,
+    final_customer_fare_pence: rideFareForCapture,
+    settlement_total_pence: settlementTotal,
+    captured_pence: captured,
+    refunded_pence: refunded,
+    net_customer_payment_pence: customerPaid == null || refunded == null
+      ? null
+      : Math.max(0, customerPaid - refunded),
+    outstanding_pence: outstanding,
+    capture_mismatch: captureMismatchResolved,
+    driver_net_pence: expectedDriverNet,
+    debt_recovered_pence: debtRecovered,
+    available_payout_created_pence: availablePayoutCreated,
+    onecab_gross_commission_pence: grossCommission,
+    processing_fee_pence: processingFeePence,
+    onecab_net_pence: onecabNet,
+    driver_payout: statuses.driver_payout,
+    onecab_commission: statuses.onecab_commission,
+    provider: statuses.provider,
+    /** @deprecated Legacy string fields — kept for older admin clients */
+    driver_payout_status: statuses.driver_payout.label,
+    onecab_commission_status: statuses.onecab_commission.label,
+    provider_status: statuses.provider.label,
+    trip_status: row.status ?? null,
+    financial_outcome: row.financial_outcome ?? null,
+    payment_status: row.payment_status ?? null,
+    capture_status,
+    reconciliation_status,
+    ride_fare_pence: rideFareForCapture,
+    airport_charge_pence: airportPence,
+    tip_pence: tipPence,
+    authorised_pence: authorisedPence,
+    released_pence: releasedPence,
+    fee_status,
+    wallet_credit_pence: walletEvidenceAvailable
+      ? (driverCredit.actual_driver_credit_pence > 0 ? driverCredit.actual_driver_credit_pence : displayedWalletCredit)
+      : displayedWalletCredit,
+    driver_credit_health: driverCredit.health,
+    expected_driver_credit_pence: tripEntitlement.expected_stamp_status === FR_EXPECTED_STAMP_STATUS.EXPECTED_STAMP_MISSING
+      ? null
+      : (expectedDriverNet ?? driverCredit.expected_driver_credit_pence),
+    actual_driver_credit_pence: driverCredit.actual_driver_credit_pence,
+    credit_difference_pence: tripEntitlement.expected_stamp_status === FR_EXPECTED_STAMP_STATUS.EXPECTED_STAMP_MISSING
+      ? null
+      : driverCredit.credit_difference_pence,
+    credit_eligibility_at: driverCredit.credit_eligibility_at,
+    expected_stamp_status: tripEntitlement.expected_stamp_status,
+    variance_pence: variancePence,
+    capture_variance_pence: captureVariance,
+    wallet_variance_pence: walletVariancePence,
+    payout_variance_pence: payoutVariance,
+    payout_amount_pence: payoutAmount > 0 ? payoutAmount : null,
+    capture_reconciliation_status,
+    release_reconciliation_status,
+    refund_reconciliation_status,
+    wallet_reconciliation_status,
+    payout_reconciliation_status,
+    wallet_status: wallet_reconciliation_status,
+    payment_evidence_status,
+    provider_state,
+    provider_verified_at,
+    provider_verification_status,
+    variance_reason: psCaptureBreakdown?.variance_reason ?? null,
+    capture_classification: psCaptureBreakdown?.capture_classification ?? null,
+    ps_expected_capture_pence: expectedCapturePence,
+    settlement_identity_balanced: settlementIdentityBalanced,
+    trip_fare_component_pence: compositionIdentity?.trip_fare_component_pence ?? null,
+    receivable_component_pence: compositionIdentity?.receivable_component_pence ?? null,
+    fr_trip_audit_status: resolveFrTripAuditStatus({
+      capture_reconciliation_status,
+      release_reconciliation_status,
+      wallet_reconciliation_status,
+      payout_reconciliation_status,
+      fee_status,
+      settlement_identity_balanced: settlementIdentityBalanced,
+      payment_evidence_status,
+    }),
+    pickup_waiting_charge_pence: psCaptureBreakdown?.pickup_waiting_charge_pence ?? null,
+    stop_waiting_charge_pence: psCaptureBreakdown?.stop_waiting_charge_pence ?? null,
+    capture_breakdown: psCaptureBreakdown
+      ? {
+        ride_fare_pence: psCaptureBreakdown.ride_fare_pence,
+        pickup_waiting_charge_pence: psCaptureBreakdown.pickup_waiting_charge_pence,
+        stop_waiting_charge_pence: psCaptureBreakdown.stop_waiting_charge_pence,
+        airport_charge_pence: psCaptureBreakdown.airport_charge_pence ?? null,
+        tip_pence: psCaptureBreakdown.tip_pence ?? null,
+        expected_capture_pence: psCaptureBreakdown.expected_capture_pence,
+        provider_captured_pence: psCaptureBreakdown.provider_captured_pence,
+        variance_pence: psCaptureBreakdown.variance_pence,
+        variance_reason: psCaptureBreakdown.variance_reason,
+        capture_classification: psCaptureBreakdown.capture_classification,
+      }
+      : null,
+    expected_fare_net_pence: row.driver_net_pence == null
+      ? null
+      : Math.max(0, Math.round(Number(row.driver_net_pence))),
+    expected_airport_component_pence: row.airport_charge_pence == null
+      && psCaptureBreakdown?.airport_charge_pence == null
+      ? null
+      : airportPence,
+    expected_tip_component_pence: row.tip_pence == null
+      && row.tip_amount_pence == null
+      && psCaptureBreakdown?.tip_pence == null
+      ? null
+      : tipPence,
+    actual_trip_earning_net_pence: walletEvidenceAvailable
+      ? sumTripAuditLedgerComponentPence(ledger, new Set(["TRIP_EARNING_NET", "TRIP_CREDIT", "CASH_TRIP_EARNING"]))
+      : null,
+    actual_settlement_corrections_pence: walletEvidenceAvailable
+      ? sumTripAuditLedgerComponentPence(ledger, SETTLEMENT_CORRECTION_LEDGER_TYPES)
+      : null,
+    actual_tip_credit_pence: walletEvidenceAvailable
+      ? sumTripAuditLedgerComponentPence(ledger, new Set(["DRIVER_TIP_CREDIT", "TIP_CREDIT"]))
+      : null,
+    warnings: psCaptureBreakdown?.variance_reason
+      ? [...warnings, psCaptureBreakdown.variance_reason]
+      : warnings,
+    settlement_formula_version: "fr_trip_audit_v1",
+    currency_code: row.service_area_id && context.currencyCodeByServiceAreaId
+      ? (context.currencyCodeByServiceAreaId.get(row.service_area_id) ?? context.defaultCurrencyCode ?? null)
+      : (context.defaultCurrencyCode ?? null),
+  } as TripFinancialAuditRow;
+}
+
+export function buildTripFinancialAuditContext(args: {
+  payments: Array<{
+    trip_id: string | null;
+    status: string | null;
+    provider_status: string | null;
+    captured_amount_pence: number | null;
+    provider_payment_id?: string | null;
+    provider_available_on?: string | null;
+  }>;
+  payoutItems: Array<{
+    trip_id: string | null;
+    status: string;
+    driver_amount_pence?: number | null;
+    amount_pence?: number | null;
+    batch_id?: string | null;
+    batch?: { status?: string | null } | null;
+  }>;
+  ledgerRows: Array<{
+    related_trip_id: string | null;
+    type: string;
+    amount_pence: number;
+    driver_id?: string | null;
+    provider_payout_id?: string | null;
+    provider_transfer_id?: string | null;
+  }>;
+  paymentSessions?: PaymentSessionMoneyRow[];
+  currencyCodeByServiceAreaId?: Map<string, string>;
+  defaultCurrencyCode?: string | null;
+}): TripFinancialAuditContext {
+  const paymentByTripId = new Map<string, TripAuditPaymentRecord>();
+  const paymentsByTripId = new Map<string, TripAuditPaymentRecord[]>();
+  for (const p of args.payments) {
+    if (!p.trip_id) continue;
+    const record: TripAuditPaymentRecord = {
+      status: p.status,
+      provider_status: p.provider_status,
+      captured_amount_pence: p.captured_amount_pence,
+      provider_payment_id: p.provider_payment_id ?? null,
+      provider_available_on: p.provider_available_on ?? null,
+    };
+    const list = paymentsByTripId.get(p.trip_id) ?? [];
+    list.push(record);
+    paymentsByTripId.set(p.trip_id, list);
+
+    const existing = paymentByTripId.get(p.trip_id);
+    const existingCap = Math.max(0, existing?.captured_amount_pence ?? 0);
+    const newCap = Math.max(0, record.captured_amount_pence ?? 0);
+    if (!existing || newCap >= existingCap) {
+      paymentByTripId.set(p.trip_id, record);
+    }
+  }
+
+  const payoutsByTripId = new Map<string, TripAuditPayoutRecord[]>();
+  for (const item of args.payoutItems) {
+    if (!item.trip_id) continue;
+    const list = payoutsByTripId.get(item.trip_id) ?? [];
+    list.push({
+      status: item.status,
+      driver_amount_pence: item.driver_amount_pence,
+      amount_pence: item.amount_pence,
+      batch_status: item.batch?.status ?? null,
+      batch_id: item.batch_id ?? null,
+    });
+    payoutsByTripId.set(item.trip_id, list);
+  }
+
+  const ledgerByTripId = new Map<string, TripAuditLedgerRecord[]>();
+  for (const entry of args.ledgerRows) {
+    if (!entry.related_trip_id) continue;
+    const list = ledgerByTripId.get(entry.related_trip_id) ?? [];
+    list.push({
+      type: entry.type,
+      amount_pence: entry.amount_pence,
+      driver_id: entry.driver_id ?? null,
+      provider_payout_id: entry.provider_payout_id ?? null,
+      provider_transfer_id: entry.provider_transfer_id ?? null,
+    });
+    ledgerByTripId.set(entry.related_trip_id, list);
+  }
+
+  const paymentSessionByTripId = args.paymentSessions
+    ? resolveCanonicalPaymentSessionMoneyByTrip(args.paymentSessions)
+    : undefined;
+
+  return {
+    paymentByTripId,
+    paymentsByTripId,
+    payoutsByTripId,
+    ledgerByTripId,
+    paymentSessionByTripId,
+    currencyCodeByServiceAreaId: args.currencyCodeByServiceAreaId,
+    defaultCurrencyCode: args.defaultCurrencyCode ?? null,
+  };
+}
+
+export function sumCommissionableFromTrips(
+  rows: TripAuditSourceRow[],
+  paymentByTrip?: Map<string, number>,
+): number {
+  let total = 0;
+  for (const row of rows) {
+    if (excludeTripFromPlatformCollectedFinance(row)) continue;
+    const method = String(row.payment_method ?? "").toLowerCase();
+    const isCash = method === "cash" || method.includes("cash");
+    const captured = confirmedCapturePence(paymentByTrip?.get(row.id));
+    const tip = Math.max(0, row.tip_pence ?? row.tip_amount_pence ?? 0);
+    const airport = Math.max(0, row.airport_charge_pence ?? 0);
+    const passThrough = Math.max(0, row.other_pass_through_charges_pence ?? 0);
+    const refunded = Math.max(0, row.refund_amount_pence ?? 0);
+    if (captured != null && captured > 0) {
+      total += commissionableRevenueFromCaptured({
+        capturedPence: captured,
+        tipPence: tip,
+        airportPence: airport,
+        passThroughPence: passThrough,
+        refundedPence: refunded,
+      });
+    } else if (isCash) {
+      total += commissionableRevenuePence(row);
+    }
+    // Digital without Payment Sessions capture: do not invent from trip.capture_amount_pence.
+  }
+  return total;
+}
