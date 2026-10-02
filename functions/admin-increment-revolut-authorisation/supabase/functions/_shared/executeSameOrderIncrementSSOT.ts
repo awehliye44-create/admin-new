@@ -1166,7 +1166,7 @@ export async function executeSameOrderIncrement(args: {
       ? "PROVIDER_INCREMENT_FAILED"
       : null;
 
-    await args.supabase
+    const { error: failRowErr } = await args.supabase
       .from("payment_session_authorisations")
       .update({
         status: failKind === "declined"
@@ -1197,15 +1197,24 @@ export async function executeSameOrderIncrement(args: {
       })
       .eq("id", incrementRowId);
 
-    await args.supabase
+    // payment_session_status has no DECLINED member. The session records only that
+    // coverage is still required; the decline itself lives on the authorisation row.
+    const { error: failSessionErr } = await args.supabase
       .from("payment_sessions")
       .update({
-        status: failKind === "declined"
-          ? "ADDITIONAL_AUTHORISATION_DECLINED"
-          : "ADDITIONAL_AUTHORISATION_REQUIRED",
+        status: "ADDITIONAL_AUTHORISATION_REQUIRED",
         updated_at: new Date().toISOString(),
       })
       .eq("id", sessionId);
+
+    if (failRowErr || failSessionErr) {
+      logIncrementEvent("increment_failure_persist_failed", {
+        payment_session_id: maskId(sessionId),
+        fail_kind: failKind,
+        authorisation_row_error: failRowErr?.code ?? failRowErr?.message ?? null,
+        session_status_error: failSessionErr?.code ?? failSessionErr?.message ?? null,
+      });
+    }
 
     return {
       ok: false,
