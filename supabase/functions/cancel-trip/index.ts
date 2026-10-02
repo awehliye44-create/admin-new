@@ -15,7 +15,12 @@ import {
   isArrivalCancellationFeeEligible,
   resolveFreeWaitingExpiresAtMs,
 } from "../_shared/terminalFeeDecisionSSOT.ts";
-import { noShowEligibleFromCountedSeconds } from "../_shared/waitingSegmentClock.ts";
+import {
+  finalizeWaitingSegmentsAtTerminal,
+  noShowEligibleFromCountedSeconds,
+  resolveCanonicalWaitingSeconds,
+  WAITING_EVIDENCE_UNAVAILABLE,
+} from "../_shared/waitingSegmentClock.ts";
 import { notifyCustomerTripLifecycle } from "../_shared/customerTripLifecycleNotify.ts";
 import { notifyDriverTripStopped } from "../_shared/notifyDriverTripStopped.ts";
 import { maybeResumeTerminalFeeSettlementAfterProviderFee } from "../_shared/terminalFeeSettlementResumptionSSOT.ts";
@@ -83,7 +88,7 @@ serve(async (req) => {
     const { data: trip, error: tripErr } = await supabase
       .from("trips")
       .select(
-        "id, status, driver_id, confirmed_driver_id, passenger_id, service_area_id, vehicle_type_id, assigned_at, arrived_at, cancellation_grace_expires_at, free_wait_expires_at, pickup_waiting_counted_seconds, payment_method, waiting_minutes, waiting_charge_pence, scheduled_at, started_at"
+        "id, status, driver_id, confirmed_driver_id, passenger_id, service_area_id, vehicle_type_id, assigned_at, arrived_at, cancellation_grace_expires_at, free_wait_expires_at, payment_method, waiting_minutes, waiting_charge_pence, scheduled_at, started_at"
       )
       .eq("id", trip_id)
       .maybeSingle();
@@ -179,11 +184,42 @@ serve(async (req) => {
     const lateCancelFeePence = fps.late_cancel_fee_pence;
 
     const now = new Date();
+    const decisionAtIso = now.toISOString();
     let appliedFee = 0;
     let feeType = "none";
     let cancellationReasonFinal = reason || "cancelled";
     let financialOutcome = "CANCELLED_NO_FEE";
     let tripStatus = "cancelled";
+
+    // Counted waiting is resolved from trip_waiting_segments at the decision
+    // time. The trips counter is a cache and never decides a fee. When the
+    // segments cannot be read the request fails before any trip or payment
+    // mutation: no NO_FEE decision, no release, hold kept, caller retries.
+    let canonicalPickupWaitingSeconds: number | null = null;
+    const resolvePickupWaitingAtDecision = async (): Promise<number | null> => {
+      const resolved = await resolveCanonicalWaitingSeconds(supabase, {
+        tripId: trip_id,
+        locationType: "pickup",
+        atIso: decisionAtIso,
+      });
+      if (!resolved.ok) {
+        console.error("[cancel-trip] WAITING_EVIDENCE_UNAVAILABLE — no decision, no mutation", {
+          trip_id,
+          reason: resolved.reason,
+          message: resolved.message,
+          evaluated_at: decisionAtIso,
+        });
+        return null;
+      }
+      canonicalPickupWaitingSeconds = resolved.countedSeconds;
+      return resolved.countedSeconds;
+    };
+    const waitingEvidenceUnavailableResponse = () =>
+      errorResponse(
+        WAITING_EVIDENCE_UNAVAILABLE,
+        "Unable to verify waiting time right now. Please try again.",
+        503,
+      );
 
     // ══════════════════════════════════════════
     // NO-SHOW PATH (driver-initiated)
@@ -195,9 +231,10 @@ serve(async (req) => {
 
       // Counted in-radius seconds only. Wall-clock since arrival advances
       // while the driver is outside the pickup radius and must not qualify.
-      const countedNoShowSeconds = Number(trip.pickup_waiting_counted_seconds ?? 0);
+      const countedNoShowSeconds = await resolvePickupWaitingAtDecision();
+      if (countedNoShowSeconds == null) return waitingEvidenceUnavailableResponse();
       if (!noShowEligibleFromCountedSeconds({
-        countedSeconds: Number.isFinite(countedNoShowSeconds) ? countedNoShowSeconds : 0,
+        countedSeconds: countedNoShowSeconds,
         requiredWaitMinutes: Number(noShowWaitTimeMinutes ?? 0),
       })) {
         return errorResponse(
@@ -305,10 +342,11 @@ serve(async (req) => {
             free_wait_expires_at: trip.free_wait_expires_at ?? null,
             free_waiting_minutes: fps.free_waiting_minutes ?? null,
           });
-          const countedRaw = trip.pickup_waiting_counted_seconds;
-          const countedInRadiusSeconds = countedRaw == null || !Number.isFinite(Number(countedRaw))
-            ? null
-            : Math.max(0, Math.round(Number(countedRaw)));
+          let countedInRadiusSeconds: number | null = null;
+          if (fps.arrival_cancellation_enabled === true) {
+            countedInRadiusSeconds = await resolvePickupWaitingAtDecision();
+            if (countedInRadiusSeconds == null) return waitingEvidenceUnavailableResponse();
+          }
           const arrivalFeeEligible = fps.arrival_cancellation_enabled === true
             && isArrivalCancellationFeeEligible({
               arrivedAtMs: trip.arrived_at ? new Date(trip.arrived_at).getTime() : null,
@@ -356,7 +394,7 @@ serve(async (req) => {
     // and driver history do not depend on the nulled driver_id.
     const tripUpdate: Record<string, unknown> = {
       status: tripStatus,
-      cancelled_at: now.toISOString(),
+      cancelled_at: decisionAtIso,
       cancelled_by: cancelled_by,
       cancellation_reason: cancellationReasonFinal,
       cancellation_fee_pence: appliedFee,
@@ -384,6 +422,29 @@ serve(async (req) => {
     if (updateErr) {
       console.error("[cancel-trip] update error:", updateErr);
       return errorResponse("Failed to cancel trip", 500);
+    }
+
+    // Close the open pickup segment at cancelled_at. The fee decision above is
+    // already frozen from segments capped at decisionAtIso, so a failure here
+    // cannot change it; it is logged for ops.
+    if (trip.arrived_at) {
+      const frozen = await finalizeWaitingSegmentsAtTerminal(supabase, {
+        tripId: trip_id,
+        locationType: "pickup",
+        atIso: decisionAtIso,
+      });
+      if (!frozen.ok) {
+        console.error("[cancel-trip] waiting segment finalize failed", { trip_id, ...frozen });
+      } else if (
+        canonicalPickupWaitingSeconds != null &&
+        frozen.countedSeconds !== canonicalPickupWaitingSeconds
+      ) {
+        console.error("[cancel-trip] WAITING_CANONICAL_MISMATCH", {
+          trip_id,
+          decision_counted_seconds: canonicalPickupWaitingSeconds,
+          finalized_counted_seconds: frozen.countedSeconds,
+        });
+      }
     }
 
     // Clear driver's current trip if driver was assigned
@@ -444,6 +505,7 @@ serve(async (req) => {
         // Positive override of NO_FEE_FULL_RELEASE is ignored in dispose.
         // Keep the flag so admin fee=0 full-release and existing lock tests stay wired.
         forceFeePenceOverride: true,
+        canonicalPickupWaitingSeconds,
       });
       console.log("[PAYMENT_AUDIT] cancel-trip hold disposition", {
         trip_id,
@@ -508,6 +570,9 @@ serve(async (req) => {
         financial_outcome: financialOutcome,
         was_arrived: !!trip.arrived_at,
         was_within_grace: appliedFee === 0 && feeType === "none",
+        pickup_waiting_counted_seconds: canonicalPickupWaitingSeconds,
+        waiting_evidence_source: canonicalPickupWaitingSeconds == null ? null : "trip_waiting_segments",
+        waiting_evaluated_at: decisionAtIso,
         is_scheduled: !!trip.scheduled_at,
         late_cancel_enabled: lateCancelEnabled,
         late_cancel_threshold_minutes: lateCancelThresholdMinutes,
