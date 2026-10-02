@@ -147,6 +147,11 @@ export type RevolutPreauthInput = {
    * Missing/old → NO fold (receivables stay OPEN; fare-only preauth).
    */
   receivableConsent?: ReceivableConsentRequest | null;
+  /**
+   * Quote row already loaded on the opaque path. Validation and consume still
+   * run. A second SELECT is skipped when the id matches.
+   */
+  preloadedBookingPaymentQuote?: BookingPaymentQuoteRow | null;
 };
 
 export async function createRevolutPreauthResponse(
@@ -177,6 +182,7 @@ export async function createRevolutPreauthResponse(
     logStep,
     edgeTiming: edgeTimingInput,
     receivableConsent: receivableConsentInput,
+    preloadedBookingPaymentQuote,
   } = input;
   /** May grow after durable receivable reservation (ride + buffer + debt). */
   let authorisedAmountPence = authorisedAmountPenceInput;
@@ -635,7 +641,10 @@ export async function createRevolutPreauthResponse(
           note: "quote_requires_customer_and_client_action",
         });
       }
-      opaqueQuote = await loadBookingPaymentQuote(supabase, opaqueQuoteId);
+      const revalidateStarted = Date.now();
+      opaqueQuote = preloadedBookingPaymentQuote?.id === opaqueQuoteId
+        ? preloadedBookingPaymentQuote
+        : await loadBookingPaymentQuote(supabase, opaqueQuoteId);
       if (!opaqueQuote) {
         return await quoteReject(BOOKING_QUOTE_INVALID, null, { note: "quote_not_found" });
       }
@@ -684,6 +693,7 @@ export async function createRevolutPreauthResponse(
       bufferPenceForSession = amounts.buffer_pence;
       authorisedAmountPence = amounts.total_authorisation_pence;
       opaqueQuote = validated.quote;
+      edgeTiming.recordSpan("edge_quote_revalidate_ms", revalidateStarted, Date.now());
       logStep("OPAQUE_BOOKING_QUOTE_FROZEN", {
         quote_id: opaqueQuote.id,
         trip_fare_pence: rideFarePence,
@@ -756,6 +766,7 @@ export async function createRevolutPreauthResponse(
 
       if (opaqueQuote && customerId) {
         const frozenGateForConsume = readCustomerReceivableFoldGate();
+        const consumeStarted = Date.now();
         const consumed = await consumeBookingPaymentQuoteViaRpc(supabase, {
           quote_id: opaqueQuote.id,
           customer_id: customerId,
@@ -764,6 +775,7 @@ export async function createRevolutPreauthResponse(
           expected_receivable_pence: opaqueQuote.receivable_pence,
           gate_enabled: frozenGateForConsume.enabled,
         });
+        edgeTiming.recordSpan("edge_quote_consume_ms", consumeStarted, Date.now());
         if (!consumed.ok) {
           logStep("OPAQUE_BOOKING_QUOTE_CONSUME_FAILED", {
             code: consumed.code,
@@ -1088,6 +1100,7 @@ export async function createRevolutPreauthResponse(
   );
 
   if (userId && clientActionId && metadataExtra.service_area_id) {
+    const orderLinkStarted = Date.now();
     edgeTiming.markPersistStart();
     const sessionResult = await upsertPaymentSessionPending(supabase, {
       clientActionId,
@@ -1114,6 +1127,7 @@ export async function createRevolutPreauthResponse(
     const priorPaymentSessionId = paymentSessionId;
     paymentSessionId = sessionResult.sessionId;
     edgeTiming.markPersistEnd();
+    edgeTiming.recordSpan("edge_order_link_persist_ms", orderLinkStarted, Date.now());
     if (!paymentSessionId) {
       // P0 fail-closed: never return a usable preauth if the authoritative session
       // row did not persist (Slice A regression: missing idempotency_key).
@@ -1160,6 +1174,7 @@ export async function createRevolutPreauthResponse(
   }
 
   if (clientActionId || tripId) {
+    const authEventStarted = Date.now();
     await recordPaymentAuthorizationEvent(supabase, {
       tripId: tripId ?? clientActionId ?? "pending",
       fareRevisionNumber: 0,
@@ -1178,6 +1193,7 @@ export async function createRevolutPreauthResponse(
     }).catch((err) => {
       logStep("Revolut auth ledger warning", { error: String(err) });
     });
+    edgeTiming.recordSpan("edge_auth_event_ms", authEventStarted, Date.now());
   }
 
   if (userId && platformPaymentMethodId) {

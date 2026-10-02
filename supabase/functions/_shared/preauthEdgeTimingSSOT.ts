@@ -80,6 +80,8 @@ export type PreauthEdgeTiming = {
   markResponseBuildStart: () => void;
   /** Record a parallel group wall (start/end absolute ms from epoch). */
   recordParallelGroupWall: (startMs: number, endMs: number) => void;
+  /** Named span that also counts toward the accounted wall. */
+  recordSpan: (key: string, startMs: number, endMs: number) => void;
   stampMeasured: (
     kind: "fareQuote" | "customerLookup" | "financialModel" | "gateway",
     startMs: number,
@@ -208,6 +210,11 @@ export function createPreauthEdgeTiming(startedAtMs = Date.now()): PreauthEdgeTi
       if (Number.isFinite(startMs) && Number.isFinite(endMs) && endMs >= startMs) {
         extraParallel.push({ start: startMs, end: endMs });
       }
+    },
+    recordSpan: (key, startMs, endMs) => {
+      if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs < startMs) return;
+      diagnostics[key] = Math.max(0, Math.round(endMs - startMs));
+      extraParallel.push({ start: startMs, end: endMs });
     },
     stampMeasured: (kind, startMs, endMs) => {
       if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs < startMs) return;
