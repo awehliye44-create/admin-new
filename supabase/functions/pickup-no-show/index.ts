@@ -240,6 +240,7 @@ Deno.serve(async (req) => {
         pickup_waiting_charge_pence: 0,
         total_waiting_charge_pence: 0,
         grace_period_expired_at: now,
+        previous_driver_id: driver.id,
         updated_at: now,
       })
       .eq("id", trip_id)
@@ -262,6 +263,7 @@ Deno.serve(async (req) => {
           pickup_waiting_charge_pence: 0,
           total_waiting_charge_pence: 0,
           grace_period_expired_at: now,
+          previous_driver_id: driver.id,
           updated_at: now,
         })
         .eq("id", trip_id)

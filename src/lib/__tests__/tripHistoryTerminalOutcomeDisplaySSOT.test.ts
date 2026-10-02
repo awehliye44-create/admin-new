@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { resolveTripHistoryTerminalOutcomeDisplay } from '../../../shared/tripHistoryTerminalOutcomeDisplaySSOT';
+import { tripHistoryStatusLabel } from '../../../shared/adminTripPaymentDispositionSSOT';
+import { tripHistoryStatusLabel } from '../../../shared/adminTripPaymentDispositionSSOT';
 
 /** MK-260808-046 shape — stale ride commission must not surface in terminal panel. */
 const MK_260808_046 = {
@@ -91,9 +93,71 @@ describe('tripHistoryTerminalOutcomeDisplaySSOT', () => {
       },
     });
     expect(display?.outcome_kind).toBe('LATE_PASSENGER_CANCELLATION');
-    expect(display?.customer_charge_label).toBe('Cancellation fee charged');
+    expect(display?.customer_charge_label).toBe('Late passenger cancellation fee charged');
     expect(display?.onecab_commission_pence).toBe(0);
     expect(display?.driver_entitlement_pence).toBe(329);
+  });
+
+  it('late_cancel_fee_pence alone is not Late Passenger Cancellation', () => {
+    expect(resolveTripHistoryTerminalOutcomeDisplay({
+      status: 'cancelled',
+      financial_outcome: null,
+      late_cancel_fee_pence: 500,
+      capture_amount_pence: 500,
+      provider_fee_pence: 24,
+    })).toBeNull();
+  });
+
+  it('CANCELLED_WITH_FEE plus a capture is not Late Passenger Cancellation', () => {
+    expect(resolveTripHistoryTerminalOutcomeDisplay({
+      status: 'cancelled',
+      financial_outcome: 'CANCELLED_WITH_FEE',
+      cancellation_fee_pence: 400,
+      capture_amount_pence: 400,
+      provider_fee_pence: 24,
+    })).toBeNull();
+  });
+
+  it('arrival stamp displays Arrival Cancellation and £4.00, not the £5.00 quote', () => {
+    const display = resolveTripHistoryTerminalOutcomeDisplay({
+      status: 'cancelled',
+      financial_outcome: 'ARRIVAL_CANCELLATION',
+      arrival_cancellation_applied: true,
+      arrival_cancellation_reason: 'ARRIVAL_CANCELLATION_FEE',
+      cancellation_fee_pence: 400,
+      capture_amount_pence: 400,
+      gross_fare_pence: 500,
+      commission_pence: 75,
+      driver_net_pence: 425,
+      provider_fee_pence: 24,
+    });
+    expect(display?.outcome_kind).toBe('ARRIVAL_CANCELLATION');
+    expect(display?.customer_charge_label).toBe('Arrival cancellation fee captured');
+    expect(display?.customer_charge_pence).toBe(400);
+    expect(display?.driver_entitlement_pence).toBe(376);
+    expect(display?.onecab_commission_pence).toBe(0);
+    expect(display?.driver_entitlement_pence).not.toBe(425);
+  });
+
+  it('admin status labels stay distinct', () => {
+    expect(tripHistoryStatusLabel({ status: 'completed', financial_outcome: 'COMPLETED' })).toBe('Completed');
+    expect(tripHistoryStatusLabel({
+      status: 'cancelled',
+      financial_outcome: 'ARRIVAL_CANCELLATION',
+      arrival_cancellation_applied: true,
+    })).toBe('Arrival Cancellation');
+    expect(tripHistoryStatusLabel({ status: 'no_show', financial_outcome: 'NO_SHOW' })).toBe('No-show');
+    expect(tripHistoryStatusLabel({
+      status: 'cancelled',
+      financial_outcome: 'LATE_PASSENGER_CANCELLATION',
+    })).toBe('Late Passenger Cancellation');
+    expect(tripHistoryStatusLabel({ status: 'cancelled', financial_outcome: 'CANCELLED_NO_FEE' })).toBe('Cancelled');
+    expect(tripHistoryStatusLabel({
+      status: 'cancelled',
+      financial_outcome: 'CANCELLED_WITH_FEE',
+      cancellation_fee_pence: 400,
+      capture_amount_pence: 400,
+    })).toBe('Cancelled');
   });
 
   it('returns null for normal completed ride', () => {

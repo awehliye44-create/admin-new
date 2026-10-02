@@ -76,7 +76,7 @@ describe('adminTripPaymentDispositionSSOT', () => {
     expect(disposition.amount_pence).toBe(480);
   });
 
-  it('missed cancelled fee capture shows Cancellation fee charged', () => {
+  it('missed cancelled late capture names Late Passenger Cancellation', () => {
     const disposition = buildAdminTripPaymentDispositionRead({
       trip: { status: 'cancelled', financial_outcome: 'LATE_PASSENGER_CANCELLATION' },
       sessions: [{
@@ -87,8 +87,46 @@ describe('adminTripPaymentDispositionSSOT', () => {
       }],
       surface: 'missed_cancelled',
     });
-    expect(disposition.payment_label).toBe(MISSED_CANCELLED_PAYMENT_LABELS.CANCELLATION_FEE_CHARGED);
+    expect(disposition.payment_label).toBe('Late passenger cancellation fee charged');
     expect(disposition.amount_pence).toBe(500);
+  });
+
+  it('missed cancelled arrival capture is not a generic cancellation fee', () => {
+    const disposition = buildAdminTripPaymentDispositionRead({
+      trip: {
+        status: 'cancelled',
+        financial_outcome: 'ARRIVAL_CANCELLATION',
+        arrival_cancellation_applied: true,
+      },
+      sessions: [{
+        id: 'ps-arrival',
+        status: 'captured',
+        captured_amount_pence: 400,
+        released_amount_pence: 100,
+        provider_processing_fee_pence: 24,
+        fee_status: 'ACTUAL',
+        provider_state: 'completed',
+        metadata: { terminal_disposition_reason: 'ARRIVAL_CANCELLATION_FEE' },
+      }],
+      surface: 'missed_cancelled',
+    });
+    expect(disposition.payment_label).toBe('Arrival cancellation fee captured');
+    expect(disposition.amount_pence).toBe(400);
+  });
+
+  it('generic captured cancellation stays Cancellation fee charged', () => {
+    const disposition = buildAdminTripPaymentDispositionRead({
+      trip: { status: 'cancelled', financial_outcome: 'CANCELLED_WITH_FEE' },
+      sessions: [{
+        id: 'ps-generic',
+        status: 'captured',
+        captured_amount_pence: 400,
+        provider_state: 'completed',
+      }],
+      surface: 'missed_cancelled',
+    });
+    expect(disposition.payment_label).toBe(MISSED_CANCELLED_PAYMENT_LABELS.CANCELLATION_FEE_CHARGED);
+    expect(disposition.amount_pence).toBe(400);
   });
 
   it('pickPrimaryPaymentSession prefers captured session', () => {
