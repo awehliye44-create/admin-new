@@ -12776,6 +12776,7 @@ export type Database = {
           check_in_grace_minutes: number
           check_in_min_lead_minutes: number
           created_at: string
+          customer_nearby_drivers_radius_meters: number
           degraded_driver_penalty: number
           distance_penalty_per_meter: number
           driver_fare_display: string
@@ -12832,6 +12833,7 @@ export type Database = {
           towards_destination_enabled: boolean
           towards_destination_matching_tolerance_meters: number
           towards_destination_max_pickup_detour_meters: number
+          towards_destination_match_radius_meters: number
           towards_destination_min_progress_meters: number
           towards_destination_priority_weight: number
           updated_at: string
@@ -12862,6 +12864,7 @@ export type Database = {
           check_in_grace_minutes?: number
           check_in_min_lead_minutes?: number
           created_at?: string
+          customer_nearby_drivers_radius_meters?: number
           degraded_driver_penalty?: number
           distance_penalty_per_meter?: number
           driver_fare_display?: string
@@ -12918,6 +12921,7 @@ export type Database = {
           towards_destination_enabled?: boolean
           towards_destination_matching_tolerance_meters?: number
           towards_destination_max_pickup_detour_meters?: number
+          towards_destination_match_radius_meters?: number
           towards_destination_min_progress_meters?: number
           towards_destination_priority_weight?: number
           updated_at?: string
@@ -12948,6 +12952,7 @@ export type Database = {
           check_in_grace_minutes?: number
           check_in_min_lead_minutes?: number
           created_at?: string
+          customer_nearby_drivers_radius_meters?: number
           degraded_driver_penalty?: number
           distance_penalty_per_meter?: number
           driver_fare_display?: string
@@ -13004,6 +13009,7 @@ export type Database = {
           towards_destination_enabled?: boolean
           towards_destination_matching_tolerance_meters?: number
           towards_destination_max_pickup_detour_meters?: number
+          towards_destination_match_radius_meters?: number
           towards_destination_min_progress_meters?: number
           towards_destination_priority_weight?: number
           updated_at?: string
@@ -30823,7 +30829,7 @@ export type Database = {
           p_lat: number
           p_limit?: number
           p_lng: number
-          p_radius_meters: number
+          p_radius_meters?: number
           p_stale_seconds?: number
         }
         Returns: {

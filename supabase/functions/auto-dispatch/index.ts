@@ -15,6 +15,7 @@ import {
 import { coercePositiveInt, realtimeFresh, REALTIME_FRESH_MAX_AGE_SECONDS } from "../_shared/dispatchGates.ts";
 import {
   attachDriverCategoryPriority,
+  bookingDispatchWaveRadiiMeters,
   compareDispatchCandidates,
   computeDispatchScore,
   destinationMatchRadiusMeters,
@@ -837,10 +838,8 @@ Deno.serve(async (req) => {
     let searchWindowActive = true;
     let currentRound = storedRound + 1;
     let maxRounds = coercePositiveInt(trip.max_broadcast_rounds) ?? 9;
-    let startRadiusM = 3000;
-    let maxRadiusM = 8000;
-    let expandPerRoundM = 0;
-    let effectiveRadiusM = 3000;
+    let waveRadiiM = { wave1: 0, wave2: 0, wave3: 0 };
+    let effectiveRadiusM = 0;
     let waveCommission = {
       basePercent: 15,
       reductionPercent: 0,
@@ -860,9 +859,7 @@ Deno.serve(async (req) => {
         forceRebroadcast: force_rebroadcast,
         searchWindowActive,
       });
-      startRadiusM = effectiveRadiusMeters(dispatchSettings, 1);
-      maxRadiusM = effectiveRadiusMeters(dispatchSettings, 3);
-      expandPerRoundM = effectiveRadiusMeters(dispatchSettings, 2) - startRadiusM;
+      waveRadiiM = bookingDispatchWaveRadiiMeters(dispatchSettings);
       effectiveRadiusM = effectiveRadiusMeters(dispatchSettings, currentRound);
       waveCommission = resolveWaveCommission({
         settings: dispatchSettings,
@@ -899,9 +896,9 @@ Deno.serve(async (req) => {
 
     console.log("[auto-dispatch] Using settings:", {
       radiusThisRound: effectiveRadiusM,
-      startRadius: startRadiusM,
-      expandPerRound: expandPerRoundM,
-      maxRadius: maxRadiusM,
+      wave1Radius: waveRadiiM.wave1,
+      wave2Radius: waveRadiiM.wave2,
+      wave3Radius: waveRadiiM.wave3,
       sequence: currentRound,
       dispatch_wave: waveCommission.wave,
       dispatch_round: waveCommission.dispatchRound,
@@ -978,9 +975,10 @@ Deno.serve(async (req) => {
       wave3_offer_expiry_seconds: dispatchSettings.wave3_offer_expiry_seconds,
       offer_expiry_seconds_fallback: dispatchSettings.offer_expiry_seconds,
       accept_timeout_seconds: dispatchSettings.accept_timeout_seconds,
-      radius_start_m: startRadiusM,
-      radius_expand_m: expandPerRoundM,
-      radius_max_m: maxRadiusM,
+      radius_source: "global_dispatch_settings",
+      radius_wave1_m: waveRadiiM.wave1,
+      radius_wave2_m: waveRadiiM.wave2,
+      radius_wave3_m: waveRadiiM.wave3,
       radius_effective_this_round_m: effectiveRadiusM,
       max_offers_per_request: maxOffersPerRequest,
       broadcast_sequence: currentRound,

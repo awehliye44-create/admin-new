@@ -2,11 +2,15 @@
  * Unit tests for dispatch sequence / wave cycle helpers.
  * Run: deno test supabase/functions/_shared/dispatchSequence.test.ts
  */
-import { assertEquals } from "https://deno.land/std@0.224.0/assert/mod.ts";
+import { assertEquals, assertThrows } from "https://deno.land/std@0.224.0/assert/mod.ts";
 import {
+  BookingDispatchRadiusConfigError,
+  destinationMatchRadiusMeters,
   dispatchRoundFromSequence,
   effectiveOfferExpirySeconds,
   effectiveRadiusMeters,
+  mergeDispatchRow,
+  overlayGlobalDispatchSettings,
   maxBroadcastSequences,
   resolveWaveCommission,
   waveIndexFromSequence,
@@ -57,16 +61,49 @@ Deno.test("resolveDispatchBroadcastRound advances past wave 3 into next cycle", 
   );
 });
 
-Deno.test("effective radius uses wave-in-cycle (round 2 wave 1 restarts)", () => {
+Deno.test("effective radius uses absolute Admin wave radii per wave-in-cycle (round 2 wave 1 restarts)", () => {
   const settings = {
-    search_radius_start_km: 3,
-    search_radius_expand_km: 5,
-    search_radius_max_km: 8,
+    start_radius_meters: 13000,
+    expand_radius_meters: 17000,
+    max_radius_meters: 29000,
   };
-  assertEquals(effectiveRadiusMeters(settings, 1), 3000);
-  assertEquals(effectiveRadiusMeters(settings, 4), 3000); // R2W1
-  assertEquals(effectiveRadiusMeters(settings, 3), 8000);
-  assertEquals(effectiveRadiusMeters(settings, 6), 8000); // R2W3
+  assertEquals(effectiveRadiusMeters(settings, 1), 13000);
+  assertEquals(effectiveRadiusMeters(settings, 2), 17000); // not min(13000 + 17000, 29000)
+  assertEquals(effectiveRadiusMeters(settings, 3), 29000);
+  assertEquals(effectiveRadiusMeters(settings, 4), 13000); // R2W1
+  assertEquals(effectiveRadiusMeters(settings, 5), 17000); // R2W2
+  assertEquals(effectiveRadiusMeters(settings, 6), 29000); // R2W3
+});
+
+Deno.test("effective radius ignores per-area km columns and fails closed without Admin radii", () => {
+  const stale = { search_radius_meters: 3000, search_radius_start_km: 3, search_radius_expand_km: 5, search_radius_max_km: 8 };
+  assertThrows(() => effectiveRadiusMeters(stale, 1), BookingDispatchRadiusConfigError);
+  assertEquals(
+    effectiveRadiusMeters({ ...stale, start_radius_meters: 9000, expand_radius_meters: 9000, max_radius_meters: 9000 }, 2),
+    9000,
+  );
+});
+
+Deno.test("global overlay supplies wave radii; towards-destination and customer map radius stay separate", () => {
+  const merged = overlayGlobalDispatchSettings(
+    mergeDispatchRow({ search_radius_start_km: 3, search_radius_expand_km: 5, search_radius_max_km: 8 }),
+    {
+      start_radius_meters: 13000,
+      expand_radius_meters: 17000,
+      max_radius_meters: 29000,
+      towards_destination_match_radius_meters: 11000,
+      customer_nearby_drivers_radius_meters: 25000,
+    },
+  );
+  assertEquals([1, 2, 3].map((w) => effectiveRadiusMeters(merged, w)), [13000, 17000, 29000]);
+  assertEquals(destinationMatchRadiusMeters(merged), 11000);
+  assertEquals("customer_nearby_drivers_radius_meters" in merged, false);
+});
+
+Deno.test("wave radius is capped at Wave 3 (SQL LEAST parity)", () => {
+  // valid_radii prevents this in Postgres; the cap mirrors dispatch_trip_offers anyway.
+  const settings = { start_radius_meters: 5000, expand_radius_meters: 40000, max_radius_meters: 30000 };
+  assertEquals(effectiveRadiusMeters(settings, 2), 30000);
 });
 
 Deno.test("wave commission reductions follow Admin per-wave table (no floor pin)", () => {
