@@ -87,8 +87,9 @@ const TRIP_HISTORY_SELECT_BASE = `
   waiting_charge_pence, pickup_waiting_charge_pence, stop_waiting_charge_pence, total_waiting_charge_pence, waiting_minutes, fare_breakdown,
   tip_pence, tip_amount_pence, airport_charge_pence, other_pass_through_charges_pence,
   accepted_commission_percent, driver_tier_commission_percent,
-  arrival_cancellation_applied, arrival_cancellation_fee,
+  arrival_cancellation_applied, arrival_cancellation_fee, previous_driver_id,
   driver:drivers!trips_driver_id_fkey(id, first_name, last_name, phone, driver_code, region_id),
+  previous_driver:drivers!trips_previous_driver_id_fkey(id, first_name, last_name, phone, driver_code, region_id),
   service_area_join:service_areas!trips_service_area_id_fkey(region_id, region:regions(currency_code, distance_unit))
 `;
 const TRIP_HISTORY_SELECT_INVOICE = `
@@ -197,16 +198,40 @@ async function applyTripHistoryLocationFilter(
   return query;
 }
 
+/**
+ * Keyset continuation for `completed_at DESC NULLS LAST, id DESC`.
+ * The null completed_at band (terminal no-shows) ranks after every non-null row,
+ * so a non-null cursor must still admit it — otherwise those trips are unreachable
+ * whenever completed trips fill more than one page.
+ */
+export function tripHistoryCursorOrFilter(cursor: TripHistoryCursor): string {
+  if (cursor.completedAt) {
+    return [
+      `completed_at.lt.${cursor.completedAt}`,
+      `and(completed_at.eq.${cursor.completedAt},id.lt.${cursor.id})`,
+      'completed_at.is.null',
+    ].join(',');
+  }
+  return `and(completed_at.is.null,id.lt.${cursor.id})`;
+}
+
 function applyTripHistoryCursorFilter(query: any, cursor: TripHistoryCursor | null | undefined): any {
   if (!cursor?.id) return query;
-  if (cursor.completedAt) {
-    // Newer-first: next page is strictly older than (completed_at, id).
-    return query.or(
-      `completed_at.lt.${cursor.completedAt},and(completed_at.eq.${cursor.completedAt},id.lt.${cursor.id})`,
-    );
-  }
-  // Null completed_at ranks after non-null (nullsFirst: false). Continue within that band.
-  return query.is('completed_at', null).lt('id', cursor.id);
+  return query.or(tripHistoryCursorOrFilter(cursor));
+}
+
+type TripHistoryDriverJoin = Record<string, unknown> | null | undefined;
+
+/**
+ * Terminal outcomes (no-show / chargeable cancellation) clear driver_id and keep the
+ * earning driver on previous_driver_id. Attribute the row to that driver for display,
+ * search and region fallback.
+ */
+export function attributeTripHistoryDriver<T extends Record<string, unknown>>(row: T): T {
+  const current = row.driver as TripHistoryDriverJoin;
+  const previous = row.previous_driver as TripHistoryDriverJoin;
+  if (current || !previous) return row;
+  return { ...row, driver: previous };
 }
 
 export type FetchTripHistoryPageArgs = {
@@ -272,7 +297,7 @@ export async function fetchTripHistoryPage(
       const rows = hydratePassengerIdentity(
         pageRows as unknown as Array<Record<string, unknown>>,
         directory,
-      ) as TripHistoryRow[];
+      ).map(attributeTripHistoryDriver) as TripHistoryRow[];
 
       const last = rows[rows.length - 1];
       const nextCursor: TripHistoryCursor | null =

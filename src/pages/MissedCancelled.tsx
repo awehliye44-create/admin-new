@@ -56,6 +56,7 @@ import { TripHistoryTerminalOutcomePanel } from '@/components/trips/TripHistoryT
 import {
   classifyMissedCancelledBucket,
   isChargeableTerminalBucket,
+  MISSED_CANCELLED_STATS_EXTRA_STATUSES,
   missedCancelledQuotedFareImpactPence,
   resolveAdminArrivalCancellationFeePence,
   summarizeMissedCancelledStats,
@@ -269,9 +270,15 @@ export default function MissedCancelled() {
       if (serviceFilter.regionId) {
         saIds = await fetchRegionServiceAreaIds(serviceFilter.regionId);
         if (saIds.length === 0) {
-          return { cancelled: 0, missed: 0, fareRows: [] as CancelledTrip[] };
+          return { cancelled: 0, missed: 0, noShowStatus: 0, fareRows: [] as CancelledTrip[] };
         }
       }
+      let noShowStatusQ = supabase
+        .from('trips')
+        .select('id', { count: 'exact', head: true })
+        .in('status', [...MISSED_CANCELLED_STATS_EXTRA_STATUSES])
+        .gte('created_at', start.toISOString())
+        .lte('created_at', end.toISOString());
       let cancelledQ = supabase
         .from('trips')
         .select('id', { count: 'exact', head: true })
@@ -295,7 +302,7 @@ export default function MissedCancelled() {
           fare, estimated_fare, fare_snapshot_json,
           service_area:service_areas!trips_service_area_id_fkey(region:regions(currency_code))
         `)
-        .in('status', [...MISSED_CANCELLED_STATUSES])
+        .in('status', [...MISSED_CANCELLED_STATUSES, ...MISSED_CANCELLED_STATS_EXTRA_STATUSES])
         .gte('created_at', start.toISOString())
         .lte('created_at', end.toISOString())
         .order('created_at', { ascending: false })
@@ -303,15 +310,23 @@ export default function MissedCancelled() {
       if (saIds) {
         cancelledQ = cancelledQ.in('service_area_id', saIds);
         missedQ = missedQ.in('service_area_id', saIds);
+        noShowStatusQ = noShowStatusQ.in('service_area_id', saIds);
         fareQ = fareQ.in('service_area_id', saIds);
       }
-      const [cancelledRes, missedRes, fareRes] = await Promise.all([cancelledQ, missedQ, fareQ]);
+      const [cancelledRes, missedRes, noShowStatusRes, fareRes] = await Promise.all([
+        cancelledQ,
+        missedQ,
+        noShowStatusQ,
+        fareQ,
+      ]);
       if (cancelledRes.error) throw cancelledRes.error;
       if (missedRes.error) throw missedRes.error;
+      if (noShowStatusRes.error) throw noShowStatusRes.error;
       if (fareRes.error) throw fareRes.error;
       return {
         cancelled: cancelledRes.count ?? 0,
         missed: missedRes.count ?? 0,
+        noShowStatus: noShowStatusRes.count ?? 0,
         fareRows: (fareRes.data || []) as unknown as CancelledTrip[],
       };
     },
@@ -361,7 +376,8 @@ export default function MissedCancelled() {
   // Range-wide counters from head-count stats — never derived from the loaded page.
   const cancelledCount = rangeStats?.cancelled ?? 0;
   const missedCount = rangeStats?.missed ?? 0;
-  const totalIssues = cancelledCount + missedCount;
+  const noShowStatusCount = rangeStats?.noShowStatus ?? 0;
+  const totalIssues = cancelledCount + missedCount + noShowStatusCount;
   const quotedFareImpactPence = (trip: CancelledTrip) =>
     missedCancelledQuotedFareImpactPence(trip, resolveAdminCommittedCustomerFarePence);
   const bucketStats = summarizeMissedCancelledStats(statsFareRows);
@@ -433,7 +449,7 @@ export default function MissedCancelled() {
                 <p className="text-2xl font-bold text-rose-600">{bucketStats.chargeable_total}</p>
                 <div className="mt-1 space-y-0.5 text-[11px] text-muted-foreground">
                   <p>Arrival Cancellation: {bucketStats.arrival_cancellation}</p>
-                  <p>No-Show: {bucketStats.no_show}</p>
+                  <p>No-Show: {bucketStats.no_show} (listed in Trip History)</p>
                   <p>Late Passenger Cancellation: {bucketStats.late_passenger_cancellation}</p>
                 </div>
               </div>
