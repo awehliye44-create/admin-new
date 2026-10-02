@@ -30,6 +30,11 @@ import {
   customerIosSoundFileForEvent,
 } from "../_shared/customerTripLifecycleNotify.ts";
 import { assertCronOrServiceRoleAuth } from "../_shared/cronEdgeAuth.ts";
+import {
+  fcmProjectIdFromServiceAccount,
+  getFcmHttpV1AccessToken,
+  readFcmServiceAccountJson,
+} from "../_shared/fcmHttpV1.ts";
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
@@ -192,69 +197,6 @@ const EVENT_SCREEN: Record<string, string> = {
 // ============================================================================
 // FCM HTTP v1 SENDER
 // ============================================================================
-
-/**
- * Get OAuth2 access token from service account JSON for FCM v1 API.
- * Falls back to legacy API if service account not available.
- */
-async function getAccessToken(serviceAccountJson: string): Promise<string> {
-  const sa = JSON.parse(serviceAccountJson);
-  const now = Math.floor(Date.now() / 1000);
-
-  // Build JWT
-  const header = { alg: "RS256", typ: "JWT" };
-  const payload = {
-    iss: sa.client_email,
-    scope: "https://www.googleapis.com/auth/firebase.messaging",
-    aud: "https://oauth2.googleapis.com/token",
-    iat: now,
-    exp: now + 3600,
-  };
-
-  const enc = (s: string) => btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-  const headerB64 = enc(JSON.stringify(header));
-  const payloadB64 = enc(JSON.stringify(payload));
-  const unsignedToken = `${headerB64}.${payloadB64}`;
-
-  // Import RSA private key
-  const pemContents = sa.private_key
-    .replace(/-----BEGIN PRIVATE KEY-----/, '')
-    .replace(/-----END PRIVATE KEY-----/, '')
-    .replace(/\n/g, '');
-  const keyBuffer = Uint8Array.from(atob(pemContents), c => c.charCodeAt(0));
-
-  const cryptoKey = await crypto.subtle.importKey(
-    "pkcs8",
-    keyBuffer,
-    { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" },
-    false,
-    ["sign"]
-  );
-
-  const signature = await crypto.subtle.sign(
-    "RSASSA-PKCS1-v1_5",
-    cryptoKey,
-    new TextEncoder().encode(unsignedToken)
-  );
-
-  const signatureB64 = enc(String.fromCharCode(...new Uint8Array(signature)));
-  const jwt = `${unsignedToken}.${signatureB64}`;
-
-  // Exchange JWT for access token
-  const tokenResponse = await fetch("https://oauth2.googleapis.com/token", {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: `grant_type=urn%3Aietf%3Aparams%3Aoauth%3Agrant-type%3Ajwt-bearer&assertion=${jwt}`,
-  });
-
-  if (!tokenResponse.ok) {
-    const err = await tokenResponse.text();
-    throw new Error(`Failed to get FCM access token: ${err}`);
-  }
-
-  const tokenData = await tokenResponse.json();
-  return tokenData.access_token;
-}
 
 /**
  * Send FCM v1 message to a device token.
@@ -485,25 +427,21 @@ serve(async (req) => {
       });
     }
 
-    // FCM v1 — same secret chain as Driver / VoIP (incomingCallPush).
-    // FCM_SERVICE_ACCOUNT_JSON alone is unset on this project; GOOGLE_SERVICE_ACCOUNT_JSON
-    // is the live SA. Without it, legacy FCM_SERVER_KEY cannot deliver iOS FCM tokens
-    // (MK-260923-018 background driver_assigned silent after auth fix).
-    const serviceAccountJson =
-      Deno.env.get("GOOGLE_SERVICE_ACCOUNT_JSON") ??
-      Deno.env.get("FCM_SERVICE_ACCOUNT_JSON");
-    const fcmServerKey = Deno.env.get("FCM_SERVER_KEY"); // Legacy fallback
+    // FCM v1 — same secret chain as Driver / VoIP (incomingCallPush):
+    // GOOGLE_SERVICE_ACCOUNT_JSON is the live SA; FCM_SERVICE_ACCOUNT_JSON alone is unset.
+    // There is no legacy server-key fallback — Google retired that API.
+    const serviceAccountJson = readFcmServiceAccountJson();
 
     let sent = 0;
     let failed = 0;
     const invalidTokens: string[] = [];
 
-    if (serviceAccountJson) {
-      // FCM v1 API (preferred)
+    if (!serviceAccountJson) {
+      console.error("[TripNotif] GOOGLE_SERVICE_ACCOUNT_JSON not configured — notification not sent");
+    } else {
       try {
-        const sa = JSON.parse(serviceAccountJson);
-        const projectId = sa.project_id;
-        const accessToken = await getAccessToken(serviceAccountJson);
+        const projectId = fcmProjectIdFromServiceAccount(serviceAccountJson);
+        const accessToken = await getFcmHttpV1AccessToken(serviceAccountJson);
 
         for (const { token: deviceToken, platform } of tokens) {
           const result = await sendFCMv1(
@@ -524,54 +462,6 @@ serve(async (req) => {
         }
       } catch (err) {
         console.error("[TripNotif] FCM v1 auth error:", err);
-        // Fall through to legacy if available
-      }
-    }
-
-    if (sent === 0 && fcmServerKey) {
-      // Legacy FCM API fallback — top-level android_channel_id (not FCM v1 shape).
-      for (const { token: deviceToken, platform } of tokens) {
-        try {
-          const response = await fetch("https://fcm.googleapis.com/fcm/send", {
-            method: "POST",
-            headers: {
-              "Authorization": `key=${fcmServerKey}`,
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({
-              to: deviceToken,
-              notification: {
-                title,
-                body: notifBody,
-                sound: platform === "ios" ? iosSound : androidSound,
-              },
-              data: dataPayload,
-              priority: priority === "high" ? "high" : "normal",
-              ...(platform === "android"
-                ? { android_channel_id: channelId }
-                : {}),
-            }),
-          });
-
-          if (response.ok) {
-            const result = await response.json();
-            if (result.success === 1) {
-              sent++;
-            } else {
-              failed++;
-              // Check for invalid token
-              if (result.results?.[0]?.error === 'NotRegistered' ||
-                  result.results?.[0]?.error === 'InvalidRegistration') {
-                invalidTokens.push(deviceToken);
-              }
-            }
-          } else {
-            failed++;
-          }
-        } catch (err) {
-          failed++;
-          console.error("[TripNotif] Legacy FCM error:", err);
-        }
       }
     }
 
