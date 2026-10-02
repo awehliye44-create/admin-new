@@ -11,6 +11,16 @@ import {
   errorResponse,
 } from "../_shared/security.ts";
 import { requireAdminOrService, escapeHtml } from "../_shared/callerGate.ts";
+import {
+  fcmProjectIdFromServiceAccount,
+  getFcmHttpV1AccessToken,
+  readFcmServiceAccountJson,
+  sendFcmHttpV1Message,
+} from "../_shared/fcmHttpV1.ts";
+import {
+  buildCustomerNotificationFcmMessage,
+  isRawApnsDeviceToken,
+} from "../_shared/customerNotificationPush.ts";
 
 interface NotificationPayload {
   customer_id?: string;
@@ -41,10 +51,10 @@ Deno.serve(async (req) => {
   try {
     const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
     const SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-    const FCM_SERVER_KEY = Deno.env.get("FCM_SERVER_KEY");
+    const serviceAccountJson = readFcmServiceAccountJson();
 
-    if (!FCM_SERVER_KEY) {
-      console.error("[send-customer-notification] FCM_SERVER_KEY not configured");
+    if (!serviceAccountJson) {
+      console.error("[send-customer-notification] GOOGLE_SERVICE_ACCOUNT_JSON not configured");
       return errorResponse("FCM_NOT_CONFIGURED", "FCM not configured", 500);
     }
 
@@ -113,46 +123,49 @@ Deno.serve(async (req) => {
 
     console.log(`[send-customer-notification] Found ${tokens.length} token(s)`);
 
+    let projectId: string;
+    let accessToken: string;
+    try {
+      projectId = fcmProjectIdFromServiceAccount(serviceAccountJson);
+      accessToken = await getFcmHttpV1AccessToken(serviceAccountJson);
+    } catch (err) {
+      console.error(
+        "[send-customer-notification] FCM v1 auth failed:",
+        err instanceof Error ? err.message.slice(0, 200) : "unknown",
+      );
+      return errorResponse("FCM_AUTH_FAILED", "FCM authentication failed", 500);
+    }
+
     const results = await Promise.all(
       tokens.map(async ({ token, platform }) => {
-        const fcmMessage: Record<string, unknown> = {
-          to: token,
-          priority: "high",
-          notification: {
-            title: sanitizedTitle,
-            body: sanitizedBody,
-            sound: "default",
-          },
-          data: {
-            type: payload.type || "trip_message",
-            ...payload.data,
-          },
-        };
-
-        if (platform === 'ios') {
-          fcmMessage.content_available = true;
+        if (isRawApnsDeviceToken(token)) {
+          console.warn(`[send-customer-notification] Skipped raw APNs token (${platform}) — not an FCM registration token`);
+          return { platform, success: false, error: "RAW_APNS_TOKEN" };
         }
 
+        const message = buildCustomerNotificationFcmMessage({
+          token,
+          platform,
+          title: sanitizedTitle,
+          body: sanitizedBody,
+          type: payload.type,
+          data: payload.data,
+        });
+
         try {
-          const response = await fetch("https://fcm.googleapis.com/fcm/send", {
-            method: "POST",
-            headers: {
-              "Authorization": `key=${FCM_SERVER_KEY}`,
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify(fcmMessage),
-          });
-
-          const result = await response.json();
-          console.log(`[send-customer-notification] FCM response (${platform}):`, result);
-
-          // Clean up invalid tokens
-          if (result.failure === 1 && result.results?.[0]?.error === "NotRegistered") {
-            console.log("[send-customer-notification] Removing invalid token");
-            await supabase.from("customer_push_tokens").delete().eq("token", token);
+          const result = await sendFcmHttpV1Message({ projectId, accessToken, message });
+          if (result.ok) {
+            return { platform, success: true };
           }
 
-          return { platform, success: result.success === 1, error: result.results?.[0]?.error };
+          console.warn(
+            `[send-customer-notification] FCM v1 failed (${platform}): http=${result.httpStatus} code=${result.errorCode}`,
+          );
+          if (result.tokenDead) {
+            console.log("[send-customer-notification] Removing unregistered token");
+            await supabase.from("customer_push_tokens").delete().eq("token", token);
+          }
+          return { platform, success: false, error: result.errorCode };
         } catch (err) {
           console.error(`[send-customer-notification] FCM error (${platform}):`, err);
           return { platform, success: false, error: String(err) };

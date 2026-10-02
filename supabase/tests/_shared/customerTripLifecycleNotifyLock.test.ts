@@ -149,7 +149,12 @@ Deno.test("send-trip-notification uses WAV, per-event channels, authoritative to
   assertStringIncludes(src, "customerIosInterruptionLevelForEvent");
   assertEquals(src.includes("apsPayload['interruption-level'] = 'time-sensitive'"), false);
   assertStringIncludes(src, "'interruption-level': interruptionLevel");
-  assertStringIncludes(src, "android_channel_id: channelId");
+  // Per-event channel rides on the FCM v1 android block; the retired legacy
+  // server-key fallback (top-level android_channel_id) must not return.
+  assertStringIncludes(src, "channel_id: channelId");
+  assertEquals(src.includes("android_channel_id"), false);
+  assertEquals(src.includes("fcm/send"), false);
+  assertEquals(src.includes("FCM_SERVER_KEY"), false);
   assertEquals(src.includes("android: { notification: { channel_id: channelId"), false);
 });
 
