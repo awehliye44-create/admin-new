@@ -128,7 +128,11 @@ export async function invokeSqlDispatchTripOffersIfAllowed(
       error: "dispatch_trip_offers RPC disabled; enable manual_emergency_dispatch_only on global dispatch_settings",
     };
   }
-  const { error } = await supabase.rpc("dispatch_trip_offers", { p_trip_id: tripId });
+  // p_trigger_reason pins the (uuid, text) overload — the only one that reads Admin wave radii.
+  const { error } = await supabase.rpc("dispatch_trip_offers", {
+    p_trip_id: tripId,
+    p_trigger_reason: "manual_emergency_dispatch",
+  });
   if (error) {
     return { ok: false, path: "sql_dispatch_trip_offers", error: error.message };
   }

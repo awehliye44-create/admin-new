@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { AdminLayout } from '@/components/layout/AdminLayout';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -24,7 +24,8 @@ import {
   Percent,
   Timer,
   Loader2,
-  CheckCircle2
+  CheckCircle2,
+  RefreshCw,
 } from 'lucide-react';
 import { StackedRidesHelpPanel } from '@/components/dispatch/StackedRidesHelpPanel';
 import { toast } from 'sonner';
@@ -40,12 +41,26 @@ import {
   validateScheduledBookingPolicy,
   validateScheduledActivationConfig,
 } from '../../shared/scheduledRidesPolicySSOT';
+import {
+  BOOKING_DISPATCH_WAVE_RADIUS_DEFAULTS_METERS,
+  BOOKING_DISPATCH_WAVE_RADIUS_MAX_METERS,
+  BOOKING_DISPATCH_WAVE_RADIUS_MIN_METERS,
+  bookingDispatchWaveRadiiToRow,
+  validateBookingDispatchWaveRadii,
+  type BookingDispatchWaveRadiiMeters,
+  type BookingDispatchWaveRadiusIssue,
+} from '../../shared/bookingDispatchRadiusSSOT';
+
+/** Mirrors global_dispatch_settings_customer_nearby_radius_range. */
+const CUSTOMER_NEARBY_RADIUS_DEFAULT_METERS = 25000;
+const CUSTOMER_NEARBY_RADIUS_MIN_METERS = 1000;
+const CUSTOMER_NEARBY_RADIUS_MAX_METERS = 100000;
 
 interface DispatchSettings {
-  // PostGIS Dispatch Scoring (single source of truth for all dispatch execution)
-  searchRadiusStartKm: number;
-  searchRadiusExpandKm: number;
-  searchRadiusMaxKm: number;
+  /** Booking dispatch radius per wave (m, absolute from pickup). NaN = blank input, blocked by validation. */
+  bookingWave1RadiusMeters: number;
+  bookingWave2RadiusMeters: number;
+  bookingWave3RadiusMeters: number;
   wave1Size: number;
   wave2Size: number;
   wave3Size: number;
@@ -71,6 +86,9 @@ interface DispatchSettings {
 
   // Maximum Time to Find Driver
   maxDriverFindTimeMinutes: number;
+
+  /** Customer map display only — never a dispatch or towards-destination radius. */
+  customerNearbyDriversRadiusMeters: number;
 
   // Stacked Rides (policy layer)
   stackedRidesEnabled: boolean;
@@ -100,9 +118,9 @@ interface DispatchSettings {
 }
 
 const defaultSettings: DispatchSettings = {
-  searchRadiusStartKm: 3,
-  searchRadiusExpandKm: 5,
-  searchRadiusMaxKm: 8,
+  bookingWave1RadiusMeters: BOOKING_DISPATCH_WAVE_RADIUS_DEFAULTS_METERS.wave1,
+  bookingWave2RadiusMeters: BOOKING_DISPATCH_WAVE_RADIUS_DEFAULTS_METERS.wave2,
+  bookingWave3RadiusMeters: BOOKING_DISPATCH_WAVE_RADIUS_DEFAULTS_METERS.wave3,
   wave1Size: 3,
   wave2Size: 5,
   wave3Size: 10,
@@ -122,6 +140,7 @@ const defaultSettings: DispatchSettings = {
   degradedDriverPenalty: 100,
   presenceMaxAgeSeconds: 60,
   maxDriverFindTimeMinutes: 3,
+  customerNearbyDriversRadiusMeters: CUSTOMER_NEARBY_RADIUS_DEFAULT_METERS,
   stackedRidesEnabled: false,
   maxStackedRides: 1,
   stackedSearchRadiusMeters: 2000,
@@ -147,12 +166,25 @@ const defaultSettings: DispatchSettings = {
 
 };
 
+const bookingWaveRadii = (settings: DispatchSettings): BookingDispatchWaveRadiiMeters => ({
+  wave1: settings.bookingWave1RadiusMeters,
+  wave2: settings.bookingWave2RadiusMeters,
+  wave3: settings.bookingWave3RadiusMeters,
+});
+
+/** A missing DB value stays blank (NaN) so save is blocked instead of silently substituting a radius. */
+const metersOrNaN = (raw: unknown): number => {
+  if (raw === null || raw === undefined || raw === '') return Number.NaN;
+  const n = Number(raw);
+  return Number.isFinite(n) ? n : Number.NaN;
+};
+
 // DB stores all distances in METERS. UI keeps km-named state for display conversion.
 const mapDbToSettings = (data: Record<string, unknown>): DispatchSettings => {
   return {
-  searchRadiusStartKm: Number(data.start_radius_meters ?? 4000) / 1000,
-  searchRadiusExpandKm: Number(data.expand_radius_meters ?? 8000) / 1000,
-  searchRadiusMaxKm: Number(data.max_radius_meters ?? 13000) / 1000,
+  bookingWave1RadiusMeters: metersOrNaN(data.start_radius_meters),
+  bookingWave2RadiusMeters: metersOrNaN(data.expand_radius_meters),
+  bookingWave3RadiusMeters: metersOrNaN(data.max_radius_meters),
   wave1Size: (data.wave1_size as number) ?? defaultSettings.wave1Size,
   wave2Size: (data.wave2_size as number) ?? defaultSettings.wave2Size,
   wave3Size: (data.wave3_size as number) ?? defaultSettings.wave3Size,
@@ -172,6 +204,9 @@ const mapDbToSettings = (data: Record<string, unknown>): DispatchSettings => {
   degradedDriverPenalty: (data.degraded_driver_penalty as number) ?? defaultSettings.degradedDriverPenalty,
   presenceMaxAgeSeconds: (data.presence_max_age_seconds as number) ?? defaultSettings.presenceMaxAgeSeconds,
   maxDriverFindTimeMinutes: (data.max_driver_find_time_minutes as number) ?? defaultSettings.maxDriverFindTimeMinutes,
+  customerNearbyDriversRadiusMeters: Number(
+    data.customer_nearby_drivers_radius_meters ?? defaultSettings.customerNearbyDriversRadiusMeters,
+  ),
   stackedRidesEnabled: Boolean(data.stacked_rides_enabled),
   maxStackedRides: Number(data.max_stacked_rides ?? defaultSettings.maxStackedRides),
   stackedSearchRadiusMeters: Number(data.stacked_search_radius_meters ?? defaultSettings.stackedSearchRadiusMeters),
@@ -198,9 +233,7 @@ const mapDbToSettings = (data: Record<string, unknown>): DispatchSettings => {
 };
 
 const mapSettingsToDb = (settings: DispatchSettings) => ({
-  start_radius_meters: Math.round(settings.searchRadiusStartKm * 1000),
-  expand_radius_meters: Math.round(settings.searchRadiusExpandKm * 1000),
-  max_radius_meters: Math.round(settings.searchRadiusMaxKm * 1000),
+  ...bookingDispatchWaveRadiiToRow(bookingWaveRadii(settings)),
   wave1_size: settings.wave1Size,
   wave2_size: settings.wave2Size,
   wave3_size: settings.wave3Size,
@@ -220,6 +253,7 @@ const mapSettingsToDb = (settings: DispatchSettings) => ({
   degraded_driver_penalty: settings.degradedDriverPenalty,
   presence_max_age_seconds: settings.presenceMaxAgeSeconds,
   max_driver_find_time_minutes: settings.maxDriverFindTimeMinutes,
+  customer_nearby_drivers_radius_meters: Math.round(settings.customerNearbyDriversRadiusMeters),
   stacked_rides_enabled: !!settings.stackedRidesEnabled,
   max_stacked_rides: settings.maxStackedRides,
   max_active_rides_per_driver: settings.maxStackedRides + 1,
@@ -278,31 +312,49 @@ export default function AutoDispatchRules() {
   const fromKm = (km: number) => Number(convertDistance(km, distanceUnit).toFixed(2));
   const toKm = (val: number) => Number(convertToKm(val, distanceUnit).toFixed(4));
 
-  useEffect(() => {
-    const loadDispatchSettings = async () => {
-      setIsLoading(true);
-      try {
-        const { data, error } = await supabase
-          .from('global_dispatch_settings')
-          .select(GLOBAL_DISPATCH_SETTINGS_SELECT)
-          .eq('singleton', true)
-          .maybeSingle();
-        if (error) throw error;
-        if (data) {
-          setSettings(mapDbToSettings(data as unknown as Record<string, unknown>));
-        } else {
-          setSettings(defaultSettings);
-        }
-        setHasChanges(false);
-      } catch (err) {
-        console.error('Error loading dispatch settings:', err);
-        toast.error('Failed to load dispatch settings');
-      } finally {
-        setIsLoading(false);
+  const loadDispatchSettings = useCallback(async () => {
+    setIsLoading(true);
+    try {
+      const { data, error } = await supabase
+        .from('global_dispatch_settings')
+        .select(GLOBAL_DISPATCH_SETTINGS_SELECT)
+        .eq('singleton', true)
+        .maybeSingle();
+      if (error) throw error;
+      if (data) {
+        setSettings(mapDbToSettings(data as unknown as Record<string, unknown>));
+      } else {
+        setSettings(defaultSettings);
       }
-    };
-    loadDispatchSettings();
+      setHasChanges(false);
+    } catch (err) {
+      console.error('Error loading dispatch settings:', err);
+      toast.error('Failed to load dispatch settings');
+    } finally {
+      setIsLoading(false);
+    }
   }, []);
+
+  useEffect(() => {
+    loadDispatchSettings();
+  }, [loadDispatchSettings]);
+
+  const handleReload = async () => {
+    if (hasChanges && !window.confirm('Discard unsaved changes and reload the saved settings?')) return;
+    await loadDispatchSettings();
+    toast.info('Reloaded saved dispatch settings');
+  };
+
+  const waveRadiusIssues = validateBookingDispatchWaveRadii(bookingWaveRadii(settings));
+  const waveRadiusIssueText = (issue: BookingDispatchWaveRadiusIssue): string => {
+    const label = issue.field === 'wave1' ? 'Wave 1' : issue.field === 'wave2' ? 'Wave 2' : 'Wave 3';
+    if (issue.code === 'out_of_range') {
+      return `${label} radius must be between ${fromKm(BOOKING_DISPATCH_WAVE_RADIUS_MIN_METERS / 1000)} and ${fromKm(BOOKING_DISPATCH_WAVE_RADIUS_MAX_METERS / 1000)} ${unitShort}`;
+    }
+    return issue.message;
+  };
+  const waveRadiusIssueFor = (field: BookingDispatchWaveRadiusIssue['field']) =>
+    waveRadiusIssues.find((issue) => issue.field === field);
 
   const updateSetting = <K extends keyof DispatchSettings>(key: K, value: DispatchSettings[K]) => {
     setSettings(prev => ({ ...prev, [key]: value }));
@@ -329,6 +381,21 @@ export default function AutoDispatchRules() {
       urgentFallbackMinutesBeforePickup: settings.urgentDispatchTriggerMinutesBeforePickup,
     });
     const issues = [...bookingIssues, ...activationIssues];
+    if (waveRadiusIssues.length > 0) {
+      toast.error(waveRadiusIssueText(waveRadiusIssues[0]));
+      return;
+    }
+    const nearbyRadius = settings.customerNearbyDriversRadiusMeters;
+    if (
+      !Number.isFinite(nearbyRadius)
+      || nearbyRadius < CUSTOMER_NEARBY_RADIUS_MIN_METERS
+      || nearbyRadius > CUSTOMER_NEARBY_RADIUS_MAX_METERS
+    ) {
+      toast.error(
+        `Customer map nearby drivers radius must be between ${fromKm(CUSTOMER_NEARBY_RADIUS_MIN_METERS / 1000)} and ${fromKm(CUSTOMER_NEARBY_RADIUS_MAX_METERS / 1000)} ${unitShort}`,
+      );
+      return;
+    }
     if (settings.baseDriverCommissionPercent < 0 || settings.baseDriverCommissionPercent > 100) {
       toast.error('Base driver commission must be between 0 and 100');
       return;
@@ -361,11 +428,20 @@ export default function AutoDispatchRules() {
     setIsSaving(true);
     try {
       const dbData = mapSettingsToDb(settings);
-      const { error } = await supabase
+      // Read back what Postgres stored: an RLS-filtered update returns no row instead of an error.
+      const { data: saved, error } = await supabase
         .from('global_dispatch_settings')
         .update(dbData)
-        .eq('singleton', true);
+        .eq('singleton', true)
+        .select(GLOBAL_DISPATCH_SETTINGS_SELECT)
+        .single();
       if (error) throw error;
+      const savedSettings = mapDbToSettings(saved as unknown as Record<string, unknown>);
+      const sentRadii = bookingDispatchWaveRadiiToRow(bookingWaveRadii(settings));
+      const storedRadii = bookingDispatchWaveRadiiToRow(bookingWaveRadii(savedSettings));
+      if (JSON.stringify(sentRadii) !== JSON.stringify(storedRadii)) {
+        throw new Error('Booking dispatch radius did not persist');
+      }
 
       // Keep legacy dispatch_settings aligned for older SQL readers.
       await supabase
@@ -379,13 +455,14 @@ export default function AutoDispatchRules() {
           wave1_size: settings.wave1Size,
           wave2_size: settings.wave2Size,
           wave3_size: settings.wave3Size,
-          search_radius_start_km: settings.searchRadiusStartKm,
-          search_radius_expand_km: settings.searchRadiusExpandKm,
-          search_radius_max_km: settings.searchRadiusMaxKm,
+          search_radius_start_km: savedSettings.bookingWave1RadiusMeters / 1000,
+          search_radius_expand_km: savedSettings.bookingWave2RadiusMeters / 1000,
+          search_radius_max_km: savedSettings.bookingWave3RadiusMeters / 1000,
           updated_at: new Date().toISOString(),
         })
         .not('id', 'is', null);
 
+      setSettings(savedSettings);
       setHasChanges(false);
       setLastSaved(new Date());
       toast.success('Global dispatch settings saved');
@@ -424,6 +501,10 @@ export default function AutoDispatchRules() {
               Unsaved changes
             </Badge>
           )}
+          <Button variant="outline" onClick={handleReload} disabled={isLoading || isSaving}>
+            <RefreshCw className="mr-2 h-4 w-4" />
+            Reload
+          </Button>
           <Button variant="outline" onClick={handleReset} disabled={isLoading}>
             <RotateCcw className="mr-2 h-4 w-4" />
             Reset
@@ -497,29 +578,56 @@ export default function AutoDispatchRules() {
             </div>
           </CardHeader>
           <CardContent className="space-y-6">
-            {/* Radius Expansion */}
+            {/* Booking Dispatch Radius — absolute per wave (global_dispatch_settings start/expand/max_radius_meters) */}
             <div>
-              <h4 className="text-sm font-semibold mb-3">Radius Expansion ({unitShort})</h4>
+              <h4 className="text-sm font-semibold mb-1">Booking Dispatch Radius per Wave ({unitShort})</h4>
+              <p className="text-xs text-muted-foreground mb-3">
+                Ride offers in each wave go only to drivers within this distance of the pickup. Every dispatch round
+                restarts at Wave 1. Each value is a full radius, not an addition to the previous wave.
+              </p>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <div className="space-y-2">
-                  <Label>Start Radius ({unitShort})</Label>
-                  <Input type="number" step="0.5" min="0.5" value={fromKm(settings.searchRadiusStartKm)}
-                    onChange={(e) => updateSetting('searchRadiusStartKm', toKm(parseFloat(e.target.value) || fromKm(3)))} disabled={isLoading} />
-                  <p className="text-xs text-muted-foreground">Initial search radius</p>
-                </div>
-                <div className="space-y-2">
-                  <Label>Expand Radius ({unitShort})</Label>
-                  <Input type="number" step="0.5" min="1" value={fromKm(settings.searchRadiusExpandKm)}
-                    onChange={(e) => updateSetting('searchRadiusExpandKm', toKm(parseFloat(e.target.value) || fromKm(5)))} disabled={isLoading} />
-                  <p className="text-xs text-muted-foreground">2nd expansion step</p>
-                </div>
-                <div className="space-y-2">
-                  <Label>Max Radius ({unitShort})</Label>
-                  <Input type="number" step="0.5" min="1" value={fromKm(settings.searchRadiusMaxKm)}
-                    onChange={(e) => updateSetting('searchRadiusMaxKm', toKm(parseFloat(e.target.value) || fromKm(8)))} disabled={isLoading} />
-                  <p className="text-xs text-muted-foreground">Final expansion limit</p>
-                </div>
+                {([
+                  ['wave1', 'bookingWave1RadiusMeters', 'Wave 1 Radius', 'First offers, and the start of every round'],
+                  ['wave2', 'bookingWave2RadiusMeters', 'Wave 2 Radius', 'Used when Wave 1 gets no acceptance'],
+                  ['wave3', 'bookingWave3RadiusMeters', 'Wave 3 Radius', 'Last wave of the round; caps every wave'],
+                ] as const).map(([field, key, label, help]) => {
+                  const meters = settings[key];
+                  const issue = waveRadiusIssueFor(field);
+                  const inputId = `booking-dispatch-${field}-radius`;
+                  return (
+                    <div className="space-y-2" key={field}>
+                      <Label htmlFor={inputId}>{label} ({unitShort})</Label>
+                      <Input
+                        id={inputId}
+                        type="number"
+                        step="0.5"
+                        min={fromKm(BOOKING_DISPATCH_WAVE_RADIUS_MIN_METERS / 1000)}
+                        max={fromKm(BOOKING_DISPATCH_WAVE_RADIUS_MAX_METERS / 1000)}
+                        value={Number.isFinite(meters) ? fromKm(meters / 1000) : ''}
+                        aria-invalid={issue ? true : undefined}
+                        onChange={(e) => {
+                          const entered = parseFloat(e.target.value);
+                          updateSetting(key, Number.isFinite(entered) ? Math.round(toKm(entered) * 1000) : Number.NaN);
+                        }}
+                        disabled={isLoading}
+                      />
+                      {issue ? (
+                        <p className="text-xs text-destructive">{waveRadiusIssueText(issue)}</p>
+                      ) : (
+                        <p className="text-xs text-muted-foreground">
+                          {help}. Stored as {meters.toLocaleString()} m.
+                        </p>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
+              <p className="text-xs text-muted-foreground mt-3">
+                Range: {fromKm(BOOKING_DISPATCH_WAVE_RADIUS_MIN_METERS / 1000)}–{fromKm(BOOKING_DISPATCH_WAVE_RADIUS_MAX_METERS / 1000)} {unitShort},
+                and Wave 1 ≤ Wave 2 ≤ Wave 3. Reset restores{' '}
+                {fromKm(BOOKING_DISPATCH_WAVE_RADIUS_DEFAULTS_METERS.wave1 / 1000)} / {fromKm(BOOKING_DISPATCH_WAVE_RADIUS_DEFAULTS_METERS.wave2 / 1000)} / {fromKm(BOOKING_DISPATCH_WAVE_RADIUS_DEFAULTS_METERS.wave3 / 1000)} {unitShort}.
+                Separate from the Customer map nearby-drivers radius, the stacked-ride radius and towards-destination matching.
+              </p>
             </div>
 
             {/* Wave Sizes */}
@@ -686,13 +794,62 @@ export default function AutoDispatchRules() {
                 <p className="mt-1">Category priority values are configured per service area under Services → Pricing &amp; Fares → Driver Tiers.</p>
                 <p className="mt-2 font-medium text-foreground">Dispatch Execution Flow:</p>
                 <ol className="list-decimal list-inside mt-1 space-y-1">
-                  <li>Filter all eligible drivers within search radius</li>
+                  <li>Filter all eligible drivers within the current wave's booking dispatch radius</li>
                   <li>Calculate final dispatch score per driver</li>
                   <li>Rank by score descending — split into waves</li>
                   <li>Send Wave 1 → if no acceptance → Wave 2 → Wave 3</li>
                   <li>First driver to accept wins (atomic via <code>accept_ride_offer</code> RPC)</li>
                 </ol>
               </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <div className="flex items-center gap-3">
+              <Globe className="h-5 w-5 text-muted-foreground" />
+              <div>
+                <CardTitle>Customer Map — Nearby Drivers Radius</CardTitle>
+                <CardDescription>
+                  How far from the pickup the Customer app shows available drivers on the map
+                </CardDescription>
+              </div>
+              <Badge variant="outline" className="ml-auto">Display</Badge>
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div className="space-y-2">
+                <Label htmlFor="customer-nearby-drivers-radius">Nearby Drivers Radius ({unitShort})</Label>
+                <Input
+                  id="customer-nearby-drivers-radius"
+                  type="number"
+                  step="0.5"
+                  min={fromKm(CUSTOMER_NEARBY_RADIUS_MIN_METERS / 1000)}
+                  max={fromKm(CUSTOMER_NEARBY_RADIUS_MAX_METERS / 1000)}
+                  value={fromKm(settings.customerNearbyDriversRadiusMeters / 1000)}
+                  onChange={(e) => {
+                    const entered = parseFloat(e.target.value);
+                    if (!Number.isFinite(entered)) return;
+                    updateSetting('customerNearbyDriversRadiusMeters', Math.round(toKm(entered) * 1000));
+                  }}
+                  disabled={isLoading}
+                />
+                <p className="text-xs text-muted-foreground">
+                  Default: {fromKm(CUSTOMER_NEARBY_RADIUS_DEFAULT_METERS / 1000)} {unitShort}. Range:{' '}
+                  {fromKm(CUSTOMER_NEARBY_RADIUS_MIN_METERS / 1000)}–{fromKm(CUSTOMER_NEARBY_RADIUS_MAX_METERS / 1000)} {unitShort}.
+                  Stored as {settings.customerNearbyDriversRadiusMeters.toLocaleString()} m.
+                </p>
+              </div>
+            </div>
+            <div className="flex items-start gap-2 p-3 bg-muted/50 rounded-lg">
+              <Info className="h-4 w-4 text-muted-foreground mt-0.5" />
+              <p className="text-sm text-muted-foreground">
+                Map display only. Drivers still need to be online, approved and sending fresh location to appear.
+                This does not change who receives ride offers: dispatch uses the Booking Dispatch Radius per Wave above,
+                and towards-destination matching is unaffected.
+              </p>
             </div>
           </CardContent>
         </Card>
