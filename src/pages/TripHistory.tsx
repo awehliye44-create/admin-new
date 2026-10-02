@@ -79,6 +79,12 @@ import {
   type TripHistoryStatusFilter,
 } from '@/lib/tripHistoryQuery';
 import {
+  ADMIN_TRIP_DATE_SORT_DEFAULT,
+  ADMIN_TRIP_DATE_SORT_OPTIONS,
+  parseAdminTripDateSort,
+  type AdminTripDateSort,
+} from '@/lib/adminTripListDateSort';
+import {
   adminNoShowPaymentLabel,
   adminTripHistoryDisplayAt,
 } from '@/lib/adminTripNoShowClassification';
@@ -411,6 +417,7 @@ export default function TripHistory() {
   const [dateFilter, setDateFilter] = useState('7days');
   const [statusFilter, setStatusFilter] = useState<TripHistoryStatusFilter>('all');
   const [pageSize, setPageSize] = useState(TRIP_HISTORY_PAGE_SIZE_DEFAULT);
+  const [dateSort, setDateSort] = useState<AdminTripDateSort>(ADMIN_TRIP_DATE_SORT_DEFAULT);
   const [appendedRows, setAppendedRows] = useState<CompletedTrip[]>([]);
   const [nextCursor, setNextCursor] = useState<TripHistoryCursor | null>(null);
   const [hasMore, setHasMore] = useState(false);
@@ -505,6 +512,7 @@ export default function TripHistory() {
       selectedServiceAreaId,
       statusFilter,
       pageSize,
+      dateSort,
       serverTripCode ?? '',
       session?.access_token,
     ],
@@ -518,6 +526,7 @@ export default function TripHistory() {
         serviceAreaId: selectedServiceAreaId !== 'all' ? selectedServiceAreaId : undefined,
         pageSize,
         cursor: null,
+        sort: dateSort,
         status: statusFilter,
         tripCode: serverTripCode,
       });
@@ -603,6 +612,7 @@ export default function TripHistory() {
         serviceAreaId: selectedServiceAreaId !== 'all' ? selectedServiceAreaId : undefined,
         pageSize,
         cursor: nextCursor,
+        sort: dateSort,
         status: statusFilter,
         tripCode: serverTripCode,
       });
@@ -617,6 +627,7 @@ export default function TripHistory() {
       setIsLoadingMore(false);
     }
   }, [
+    dateSort,
     getDateRange,
     hasMore,
     isLoadingMore,
@@ -1242,7 +1253,7 @@ export default function TripHistory() {
               Completed Trips
             </CardTitle>
             <CardDescription className="flex items-center gap-2 flex-wrap">
-              Finished rides (completed / no-show) by completion date — customer fare from backend SSOT; commission &amp; Provider fees in Financial Reconciliation
+              Finished rides (completed / chargeable terminal outcomes) by trip date — customer fare from backend SSOT; commission &amp; Provider fees in Financial Reconciliation
               {activeRegion && (
                 <Badge variant="outline" className="ml-2 text-xs">
                   {activeRegion.name} • {getActiveCurrencySymbol()} • {getActiveDistanceUnit()}
@@ -1351,6 +1362,18 @@ export default function TripHistory() {
                 <SelectItem value="90days">Last 90 Days</SelectItem>
               </SelectContent>
             </Select>
+            <Select value={dateSort} onValueChange={(v) => setDateSort(parseAdminTripDateSort(v))}>
+              <SelectTrigger className="w-full md:w-[150px]" aria-label="Sort by date">
+                <SelectValue placeholder="Sort by date" />
+              </SelectTrigger>
+              <SelectContent>
+                {ADMIN_TRIP_DATE_SORT_OPTIONS.map((option) => (
+                  <SelectItem key={option.value} value={option.value}>
+                    {option.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
             <Button variant="outline" onClick={() => fetchData()} disabled={isLoading}>
               <RefreshCw className={`h-4 w-4 mr-2 ${isLoading ? 'animate-spin' : ''}`} />
               Refresh
@@ -1415,7 +1438,7 @@ export default function TripHistory() {
                   <TableHead>Payable / Captured</TableHead>
                   <TableHead>Payment</TableHead>
                   <TableHead>Invoice</TableHead>
-                  <TableHead>Completed</TableHead>
+                  <TableHead>Date</TableHead>
                   <TableHead className="text-right">Actions</TableHead>
                 </TableRow>
               </TableHeader>

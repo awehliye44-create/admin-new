@@ -53,15 +53,16 @@ describe('trip history — no hard 500/2000 history cap', () => {
   });
 
   it('cursor encode/decode round-trips', () => {
-    const encoded = encodeTripHistoryCursor({
-      completedAt: '2026-08-01T12:00:00.000Z',
-      id: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee',
-    });
-    expect(decodeTripHistoryCursor(encoded)).toEqual({
-      completedAt: '2026-08-01T12:00:00.000Z',
-      id: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee',
-    });
+    for (const sort of ['newest', 'oldest'] as const) {
+      const cursor = {
+        eventAt: '2026-08-01T12:00:00.000Z',
+        id: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee',
+        sort,
+      };
+      expect(decodeTripHistoryCursor(encodeTripHistoryCursor(cursor))).toEqual(cursor);
+    }
     expect(decodeTripHistoryCursor(null)).toBeNull();
+    expect(decodeTripHistoryCursor(JSON.stringify({ completedAt: null, id: 'legacy' }))).toBeNull();
   });
 
   it('FR summary no longer defaults to silent 500 under-sample', () => {
