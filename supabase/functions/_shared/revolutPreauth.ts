@@ -1037,6 +1037,7 @@ export async function createRevolutPreauthResponse(
           reserved_authorised_amount_pence: authorisedAmountPence,
           displayed_total_authorisation_pence:
             consentDecision.displayed_total_authorisation_pence,
+          buffer_pence: bufferPence,
         });
         if (!reservedMatch.ok) {
           logStep("Reserved receivable total mismatch — fail closed", reservedMatch.telemetry);
