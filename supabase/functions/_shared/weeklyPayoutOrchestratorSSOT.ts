@@ -1,10 +1,8 @@
 /**
  * Canonical weekly payout orchestrator SSOT (read-model + pure gates).
  * Owns planning statuses, funding gate, blockers, idempotency keys, batch aggregate.
- * Never mutates wallets or calls Revolut by itself — the edge executor does that.
+ * Never mutates wallets or calls Revolut by itself â the edge executor does that.
  */
-
-import { isConflictingActivePayoutItem } from "./payoutItemLifecycleSSOT.ts";
 
 export const ORCHESTRATOR_ITEM_STATUS = {
   ELIGIBLE: "ELIGIBLE",
@@ -54,37 +52,6 @@ export const ORCHESTRATOR_BLOCKER = {
   OCCURRENCE_ALREADY_COMPLETED: "OCCURRENCE_ALREADY_COMPLETED",
 } as const;
 
-/** Claim-RPC infrastructure failure. Never classified as SCHEDULER_NOT_INVOKED. */
-export const ORCHESTRATOR_CLAIM_ERROR = {
-  OCCURRENCE_CLAIM_FAILED: "OCCURRENCE_CLAIM_FAILED",
-} as const;
-
-export type OrchestratorClaimErrorCode =
-  (typeof ORCHESTRATOR_CLAIM_ERROR)[keyof typeof ORCHESTRATOR_CLAIM_ERROR];
-
-export function classifyWeeklyOccurrenceClaimFailure(input: {
-  message?: string | null;
-  code?: string | null;
-}): {
-  success: false;
-  error: "OCCURRENCE_CLAIM_FAILED";
-  error_code: "OCCURRENCE_CLAIM_FAILED";
-  classification: "OCCURRENCE_CLAIM_FAILED";
-  message: string;
-  hint: string;
-} {
-  const raw = String(input.message ?? input.code ?? "").trim();
-  return {
-    success: false,
-    error: ORCHESTRATOR_CLAIM_ERROR.OCCURRENCE_CLAIM_FAILED,
-    error_code: ORCHESTRATOR_CLAIM_ERROR.OCCURRENCE_CLAIM_FAILED,
-    classification: ORCHESTRATOR_CLAIM_ERROR.OCCURRENCE_CLAIM_FAILED,
-    message: raw || "weekly occurrence claim failed",
-    hint:
-      "ON CONFLICT must target UNIQUE (schedule_occurrence_key, dry_run). Do not classify as SCHEDULER_NOT_INVOKED.",
-  };
-}
-
 export type OrchestratorBlockerCode =
   (typeof ORCHESTRATOR_BLOCKER)[keyof typeof ORCHESTRATOR_BLOCKER];
 
@@ -121,8 +88,6 @@ export function orchestratorBlockerLabel(code: string | null | undefined): strin
       return "No eligible drivers";
     case ORCHESTRATOR_BLOCKER.OCCURRENCE_ALREADY_COMPLETED:
       return "Occurrence already completed";
-    case ORCHESTRATOR_CLAIM_ERROR.OCCURRENCE_CLAIM_FAILED:
-      return "Weekly occurrence claim failed";
     case "BLOCKED_EXECUTION_DISABLED":
       return "Live payout rollout disabled";
     default:
@@ -314,30 +279,23 @@ export function shouldReleaseReservationOnSubmitClaimFailure(
   return true;
 }
 
-/** Item still needs money-path work (reserve/submit/poll/finalize) — not occurrence-terminal. */
+/** Item still needs money-path work (reserve/submit/poll/finalize) â not occurrence-terminal. */
 export function isOrchestratorInFlightItemStatus(
   status: string | null | undefined,
-  executionStatus?: string | null,
 ): boolean {
-  if (executionStatus !== undefined) {
-    return isConflictingActivePayoutItem({
-      status,
-      execution_status: executionStatus,
-    });
+  const st = String(status ?? "").toUpperCase();
+  if (!st) return false;
+  if (isOrchestratorItemTerminalForOccurrence(st)) return false;
+  if (st === "PAID" || st === "CANCELLED" || st === "CANCELED" || st === "INELIGIBLE") {
+    return false;
   }
-  // Legacy single-token probe (caller already coalesced). Terminal tokens are not in-flight.
-  return isConflictingActivePayoutItem({
-    status,
-    execution_status: null,
-  });
+  return true;
 }
 
 /**
  * Continue LIVE money path when either fresh eligible drivers exist OR the
  * occurrence batch already has in-flight items (reserved/submitted/unknown).
  * Prevents ZERO_ELIGIBLE after reservation from abandoning provider reconciliation.
- * In-flight SUBMITTED pays already reduced settled funds — INSUFFICIENT_SETTLED_FUNDS
- * must not block GET-only reconcile of the existing provider reference.
  */
 export function shouldContinueOrchestratorMoneyPath(args: {
   dry_run: boolean;
@@ -348,13 +306,9 @@ export function shouldContinueOrchestratorMoneyPath(args: {
   in_flight_item_count: number;
   blocker_code: string | null | undefined;
 }): { continue: boolean; reconciling_in_flight: boolean; ignore_zero_eligible_blocker: boolean } {
-  const reconciling_in_flight = args.in_flight_item_count > 0;
+  const reconciling_in_flight = args.fresh_eligible_count <= 0 && args.in_flight_item_count > 0;
   const ignore_zero_eligible_blocker = reconciling_in_flight
-    && (
-      args.blocker_code == null
-      || args.blocker_code === "ZERO_ELIGIBLE_DRIVERS"
-      || args.blocker_code === "INSUFFICIENT_SETTLED_FUNDS"
-    );
+    && (args.blocker_code == null || args.blocker_code === "ZERO_ELIGIBLE_DRIVERS");
   const blockerBlocks = args.blocker_code != null && !ignore_zero_eligible_blocker;
   const continuePath = !args.dry_run
     && args.live_enabled
