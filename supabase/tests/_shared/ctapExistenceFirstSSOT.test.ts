@@ -71,3 +71,18 @@ Deno.test("source lock: CTAP runs existence-first before booking gates and never
   assert(!/select\("[^"]*\bcustomer_id\b[^"]*"\)\s*\n\s*\.eq\("(client_action_id|provider_order_id)"/.test(src));
   assert(src.includes('idempotentPick.kind === "owned"'), "post-gate short-circuit is ownership-gated");
 });
+
+Deno.test("CTAP existence-first runs after auth, before gates, and keeps the pickup-note backfill", () => {
+  const src = Deno.readTextFileSync(
+    new URL("../../functions/create-trip-after-payment/index.ts", import.meta.url),
+  );
+  const auth = src.indexOf('log("User authenticated"');
+  const existence = src.indexOf("lookupCallerOwnedBookingTrip(supabase");
+  const gate = src.indexOf("assertCanBookRide(supabase, user.id)");
+  assert(auth > 0 && existence > auth && gate > existence);
+  const branch = src.slice(existence, gate);
+  assert(branch.includes('existing.kind === "owned"'));
+  assert(branch.includes("special_instructions"));
+  assert(branch.includes('.or("special_instructions.is.null,special_instructions.eq.")'));
+  assert(!branch.includes("existing.trip.passenger_id ==="), "ownership is decided by the shared helper");
+});

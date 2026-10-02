@@ -308,6 +308,26 @@ serveWithEdgeTiming("create-trip-after-payment", corsHeaders, async (req) => {
         by: existing.by,
         ms: Date.now() - existenceStartedAt,
       });
+      const existenceNote = String(body.special_instructions ?? "").trim();
+      if (existenceNote && !String(existing.trip.special_instructions ?? "").trim()) {
+        const tripId = existing.trip.id;
+        EdgeRuntime.waitUntil(
+          Promise.resolve(
+            supabase
+              .from("trips")
+              .update({ special_instructions: existenceNote.slice(0, 1000) })
+              .eq("id", tripId)
+              .or("special_instructions.is.null,special_instructions.eq."),
+          ).then(({ error }) => {
+            if (error) {
+              log("Existence-first special_instructions backfill failed", {
+                tripId,
+                error: error.message,
+              });
+            }
+          }),
+        );
+      }
       return new Response(JSON.stringify({
         success: true,
         ride_id: existing.trip.id,
