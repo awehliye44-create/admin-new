@@ -97,7 +97,7 @@ export interface TripCaptureStatus {
   paymentCount: number;
   diffPence: number | null;
   isTerminalFeeOutcome?: boolean;
-  terminalOutcomeKind?: 'NO_SHOW' | 'LATE_PASSENGER_CANCELLATION';
+  terminalOutcomeKind?: 'NO_SHOW' | 'LATE_PASSENGER_CANCELLATION' | 'ARRIVAL_CANCELLATION';
 }
 
 export interface PaymentCaptureRow {

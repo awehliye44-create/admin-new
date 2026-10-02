@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { resolveTripHistoryTerminalOutcomeDisplay } from '../../../shared/tripHistoryTerminalOutcomeDisplaySSOT';
 import { tripHistoryStatusLabel } from '../../../shared/adminTripPaymentDispositionSSOT';
-import { tripHistoryStatusLabel } from '../../../shared/adminTripPaymentDispositionSSOT';
 
 /** MK-260808-046 shape — stale ride commission must not surface in terminal panel. */
 const MK_260808_046 = {
