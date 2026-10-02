@@ -34,7 +34,9 @@ import {
   Ban,
   PlayCircle,
   ShieldAlert,
-  CheckCircle2
+  CheckCircle2,
+  Trash2,
+  ArchiveRestore
 } from 'lucide-react';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { format } from 'date-fns';
@@ -48,7 +50,7 @@ export default function CorporateAccounts() {
   const [isEditOpen, setIsEditOpen] = useState(false);
   const [editingAccount, setEditingAccount] = useState<any>(null);
   const [viewingAccount, setViewingAccount] = useState<any>(null);
-  const [confirmAction, setConfirmAction] = useState<{ type: 'suspend' | 'reactivate'; account: any } | null>(null);
+  const [confirmAction, setConfirmAction] = useState<{ type: 'suspend' | 'reactivate' | 'remove' | 'restore'; account: any } | null>(null);
 
   const defaultFormData = {
     company_name: '',
@@ -92,7 +94,7 @@ export default function CorporateAccounts() {
       let query = supabase
         .from('corporate_accounts')
         .select(
-          'id, company_name, contact_name, contact_email, contact_phone, billing_email, address, city, country, tax_id, payment_terms, credit_limit, discount_percentage, notes, employee_count, monthly_budget, region_id, service_area_id, status, payment_card_enabled, payment_apple_pay_enabled, payment_google_pay_enabled, payment_invoice_enabled, payment_wallet_enabled, created_at, region:regions(name), service_area:service_areas(name)',
+          'id, company_name, contact_name, contact_email, contact_phone, billing_email, address, city, country, tax_id, payment_terms, credit_limit, discount_percentage, notes, employee_count, monthly_budget, region_id, service_area_id, status, archived_at, payment_card_enabled, payment_apple_pay_enabled, payment_google_pay_enabled, payment_invoice_enabled, payment_wallet_enabled, created_at, region:regions(name), service_area:service_areas(name)',
         )
         .in('status', ['active', 'suspended'])
         .order('created_at', { ascending: false })
@@ -146,6 +148,44 @@ export default function CorporateAccounts() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['corporate-accounts'] });
       toast.success('Account reactivated');
+      setConfirmAction(null);
+    },
+    onError: (err: Error) => toast.error(err.message),
+  });
+
+  // Delete (no history) or archive (has trips/invoices) — decided server-side
+  const removeMutation = useMutation({
+    mutationFn: async (accountId: string) => {
+      const { data, error } = await supabase.rpc('admin_remove_corporate_account', { p_account_id: accountId });
+      if (error) {
+        if (error.code === '42501') throw new Error('You are not authorized to remove corporate accounts.');
+        if (/CORPORATE_ACCOUNT_HAS_OPEN_TRIPS/.test(error.message)) {
+          throw new Error('This account still has trips in progress. Wait for them to finish first.');
+        }
+        throw error;
+      }
+      return (data as { outcome?: string } | null)?.outcome;
+    },
+    onSuccess: (outcome) => {
+      queryClient.invalidateQueries({ queryKey: ['corporate-accounts'] });
+      toast.success(
+        outcome === 'archived'
+          ? 'Account has trip or invoice history — archived instead of deleted'
+          : 'Account permanently deleted',
+      );
+      setConfirmAction(null);
+    },
+    onError: (err: Error) => toast.error(err.message),
+  });
+
+  const restoreMutation = useMutation({
+    mutationFn: async (accountId: string) => {
+      const { error } = await supabase.rpc('admin_restore_corporate_account', { p_account_id: accountId });
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['corporate-accounts'] });
+      toast.success('Account restored as Suspended');
       setConfirmAction(null);
     },
     onError: (err: Error) => toast.error(err.message),
@@ -216,7 +256,10 @@ export default function CorporateAccounts() {
     const matchesSearch = account.company_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
                          account.contact_email.toLowerCase().includes(searchTerm.toLowerCase()) ||
                          (account.contact_name || '').toLowerCase().includes(searchTerm.toLowerCase());
-    const matchesStatus = statusFilter === 'all' || account.status === statusFilter;
+    const matchesStatus =
+      statusFilter === 'archived'
+        ? !!account.archived_at
+        : !account.archived_at && (statusFilter === 'all' || account.status === statusFilter);
     return matchesSearch && matchesStatus;
   });
 
@@ -324,6 +367,7 @@ export default function CorporateAccounts() {
                 <SelectItem value="all">All Status</SelectItem>
                 <SelectItem value="active">Active</SelectItem>
                 <SelectItem value="suspended">Suspended</SelectItem>
+                <SelectItem value="archived">Archived</SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -409,22 +453,38 @@ export default function CorporateAccounts() {
                               Edit
                             </DropdownMenuItem>
                             <DropdownMenuSeparator />
-                            {account.status === 'active' ? (
-                              <DropdownMenuItem 
-                                className="text-orange-500"
-                                onClick={() => setConfirmAction({ type: 'suspend', account })}
-                              >
-                                <Ban className="h-4 w-4 mr-2" />
-                                Suspend
+                            {account.archived_at ? (
+                              <DropdownMenuItem onClick={() => setConfirmAction({ type: 'restore', account })}>
+                                <ArchiveRestore className="h-4 w-4 mr-2" />
+                                Restore
                               </DropdownMenuItem>
                             ) : (
-                              <DropdownMenuItem 
-                                className="text-green-500"
-                                onClick={() => setConfirmAction({ type: 'reactivate', account })}
-                              >
-                                <PlayCircle className="h-4 w-4 mr-2" />
-                                Reactivate
-                              </DropdownMenuItem>
+                              <>
+                                {account.status === 'active' ? (
+                                  <DropdownMenuItem
+                                    className="text-orange-500"
+                                    onClick={() => setConfirmAction({ type: 'suspend', account })}
+                                  >
+                                    <Ban className="h-4 w-4 mr-2" />
+                                    Suspend
+                                  </DropdownMenuItem>
+                                ) : (
+                                  <DropdownMenuItem
+                                    className="text-green-500"
+                                    onClick={() => setConfirmAction({ type: 'reactivate', account })}
+                                  >
+                                    <PlayCircle className="h-4 w-4 mr-2" />
+                                    Reactivate
+                                  </DropdownMenuItem>
+                                )}
+                                <DropdownMenuItem
+                                  className="text-destructive"
+                                  onClick={() => setConfirmAction({ type: 'remove', account })}
+                                >
+                                  <Trash2 className="h-4 w-4 mr-2" />
+                                  Delete / Archive
+                                </DropdownMenuItem>
+                              </>
                             )}
                           </DropdownMenuContent>
                         </DropdownMenu>
@@ -655,37 +715,52 @@ export default function CorporateAccounts() {
           </DialogContent>
         </Dialog>
 
-        {/* Confirm Suspend/Reactivate */}
+        {/* Confirm Suspend/Reactivate/Remove/Restore */}
         <Dialog open={!!confirmAction} onOpenChange={() => setConfirmAction(null)}>
           <DialogContent className="max-w-md">
             <DialogHeader>
               <DialogTitle>
-                {confirmAction?.type === 'suspend' ? 'Suspend Account' : 'Reactivate Account'}
+                {{
+                  suspend: 'Suspend Account',
+                  reactivate: 'Reactivate Account',
+                  remove: 'Delete or Archive Account',
+                  restore: 'Restore Account',
+                }[confirmAction?.type ?? 'suspend']}
               </DialogTitle>
               <DialogDescription>
-                {confirmAction?.type === 'suspend'
-                  ? `This will suspend "${confirmAction?.account?.company_name}" and restrict their portal access.`
-                  : `This will reactivate "${confirmAction?.account?.company_name}" and restore full portal access.`}
+                {confirmAction?.type === 'suspend' &&
+                  `This will suspend "${confirmAction?.account?.company_name}" and restrict their portal access.`}
+                {confirmAction?.type === 'reactivate' &&
+                  `This will reactivate "${confirmAction?.account?.company_name}" and restore full portal access.`}
+                {confirmAction?.type === 'remove' &&
+                  `"${confirmAction?.account?.company_name}" will be permanently deleted if it has no trips or invoices. If it has history, it will be archived instead: suspended, hidden from this list and its records kept. Accounts with trips in progress can't be removed.`}
+                {confirmAction?.type === 'restore' &&
+                  `This will bring "${confirmAction?.account?.company_name}" back to the list as Suspended. Reactivate it to restore portal access.`}
               </DialogDescription>
             </DialogHeader>
             <DialogFooter className="gap-2">
               <Button variant="outline" onClick={() => setConfirmAction(null)}>Cancel</Button>
               <Button
-                variant={confirmAction?.type === 'suspend' ? 'destructive' : 'default'}
+                variant={confirmAction?.type === 'suspend' || confirmAction?.type === 'remove' ? 'destructive' : 'default'}
                 onClick={() => {
-                  if (confirmAction?.type === 'suspend') {
-                    suspendMutation.mutate(confirmAction.account.id);
-                  } else {
-                    reactivateMutation.mutate(confirmAction!.account.id);
-                  }
+                  if (!confirmAction) return;
+                  const id = confirmAction.account.id;
+                  if (confirmAction.type === 'suspend') suspendMutation.mutate(id);
+                  else if (confirmAction.type === 'reactivate') reactivateMutation.mutate(id);
+                  else if (confirmAction.type === 'remove') removeMutation.mutate(id);
+                  else restoreMutation.mutate(id);
                 }}
-                disabled={suspendMutation.isPending || reactivateMutation.isPending}
+                disabled={
+                  suspendMutation.isPending ||
+                  reactivateMutation.isPending ||
+                  removeMutation.isPending ||
+                  restoreMutation.isPending
+                }
               >
-                {confirmAction?.type === 'suspend' ? (
-                  <><Ban className="h-4 w-4 mr-2" /> Confirm Suspend</>
-                ) : (
-                  <><PlayCircle className="h-4 w-4 mr-2" /> Confirm Reactivate</>
-                )}
+                {confirmAction?.type === 'suspend' && <><Ban className="h-4 w-4 mr-2" /> Confirm Suspend</>}
+                {confirmAction?.type === 'reactivate' && <><PlayCircle className="h-4 w-4 mr-2" /> Confirm Reactivate</>}
+                {confirmAction?.type === 'remove' && <><Trash2 className="h-4 w-4 mr-2" /> Delete / Archive</>}
+                {confirmAction?.type === 'restore' && <><ArchiveRestore className="h-4 w-4 mr-2" /> Restore</>}
               </Button>
             </DialogFooter>
           </DialogContent>
