@@ -107,8 +107,8 @@ describe('MK-261002-014 Admin surfaces', () => {
     expect(tripHistoryStatusLabel(MK_261002_014)).toBe('Arrival Cancellation');
   });
 
-  it('stays in Missed & Cancelled (operational status cancelled)', () => {
-    expect(belongsInMissedCancelled(MK_261002_014)).toBe(true);
+  it('is owned by Trip History, never Missed & Cancelled, despite operational status cancelled', () => {
+    expect(belongsInMissedCancelled(MK_261002_014)).toBe(false);
     expect(classifyMissedCancelledBucket(MK_261002_014)).toBe('ARRIVAL_CANCELLATION');
   });
 
@@ -203,9 +203,12 @@ describe('MissedCancelled page wiring lock', () => {
   it('stats and quoted-fare totals use the canonical bucket helper', () => {
     expect(src).toContain('summarizeMissedCancelledStats(statsFareRows)');
     expect(src).toContain('missedCancelledQuotedFareImpactPence(trip, resolveAdminCommittedCustomerFarePence)');
-    expect(src).toContain('Arrival Cancellation:');
-    expect(src).toContain('No-Show:');
-    expect(src).toContain('Late Passenger Cancellation:');
     expect(src).toContain('Cancelled / No Fee');
+    expect(src).toContain('Missed / Expired');
+  });
+
+  it('points canonical terminal outcomes at Trip History instead of counting them here', () => {
+    expect(src).toContain('Arrival Cancellation, No-Show and Late Passenger Cancellation are in Trip History');
+    expect(src).not.toContain('Chargeable outcomes');
   });
 });

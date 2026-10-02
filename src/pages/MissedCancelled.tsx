@@ -66,11 +66,16 @@ import { TripHistoryTerminalOutcomePanel } from '@/components/trips/TripHistoryT
 import {
   classifyMissedCancelledBucket,
   isChargeableTerminalBucket,
-  MISSED_CANCELLED_STATS_EXTRA_STATUSES,
   missedCancelledQuotedFareImpactPence,
   resolveAdminArrivalCancellationFeePence,
   summarizeMissedCancelledStats,
 } from '@/lib/missedCancelledTerminalStats';
+import {
+  applyMissedCancelledOwnership,
+  MISSED_CANCELLED_CANCELLED_STATUSES,
+  MISSED_CANCELLED_MISSED_STATUSES,
+  missedCancelledStatusList,
+} from '@/lib/adminTerminalPageOwnership';
 
 interface CancelledTrip {
   id: string;
@@ -230,13 +235,9 @@ export default function MissedCancelled() {
         .gte('created_at', start.toISOString())
         .lte('created_at', end.toISOString());
 
-      if (statusFilter === 'all') {
-        query = query.in('status', [...MISSED_CANCELLED_STATUSES]);
-      } else if (statusFilter === 'expired') {
-        query = query.in('status', ['expired', 'expired_no_driver']);
-      } else {
-        query = query.eq('status', statusFilter);
-      }
+      query = query.in('status', missedCancelledStatusList(statusFilter));
+      // Trip History owns canonical terminal outcomes; exclude them before count, range and order.
+      query = applyMissedCancelledOwnership(query);
 
       if (serviceFilter.regionId) {
         const saIds = await fetchRegionServiceAreaIds(serviceFilter.regionId);
@@ -263,7 +264,7 @@ export default function MissedCancelled() {
       const rows = (data || []) as unknown as CancelledTrip[];
       const directory = await fetchPassengerDirectory(rows.map((row) => row.passenger_id));
       const withDisposition = await enrichTripsWithPaymentDisposition(rows, 'missed_cancelled');
-      // Defense in depth: never surface no-show outcomes here (Trip History owns them).
+      // Rows are already ownership-scoped server-side; this only re-asserts the same SSOT.
       const filtered = hydratePassengerIdentity(withDisposition, directory).filter((row) => belongsInMissedCancelled(row));
       return { rows: filtered, totalCount: count ?? filtered.length };
 
@@ -282,28 +283,22 @@ export default function MissedCancelled() {
       if (serviceFilter.regionId) {
         saIds = await fetchRegionServiceAreaIds(serviceFilter.regionId);
         if (saIds.length === 0) {
-          return { cancelled: 0, missed: 0, noShowStatus: 0, fareRows: [] as CancelledTrip[] };
+          return { cancelled: 0, missed: 0, fareRows: [] as CancelledTrip[] };
         }
       }
-      let noShowStatusQ = supabase
+      let cancelledQ = applyMissedCancelledOwnership(supabase
         .from('trips')
         .select('id', { count: 'exact', head: true })
-        .in('status', [...MISSED_CANCELLED_STATS_EXTRA_STATUSES])
+        .in('status', [...MISSED_CANCELLED_CANCELLED_STATUSES])
         .gte('created_at', start.toISOString())
-        .lte('created_at', end.toISOString());
-      let cancelledQ = supabase
+        .lte('created_at', end.toISOString()));
+      let missedQ = applyMissedCancelledOwnership(supabase
         .from('trips')
         .select('id', { count: 'exact', head: true })
-        .in('status', ['cancelled', 'customer_cancelled'])
+        .in('status', [...MISSED_CANCELLED_MISSED_STATUSES])
         .gte('created_at', start.toISOString())
-        .lte('created_at', end.toISOString());
-      let missedQ = supabase
-        .from('trips')
-        .select('id', { count: 'exact', head: true })
-        .in('status', ['missed', 'expired', 'expired_no_driver'])
-        .gte('created_at', start.toISOString())
-        .lte('created_at', end.toISOString());
-      let fareQ = supabase
+        .lte('created_at', end.toISOString()));
+      let fareQ = applyMissedCancelledOwnership(supabase
         .from('trips')
         .select(`
           id, currency_code, status, financial_outcome, payment_status, cancellation_reason,
@@ -314,31 +309,27 @@ export default function MissedCancelled() {
           fare, estimated_fare, fare_snapshot_json,
           service_area:service_areas!trips_service_area_id_fkey(region:regions(currency_code))
         `)
-        .in('status', [...MISSED_CANCELLED_STATUSES, ...MISSED_CANCELLED_STATS_EXTRA_STATUSES])
+        .in('status', [...MISSED_CANCELLED_STATUSES])
         .gte('created_at', start.toISOString())
-        .lte('created_at', end.toISOString())
+        .lte('created_at', end.toISOString()))
         .order('created_at', { ascending: false })
         .limit(ADMIN_MISSED_CANCELLED_STATS_ROW_CAP);
       if (saIds) {
         cancelledQ = cancelledQ.in('service_area_id', saIds);
         missedQ = missedQ.in('service_area_id', saIds);
-        noShowStatusQ = noShowStatusQ.in('service_area_id', saIds);
         fareQ = fareQ.in('service_area_id', saIds);
       }
-      const [cancelledRes, missedRes, noShowStatusRes, fareRes] = await Promise.all([
+      const [cancelledRes, missedRes, fareRes] = await Promise.all([
         cancelledQ,
         missedQ,
-        noShowStatusQ,
         fareQ,
       ]);
       if (cancelledRes.error) throw cancelledRes.error;
       if (missedRes.error) throw missedRes.error;
-      if (noShowStatusRes.error) throw noShowStatusRes.error;
       if (fareRes.error) throw fareRes.error;
       return {
         cancelled: cancelledRes.count ?? 0,
         missed: missedRes.count ?? 0,
-        noShowStatus: noShowStatusRes.count ?? 0,
         fareRows: (fareRes.data || []) as unknown as CancelledTrip[],
       };
     },
@@ -388,8 +379,7 @@ export default function MissedCancelled() {
   // Range-wide counters from head-count stats — never derived from the loaded page.
   const cancelledCount = rangeStats?.cancelled ?? 0;
   const missedCount = rangeStats?.missed ?? 0;
-  const noShowStatusCount = rangeStats?.noShowStatus ?? 0;
-  const totalIssues = cancelledCount + missedCount + noShowStatusCount;
+  const totalIssues = cancelledCount + missedCount;
   const quotedFareImpactPence = (trip: CancelledTrip) =>
     missedCancelledQuotedFareImpactPence(trip, resolveAdminCommittedCustomerFarePence);
   const bucketStats = summarizeMissedCancelledStats(statsFareRows);
@@ -423,7 +413,7 @@ export default function MissedCancelled() {
   return (
     <AdminLayout 
       title="Missed & Cancelled" 
-      description="Review cancelled, missed, and expired trips (no-shows live in Trip History)"
+      description="Review cancelled, missed, and expired trips (Arrival Cancellation, No-Show and Late Passenger Cancellation live in Trip History)"
     >
       {/* Service Area Filter */}
       <div className="flex items-center gap-3 mb-6">
@@ -436,13 +426,21 @@ export default function MissedCancelled() {
       </div>
 
       {/* Stats Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-5 gap-4 mb-6">
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
         <Card>
           <CardContent className="pt-6">
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-muted-foreground">Total Issues</p>
                 <p className="text-2xl font-bold">{totalIssues}</p>
+                <p className="text-[10px] text-muted-foreground">
+                  Arrival Cancellation, No-Show and Late Passenger Cancellation are in Trip History
+                </p>
+                {bucketStats.chargeable_total > 0 && (
+                  <p className="text-[10px] text-muted-foreground">
+                    {bucketStats.chargeable_total} with legacy arrival-fee flags (no canonical outcome)
+                  </p>
+                )}
                 {bucketStatsPartial && (
                   <p className="text-[10px] text-muted-foreground">
                     Breakdown from latest {statsFareRows.length} trips
@@ -450,22 +448,6 @@ export default function MissedCancelled() {
                 )}
               </div>
               <AlertTriangle className="h-8 w-8 text-muted-foreground opacity-80" />
-            </div>
-          </CardContent>
-        </Card>
-        <Card className="border-rose-500/30 bg-rose-500/5">
-          <CardContent className="pt-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-muted-foreground">Chargeable outcomes</p>
-                <p className="text-2xl font-bold text-rose-600">{bucketStats.chargeable_total}</p>
-                <div className="mt-1 space-y-0.5 text-[11px] text-muted-foreground">
-                  <p>Arrival Cancellation: {bucketStats.arrival_cancellation}</p>
-                  <p>No-Show: {bucketStats.no_show} (listed in Trip History)</p>
-                  <p>Late Passenger Cancellation: {bucketStats.late_passenger_cancellation}</p>
-                </div>
-              </div>
-              <XCircle className="h-8 w-8 text-rose-500" />
             </div>
           </CardContent>
         </Card>
@@ -502,7 +484,7 @@ export default function MissedCancelled() {
               <div>
                 <p className="text-sm text-muted-foreground">Quoted fare impact</p>
                 <p className="text-[10px] text-muted-foreground">
-                  Not charged / not revenue · excludes chargeable outcomes
+                  Not charged / not revenue · excludes fee-bearing cancellations
                 </p>
                 {isMixedCurrency ? (
                   <CurrencyGroupedStats

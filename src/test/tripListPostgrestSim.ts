@@ -53,9 +53,16 @@ export function evalTerm(row: SimRow, term: string): boolean {
   const op = term.slice(firstDot + 1, secondDot);
   const value = term.slice(secondDot + 1);
   const cell = row[col];
+  if (op === 'not') {
+    if (value === 'is.null') return cell !== null && cell !== undefined;
+    // SQL: NOT (NULL op x) is still unknown, so NULL never passes a negated comparison.
+    if (cell === null || cell === undefined) return false;
+    return !evalTerm(row, `${col}.${value}`);
+  }
   if (op === 'is' && value === 'null') return cell === null || cell === undefined;
   if (cell === null || cell === undefined) return false;
   if (op === 'eq') return String(cell) === value;
+  if (op === 'neq') return String(cell) !== value;
   if (op === 'in') return value.slice(1, -1).split(',').includes(String(cell));
   if (op === 'gt') return compare(cell, value) > 0;
   if (op === 'lt') return compare(cell, value) < 0;
