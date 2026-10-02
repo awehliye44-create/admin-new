@@ -42,6 +42,10 @@ import {
 import { shouldBlockPrematureScheduledSearchHoldRelease } from "./scheduledHandoverHoldLock.ts";
 import { transitionPaymentSession } from "./paymentSessionTransitionFacade.ts";
 import { reconcileReceivablesOnAbandonOrCancel } from "./customerReceivableLifecycle.ts";
+import {
+  resolveCanonicalWaitingSeconds,
+  WAITING_EVIDENCE_UNAVAILABLE,
+} from "./waitingSegmentClock.ts";
 
 export type { TerminalPaymentDecision, FarePricingFeeConfig } from "./terminalFeeDecisionSSOT.ts";
 export { resolveTerminalPaymentDecision } from "./terminalFeeDecisionSSOT.ts";
@@ -479,6 +483,8 @@ export async function disposeTerminalTripPayment(
     feePence?: number | null;
     force?: boolean;
     forceFeePenceOverride?: boolean;
+    /** Counted pickup waiting the caller already resolved from segments at cancelled_at. */
+    canonicalPickupWaitingSeconds?: number | null;
   },
 ): Promise<TerminalDispositionResult> {
   const { data: trip, error: tripErr } = await supabase
@@ -534,6 +540,52 @@ export async function disposeTerminalTripPayment(
   );
   const priorCaptured = Number(paymentSession?.captured_amount_pence ?? 0);
 
+  // Arrival-cancellation eligibility reads counted waiting from segments at
+  // cancelled_at, never trips.pickup_waiting_counted_seconds (a cache that a
+  // pause/re-open zeroed in MK-261002-004). Unreadable segments keep the hold
+  // and decide nothing; a later disposition retries.
+  const decisionAtIso = new Date().toISOString();
+  let pickupWaitingCountedSeconds: number | null = null;
+  let waitingEvidenceSource: string | null = null;
+  let waitingEvaluatedAt: string | null = null;
+  const suppliedWaiting = args.canonicalPickupWaitingSeconds;
+  const cancelledByCustomer = ["rider", "customer", "passenger"].includes(
+    String(trip.cancelled_by ?? "").toLowerCase(),
+  );
+  if (typeof suppliedWaiting === "number" && Number.isFinite(suppliedWaiting)) {
+    pickupWaitingCountedSeconds = Math.max(0, Math.floor(suppliedWaiting));
+    waitingEvidenceSource = "trip_waiting_segments:caller";
+    waitingEvaluatedAt = (trip.cancelled_at as string | null) ?? null;
+  } else if (
+    config?.arrival_cancellation_enabled === true &&
+    cancelledByCustomer &&
+    !!trip.arrived_at
+  ) {
+    waitingEvaluatedAt = (trip.cancelled_at as string | null) ?? decisionAtIso;
+    const resolved = await resolveCanonicalWaitingSeconds(supabase, {
+      tripId: args.tripId,
+      locationType: "pickup",
+      atIso: waitingEvaluatedAt,
+    });
+    if (!resolved.ok) {
+      console.error("[terminalDisposition] WAITING_EVIDENCE_UNAVAILABLE — hold kept, no decision", {
+        trip_id: args.tripId,
+        reason: resolved.reason,
+        message: resolved.message,
+        evaluated_at: waitingEvaluatedAt,
+      });
+      return {
+        outcome: "SKIPPED_SAFETY_CHECK",
+        trip_id: args.tripId,
+        disposition_key: `terminal-void:${args.tripId}:${args.reason}`,
+        message: `${WAITING_EVIDENCE_UNAVAILABLE}:${resolved.reason}`,
+        provider_order_id_mask: maskOrderId(orderId),
+      };
+    }
+    pickupWaitingCountedSeconds = resolved.countedSeconds;
+    waitingEvidenceSource = "trip_waiting_segments";
+  }
+
   let decision = resolveTerminalPaymentDecision({
     evidence: {
       trip_id: args.tripId,
@@ -552,14 +604,21 @@ export async function disposeTerminalTripPayment(
       previously_captured_amount_pence: priorCaptured,
       payment_session_id: (paymentSession?.id as string | null) ?? null,
       provider: provider ?? "unknown",
-      decision_at: new Date().toISOString(),
-      pickup_waiting_counted_seconds: trip.pickup_waiting_counted_seconds == null
-        ? null
-        : Number(trip.pickup_waiting_counted_seconds),
+      decision_at: decisionAtIso,
+      pickup_waiting_counted_seconds: pickupWaitingCountedSeconds,
     },
     config,
     feePolicyId,
   });
+  decision = {
+    ...decision,
+    decision_evidence: {
+      ...decision.decision_evidence,
+      pickup_waiting_counted_seconds: pickupWaitingCountedSeconds,
+      waiting_evidence_source: waitingEvidenceSource,
+      waiting_evaluated_at: waitingEvaluatedAt,
+    },
+  };
 
   if (shouldApplyForceFeeOverride({
     force: args.forceFeePenceOverride === true,
