@@ -771,7 +771,8 @@ Deno.test("R2. calculate-fare prices with pricing-engine.ts only", async () => {
 Deno.test("R3. calculate-route persists Mapbox measurements only, never cached ids across users", async () => {
   const src = await Deno.readTextFile(new URL("../calculate-route/index.ts", import.meta.url));
   assertStringIncludes(src, 'if (!ctx || result.source !== "mapbox_directions") {');
-  assertStringIncludes(src, "userId: callerGate.userId,");
+  assertStringIncludes(src, "const userIdP = resolveOptionalVerifiedUserId(req);");
+  assertStringIncludes(src, "if (!userId) return null;");
   const writeIdx = src.indexOf("writeRouteCache(cacheKey, result);");
   const attachIdx = src.indexOf("return await respondRoute(result, profile);");
   assert(writeIdx > 0 && attachIdx > writeIdx);

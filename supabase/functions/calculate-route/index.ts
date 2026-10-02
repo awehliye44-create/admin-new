@@ -1,7 +1,7 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient, type SupabaseClient } from "npm:@supabase/supabase-js@2.57.2";
 import { corsHeaders } from "../_shared/corsHeaders.ts";
-import { requireSignedInOrService } from "../_shared/callerGate.ts";
+import { resolveOptionalVerifiedUserId } from "../_shared/optionalVerifiedUser.ts";
 import {
   buildRouteArtifactInsert,
   persistRouteArtifact,
@@ -353,8 +353,9 @@ serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
   }
-  const callerGate = await requireSignedInOrService(req);
-  if (!callerGate.ok) return callerGate.response;
+  // Route access is open (WhatsApp/Guest stay anonymous); identity only
+  // decides whether a financial route artifact may be created.
+  const userIdP = resolveOptionalVerifiedUserId(req);
 
   const requestStart = Date.now();
 
@@ -373,15 +374,15 @@ serve(async (req) => {
     }
     const body = norm.body;
 
-    let artifactCtx: RouteArtifactContext | null = null;
-    if (callerGate.userId) {
+    const artifactCtxP: Promise<RouteArtifactContext | null> = userIdP.then((userId) => {
+      if (!userId) return null;
       const admin = createClient(
         Deno.env.get("SUPABASE_URL") ?? "",
         Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "",
         { auth: { persistSession: false } },
       );
-      artifactCtx = {
-        userId: callerGate.userId,
+      return {
+        userId,
         admin,
         // Overlaps Mapbox; never on the critical path of the route itself.
         serviceAreaP: resolveServiceAreaIdForPickup(admin, {
@@ -389,9 +390,9 @@ serve(async (req) => {
           lng: body.originLng,
         }).catch((err) => ({ ok: false as const, error: String(err) })),
       };
-    }
+    });
     const respondRoute = async (result: RouteResponse, profile: string | null) => {
-      const out = await attachRouteArtifact(artifactCtx, body, result, profile);
+      const out = await attachRouteArtifact(await artifactCtxP, body, result, profile);
       if (out.timings) out.timings.totalMs = Date.now() - requestStart;
       return new Response(
         JSON.stringify(out),

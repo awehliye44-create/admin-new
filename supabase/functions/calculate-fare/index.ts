@@ -28,7 +28,7 @@ import {
   parseRpcSurgeResolution,
   type SurgeResolution,
 } from "../_shared/demandZoneSurgeSSOT.ts";
-import { bearerToken, requireAuthenticatedUser } from "../_shared/edgeAuth.ts";
+import { resolveOptionalVerifiedUserId } from "../_shared/optionalVerifiedUser.ts";
 import {
   buildFareArtifactInserts,
   buildServerRouteKey,
@@ -39,18 +39,6 @@ import {
   type RouteArtifactRow,
   SERVICE_AREA_MISMATCH,
 } from "../_shared/serverFareAuthoritySSOT.ts";
-
-/**
- * Signed-in caller id, or null. Anonymous callers still get display fares but
- * no fare artifacts, so they can never be booked from.
- */
-async function resolveOptionalUserId(req: Request): Promise<string | null> {
-  const token = bearerToken(req);
-  const anonKey = Deno.env.get("SUPABASE_ANON_KEY") ?? "";
-  if (!token || token === anonKey) return null;
-  const auth = await requireAuthenticatedUser(req, Deno.env.get("SUPABASE_URL") ?? "", anonKey);
-  return auth.ok ? auth.userId : null;
-}
 
 const CURRENCY_SYMBOLS: Record<string, string> = {
   GBP: "£", USD: "$", EUR: "€", KES: "KSh", NGN: "₦",
@@ -141,7 +129,8 @@ Deno.serve(async (req) => {
       Deno.env.get("SUPABASE_URL")!,
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
     );
-    const userIdPromise = resolveOptionalUserId(req).catch(() => null);
+    // Anonymous callers still get display fares but no fare artifacts.
+    const userIdPromise = resolveOptionalVerifiedUserId(req);
 
     const body: CalculateFareRequest = await req.json().catch(() => ({} as CalculateFareRequest));
     const { service_area_id, vehicle_type_id } = body;

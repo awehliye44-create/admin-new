@@ -1,4 +1,4 @@
--- Rollback for 20261205120000_server_fare_authority_artifacts.sql
+-- Rollback for 20261203130000_server_fare_authority_artifacts.sql
 --
 -- ORDER: redeploy the pre-fix calculate-route, calculate-fare,
 -- customer-receivable-booking-quote and create-preauth-payment-intent FIRST.
