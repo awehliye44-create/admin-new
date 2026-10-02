@@ -43,9 +43,7 @@ import { getTripDisplayId } from '@/lib/tripUtils';
 import { fetchPassengerDirectory, hydratePassengerIdentity } from '@/lib/tripPassengerDisplay';
 import { ServiceAreaFinanceFilter, DEFAULT_SERVICE_AREA_SELECTION, type ServiceAreaFinanceSelection } from '@/components/finance/ServiceAreaFinanceFilter';
 import { CurrencyGroupedStats, getSingleCurrency } from '@/components/finance/CurrencyGroupedStats';
-import {
-  resolveAdminCommittedCustomerFarePence,
-} from '@/lib/adminTripCommittedFareDisplay';
+import { resolveAdminCommittedCustomerFarePence } from '@/lib/adminTripCommittedFareDisplay';
 import { enrichTripsWithPaymentDisposition } from '@/lib/adminTripPaymentDisposition';
 import type { AdminTripPaymentDispositionRead } from '../../shared/adminTripPaymentDispositionSSOT';
 import {
@@ -55,6 +53,13 @@ import {
 import { tripHistoryStatusLabel } from '../../shared/adminTripPaymentDispositionSSOT';
 import { resolveTripHistoryTerminalOutcomeDisplay } from '../../shared/tripHistoryTerminalOutcomeDisplaySSOT';
 import { TripHistoryTerminalOutcomePanel } from '@/components/trips/TripHistoryTerminalOutcomePanel';
+import {
+  classifyMissedCancelledBucket,
+  isChargeableTerminalBucket,
+  missedCancelledQuotedFareImpactPence,
+  resolveAdminArrivalCancellationFeePence,
+  summarizeMissedCancelledStats,
+} from '@/lib/missedCancelledTerminalStats';
 
 interface CancelledTrip {
   id: string;
@@ -253,8 +258,9 @@ export default function MissedCancelled() {
     staleTime: 30_000,
   });
 
-  // Range-wide stats (date window + service area) via head counts plus a bounded
-  // lightweight fare-column fetch for the quoted-fare-impact total.
+  // Range-wide stats (date window + service area): head counts for the exact total plus a
+  // bounded row fetch that classifies each trip into one canonical bucket and feeds the
+  // quoted-fare-impact total.
   const { data: rangeStats } = useQuery({
     queryKey: ['missed-cancelled-stats', dateFilter, serviceFilter.regionId],
     queryFn: async () => {
@@ -281,7 +287,9 @@ export default function MissedCancelled() {
       let fareQ = supabase
         .from('trips')
         .select(`
-          id, currency_code,
+          id, currency_code, status, financial_outcome, payment_status, cancellation_reason,
+          no_show_charge_pence, capture_amount_pence, cancellation_fee_pence, late_cancel_fee_pence,
+          arrival_cancellation_applied, arrival_cancellation_reason, arrival_cancellation_fee,
           final_customer_fare_pence, final_fare_pence, estimated_total_pence, gross_fare_pence,
           offer_discount_pence, voucher_discount_pence, promotion_discount_pence, discount_pence, discount_source,
           fare, estimated_fare, fare_snapshot_json,
@@ -354,8 +362,12 @@ export default function MissedCancelled() {
   const cancelledCount = rangeStats?.cancelled ?? 0;
   const missedCount = rangeStats?.missed ?? 0;
   const totalIssues = cancelledCount + missedCount;
+  const quotedFareImpactPence = (trip: CancelledTrip) =>
+    missedCancelledQuotedFareImpactPence(trip, resolveAdminCommittedCustomerFarePence);
+  const bucketStats = summarizeMissedCancelledStats(statsFareRows);
+  const bucketStatsPartial = statsFareRows.length < totalIssues;
   const quotedFareImpactMajor = statsFareRows.reduce(
-    (sum, t) => sum + resolveAdminCommittedCustomerFarePence(t) / 100,
+    (sum, t) => sum + quotedFareImpactPence(t) / 100,
     0,
   );
 
@@ -371,11 +383,14 @@ export default function MissedCancelled() {
   };
 
   const formatQuotedFareImpact = (trip: CancelledTrip) => {
-    const pence = resolveAdminCommittedCustomerFarePence(trip);
+    const pence = quotedFareImpactPence(trip);
     const sym = getCurrencySymbol(resolveTripCurrency(trip));
     if (pence <= 0) return '—';
     return `${sym}${(pence / 100).toFixed(2)}`;
   };
+
+  const formatPence = (trip: CancelledTrip, pence: number) =>
+    `${getCurrencySymbol(resolveTripCurrency(trip))}${(pence / 100).toFixed(2)}`;
 
   return (
     <AdminLayout 
@@ -393,15 +408,36 @@ export default function MissedCancelled() {
       </div>
 
       {/* Stats Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+      <div className="grid grid-cols-1 md:grid-cols-5 gap-4 mb-6">
         <Card>
           <CardContent className="pt-6">
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-muted-foreground">Total Issues</p>
                 <p className="text-2xl font-bold">{totalIssues}</p>
+                {bucketStatsPartial && (
+                  <p className="text-[10px] text-muted-foreground">
+                    Breakdown from latest {statsFareRows.length} trips
+                  </p>
+                )}
               </div>
               <AlertTriangle className="h-8 w-8 text-muted-foreground opacity-80" />
+            </div>
+          </CardContent>
+        </Card>
+        <Card className="border-rose-500/30 bg-rose-500/5">
+          <CardContent className="pt-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-muted-foreground">Chargeable outcomes</p>
+                <p className="text-2xl font-bold text-rose-600">{bucketStats.chargeable_total}</p>
+                <div className="mt-1 space-y-0.5 text-[11px] text-muted-foreground">
+                  <p>Arrival Cancellation: {bucketStats.arrival_cancellation}</p>
+                  <p>No-Show: {bucketStats.no_show}</p>
+                  <p>Late Passenger Cancellation: {bucketStats.late_passenger_cancellation}</p>
+                </div>
+              </div>
+              <XCircle className="h-8 w-8 text-rose-500" />
             </div>
           </CardContent>
         </Card>
@@ -409,8 +445,13 @@ export default function MissedCancelled() {
           <CardContent className="pt-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-muted-foreground">Cancelled</p>
-                <p className="text-2xl font-bold text-red-600">{cancelledCount}</p>
+                <p className="text-sm text-muted-foreground">Cancelled / No Fee</p>
+                <p className="text-2xl font-bold text-red-600">{bucketStats.cancelled_no_fee}</p>
+                {bucketStats.cancelled_legacy_fee_evidence > 0 && (
+                  <p className="text-[10px] text-muted-foreground">
+                    {bucketStats.cancelled_legacy_fee_evidence} with legacy fee evidence — review
+                  </p>
+                )}
               </div>
               <XCircle className="h-8 w-8 text-red-500" />
             </div>
@@ -432,12 +473,14 @@ export default function MissedCancelled() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-muted-foreground">Quoted fare impact</p>
-                <p className="text-[10px] text-muted-foreground">Not charged / not revenue</p>
+                <p className="text-[10px] text-muted-foreground">
+                  Not charged / not revenue · excludes chargeable outcomes
+                </p>
                 {isMixedCurrency ? (
                   <CurrencyGroupedStats
                     items={statsFareRows.map(t => ({
                       currency_code: resolveTripCurrency(t) || '???',
-                      amount: resolveAdminCommittedCustomerFarePence(t),
+                      amount: quotedFareImpactPence(t),
                     }))}
                     className="text-lg font-bold text-amber-600"
                   />
@@ -688,13 +731,23 @@ export default function MissedCancelled() {
                     {formatPaymentDisposition(selectedTrip)}
                   </p>
                 </div>
-                <div>
-                  <Label className="text-muted-foreground">Quoted fare impact</Label>
-                  <p className="font-medium text-muted-foreground">
-                    {formatQuotedFareImpact(selectedTrip)}
-                  </p>
-                  <p className="text-[10px] text-muted-foreground">Not charged / not revenue</p>
-                </div>
+                {isChargeableTerminalBucket(classifyMissedCancelledBucket(selectedTrip)) ? (
+                  <div>
+                    <Label className="text-muted-foreground">Quoted fare impact</Label>
+                    <p className="font-medium text-muted-foreground">—</p>
+                    <p className="text-[10px] text-muted-foreground">
+                      Terminal fee charged — see Payment outcome. Original quote is context only.
+                    </p>
+                  </div>
+                ) : (
+                  <div>
+                    <Label className="text-muted-foreground">Quoted fare impact</Label>
+                    <p className="font-medium text-muted-foreground">
+                      {formatQuotedFareImpact(selectedTrip)}
+                    </p>
+                    <p className="text-[10px] text-muted-foreground">Not charged / not revenue</p>
+                  </div>
+                )}
               </div>
 
               <div>
@@ -782,15 +835,16 @@ export default function MissedCancelled() {
                       <span>{formatFinanceDateSafe(selectedTrip.cancelled_at, 'PPp')}</span>
                     </div>
                   )}
-                  {selectedTrip.arrival_cancellation_applied && (
-                    <div className="flex justify-between gap-3 text-rose-700 dark:text-rose-400 font-medium">
-                      <span>Arrival cancellation fee (trip stamp)</span>
-                      <span>
-                        {getCurrencySymbol(resolveTripCurrency(selectedTrip))}
-                        {Number(selectedTrip.arrival_cancellation_fee ?? 0).toFixed(2)}
-                      </span>
-                    </div>
-                  )}
+                  {(() => {
+                    const feePence = resolveAdminArrivalCancellationFeePence(selectedTrip);
+                    if (feePence == null) return null;
+                    return (
+                      <div className="flex justify-between gap-3 text-rose-700 dark:text-rose-400 font-medium">
+                        <span>Arrival cancellation fee</span>
+                        <span>{formatPence(selectedTrip, feePence)}</span>
+                      </div>
+                    );
+                  })()}
                   {selectedTrip.arrival_cancellation_applied_at && (
                     <div className="flex justify-between gap-3 text-xs text-muted-foreground">
                       <span>Fee applied at</span>
@@ -800,20 +854,26 @@ export default function MissedCancelled() {
                 </div>
               </div>
 
-              {selectedTrip.arrival_cancellation_applied && (
-                <div className="space-y-2">
-                  <Label className="text-muted-foreground">Fee Breakdown</Label>
-                  <div className="bg-rose-500/5 border border-rose-500/20 rounded-lg p-3">
-                    <div className="flex justify-between text-sm font-medium">
-                      <span>Arrival cancellation fee (trip stamp)</span>
-                      <span>
-                        {getCurrencySymbol(resolveTripCurrency(selectedTrip))}
-                        {Number(selectedTrip.arrival_cancellation_fee ?? 0).toFixed(2)}
-                      </span>
+              {(() => {
+                const feePence = resolveAdminArrivalCancellationFeePence(selectedTrip);
+                if (feePence == null) return null;
+                return (
+                  <div className="space-y-2">
+                    <Label className="text-muted-foreground">Fee Breakdown</Label>
+                    <div className="bg-rose-500/5 border border-rose-500/20 rounded-lg p-3">
+                      <div className="flex justify-between text-sm font-medium">
+                        <span>Arrival cancellation fee</span>
+                        <span>{formatPence(selectedTrip, feePence)}</span>
+                      </div>
+                      {!selectedTrip.arrival_cancellation_applied && (
+                        <p className="mt-1 text-[10px] text-muted-foreground">
+                          Legacy arrival metadata missing — amount from Payment Sessions capture.
+                        </p>
+                      )}
                     </div>
                   </div>
-                </div>
-              )}
+                );
+              })()}
             </div>
           )}
           <DialogFooter>
