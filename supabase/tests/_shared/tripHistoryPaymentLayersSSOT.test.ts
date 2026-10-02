@@ -134,11 +134,19 @@ Deno.test("layers: cancellation / arrival fee payable when no final fare", () =>
   });
   assertEquals(cancel.payable_pence, 350);
 
+  // trips.arrival_cancellation_fee is integer pence (column comment).
+  // MK-260808-043 stores 400 with cancellation_fee_pence NULL → £4.00, never £400.
   const arrival = resolveTripHistoryCustomerPayablePence({
     arrival_cancellation_applied: true,
-    arrival_cancellation_fee: 4.0, // pounds
+    arrival_cancellation_fee: 400,
   });
   assertEquals(arrival.payable_pence, 400);
+
+  const arrival450 = resolveTripHistoryCustomerPayablePence({
+    arrival_cancellation_applied: true,
+    arrival_cancellation_fee: 450,
+  });
+  assertEquals(arrival450.payable_pence, 450);
 });
 
 Deno.test("layers: never invent capture from fare alone", () => {

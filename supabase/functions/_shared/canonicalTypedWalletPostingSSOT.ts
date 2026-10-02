@@ -90,6 +90,7 @@ export async function postTerminalOutcomeSettlement(args: {
   driver_net_pence: number;
   credited: boolean;
   pending: boolean;
+  stamp_status: string;
 }> {
   void args.serviceAreaId;
   const evidence = await loadTerminalCaptureEvidence(
@@ -98,7 +99,7 @@ export async function postTerminalOutcomeSettlement(args: {
     Math.max(0, Math.round(Number(args.feePence) || 0)),
   );
 
-  await stampTerminalOutcomeTripRow({
+  const stamp = await stampTerminalOutcomeTripRow({
     supabase: args.supabase,
     tripId: args.tripId,
     outcome: args.outcome,
@@ -121,6 +122,7 @@ export async function postTerminalOutcomeSettlement(args: {
     driver_net_pence: posted.entitlement_pence ?? 0,
     credited: posted.credited,
     pending: posted.pending,
+    stamp_status: stamp.stamp_status,
   };
 }
 

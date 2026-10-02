@@ -7,11 +7,9 @@ import { computeAuthoritativeSettlement } from "./canonicalSettlementSSOT.ts";
 import { resolveTerminalFeeDriverTenPence } from "./frDriverExpectedEntitlementSSOT.ts";
 import { hasConflictingEntitlementTypes } from "./driverEntitlementLedgerSSOT.ts";
 import { tripSettlementDbColumns } from "./tripSettlement.ts";
+import type { TerminalOutcomeKind } from "./terminalOutcomeKindSSOT.ts";
 
-export type TerminalOutcomeKind =
-  | "NO_SHOW"
-  | "LATE_PASSENGER_CANCELLATION"
-  | "ARRIVAL_CANCELLATION";
+export type { TerminalOutcomeKind };
 
 /** One ledger type for every chargeable terminal fee. Idempotent per trip. */
 export const TERMINAL_FEE_LEDGER_TYPE = "TRIP_EARNING_NET";
@@ -244,62 +242,194 @@ export async function postTerminalEntitlementFromSettlement(args: {
   };
 }
 
-export async function stampTerminalOutcomeTripRow(args: {
-  supabase: SupabaseClient;
-  tripId: string;
+export type TerminalTripStampStatus =
+  | "STAMPED"
+  | "SKIPPED_PROVIDER_FEE_PENDING"
+  | "STAMP_UPDATE_FAILED"
+  | "STAMP_READBACK_MISMATCH";
+
+export type TerminalTripStampResult = TerminalEntitlementResult & {
+  stamp_status: TerminalTripStampStatus;
+  stamp_error: string | null;
+};
+
+export const TERMINAL_TRIP_STAMP_FAILED_EVENT = "TERMINAL_TRIP_STAMP_FAILED";
+
+const TERMINAL_TRIP_STATUS: Record<TerminalOutcomeKind, string> = {
+  NO_SHOW: "no_show",
+  LATE_PASSENGER_CANCELLATION: "cancelled",
+  ARRIVAL_CANCELLATION: "cancelled",
+};
+
+/**
+ * Trip-row projection of the terminal settlement:
+ *   capture − terminal commission (0) − ACTUAL provider fee = driver terminal net.
+ * A chargeable cancellation is not a completed ride: completed_at is never written.
+ */
+export function buildTerminalOutcomeTripPatch(args: {
   outcome: TerminalOutcomeKind;
-  evidence: TerminalCaptureEvidence;
+  entitlement: TerminalEntitlementResult;
   paymentMethod?: string | null;
-}): Promise<TerminalEntitlementResult> {
-  const entitlement = computeTerminalOutcomeEntitlement(args.evidence);
-  const tripStatusMap: Record<TerminalOutcomeKind, string> = {
-    NO_SHOW: "no_show",
-    LATE_PASSENGER_CANCELLATION: "cancelled",
-    ARRIVAL_CANCELLATION: "cancelled",
-  };
-
+  nowIso: string;
+}): Record<string, unknown> | null {
+  const { entitlement } = args;
+  if (
+    entitlement.pending
+    || !entitlement.provider_fee_confirmed
+    || entitlement.provider_fee_pence == null
+    || entitlement.expected_driver_entitlement_pence == null
+  ) {
+    return null;
+  }
+  const captured = entitlement.captured_pence;
+  const fee = entitlement.provider_fee_pence;
+  const net = entitlement.expected_driver_entitlement_pence;
   const settlement = computeAuthoritativeSettlement({
-    ride_fare_pence: entitlement.captured_pence,
+    ride_fare_pence: captured,
     commission_percent: 0,
-    provider_processing_fee_pence: entitlement.provider_fee_pence,
-    fee_confirmed: entitlement.provider_fee_confirmed,
+    provider_processing_fee_pence: fee,
+    fee_confirmed: true,
     financial_outcome: args.outcome,
-    capture_identity_pence: entitlement.captured_pence,
+    capture_identity_pence: captured,
   });
-
-  await args.supabase.from("trips").update({
-    status: tripStatusMap[args.outcome],
+  return {
+    status: TERMINAL_TRIP_STATUS[args.outcome],
     financial_outcome: args.outcome,
-    gross_fare_pence: entitlement.captured_pence,
-    capture_amount_pence: entitlement.captured_pence,
-    commission_pence: 0,
+    capture_amount_pence: captured,
     commission_pct: 0,
-    driver_net_pence: entitlement.expected_driver_entitlement_pence ?? 0,
-    provider_fee_pence: entitlement.provider_fee_pence,
     payment_method: args.paymentMethod ?? undefined,
-    completed_at: new Date().toISOString(),
-    updated_at: new Date().toISOString(),
+    updated_at: args.nowIso,
     ...tripSettlementDbColumns({
-      final_fare_pence: entitlement.captured_pence,
-      commissionable_fare_pence: entitlement.captured_pence,
+      final_fare_pence: captured,
+      commissionable_fare_pence: captured,
       commission_pence: 0,
       locked_promotion_pence: 0,
       applied_customer_promotion_pence: 0,
       commission_after_promotion_pence: 0,
-      driver_net_pence: entitlement.expected_driver_entitlement_pence ?? 0,
-      driver_total_earnings_pence: entitlement.expected_driver_entitlement_pence ?? 0,
+      driver_net_pence: net,
+      driver_total_earnings_pence: net,
       airport_charge_pence: 0,
       other_pass_through_charges_pence: 0,
       tips_pence: 0,
-      provider_fee_pence: entitlement.provider_fee_pence ?? 0,
-      provider_fee_confirmed: entitlement.provider_fee_confirmed,
+      provider_fee_pence: fee,
+      provider_fee_confirmed: true,
       platform_gross_revenue_pence: 0,
       platform_net_revenue_pence: settlement.onecab_net_commission_pence ?? 0,
       onecab_net_pence: settlement.onecab_net_commission_pence,
       tier_percent_used: 0,
       formula_version: settlement.formula_version,
     }),
-  }).eq("id", args.tripId);
+  };
+}
 
-  return entitlement;
+async function auditTerminalStampFailure(
+  supabase: SupabaseClient,
+  args: {
+    tripId: string;
+    outcome: TerminalOutcomeKind;
+    status: TerminalTripStampStatus;
+    error: string;
+    entitlement: TerminalEntitlementResult;
+  },
+): Promise<void> {
+  console.error(`[terminal-stamp] ${TERMINAL_TRIP_STAMP_FAILED_EVENT}`, JSON.stringify({
+    trip_id: args.tripId,
+    outcome: args.outcome,
+    stamp_status: args.status,
+    error: args.error,
+    captured_pence: args.entitlement.captured_pence,
+    provider_fee_pence: args.entitlement.provider_fee_pence,
+    expected_driver_entitlement_pence: args.entitlement.expected_driver_entitlement_pence,
+  }));
+  try {
+    const { error } = await supabase.from("ops_events").insert({
+      event_type: TERMINAL_TRIP_STAMP_FAILED_EVENT,
+      category: "financial",
+      severity: "error",
+      app: "backend",
+      trip_id: args.tripId,
+      amount_pence: args.entitlement.expected_driver_entitlement_pence,
+      currency_code: "GBP",
+      description: `Terminal trip stamp ${args.status} for ${args.outcome}`,
+      metadata: {
+        outcome: args.outcome,
+        stamp_status: args.status,
+        error: args.error,
+        captured_pence: args.entitlement.captured_pence,
+        provider_fee_pence: args.entitlement.provider_fee_pence,
+        expected_driver_entitlement_pence: args.entitlement.expected_driver_entitlement_pence,
+        ledger_is_ssot: true,
+      },
+    });
+    if (error) console.error("[terminal-stamp] audit insert failed", error.message);
+  } catch (err) {
+    console.error("[terminal-stamp] audit insert threw", err instanceof Error ? err.message : String(err));
+  }
+}
+
+/**
+ * Stamps the trip row with the terminal settlement. Never throws: the
+ * TRIP_EARNING_NET ledger row is the entitlement SSOT and must not be rolled
+ * back or duplicated because the trip projection failed. Failures are logged
+ * and written to ops_events, and reported in stamp_status.
+ */
+export async function stampTerminalOutcomeTripRow(args: {
+  supabase: SupabaseClient;
+  tripId: string;
+  outcome: TerminalOutcomeKind;
+  evidence: TerminalCaptureEvidence;
+  paymentMethod?: string | null;
+}): Promise<TerminalTripStampResult> {
+  const entitlement = computeTerminalOutcomeEntitlement(args.evidence);
+  const patch = buildTerminalOutcomeTripPatch({
+    outcome: args.outcome,
+    entitlement,
+    paymentMethod: args.paymentMethod,
+    nowIso: new Date().toISOString(),
+  });
+  if (!patch) {
+    return { ...entitlement, stamp_status: "SKIPPED_PROVIDER_FEE_PENDING", stamp_error: null };
+  }
+
+  const { error } = await args.supabase.from("trips").update(patch).eq("id", args.tripId);
+  if (error) {
+    const message = `${(error as { code?: string }).code ?? "error"}:${error.message ?? "update_failed"}`;
+    await auditTerminalStampFailure(args.supabase, {
+      tripId: args.tripId,
+      outcome: args.outcome,
+      status: "STAMP_UPDATE_FAILED",
+      error: message,
+      entitlement,
+    });
+    return { ...entitlement, stamp_status: "STAMP_UPDATE_FAILED", stamp_error: message };
+  }
+
+  const { data: after, error: readErr } = await args.supabase
+    .from("trips")
+    .select("driver_net_pence, gross_fare_pence, commission_pence, provider_fee_pence, financial_outcome")
+    .eq("id", args.tripId)
+    .maybeSingle();
+  const row = after as Record<string, unknown> | null;
+  const matches = !readErr
+    && row != null
+    && Number(row.driver_net_pence) === entitlement.expected_driver_entitlement_pence
+    && Number(row.gross_fare_pence) === entitlement.captured_pence
+    && Number(row.commission_pence) === 0
+    && Number(row.provider_fee_pence) === entitlement.provider_fee_pence
+    && String(row.financial_outcome ?? "").toUpperCase() === args.outcome;
+  if (!matches) {
+    const message = readErr
+      ? `readback_failed:${readErr.message}`
+      : `readback_mismatch:${JSON.stringify(row)}`;
+    await auditTerminalStampFailure(args.supabase, {
+      tripId: args.tripId,
+      outcome: args.outcome,
+      status: "STAMP_READBACK_MISMATCH",
+      error: message,
+      entitlement,
+    });
+    return { ...entitlement, stamp_status: "STAMP_READBACK_MISMATCH", stamp_error: message };
+  }
+
+  return { ...entitlement, stamp_status: "STAMPED", stamp_error: null };
 }
