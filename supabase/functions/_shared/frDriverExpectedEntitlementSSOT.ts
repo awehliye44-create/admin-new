@@ -90,15 +90,7 @@ export type FrFinancialOutcomeClassification = {
 
 const TERMINAL_FINANCIAL_OUTCOMES = new Set([
   "NO_SHOW",
-  "ARRIVAL_CANCELLATION",
   "CANCELLED_WITH_FEE",
-  "LATE_PASSENGER_CANCELLATION",
-]);
-
-/** Outcomes whose wallet credit is captured fee minus confirmed provider fee. */
-const CANONICAL_CHARGEABLE_OUTCOMES = new Set([
-  "ARRIVAL_CANCELLATION",
-  "NO_SHOW",
   "LATE_PASSENGER_CANCELLATION",
 ]);
 
@@ -182,9 +174,6 @@ export function hasExplicitTerminalFeeEvidence(
 
 /**
  * Precedence:
- * 0. Canonical chargeable financial_outcome (ARRIVAL_CANCELLATION / NO_SHOW /
- *    LATE_PASSENGER_CANCELLATION) — booking-time driver_net/commission/fare stamps
- *    survive on these trips and must not read as fare settlement.
  * 1. Canonical fare-settlement evidence
  * 2. Explicit cancellation/no-show fee evidence
  * 3. Lifecycle status only as a weak signal → UNKNOWN (never silent zero / terminal haircut)
@@ -193,13 +182,6 @@ export function hasExplicitTerminalFeeEvidence(
 export function classifyFrDriverFinancialOutcome(
   trip: FrDriverEntitlementTripInput,
 ): FrFinancialOutcomeClassification {
-  const outcome = String(trip.financial_outcome ?? "").trim().toUpperCase();
-  if (CANONICAL_CHARGEABLE_OUTCOMES.has(outcome)) {
-    return {
-      class: FR_FINANCIAL_OUTCOME_CLASS.TERMINAL_FEE,
-      reason: "canonical_chargeable_financial_outcome",
-    };
-  }
   if (hasCanonicalFareSettlementEvidence(trip)) {
     return {
       class: FR_FINANCIAL_OUTCOME_CLASS.FARE_SETTLEMENT,
@@ -445,31 +427,10 @@ export function resolveFrDriverExpectedEntitlement(
     };
   }
 
+  // Terminal fee FR expected: capture − commission (provider fee platform-owned).
   // Requires explicit fee evidence — not status=cancelled alone.
   if (classification.class === FR_FINANCIAL_OUTCOME_CLASS.TERMINAL_FEE) {
     if (captured != null && captured > 0) {
-      // Canonical chargeable outcomes post TRIP_EARNING_NET = capture − provider fee.
-      const outcomeUpper = String(trip.financial_outcome ?? "").trim().toUpperCase();
-      if (CANONICAL_CHARGEABLE_OUTCOMES.has(outcomeUpper)) {
-        const providerFee = Math.max(
-          0,
-          Math.round(Number(trip.provider_processing_fee_pence ?? trip.provider_fee_pence ?? 0)),
-        );
-        const terminalTen = resolveTerminalFeeDriverTenPence({
-          captured_pence: captured,
-          provider_fee_pence: providerFee,
-          commission_pence: 0,
-        });
-        return {
-          expected_entitlement_pence: terminalTen + tipsPence(trip),
-          expected_stamp_status: FR_EXPECTED_STAMP_STATUS.OK,
-          entitlement_source: "terminal_fee_capture_minus_provider_fee",
-          financial_settled_at: financialSettledAt,
-          is_terminal_fee_outcome: true,
-        };
-      }
-      // Historical charged-cancellation FR expected: capture − commission.
-      // Provider fee stays platform-owned on that older formula (MK-260916-030 = 435).
       const terminalTen = resolveFrTerminalFeeExpectedEntitlementPence({
         captured_pence: captured,
         commission_pence: commission,
