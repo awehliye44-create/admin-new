@@ -186,7 +186,9 @@ export function resolveTripDisplayFare(trip: TripDisplayFareRow): ResolvedTripDi
         payable = original;
         source = "gross_fare_pence";
       } else {
-        const fareMajor = Number(trip.fare ?? trip.estimated_fare ?? 0);
+        // A zero `fare` column means "not set" — fall back to the estimate.
+        const fareColumn = Number(trip.fare ?? 0);
+        const fareMajor = fareColumn > 0 ? fareColumn : Number(trip.estimated_fare ?? 0);
         if (Number.isFinite(fareMajor) && fareMajor > 0) {
           payable = Math.round(fareMajor * 100);
           source = "fare_column";
