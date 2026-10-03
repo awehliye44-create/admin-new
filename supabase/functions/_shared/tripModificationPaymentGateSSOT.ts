@@ -235,6 +235,21 @@ export function decideFromPreauthInvokeResult(args: {
     };
   }
 
+  // Revolut increment state `failed` is a technical/provider failure, not a decline.
+  if (
+    code === "PROVIDER_INCREMENT_FAILED"
+    || coverage === "authorization_provider_failed"
+  ) {
+    return {
+      phase: "PAYMENT_FAILED",
+      mayApply: false,
+      paymentStatus: "failed",
+      requestStatus: "payment_failed",
+      authorisedTotalPence: authorised,
+      reason: "failed",
+    };
+  }
+
   // DECLINED ≠ UNKNOWN. Definitive decline/below-target always fails closed.
   if (
     isDefinitivePreauthDecline({

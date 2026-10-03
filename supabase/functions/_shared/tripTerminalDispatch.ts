@@ -11,12 +11,19 @@ export type TripTerminalFields = {
 
 export const TERMINAL_TRIP_STATUSES_FOR_DISPATCH = new Set([
   "cancelled",
+  "canceled",
   "customer_cancelled",
   "expired",
   "expired_no_driver",
   "completed",
   "declined",
+  "no_show",
 ]);
+
+/** PostgREST `not.in` operand for trips.status, e.g. `.not("status", "in", ...)`. */
+export const TERMINAL_TRIP_STATUS_POSTGREST_LIST = `(${
+  [...TERMINAL_TRIP_STATUSES_FOR_DISPATCH].map((s) => `"${s}"`).join(",")
+})`;
 
 export const TERMINAL_SCHEDULED_STATUSES_FOR_DISPATCH = new Set([
   "cancelled",
@@ -50,6 +57,19 @@ export function isTripTerminalForDispatch(
   }
 
   return false;
+}
+
+/**
+ * Scheduled-state terminalisation for a trip being cancelled / no-showed.
+ * Non-scheduled trips get no patch.
+ */
+export function buildCancelledScheduledStatePatch(trip: {
+  is_scheduled?: boolean | null;
+  scheduled_at?: string | null;
+}): { scheduled_status?: "cancelled" } {
+  const scheduled = trip.is_scheduled === true
+    || (typeof trip.scheduled_at === "string" && trip.scheduled_at.trim() !== "");
+  return scheduled ? { scheduled_status: "cancelled" } : {};
 }
 
 export function blockedTerminalTripLogPayload(
