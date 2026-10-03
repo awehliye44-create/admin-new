@@ -45,6 +45,10 @@ import {
   getRevolutMerchantConfigFromVault,
 } from "../_shared/revolutOrders.ts";
 import { upsertPaymentSessionPending } from "../_shared/paymentSessionSSOT.ts";
+import {
+  buildChannelPreauthFareSnapshotFields,
+  resolveChannelPreauthAmounts,
+} from "../_shared/channelPreauthAmountsSSOT.ts";
 import { evaluateCustomerOnboardingLogin } from "../_shared/onboardingLoginGuard.ts";
 import { readWhatsAppPublicOrigin } from "../_shared/whatsappWorkflow.ts";
 import {
@@ -726,6 +730,10 @@ Deno.serve(async (req) => {
     }, 400);
   }
   const resolvedCurrency = saCurrency.toUpperCase();
+
+  // hold = server fare + service-area buffer; client amount/buffer/hold are never read.
+  const preauth = await resolveChannelPreauthAmounts(supabase, priced.amountPence, service_area_id);
+
   const discardNewGuest = async () => {
     if (!createdGuestUser) return;
     await supabase.from("customers").delete().eq("id", guestCustomerId);
@@ -738,7 +746,7 @@ Deno.serve(async (req) => {
     order = await createRevolutOrder({
       environment,
       secretKey,
-      amountMinor: priced.amountPence,
+      amountMinor: preauth.authorisedAmountPence,
       currency: resolvedCurrency,
       tripId: client_request_id,
       description: `ONECAB WhatsApp booking – ${customer_name.trim()}`,
@@ -749,6 +757,9 @@ Deno.serve(async (req) => {
         customer_name: customer_name.trim(),
         client_request_id,
         guest_user_id: guestUserId,
+        estimated_total_pence: String(preauth.farePence),
+        buffer_pence: String(preauth.bufferPence),
+        authorised_amount_pence: String(preauth.authorisedAmountPence),
       },
       enableIncrementalAuthorisation: true,
       redirectUrl,
@@ -796,11 +807,13 @@ Deno.serve(async (req) => {
     serviceAreaId: service_area_id,
     paymentProvider: "revolut",
     providerOrderId: order.id,
-    estimatedTotalPence: priced.amountPence,
+    estimatedTotalPence: preauth.farePence,
+    authorisedAmountPence: preauth.authorisedAmountPence,
+    bufferPence: preauth.bufferPence,
     paymentMethod: resolvedPaymentMethod,
     bookingSnapshot,
     fareSnapshot: {
-      estimated_fare_pence: priced.amountPence,
+      ...buildChannelPreauthFareSnapshotFields(preauth),
       currency: resolvedCurrency,
       vehicle_type_id,
       service_area_id,
@@ -811,6 +824,10 @@ Deno.serve(async (req) => {
       customer_id: guestCustomerId,
       customer_name: customer_name.trim(),
       wa_id: resolvedWaId,
+      estimated_total_pence: preauth.farePence,
+      buffer_pence: preauth.bufferPence,
+      buffer_source: preauth.bufferSource,
+      authorised_amount_pence: preauth.authorisedAmountPence,
     },
   });
 
@@ -822,7 +839,8 @@ Deno.serve(async (req) => {
 
   console.log(
     `[create-guest-payment-intent] order=${order.id} sa=${service_area_id}` +
-    ` amount=${priced.amountPence}${resolvedCurrency} guest=${guestUserId} session=${sessionId}`,
+    ` fare=${preauth.farePence} buffer=${preauth.bufferPence} (${preauth.bufferSource.buffer_type})` +
+    ` authorised=${preauth.authorisedAmountPence}${resolvedCurrency} guest=${guestUserId} session=${sessionId}`,
   );
 
   return json({
