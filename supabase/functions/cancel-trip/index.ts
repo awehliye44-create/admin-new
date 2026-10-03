@@ -19,6 +19,7 @@ import { noShowEligibleFromCountedSeconds } from "../_shared/waitingSegmentClock
 import { notifyCustomerTripLifecycle } from "../_shared/customerTripLifecycleNotify.ts";
 import { notifyDriverTripStopped } from "../_shared/notifyDriverTripStopped.ts";
 import { maybeResumeTerminalFeeSettlementAfterProviderFee } from "../_shared/terminalFeeSettlementResumptionSSOT.ts";
+import { buildCancelledScheduledStatePatch } from "../_shared/tripTerminalDispatch.ts";
 
 
 /**
@@ -83,7 +84,7 @@ serve(async (req) => {
     const { data: trip, error: tripErr } = await supabase
       .from("trips")
       .select(
-        "id, status, driver_id, confirmed_driver_id, passenger_id, service_area_id, vehicle_type_id, assigned_at, arrived_at, cancellation_grace_expires_at, free_wait_expires_at, pickup_waiting_counted_seconds, payment_method, waiting_minutes, waiting_charge_pence, scheduled_at, started_at"
+        "id, status, driver_id, confirmed_driver_id, passenger_id, service_area_id, vehicle_type_id, assigned_at, arrived_at, cancellation_grace_expires_at, free_wait_expires_at, pickup_waiting_counted_seconds, payment_method, waiting_minutes, waiting_charge_pence, scheduled_at, started_at, is_scheduled, scheduled_status"
       )
       .eq("id", trip_id)
       .maybeSingle();
@@ -375,6 +376,9 @@ serve(async (req) => {
       tripUpdate.previous_driver_id = entitledDriverId;
     }
 
+    // schedule-dispatch selects by scheduled_status; a cancelled scheduled trip
+    // must not stay eligible for urgent conversion (MK-260916-030).
+    Object.assign(tripUpdate, buildCancelledScheduledStatePatch(trip));
 
     const { error: updateErr } = await supabase
       .from("trips")

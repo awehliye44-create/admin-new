@@ -435,9 +435,12 @@ Deno.test("source lock: scheduled-dispatch Step 4 only expires converted_to_inst
 });
 
 Deno.test("source lock: schedule-dispatch converts via Admin SSOT then auto-dispatch", async () => {
-  const src = await Deno.readTextFile(
-    new URL("../../functions/schedule-dispatch/index.ts", import.meta.url),
-  );
+  const src = [
+    await Deno.readTextFile(new URL("../../functions/schedule-dispatch/index.ts", import.meta.url)),
+    await Deno.readTextFile(
+      new URL("../../functions/_shared/scheduleDispatchConversionSweep.ts", import.meta.url),
+    ),
+  ].join("\n");
   assertStringIncludes(src, "shouldConvertScheduledToUrgent");
   assertStringIncludes(src, "buildScheduledUrgentConversionPatch");
   assertStringIncludes(src, "NO_PRECONFIRMED_CONVERT_SCHEDULED_STATUSES");

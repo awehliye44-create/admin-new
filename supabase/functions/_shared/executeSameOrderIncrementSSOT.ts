@@ -26,6 +26,11 @@ import {
   type ProviderEnvironment,
   type RevolutOrder,
 } from "./revolutOrders.ts";
+import {
+  buildRevolutIncrementProviderEvidence,
+  providerIncrementOutcome,
+  type RevolutIncrementProviderEvidence,
+} from "./revolutIncrementEvidenceSSOT.ts";
 
 export type SameOrderIncrementSource =
   | "trip_modification"
@@ -49,6 +54,8 @@ export type SameOrderIncrementResult =
       | "ineligible"
       | "provider_limit"
       | "declined"
+      /** Revolut increment state `failed`: technical/provider failure, not an issuer decline. */
+      | "provider_failed"
       | "unsupported"
       | "customer_action_required"
       | "unknown"
@@ -59,7 +66,16 @@ export type SameOrderIncrementResult =
     providerConfirmedTotalPence: number;
     eligibility: IncrementEligibility | null;
     errorClassification: string;
+    /**
+     * Set only for `declined` when Revolut itself evidenced the decline: an increment
+     * entry in state `declined` matched to this attempt, or an increment POST rejected
+     * as a decline. `declined` without it is only "authorised total still below
+     * target" and must not be presented to a customer as a bank/issuer decline.
+     */
+    providerDeclineEvidence?: ProviderDeclineEvidence | null;
   };
+
+export type ProviderDeclineEvidence = "provider_increment_declined" | "provider_http_declined";
 
 function maskId(id: string | null | undefined): string {
   const s = String(id ?? "");
@@ -122,6 +138,64 @@ async function hydrateOrderPayments(args: {
   }
 }
 
+/** Increment attempt counts as explicitly ours only when matched by reference or target. */
+function isExplicitAttemptMatch(evidence: RevolutIncrementProviderEvidence): boolean {
+  return evidence.increment_matched_by === "reference"
+    || evidence.increment_matched_by === "target_amount";
+}
+
+function compactEvidence(evidence: RevolutIncrementProviderEvidence): Record<string, unknown> {
+  return {
+    source: evidence.evidence_source,
+    at: evidence.captured_at,
+    increment_state: evidence.increment_state,
+    increment_reason: evidence.increment_reason,
+    order_state: evidence.order_state,
+    provider_authorised_total_pence: evidence.provider_authorised_total_pence,
+  };
+}
+
+/**
+ * Increment-row metadata after a provider round-trip. Re-reads the row so
+ * concurrently written webhook evidence (provider_webhook_evidence) survives.
+ */
+async function buildIncrementRowMetadata(args: {
+  supabase: SupabaseClient;
+  incrementRowId: string | null | undefined;
+  base: Record<string, unknown>;
+  evidence: RevolutIncrementProviderEvidence | null;
+  trail: RevolutIncrementProviderEvidence[];
+  extra?: Record<string, unknown>;
+}): Promise<Record<string, unknown>> {
+  let existing: Record<string, unknown> = {};
+  if (args.incrementRowId) {
+    const { data } = await args.supabase
+      .from("payment_session_authorisations")
+      .select("metadata")
+      .eq("id", args.incrementRowId)
+      .maybeSingle();
+    if (data?.metadata && typeof data.metadata === "object") {
+      existing = data.metadata as Record<string, unknown>;
+    }
+  }
+  const evidence = args.evidence;
+  const outcome = evidence ? providerIncrementOutcome(evidence) : "unknown";
+  return {
+    ...existing,
+    ...args.base,
+    provider_increment_state: evidence?.increment_state ?? null,
+    provider_increment_reason: evidence?.increment_reason ?? null,
+    provider_increment_reason_field: evidence?.increment_reason_field ?? null,
+    provider_outcome: outcome,
+    // Never invent issuer reasons: populated only from Revolut's own reason field.
+    provider_decline_reason: outcome === "declined" ? evidence?.increment_reason ?? null : null,
+    provider_failure_reason: outcome === "failed" ? evidence?.increment_reason ?? null : null,
+    provider_evidence: evidence,
+    provider_evidence_trail: args.trail.slice(-6).map(compactEvidence),
+    ...(args.extra ?? {}),
+  };
+}
+
 async function persistConfirmedIncrementProjection(args: {
   supabase: SupabaseClient;
   sessionId: string;
@@ -131,6 +205,7 @@ async function persistConfirmedIncrementProjection(args: {
   businessKey: string;
   sessionMetadata: Record<string, unknown>;
   verifiedBy: string;
+  incrementRowMetadata?: Record<string, unknown>;
 }): Promise<{ ok: true } | { ok: false; message: string }> {
   const nowIso = new Date().toISOString();
   if (args.incrementRowId) {
@@ -143,6 +218,7 @@ async function persistConfirmedIncrementProjection(args: {
         provider_operation_reference: args.businessKey,
         error_classification: null,
         failed_at: null,
+        ...(args.incrementRowMetadata ? { metadata: args.incrementRowMetadata } : {}),
       })
       .eq("id", args.incrementRowId);
     if (authErr) {
@@ -573,6 +649,28 @@ export async function executeSameOrderIncrement(args: {
         source: args.source,
       });
       if (priorCoverage.class === "insufficient") {
+        const priorEvidence = buildRevolutIncrementProviderEvidence({
+          order,
+          evidenceSource: "retrieve",
+          reference: businessKey.slice(0, 100),
+          targetTotalPence: plan.targetTotalPence,
+          previousAuthorisedTotalPence: providerTotal,
+          providerAuthorisedTotalPence: priorCoverage.authorisedTotalPence,
+        });
+        if (
+          providerIncrementOutcome(priorEvidence) === "failed"
+          && isExplicitAttemptMatch(priorEvidence)
+        ) {
+          return {
+            ok: false,
+            kind: "provider_failed",
+            message:
+              "Provider reported a technical failure for the increment; authorised total unchanged.",
+            providerConfirmedTotalPence: providerTotal,
+            eligibility,
+            errorClassification: "PROVIDER_INCREMENT_FAILED",
+          };
+        }
         return {
           ok: false,
           kind: "declined",
@@ -580,6 +678,10 @@ export async function executeSameOrderIncrement(args: {
           providerConfirmedTotalPence: providerTotal,
           eligibility,
           errorClassification: "AUTHORISED_TOTAL_BELOW_TARGET",
+          providerDeclineEvidence: providerIncrementOutcome(priorEvidence) === "declined"
+              && isExplicitAttemptMatch(priorEvidence)
+            ? "provider_increment_declined"
+            : null,
         };
       }
       return {
@@ -756,6 +858,36 @@ export async function executeSameOrderIncrement(args: {
     const sessionMetadata = (session.metadata && typeof session.metadata === "object")
       ? session.metadata as Record<string, unknown>
       : {};
+    const incrementReference = businessKey.slice(0, 100);
+    // Revolut helper returns parsed bodies only; exact 2xx code is not exposed on success.
+    const postHttpStatus = result.ok ? null : result.httpStatus;
+    const postHttpOk = result.ok
+      ? true
+      : postHttpStatus != null && postHttpStatus >= 200 && postHttpStatus < 300;
+    const evidenceFor = (
+      evidenceOrder: RevolutOrder | null | undefined,
+      evidenceSource: RevolutIncrementProviderEvidence["evidence_source"],
+    ): RevolutIncrementProviderEvidence =>
+      buildRevolutIncrementProviderEvidence({
+        order: evidenceOrder,
+        evidenceSource,
+        reference: incrementReference,
+        targetTotalPence: plan.targetTotalPence,
+        previousAuthorisedTotalPence: providerTotal,
+        providerAuthorisedTotalPence: evidenceOrder
+          ? revolutProviderAuthorisedTotalPence(evidenceOrder)
+          : null,
+        postHttpStatus,
+        postHttpOk,
+      });
+    const evidenceTrail: RevolutIncrementProviderEvidence[] = [
+      evidenceFor(result.order, "post_response"),
+    ];
+    const rowMetadataBase = {
+      reason: incrementReason,
+      source: args.source,
+      requested_target_total_pence: plan.targetTotalPence,
+    };
 
     let coverage = classifyIncrementCoverage(result.order, plan.targetTotalPence);
     let coverageOrder = result.order;
@@ -775,6 +907,7 @@ export async function executeSameOrderIncrement(args: {
           sessionId,
         });
         coverage = classifyIncrementCoverage(coverageOrder, plan.targetTotalPence);
+        evidenceTrail.push(evidenceFor(coverageOrder, "retrieve"));
         logIncrementEvent("increment_post_retrieve_reconcile", {
           payment_session_id: maskId(sessionId),
           provider_order_id: maskId(orderId),
@@ -807,6 +940,7 @@ export async function executeSameOrderIncrement(args: {
             sessionId,
           });
           coverage = classifyIncrementCoverage(coverageOrder, plan.targetTotalPence);
+          evidenceTrail.push(evidenceFor(coverageOrder, "retrieve"));
           logIncrementEvent("increment_post_retrieve_retry", {
             payment_session_id: maskId(sessionId),
             provider_order_id: maskId(orderId),
@@ -829,6 +963,14 @@ export async function executeSameOrderIncrement(args: {
           .update({
             status: "ADDITIONAL_AUTHORISATION_PENDING",
             error_classification: "AUTHORISATION_RECONCILIATION_PENDING",
+            metadata: await buildIncrementRowMetadata({
+              supabase: args.supabase,
+              incrementRowId,
+              base: rowMetadataBase,
+              evidence: evidenceTrail[evidenceTrail.length - 1] ?? null,
+              trail: evidenceTrail,
+              extra: { coverage_class: coverage.class, retrieve_failed: true },
+            }),
           })
           .eq("id", incrementRowId);
         return {
@@ -841,6 +983,8 @@ export async function executeSameOrderIncrement(args: {
         };
       }
     }
+
+    const finalEvidence = evidenceTrail[evidenceTrail.length - 1];
 
     if (coverage.class === "confirmed") {
       const confirmed = coverage.authorisedTotalPence;
@@ -855,6 +999,14 @@ export async function executeSameOrderIncrement(args: {
         verifiedBy: result.ok && result.outcome === "confirmed"
           ? "same_order_increment_api"
           : "same_order_increment_retrieve",
+        incrementRowMetadata: await buildIncrementRowMetadata({
+          supabase: args.supabase,
+          incrementRowId,
+          base: rowMetadataBase,
+          evidence: finalEvidence,
+          trail: evidenceTrail,
+          extra: { provider_confirmed_total_pence: confirmed, coverage_class: coverage.class },
+        }),
       });
       if (!persisted.ok) {
         logIncrementEvent("increment_confirm_persist_failed", {
@@ -903,6 +1055,7 @@ export async function executeSameOrderIncrement(args: {
         source: args.source,
         elapsed_ms: elapsed,
         decision_reason: coverage.class,
+        increment_state: finalEvidence.increment_state,
       });
       await args.supabase
         .from("payment_session_authorisations")
@@ -911,6 +1064,14 @@ export async function executeSameOrderIncrement(args: {
           error_classification: coverage.class === "processing"
             ? "PROCESSING"
             : "AUTHORISATION_RECONCILIATION_PENDING",
+          metadata: await buildIncrementRowMetadata({
+            supabase: args.supabase,
+            incrementRowId,
+            base: rowMetadataBase,
+            evidence: finalEvidence,
+            trail: evidenceTrail,
+            extra: { coverage_class: coverage.class },
+          }),
         })
         .eq("id", incrementRowId);
       return {
@@ -945,6 +1106,18 @@ export async function executeSameOrderIncrement(args: {
         .update({
           status: "ADDITIONAL_AUTHORISATION_ACTION_REQUIRED",
           error_classification: "CUSTOMER_ACTION_REQUIRED",
+          metadata: await buildIncrementRowMetadata({
+            supabase: args.supabase,
+            incrementRowId,
+            base: rowMetadataBase,
+            evidence: finalEvidence,
+            trail: evidenceTrail,
+            extra: {
+              coverage_class: coverage.class,
+              fail_outcome: failOutcome,
+              provider_error_code: failCode ?? null,
+            },
+          }),
         })
         .eq("id", incrementRowId);
       return {
@@ -957,9 +1130,21 @@ export async function executeSameOrderIncrement(args: {
       };
     }
 
+    // Revolut `failed` = technical/provider failure; never an issuer decline.
+    // A non-decline 4xx rejection that leaves the hold below target is also a
+    // provider failure, not a decline. Both remain fail-closed (hold unchanged).
+    const providerOutcome = providerIncrementOutcome(finalEvidence);
+    const explicitProviderFailed = providerOutcome === "failed"
+      && isExplicitAttemptMatch(finalEvidence);
+    const providerRejectedRequest = failOutcome === "terminal"
+      && coverage.class === "insufficient"
+      && providerOutcome !== "declined";
+
     const failKind =
       failOutcome === "unsupported"
         ? "unsupported"
+        : explicitProviderFailed || providerRejectedRequest
+        ? "provider_failed"
         : failOutcome === "retryable"
         ? "retryable"
         : coverage.class === "insufficient" || failOutcome === "declined"
@@ -968,19 +1153,42 @@ export async function executeSameOrderIncrement(args: {
         ? "unknown"
         : "terminal";
 
+    const providerDeclineEvidence: ProviderDeclineEvidence | null = failKind !== "declined"
+      ? null
+      : providerOutcome === "declined" && isExplicitAttemptMatch(finalEvidence)
+      ? "provider_increment_declined"
+      : failOutcome === "declined"
+      ? "provider_http_declined"
+      : null;
+
     logIncrementEvent(
-      failKind === "declined" ? "increment_provider_declined" : "increment_provider_unknown",
+      failKind === "declined"
+        ? "increment_provider_declined"
+        : failKind === "provider_failed"
+        ? "increment_provider_failed"
+        : "increment_provider_unknown",
       {
         payment_session_id: maskId(sessionId),
         provider_order_id: maskId(orderId),
         outcome: failOutcome,
         coverage_class: coverage.class,
+        increment_state: finalEvidence.increment_state,
+        increment_reason: finalEvidence.increment_reason,
+        increment_matched_by: finalEvidence.increment_matched_by,
+        provider_decline_evidence: providerDeclineEvidence,
+        post_http_status: postHttpStatus,
         source: args.source,
         elapsed_ms: elapsed,
       },
     );
 
-    await args.supabase
+    const failedErrorClassification = failKind === "declined"
+      ? "AUTHORISED_TOTAL_BELOW_TARGET"
+      : failKind === "provider_failed"
+      ? "PROVIDER_INCREMENT_FAILED"
+      : null;
+
+    const { error: failRowErr } = await args.supabase
       .from("payment_session_authorisations")
       .update({
         status: failKind === "declined"
@@ -993,68 +1201,63 @@ export async function executeSameOrderIncrement(args: {
           ? "ADDITIONAL_AUTHORISATION_PENDING"
           : "ADDITIONAL_AUTHORISATION_FAILED_TERMINAL",
         failed_at: failKind === "unknown" ? null : new Date().toISOString(),
-        error_classification: failKind === "declined"
-          ? "AUTHORISED_TOTAL_BELOW_TARGET"
-          : failCode ?? failOutcome,
+        error_classification: failedErrorClassification ?? failCode ?? failOutcome,
         provider_confirmed_total_pence: coverage.authorisedTotalPence > 0
           ? coverage.authorisedTotalPence
           : null,
         provider_state: coverageOrder
           ? String(coverageOrder.state ?? "").toUpperCase() || null
           : null,
-        metadata: {
-          reason: incrementReason,
-          source: args.source,
-          requested_target_total_pence: plan.targetTotalPence,
-          provider_confirmed_total_pence: coverage.authorisedTotalPence,
-          provider_increment_state: (() => {
-            const incs = Array.isArray(coverageOrder?.incremental_authorisations)
-              ? coverageOrder.incremental_authorisations
-              : [];
-            const last = incs.length > 0 ? incs[incs.length - 1] : null;
-            return last ? String(last.state ?? "").toLowerCase() || null : null;
-          })(),
-          // Never invent issuer reasons — persist null when Revolut omits them.
-          provider_decline_reason: (() => {
-            const incs = Array.isArray(coverageOrder?.incremental_authorisations)
-              ? coverageOrder.incremental_authorisations
-              : [];
-            const last = incs.length > 0 ? incs[incs.length - 1] : null;
-            const fromInc = last && typeof last === "object"
-              ? (last as { decline_reason?: unknown }).decline_reason
-              : null;
-            return fromInc == null || String(fromInc).trim() === ""
-              ? null
-              : String(fromInc);
-          })(),
-          provider_error_code: failCode ?? null,
-          coverage_class: coverage.class,
-          fail_outcome: failOutcome,
-        },
+        metadata: await buildIncrementRowMetadata({
+          supabase: args.supabase,
+          incrementRowId,
+          base: rowMetadataBase,
+          evidence: finalEvidence,
+          trail: evidenceTrail,
+          extra: {
+            provider_confirmed_total_pence: coverage.authorisedTotalPence,
+            provider_error_code: failCode ?? null,
+            coverage_class: coverage.class,
+            fail_outcome: failOutcome,
+            fail_kind: failKind,
+            provider_decline_evidence: providerDeclineEvidence,
+          },
+        }),
       })
       .eq("id", incrementRowId);
 
-    await args.supabase
+    // payment_session_status has no DECLINED member. The session records only that
+    // coverage is still required; the decline itself lives on the authorisation row.
+    const { error: failSessionErr } = await args.supabase
       .from("payment_sessions")
       .update({
-        status: failKind === "declined"
-          ? "ADDITIONAL_AUTHORISATION_DECLINED"
-          : "ADDITIONAL_AUTHORISATION_REQUIRED",
+        status: "ADDITIONAL_AUTHORISATION_REQUIRED",
         updated_at: new Date().toISOString(),
       })
       .eq("id", sessionId);
+
+    if (failRowErr || failSessionErr) {
+      logIncrementEvent("increment_failure_persist_failed", {
+        payment_session_id: maskId(sessionId),
+        fail_kind: failKind,
+        authorisation_row_error: failRowErr?.code ?? failRowErr?.message ?? null,
+        session_status_error: failSessionErr?.code ?? failSessionErr?.message ?? null,
+      });
+    }
 
     return {
       ok: false,
       kind: failKind,
       message: failKind === "declined"
         ? "Provider authorised total remains below the required fare."
+        : failKind === "provider_failed"
+        ? "Provider reported a technical failure for the increment; authorised total unchanged."
         : failMessage,
       providerConfirmedTotalPence: coverage.authorisedTotalPence,
       eligibility,
-      errorClassification: failKind === "declined"
-        ? "AUTHORISED_TOTAL_BELOW_TARGET"
-        : failCode ?? String(failOutcome).toUpperCase(),
+      errorClassification: failedErrorClassification
+        ?? failCode ?? String(failOutcome).toUpperCase(),
+      providerDeclineEvidence,
     };
   } finally {
     await releasePaymentSessionFinancialLock(args.supabase, {
