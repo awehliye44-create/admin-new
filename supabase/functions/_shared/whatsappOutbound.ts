@@ -15,7 +15,7 @@ export const WHATSAPP_WELCOME_TEXT =
   "Welcome to *ONECAB*. 👋\nChoose an option below to continue.";
 
 export const WHATSAPP_WELCOME_CARD_BODY =
-  "*Reliable. Safe. Always On Time.*\nMilton Keynes’ trusted taxi service. Book in seconds. Ride with confidence.";
+  "*Reliable. Safe. Always On Time.*\nYour trusted ride, whenever you need it. Book in seconds. Ride with confidence.";
 
 /** Single interactive body — greeting + card copy (avoids a second Graph round-trip). */
 export const WHATSAPP_WELCOME_INTERACTIVE_BODY =
