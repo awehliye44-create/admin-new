@@ -199,14 +199,13 @@ export function buildNativeRecoveryDeepLinkFromSession(args: {
   return `${base}#${params.toString()}`;
 }
 
-/** Password-reset emails may use https action links or native app deep links. */
+/**
+ * Password-reset email buttons must be https. Gmail and most webmail strip
+ * custom-scheme hrefs (`onecab-customer://`), leaving a dead button — native apps
+ * are reached through the `password-recovery-link` https bridge instead.
+ */
 export function isAllowedPasswordResetRecoveryUrl(url: string): boolean {
-  const trimmed = url.trim();
-  return (
-    trimmed.startsWith("https://") ||
-    trimmed.startsWith("http://") ||
-    /^onecab-(driver|customer):\/\//i.test(trimmed)
-  );
+  return url.trim().startsWith("https://");
 }
 
 /**

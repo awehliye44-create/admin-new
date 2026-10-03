@@ -12,7 +12,6 @@ import { createClient } from "npm:@supabase/supabase-js@2.57.2";
 import { fetchCompanyBranding } from "../_shared/companyBranding.ts";
 import {
   buildCorporateRecoveryPageUrlFromSession,
-  buildNativeRecoveryDeepLinkFromSession,
   emailRateLimitFingerprint,
   extractRecoveryActionLink,
   extractRecoveryTokenHash,
@@ -23,6 +22,12 @@ import {
   parseRecoveryApp,
   passwordRecoverySafeResponse,
 } from "../_shared/passwordRecoverySSOT.ts";
+import {
+  PASSWORD_RECOVERY_HANDOFF_TTL_SECONDS,
+  passwordRecoveryBridgeUrl,
+  recoveryHandoffSecret,
+  sealRecoveryHandoff,
+} from "../_shared/passwordRecoveryHandoff.ts";
 import { ensureCorporateAuthUserForRecovery } from "../_shared/corporatePasswordRecoveryProvision.ts";
 import { buildPasswordResetEmail } from "../_shared/passwordResetEmail.ts";
 import { sendResendEmail } from "../_shared/resendMail.ts";
@@ -244,20 +249,34 @@ Deno.serve(async (req) => {
   } else if ((app === "driver" || app === "customer") && tokenHash && anonKey) {
     const session = await exchangeRecoverySession(supabaseUrl, anonKey, tokenHash);
     if (session) {
-      recoveryUrl = buildNativeRecoveryDeepLinkFromSession({
-        nativeRedirect: redirectTo,
-        accessToken: session.access_token,
-        refreshToken: session.refresh_token,
-        expiresIn: session.expires_in,
-        expiresAt: session.expires_at,
-        tokenType: session.token_type,
-      });
-      console.log("[password-recovery]", JSON.stringify({
-        step: "native_session_deep_link_built",
-        app,
-        emailDomain: email.split("@")[1] ?? "",
-        hasHashSession: Boolean(recoveryUrl?.includes("#access_token=")),
-      }));
+      try {
+        const handoff = await sealRecoveryHandoff({
+          app,
+          secret: recoveryHandoffSecret({
+            PASSWORD_RECOVERY_HANDOFF_SECRET: Deno.env.get("PASSWORD_RECOVERY_HANDOFF_SECRET") ??
+              undefined,
+            SUPABASE_SERVICE_ROLE_KEY: serviceKey,
+          }),
+          session: {
+            accessToken: session.access_token,
+            refreshToken: session.refresh_token,
+            tokenType: session.token_type,
+            expiresAt: session.expires_at,
+          },
+        });
+        recoveryUrl = passwordRecoveryBridgeUrl(supabaseUrl, app, handoff);
+        console.log("[password-recovery]", JSON.stringify({
+          step: "native_https_bridge_link_built",
+          app,
+          emailDomain: email.split("@")[1] ?? "",
+          ttlSeconds: PASSWORD_RECOVERY_HANDOFF_TTL_SECONDS,
+        }));
+      } catch (e) {
+        console.error("[password-recovery] handoff seal failed", {
+          app,
+          message: e instanceof Error ? e.message : "unknown",
+        });
+      }
     }
     if (!recoveryUrl) {
       recoveryUrl = extractRecoveryActionLink(linkData);

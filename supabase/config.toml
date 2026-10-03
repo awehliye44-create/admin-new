@@ -338,6 +338,10 @@ verify_jwt = false
 [functions.request-password-recovery]
 verify_jwt = false
 
+# Password-reset email button bridge (https → native app). Public, read-only.
+[functions.password-recovery-link]
+verify_jwt = false
+
 # Customer identity (manual Admin review) — JWT validated inside start/status/submit.
 # Legacy Veriff webhook kept as a soft no-op stub.
 [functions.start-customer-identity-verification]

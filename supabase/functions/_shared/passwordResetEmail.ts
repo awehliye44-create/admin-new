@@ -37,7 +37,7 @@ export function buildPasswordResetEmail(args: {
 }): { subject: string; html: string; text: string } {
   const recoveryUrl = args.recoveryUrl.trim();
   if (!isAllowedPasswordResetRecoveryUrl(recoveryUrl)) {
-    throw new Error("recoveryUrl must be https or a native ONECAB deep link");
+    throw new Error("recoveryUrl must be https");
   }
   const safeUrl = esc(recoveryUrl);
   const logoUrl = args.logoUrl?.trim();
@@ -59,6 +59,8 @@ export function buildPasswordResetEmail(args: {
 We received a request to reset the password for your ONECAB ${appLabel} account.
 
 ${continueHint}
+
+Reset password: ${recoveryUrl}
 
 If you did not request a password reset, you can safely ignore this email. Your current password will remain unchanged.
 

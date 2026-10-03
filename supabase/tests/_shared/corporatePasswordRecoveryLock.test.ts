@@ -97,18 +97,20 @@ Deno.test("buildNativeRecoveryDeepLinkFromSession embeds hash session for Driver
   assertEquals(customer?.startsWith("onecab-customer://auth/reset-password#"), true);
 });
 
-Deno.test("isAllowedPasswordResetRecoveryUrl accepts https and native deep links", () => {
+Deno.test("isAllowedPasswordResetRecoveryUrl accepts https only (Gmail strips custom schemes)", () => {
   assertEquals(isAllowedPasswordResetRecoveryUrl("https://example.com/x"), true);
-  assertEquals(isAllowedPasswordResetRecoveryUrl("onecab-driver://reset-password#x=1"), true);
-  assertEquals(isAllowedPasswordResetRecoveryUrl("onecab-customer://auth/reset-password"), true);
+  assertEquals(isAllowedPasswordResetRecoveryUrl("onecab-driver://reset-password#x=1"), false);
+  assertEquals(isAllowedPasswordResetRecoveryUrl("onecab-customer://auth/reset-password"), false);
+  assertEquals(isAllowedPasswordResetRecoveryUrl("http://example.com/x"), false);
   assertEquals(isAllowedPasswordResetRecoveryUrl("javascript:alert(1)"), false);
 });
 
-Deno.test("request-password-recovery builds native session deep links for driver and customer", () => {
+Deno.test("request-password-recovery emails driver and customer an https bridge link", () => {
   const src = Deno.readTextFileSync(
     new URL("../../functions/request-password-recovery/index.ts", import.meta.url),
   );
-  assertEquals(src.includes("buildNativeRecoveryDeepLinkFromSession"), true);
-  assertEquals(src.includes("native_session_deep_link_built"), true);
   assertEquals(src.includes('app === "driver" || app === "customer"'), true);
+  assertEquals(src.includes("sealRecoveryHandoff"), true);
+  assertEquals(src.includes("passwordRecoveryBridgeUrl"), true);
+  assertEquals(src.includes("buildNativeRecoveryDeepLinkFromSession"), false);
 });
