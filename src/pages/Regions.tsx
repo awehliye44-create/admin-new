@@ -219,7 +219,7 @@ export default function Regions() {
         const regionIds = parsedData.map(r => r.id);
         const [driversRes, areasRes] = await Promise.all([
           supabase.from('drivers').select('region_id').in('region_id', regionIds),
-          supabase.from('service_areas').select('region_id').in('region_id', regionIds),
+          supabase.from('service_areas').select('region_id').in('region_id', regionIds).is('archived_at', null),
         ]);
         
         const stats: Record<string, RegionStats> = {};
