@@ -189,8 +189,10 @@ export function computeLiveTripFarePreview(trip: LiveTripFareInput): LiveTripFar
     discountPence,
   });
 
+  // Never floor to 1p: a zero total must stay zero so callers fall back to
+  // the committed/estimated fare instead of displaying a phantom £0.01.
   const currentCustomerTotalPence = Math.max(
-    1,
+    0,
     confirmedFare + pickupWaiting + stopWaiting + approvedModificationDelta,
   );
 
