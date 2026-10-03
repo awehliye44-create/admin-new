@@ -17,6 +17,7 @@ export interface ServiceArea {
   distance_unit: string;
   region_id: string;
   is_active: boolean;
+  archived_at?: string | null;
   geo_boundary: any;
   center_lat: number | null;
   center_lng: number | null;
@@ -52,8 +53,10 @@ export function useServiceAreas(options?: { activeOnly?: boolean }) {
       let query = supabase
         .from("service_areas")
         .select(
-          "id, name, code, country, timezone, currency_code, distance_unit, region_id, is_active, geo_boundary, center_lat, center_lng, created_at, updated_at, financial_model, commission_wallet_enabled, commission_wallet_currency, welcome_credit_enabled, welcome_credit_amount_minor, welcome_credit_max_drivers, region:regions(currency_code, distance_unit, name, country_code)",
+          "id, name, code, country, timezone, currency_code, distance_unit, region_id, is_active, archived_at, geo_boundary, center_lat, center_lng, created_at, updated_at, financial_model, commission_wallet_enabled, commission_wallet_currency, welcome_credit_enabled, welcome_credit_amount_minor, welcome_credit_max_drivers, region:regions(currency_code, distance_unit, name, country_code)",
         )
+        // Archived areas are hidden everywhere except the Services management page.
+        .is("archived_at", null)
         .order("name", { ascending: true });
 
       if (activeOnly) {

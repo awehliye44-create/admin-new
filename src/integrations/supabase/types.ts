@@ -13179,9 +13179,9 @@ export type Database = {
           towards_destination_daily_limit: number
           towards_destination_duration_minutes: number
           towards_destination_enabled: boolean
+          towards_destination_match_radius_meters: number
           towards_destination_matching_tolerance_meters: number
           towards_destination_max_pickup_detour_meters: number
-          towards_destination_match_radius_meters: number
           towards_destination_min_progress_meters: number
           towards_destination_priority_weight: number
           updated_at: string
@@ -13267,9 +13267,9 @@ export type Database = {
           towards_destination_daily_limit?: number
           towards_destination_duration_minutes?: number
           towards_destination_enabled?: boolean
+          towards_destination_match_radius_meters: number
           towards_destination_matching_tolerance_meters?: number
           towards_destination_max_pickup_detour_meters?: number
-          towards_destination_match_radius_meters?: number
           towards_destination_min_progress_meters?: number
           towards_destination_priority_weight?: number
           updated_at?: string
@@ -13355,9 +13355,9 @@ export type Database = {
           towards_destination_daily_limit?: number
           towards_destination_duration_minutes?: number
           towards_destination_enabled?: boolean
+          towards_destination_match_radius_meters?: number
           towards_destination_matching_tolerance_meters?: number
           towards_destination_max_pickup_detour_meters?: number
-          towards_destination_match_radius_meters?: number
           towards_destination_min_progress_meters?: number
           towards_destination_priority_weight?: number
           updated_at?: string
@@ -16826,8 +16826,10 @@ export type Database = {
           idempotency_key: string
           metadata: Json
           operation: string
+          payment_session_id: string | null
+          provider_order_id: string | null
           status: string
-          trip_id: string
+          trip_id: string | null
           updated_at: string
         }
         Insert: {
@@ -16839,8 +16841,10 @@ export type Database = {
           idempotency_key: string
           metadata?: Json
           operation: string
+          payment_session_id?: string | null
+          provider_order_id?: string | null
           status?: string
-          trip_id: string
+          trip_id?: string | null
           updated_at?: string
         }
         Update: {
@@ -16852,11 +16856,34 @@ export type Database = {
           idempotency_key?: string
           metadata?: Json
           operation?: string
+          payment_session_id?: string | null
+          provider_order_id?: string | null
           status?: string
-          trip_id?: string
+          trip_id?: string | null
           updated_at?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "payment_authorization_ledger_payment_session_id_fkey"
+            columns: ["payment_session_id"]
+            isOneToOne: false
+            referencedRelation: "payment_sessions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "payment_authorization_ledger_payment_session_id_fkey"
+            columns: ["payment_session_id"]
+            isOneToOne: false
+            referencedRelation: "v_payment_lifecycle_audit"
+            referencedColumns: ["parent_session_id"]
+          },
+          {
+            foreignKeyName: "payment_authorization_ledger_payment_session_id_fkey"
+            columns: ["payment_session_id"]
+            isOneToOne: false
+            referencedRelation: "v_payment_lifecycle_audit"
+            referencedColumns: ["recovery_session_id"]
+          },
           {
             foreignKeyName: "payment_authorization_ledger_trip_id_fkey"
             columns: ["trip_id"]
@@ -31211,6 +31238,10 @@ export type Database = {
         Args: { p_json: Json; p_offer_id: string }
         Returns: undefined
       }
+      missed_cancelled_event_at: {
+        Args: { t: Database["public"]["Tables"]["trips"]["Row"] }
+        Returns: string
+      }
       next_trip_invoice_number: { Args: never; Returns: string }
       normalize_driver_offline_reason: {
         Args: { p_reason: string }
@@ -31457,6 +31488,14 @@ export type Database = {
       payment_session_action_policy: {
         Args: { p_provider_verification?: Json; p_session_id: string }
         Returns: Json
+      }
+      payment_session_has_authorisation_evidence: {
+        Args: {
+          p_authorised_at: string
+          p_provider_state: string
+          p_status: string
+        }
+        Returns: boolean
       }
       payout_batch_kind_to_ledger_type: {
         Args: { p_kind: string }
@@ -32229,6 +32268,15 @@ export type Database = {
         Args: { p_driver_id: string; p_limit?: number }
         Returns: Json
       }
+      trip_chargeable_terminal_outcome_kind: {
+        Args: {
+          p_financial_outcome: string
+          p_no_show_charge_pence: number
+          p_payment_status: string
+          p_status: string
+        }
+        Returns: string
+      }
       trip_commission_reserve_fare_minor: {
         Args: { p_trip: Database["public"]["Tables"]["trips"]["Row"] }
         Returns: number
@@ -32236,6 +32284,10 @@ export type Database = {
       trip_has_unresolved_fare_increase_modification: {
         Args: { p_trip_id: string }
         Returns: boolean
+      }
+      trip_history_event_at: {
+        Args: { t: Database["public"]["Tables"]["trips"]["Row"] }
+        Returns: string
       }
       trip_negotiation_base_fare_pence: {
         Args: { p_trip: Database["public"]["Tables"]["trips"]["Row"] }
@@ -32260,6 +32312,14 @@ export type Database = {
       trip_status_is_live_trackable: {
         Args: { p_status: string }
         Returns: boolean
+      }
+      trip_terminal_entitled_driver_id: {
+        Args: {
+          p_confirmed_driver_id: string
+          p_driver_id: string
+          p_previous_driver_id: string
+        }
+        Returns: string
       }
       update_corporate_account_profile: {
         Args: {

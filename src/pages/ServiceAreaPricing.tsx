@@ -117,6 +117,7 @@ export default function ServiceAreaPricing() {
         supabase
           .from('service_areas')
           .select('id, name, region_id, is_active, tips_enabled, early_cashout_enabled, region:regions(name, currency_code, distance_unit)')
+          .is('archived_at', null)
           .order('name'),
         supabase
           .from('vehicle_types')
