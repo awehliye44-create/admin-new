@@ -216,7 +216,8 @@ async function applyTripHistoryLocationFilter(
     const { data: areas } = await supabase
       .from('service_areas')
       .select('id')
-      .eq('region_id', args.regionId);
+      .eq('region_id', args.regionId)
+      .is('archived_at', null);
     const areaIds = (areas ?? []).map((row: any) => row.id as string).filter(Boolean);
     if (areaIds.length > 0) {
       return query.or(`region_id.eq.${args.regionId},service_area_id.in.(${areaIds.join(',')})`);

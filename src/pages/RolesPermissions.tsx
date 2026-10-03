@@ -232,6 +232,7 @@ export default function RolesPermissions() {
       .from('service_areas')
       .select('id, name')
       .eq('is_active', true)
+      .is('archived_at', null)
       .order('name');
     setServiceAreas(data || []);
   }, []);

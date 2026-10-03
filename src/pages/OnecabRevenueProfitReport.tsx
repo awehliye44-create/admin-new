@@ -94,7 +94,7 @@ export default function OnecabRevenueProfitReport() {
   const { data: serviceAreas = [] } = useQuery({
     queryKey: ['orp-service-areas'],
     queryFn: async () => {
-      const { data, error } = await supabase.from('service_areas').select('id,name,region_id').order('name');
+      const { data, error } = await supabase.from('service_areas').select('id,name,region_id').is('archived_at', null).order('name');
       if (error) throw error;
       return (data ?? []) as ServiceAreaRow[];
     },

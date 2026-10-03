@@ -124,6 +124,7 @@ export default function FareSimulator() {
         .from('service_areas')
         .select('id, name, region_id')
         .eq('is_active', true)
+        .is('archived_at', null)
         .order('name');
       if (error) throw error;
       return data as ServiceArea[];

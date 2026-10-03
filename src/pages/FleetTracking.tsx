@@ -297,7 +297,8 @@ export default function FleetTracking() {
         supabase
           .from('service_areas')
           .select('id, name, region_id')
-          .eq('is_active', true),
+          .eq('is_active', true)
+          .is('archived_at', null),
         supabase
           .from('trips')
           .select('id, driver_id, status, pickup_address, dropoff_address')

@@ -65,7 +65,7 @@ export function ServiceAreaDocumentRules() {
   useEffect(() => {
     const fetchData = async () => {
       const [saRes, dtRes] = await Promise.all([
-        supabase.from('service_areas').select('id, name, is_active').order('name'),
+        supabase.from('service_areas').select('id, name, is_active').is('archived_at', null).order('name'),
         supabase.from('document_types').select('id, name, slug, description, is_required, has_expiry, show_in_driver_app, reminder_days_before_expiry, display_order, is_active, created_at, updated_at').eq('is_active', true).order('display_order'),
       ]);
       if (saRes.data) setServiceAreas(saRes.data);
