@@ -136,6 +136,7 @@ export default function CustomZones() {
         .from('service_areas')
         .select('id, name, region_id, geo_boundary, is_active')
         .eq('is_active', true)
+        .is('archived_at', null)
         .order('name');
       if (regionFilter && regionFilter !== 'all') {
         query = query.eq('region_id', regionFilter);

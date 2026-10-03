@@ -79,7 +79,7 @@ export default function AccountRequests() {
   const { data: serviceAreas = [] } = useQuery({
     queryKey: ['service-areas', regionFilter],
     queryFn: async () => {
-      let query = supabase.from('service_areas').select('id, name, region_id').order('name');
+      let query = supabase.from('service_areas').select('id, name, region_id').is('archived_at', null).order('name');
       if (regionFilter !== 'all') query = query.eq('region_id', regionFilter);
       const { data, error } = await query;
       if (error) throw error;
