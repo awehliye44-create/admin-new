@@ -181,7 +181,7 @@ async function loadTripEvidence(
   | { ok: true; evidence: DriverFinancialRepairEvidence; trip: Record<string, unknown> }
   | { ok: false; response: Response }
 > {
-  const { data: trip, error } = await supabase
+  const { data: tripRow, error } = await supabase
     .from("trips")
     .select(
       [
@@ -227,6 +227,7 @@ async function loadTripEvidence(
     )
     .eq("id", args.tripId)
     .maybeSingle();
+  const trip = tripRow as Record<string, unknown> | null;
 
   if (error || !trip) {
     return { ok: false, response: json({ error: "Trip not found", error_code: "TRIP_NOT_FOUND" }, 404) };
@@ -1205,7 +1206,7 @@ async function handleApply(
           driverNetPence: Math.min(tenOnly, tenRestore),
           tipPence: tipOnly,
           currency: loaded.evidence.currency ?? "GBP",
-          commissionPct: stamp?.commission_pct,
+          commissionPct: stamp?.commission_pct ?? undefined,
         });
         tenRestoredPence = tenRestore;
         walletDelta += tenRestore;
