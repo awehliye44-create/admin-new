@@ -19,6 +19,14 @@ const migration = await Deno.readTextFile(
   ),
 );
 
+Deno.test("missing/unusable legacy category resolves to vehicle_types.is_default, never 'economy'", () => {
+  const start = dispatch.indexOf("async function resolveEffectiveVehicleTypeId(");
+  const resolver = dispatch.slice(start, dispatch.indexOf("\n}\n", start));
+  assert(resolver.includes('.eq("slug", legacySlug)'));
+  assert(resolver.includes('.eq("is_default", true)'));
+  assert(!/economy/i.test(dispatch), "auto-dispatch must not name the default category by slug");
+});
+
 Deno.test("pet-friendly: driver_controllable category also requires drivers.is_pet_friendly", () => {
   assert(dispatch.includes('.select("is_default, driver_controllable")'));
   assert(dispatch.includes('vType?.driver_controllable === true'));

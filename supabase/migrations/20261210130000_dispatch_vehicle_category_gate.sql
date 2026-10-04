@@ -24,14 +24,15 @@ AS $gate$
   WITH trip_type AS (
     SELECT
       t.vehicle_type_id AS stamped_id,
-      CASE
-        WHEN t.vehicle_type_id IS NOT NULL THEN t.vehicle_type_id
-        -- Legacy rows without an id: the old text column holds a catalog slug.
-        WHEN NULLIF(btrim(t.vehicle_type), '') IS NOT NULL THEN
-          (SELECT vt.id FROM public.vehicle_types vt WHERE vt.slug = btrim(t.vehicle_type))
-        -- Nothing booked at all: the catalog default (ONECAB GO), never a literal slug.
-        ELSE (SELECT vt.id FROM public.vehicle_types vt WHERE vt.is_default LIMIT 1)
-      END AS type_id
+      COALESCE(
+        t.vehicle_type_id,
+        -- Legacy rows without an id: the old text column may hold a catalog slug.
+        (SELECT vt.id FROM public.vehicle_types vt
+          WHERE vt.slug = NULLIF(btrim(t.vehicle_type), '')),
+        -- Missing or unusable legacy value: the catalog default (ONECAB GO),
+        -- never a literal slug. Same rule as auto-dispatch resolveEffectiveVehicleTypeId.
+        (SELECT vt.id FROM public.vehicle_types vt WHERE vt.is_default LIMIT 1)
+      ) AS type_id
     FROM public.trips t
     WHERE t.id = p_trip_id
   ),
@@ -43,7 +44,7 @@ AS $gate$
     LEFT JOIN public.vehicle_types vt ON vt.id = tt.type_id
   )
   SELECT CASE
-    -- No resolvable category: auto-dispatch applies no category gate either.
+    -- No catalog default configured at all: auto-dispatch applies no category gate either.
     WHEN NOT EXISTS (SELECT 1 FROM booked WHERE type_id IS NOT NULL) THEN NULL
     -- Stamped id that no longer exists in the catalog: fail closed.
     WHEN EXISTS (SELECT 1 FROM booked WHERE catalog_id IS NULL) THEN 'unknown_vehicle_category'

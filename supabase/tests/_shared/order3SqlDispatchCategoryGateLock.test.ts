@@ -63,7 +63,7 @@ Deno.test("gate SSOT: default open, others need enabled assignment, Pet-Friendly
   assert(gate.includes("d.is_pet_friendly"));
   assert(gate.includes("driver_controllable"));
   // Legacy rows: slug from the old text column, else the catalog default row.
-  assert(gate.includes("WHERE vt.slug = btrim(t.vehicle_type)"));
+  assert(gate.includes("WHERE vt.slug = NULLIF(btrim(t.vehicle_type), '')"));
   assert(gate.includes("WHERE vt.is_default LIMIT 1"));
   assert(!/\bvt\.name\b|'ONECAB GO'/.test(gate), "category identity must come from ids/flags, never names");
   assert(!/economy/i.test(gate), "ONECAB GO is identified by vehicle_types.is_default, never the 'economy' slug");

@@ -241,14 +241,27 @@ async function resolveEffectiveVehicleTypeId(
 ): Promise<string | null> {
   if (trip.vehicle_type_id) return trip.vehicle_type_id;
 
-  const legacySlug = (trip.vehicle_type || "economy").trim();
-  if (!legacySlug) return null;
-
-  const { data: vehicleType } = await supabase
-    .from("vehicle_types")
-    .select("id")
-    .eq("slug", legacySlug)
-    .maybeSingle();
+  // Legacy rows without an id: the old text column may hold a catalog slug.
+  const legacySlug = (trip.vehicle_type ?? "").trim();
+  let vehicleType: { id?: string } | null = null;
+  if (legacySlug) {
+    const { data } = await supabase
+      .from("vehicle_types")
+      .select("id")
+      .eq("slug", legacySlug)
+      .maybeSingle();
+    vehicleType = data;
+  }
+  // Missing or unusable legacy value: the catalog default (ONECAB GO), never a literal slug.
+  if (!vehicleType?.id) {
+    const { data } = await supabase
+      .from("vehicle_types")
+      .select("id")
+      .eq("is_default", true)
+      .limit(1)
+      .maybeSingle();
+    vehicleType = data;
+  }
 
   if (!vehicleType?.id) return null;
 
@@ -1896,7 +1909,7 @@ Deno.serve(async (req) => {
     const petToggleOffDriverIds = new Set<string>();
     
     if (effectiveVehicleTypeId) {
-      // Check if this is a default vehicle type (e.g. ONECAB/economy)
+      // Default vehicle type (vehicle_types.is_default — ONECAB GO) is open to every eligible driver
       const { data: vType } = await supabase
         .from("vehicle_types")
         .select("is_default, driver_controllable")
