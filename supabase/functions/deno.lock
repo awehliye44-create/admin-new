@@ -1,7 +1,6 @@
 {
   "version": "5",
   "specifiers": {
-    "npm:@supabase/supabase-js@2.57.2": "2.57.2",
     "npm:@supabase/supabase-js@2.57.2": "2.57.2"
   },
   "npm": {
@@ -99,8 +98,8 @@
   },
   "redirects": {
     "https://esm.sh/@supabase/phoenix@^0.4.2?target=denonext": "https://esm.sh/@supabase/phoenix@0.4.4?target=denonext",
-    "npm:@supabase/supabase-js@2.57.2": "npm:@supabase/supabase-js@2.57.2",
-    "https://esm.sh/iceberg-js@^0.8.1?target=denonext": "https://esm.sh/iceberg-js@0.8.1?target=denonext"
+    "https://esm.sh/iceberg-js@^0.8.1?target=denonext": "https://esm.sh/iceberg-js@0.8.1?target=denonext",
+    "npm:@supabase/supabase-js@2.57.2": "npm:@supabase/supabase-js@2.57.2"
   },
   "remote": {
     "https://deno.land/std@0.168.0/async/abortable.ts": "80b2ac399f142cc528f95a037a7d0e653296352d95c681e284533765961de409",
@@ -170,12 +169,13 @@
     "https://esm.sh/@supabase/postgrest-js@2.108.2/denonext/postgrest-js.mjs": "4f97eb01ffd7ed89869a5bcf910eb45e0e48230ab9462e0d3667fe243ce2ca94",
     "https://esm.sh/@supabase/realtime-js@2.108.2/denonext/realtime-js.mjs": "7dd89b17c7617a5b4e9047144f53fa324a805853c77a5d3388e18b189c9d3be3",
     "https://esm.sh/@supabase/storage-js@2.108.2/denonext/storage-js.mjs": "cc4cb3161c606e44108efad0ad1d6f770e6c337293b6ed068e2ba58ffd24fdfb",
-    "npm:@supabase/supabase-js@2.57.2": "7fbe17c4ef67b80d388cef1f0a0c7ecb28b2b1c3c4110875925a4bc82ff28e13",
     "https://esm.sh/@supabase/supabase-js@2.108.2/denonext/supabase-js.mjs": "46f2f36b66e96481e47095942551fea2d14069e97acafb2bc3a1a3b1c2442195",
     "https://esm.sh/iceberg-js@0.8.1/denonext/iceberg-js.mjs": "d839d81a2e3966500ca2cdd0c1cb458e9608bacfc91f7bb67a69b2e878dcdb4f",
     "https://esm.sh/iceberg-js@0.8.1?target=denonext": "58c849d7fe2bf4eca4a84eb501e83c161a7d8c34ca1bec15a962b3bec3062633",
+    "https://esm.sh/libphonenumber-js@1.12.42": "dffbd3f1c7835bbd110f76e86c01e3dfa456c224905e98685ef0a4defa00f0a4",
     "https://esm.sh/tslib@2.8.1/denonext/tslib.mjs": "c38da5dd6da6281964435002ce204cd586634fe3bdfb24a0ee116f48cf3292e9",
     "https://esm.sh/zod@3.23.8": "15e60c792ac21d4818f181671c7c74bf33bf7526d487dc524911e42785d8b5c2",
-    "https://esm.sh/zod@3.23.8/denonext/zod.mjs": "6ee0474ec5a765b112eca12525d7e30c8e77eedbe2f2ac5e19f2af468b759517"
+    "https://esm.sh/zod@3.23.8/denonext/zod.mjs": "6ee0474ec5a765b112eca12525d7e30c8e77eedbe2f2ac5e19f2af468b759517",
+    "npm:@supabase/supabase-js@2.57.2": "7fbe17c4ef67b80d388cef1f0a0c7ecb28b2b1c3c4110875925a4bc82ff28e13"
   }
 }
