@@ -270,6 +270,16 @@ async function reuseRegisteredPhoneOwner(
     createdCustomer = true;
   }
 
+  if (!customerId) {
+    return {
+      ok: false,
+      error: "Could not prepare your booking. Please try again.",
+      status: 500,
+      code: "CUSTOMER_RESOLVE_FAILED",
+    };
+  }
+  const resolvedCustomerId: string = customerId;
+
   const guard = await evaluateCustomerOnboardingLogin(supabase, userId);
   if (!guard.app_access_allowed) {
     if (createdCustomer) {
@@ -292,7 +302,7 @@ async function reuseRegisteredPhoneOwner(
     event: "PHONE_ALREADY_REGISTERED",
     outcome: "reused_existing_auth_user",
   }));
-  return { ok: true, userId, customerId, createdGuestUser: false };
+  return { ok: true, userId, customerId: resolvedCustomerId, createdGuestUser: false };
 }
 
 async function ensureWhatsAppGuestCustomer(
