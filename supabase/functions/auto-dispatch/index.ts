@@ -106,6 +106,7 @@ import {
   resolveDriverActiveTripId,
 } from "../_shared/activeDriverTripGuard.ts";
 import { STACKED_RIDE_STATES } from "../_shared/stackedRideState.ts";
+import { resolvePassengerOfferRating } from "../_shared/passengerOfferRating.ts";
 
 declare const EdgeRuntime:
   | { waitUntil?: (promise: Promise<unknown>) => void }
@@ -1890,12 +1891,15 @@ Deno.serve(async (req) => {
     let disabledVehicleTypeDriverIds = new Set<string>();
     // For non-default vehicle types, only drivers with explicit is_enabled=true qualify
     let requiredVehicleTypeDriverIds: Set<string> | null = null;
+    // Driver-controllable category (Pet-Friendly): assigned drivers whose own
+    // drivers.is_pet_friendly toggle is OFF never receive the offer.
+    const petToggleOffDriverIds = new Set<string>();
     
     if (effectiveVehicleTypeId) {
       // Check if this is a default vehicle type (e.g. ONECAB/economy)
       const { data: vType } = await supabase
         .from("vehicle_types")
-        .select("is_default")
+        .select("is_default, driver_controllable")
         .eq("id", effectiveVehicleTypeId)
         .single();
 
@@ -1916,6 +1920,28 @@ Deno.serve(async (req) => {
           .eq("is_enabled", true);
         requiredVehicleTypeDriverIds = new Set((enabledCategories || []).map(c => c.driver_id));
         console.log(`[auto-dispatch] Non-default vehicle type ${effectiveVehicleTypeId}: ${requiredVehicleTypeDriverIds.size} drivers have it enabled`);
+
+        // The assignment is the capability; drivers.is_pet_friendly is the driver's
+        // on/off toggle (Driver app Settings). Both are required. Fail closed: if the
+        // toggle can't be read, nobody is treated as toggled on.
+        if (vType?.driver_controllable === true && requiredVehicleTypeDriverIds.size > 0) {
+          const assignedIds = Array.from(requiredVehicleTypeDriverIds);
+          const { data: toggledOn, error: toggleErr } = await supabase
+            .from("drivers")
+            .select("id")
+            .in("id", assignedIds)
+            .eq("is_pet_friendly", true);
+          if (toggleErr) {
+            console.error(`[auto-dispatch] pet_friendly toggle read failed: ${toggleErr.message}`);
+          }
+          const toggledOnIds = new Set(
+            toggleErr ? [] : (toggledOn || []).map((r: { id: string }) => r.id),
+          );
+          for (const id of assignedIds) {
+            if (!toggledOnIds.has(id)) petToggleOffDriverIds.add(id);
+          }
+          console.log(`[auto-dispatch] Driver-controllable vehicle type ${effectiveVehicleTypeId}: ${petToggleOffDriverIds.size} assigned drivers have the toggle off`);
+        }
       }
     }
 
@@ -2063,6 +2089,7 @@ Deno.serve(async (req) => {
       if (maxedOutDriverIds.has(d.id)) { logEligibility(d.id, false, "max_concurrent_offers", { max: maxConcurrentOffers }); continue; }
       if (disabledVehicleTypeDriverIds.has(d.id)) { logEligibility(d.id, false, "vehicle_type_disabled", { vehicle_type_id: effectiveVehicleTypeId }); continue; }
       if (requiredVehicleTypeDriverIds && !requiredVehicleTypeDriverIds.has(d.id)) { logEligibility(d.id, false, "missing_required_vehicle_category", { vehicle_type_id: effectiveVehicleTypeId }); continue; }
+      if (petToggleOffDriverIds.has(d.id)) { logEligibility(d.id, false, "pet_friendly_toggle_off", { vehicle_type_id: effectiveVehicleTypeId }); continue; }
       if (isCashTrip && !cashAcceptingDriverIds.has(d.id)) { logEligibility(d.id, false, "cash_not_opted_in"); continue; }
       if (isMarketplaceDeliveryTrip && deliveryJobsOptOutDriverIds.has(d.id)) {
         logEligibility(d.id, false, "delivery_jobs_disabled");
@@ -2090,6 +2117,7 @@ Deno.serve(async (req) => {
       .filter(d => !maxedOutDriverIds.has(d.id))
       .filter(d => !disabledVehicleTypeDriverIds.has(d.id))
       .filter(d => !requiredVehicleTypeDriverIds || requiredVehicleTypeDriverIds.has(d.id))
+      .filter(d => !petToggleOffDriverIds.has(d.id))
       .filter(d => !isCashTrip || cashAcceptingDriverIds.has(d.id))
       .filter(d => !(isMarketplaceDeliveryTrip && deliveryJobsOptOutDriverIds.has(d.id)))
       .filter(d => !(isMarketplaceDeliveryTrip && deliveryCategoryOptOutDriverIds.has(d.id)))
@@ -2148,6 +2176,10 @@ Deno.serve(async (req) => {
         }
         if (requiredVehicleTypeDriverIds && !requiredVehicleTypeDriverIds.has(d.id)) {
           logEligibility(d.id, false, "stacked_missing_required_vehicle_category", { stacked_gate: true, vehicle_type_id: effectiveVehicleTypeId });
+          return false;
+        }
+        if (petToggleOffDriverIds.has(d.id)) {
+          logEligibility(d.id, false, "stacked_pet_friendly_toggle_off", { stacked_gate: true, vehicle_type_id: effectiveVehicleTypeId });
           return false;
         }
         if (isCashTrip && !cashAcceptingDriverIds.has(d.id)) {
@@ -2377,8 +2409,15 @@ Deno.serve(async (req) => {
     // 7. Create offers for each driver
     let offerExpirySeconds = offerExpirySecondsResolved;
     let expiresAt = new Date(Date.now() + offerExpirySeconds * 1000).toISOString();
+    // Aggregate customer rating for the Driver offer card (no name/phone). Unknown → nulls.
+    const passengerOfferRating = await resolvePassengerOfferRating(
+      supabase,
+      (trip as { passenger_id?: string | null }).passenger_id ?? null,
+    );
+
     const dispatchSnapshotFields = {
       ...dispatchOfferSnapshotFields(dispatchSettings as Record<string, unknown>, currentRound),
+      ...passengerOfferRating,
       dispatch_source: "auto_dispatch",
       dispatch_wave: waveCommission.wave,
       dispatch_round: waveCommission.dispatchRound,
