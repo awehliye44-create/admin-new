@@ -6,6 +6,8 @@
  * - Admin completes the deletion: admin-delete-account resolves the pending
  *   request and revokes every session for the user.
  * - Session revocation is service-role only.
+ * - A signed-in user may cancel only their own pending request; cancelling
+ *   closes the ticket and never deactivates, deletes or signs out the account.
  *
  * If this fails, fix the code — never delete or soften the lock.
  */
@@ -16,6 +18,7 @@ const read = (rel: string) => Deno.readTextFileSync(new URL(rel, root));
 
 const migration = read("migrations/20261209120000_account_deletion_request_dedupe.sql");
 const customerMinimise = read("migrations/20261209130000_customer_deletion_minimise.sql");
+const cancelRequest = read("migrations/20261209140000_account_deletion_request_cancel.sql");
 const adminDelete = read("functions/admin-delete-account/index.ts");
 
 Deno.test("one pending account_deletion request per customer and per driver", () => {
@@ -74,4 +77,22 @@ Deno.test("customers are minimised and detached, never hard-deleted", () => {
   const minimise = adminDelete.indexOf("admin_minimise_deleted_customer");
   const authDelete = adminDelete.indexOf("admin.auth.admin.deleteUser(targetUserId)");
   assert(minimise > 0 && authDelete > minimise, "customer must be detached before the Auth user is deleted");
+});
+
+Deno.test("users can cancel only their own pending request, and nothing else changes", () => {
+  assertMatch(cancelRequest, /FUNCTION public\.cancel_account_deletion_request\(p_app text\)[\s\S]*SECURITY DEFINER[\s\S]*SET search_path = ''/);
+  assertMatch(cancelRequest, /v_user_id uuid := auth\.uid\(\);/);
+  assertMatch(cancelRequest, /WHERE c\.user_id = v_user_id\s*AND c\.deleted_at IS NULL\s*AND c\.rider_status <> 'deleted'/);
+  assertMatch(cancelRequest, /WHERE d\.user_id = v_user_id\s*AND d\.deleted_at IS NULL/);
+  assertMatch(cancelRequest, /RAISE EXCEPTION 'account_deletion_not_cancellable'/);
+  assertMatch(cancelRequest, /AND sc\.status IN \('open', 'waiting'\)/);
+  assertMatch(cancelRequest, /SET status = 'closed',[\s\S]*'cancelled_by_user'/);
+  assertMatch(cancelRequest, /'cancellation_reason', 'cancelled_by_user'/);
+  assertMatch(cancelRequest, /INSERT INTO public\.support_messages/);
+  assertMatch(cancelRequest, /REVOKE ALL ON FUNCTION public\.cancel_account_deletion_request\(text\) FROM anon;/);
+  assertMatch(cancelRequest, /GRANT EXECUTE ON FUNCTION public\.cancel_account_deletion_request\(text\) TO authenticated;/);
+  // Cancelling must never touch the account itself or its sessions.
+  for (const forbidden of [/UPDATE public\.customers/, /UPDATE public\.drivers/, /auth\.sessions/, /auth\.users/, /DELETE FROM/]) {
+    assert(!forbidden.test(cancelRequest), `cancel must not match ${forbidden}`);
+  }
 });
