@@ -15,6 +15,7 @@ const root = new URL("../../", import.meta.url);
 const read = (rel: string) => Deno.readTextFileSync(new URL(rel, root));
 
 const migration = read("migrations/20261209120000_account_deletion_request_dedupe.sql");
+const customerMinimise = read("migrations/20261209130000_customer_deletion_minimise.sql");
 const adminDelete = read("functions/admin-delete-account/index.ts");
 
 Deno.test("one pending account_deletion request per customer and per driver", () => {
@@ -60,4 +61,17 @@ Deno.test("admin-delete-account signs the user out everywhere", () => {
 Deno.test("admin-delete-account keeps the driver soft delete that retains payout history", () => {
   assertMatch(adminDelete, /driver_status: 'deleted'/);
   assert(!/from\('drivers'\)\s*\.delete\(\)/.test(adminDelete), "drivers must never be hard-deleted");
+});
+
+Deno.test("customers are minimised and detached, never hard-deleted", () => {
+  assert(!/\.delete\(\)/.test(adminDelete), "admin-delete-account must not hard-delete any profile");
+  assertMatch(adminDelete, /admin\.rpc\('admin_minimise_deleted_customer', \{\s*p_customer_id: profile_id,/);
+  assertMatch(customerMinimise, /ALTER TABLE public\.customers ALTER COLUMN user_id DROP NOT NULL;/);
+  assertMatch(customerMinimise, /SET rider_status = 'deleted',[\s\S]*user_id = NULL,[\s\S]*phone = NULL,/);
+  assertMatch(customerMinimise, /GRANT EXECUTE ON FUNCTION public\.admin_minimise_deleted_customer\(uuid\) TO service_role;/);
+  assertMatch(customerMinimise, /REVOKE ALL ON FUNCTION public\.admin_minimise_deleted_customer\(uuid\) FROM anon, authenticated;/);
+  // The detach must happen before the Auth delete so customers_user_id_fkey cannot cascade.
+  const minimise = adminDelete.indexOf("admin_minimise_deleted_customer");
+  const authDelete = adminDelete.indexOf("admin.auth.admin.deleteUser(targetUserId)");
+  assert(minimise > 0 && authDelete > minimise, "customer must be detached before the Auth user is deleted");
 });

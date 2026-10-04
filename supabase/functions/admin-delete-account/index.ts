@@ -1,9 +1,10 @@
-// Admin delete account — hard delete a role profile (driver or customer).
-// If the user has no remaining role profiles after the delete, also delete
-// the underlying Supabase Auth user so they cannot sign in again.
-// Always signs the user out of every device and resolves the profile's pending
-// account_deletion support request. Trip, payment, invoice and payout history
-// is retained (see step 5).
+// Admin delete account — anonymise, mark deleted and detach a role profile
+// (driver or customer) from Auth. If the user has no remaining role profiles,
+// also delete the underlying Supabase Auth user so the old login is gone and
+// the person can sign up again. Always signs the user out of every device and
+// resolves the profile's pending account_deletion support request. Trip,
+// payment, invoice, wallet, payout, verification and safety records are
+// retained (see step 5).
 //
 // Body: { target: 'driver' | 'customer', profile_id: string, reason?: string }
 //
@@ -146,7 +147,9 @@ Deno.serve(async (req) => {
   // 5. Remove the role profile.
   // Drivers: soft-delete + detach Auth. Commission wallet / payout / settlement
   // rows keep driver_id (NOT NULL) — hard-deleting the driver aborts Auth delete.
-  // Customers: hard-delete (payment_sessions SET NULL; history retained).
+  // Customers: minimise + detach Auth. A hard delete would cascade wallet ledger,
+  // identity verification and feedback rows, and is blocked by payment quotes and
+  // receivables (migration 20261209130000_customer_deletion_minimise.sql).
   let profileMode: 'hard_deleted' | 'soft_deleted' = 'hard_deleted';
 
   if (target === 'driver') {
@@ -178,17 +181,17 @@ Deno.serve(async (req) => {
     // 20261106160000_release_soft_deleted_driver_vehicle_plates.sql).
     profileMode = 'soft_deleted';
   } else {
-    const { error: delProfileErr } = await admin
-      .from(profileTable)
-      .delete()
-      .eq('id', profile_id);
+    const { error: minimiseErr } = await admin.rpc('admin_minimise_deleted_customer', {
+      p_customer_id: profile_id,
+    });
 
-    if (delProfileErr) {
+    if (minimiseErr) {
       return jsonResponse(
-        { error: `Failed to delete ${target} profile: ${delProfileErr.message}` },
+        { error: `Failed to delete customer profile: ${minimiseErr.message}` },
         500,
       );
     }
+    profileMode = 'soft_deleted';
   }
 
   // 6. Check for any remaining role profiles for this auth user
