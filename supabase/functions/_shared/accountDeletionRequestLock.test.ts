@@ -14,7 +14,7 @@ import { assert, assertMatch } from "https://deno.land/std@0.224.0/assert/mod.ts
 const root = new URL("../../", import.meta.url);
 const read = (rel: string) => Deno.readTextFileSync(new URL(rel, root));
 
-const migration = read("migrations/20261207120000_account_deletion_request_dedupe.sql");
+const migration = read("migrations/20261209120000_account_deletion_request_dedupe.sql");
 const adminDelete = read("functions/admin-delete-account/index.ts");
 
 Deno.test("one pending account_deletion request per customer and per driver", () => {
