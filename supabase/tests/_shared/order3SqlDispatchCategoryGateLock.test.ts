@@ -62,9 +62,11 @@ Deno.test("gate SSOT: default open, others need enabled assignment, Pet-Friendly
   assert(gate.includes("dvc.is_enabled = false"));
   assert(gate.includes("d.is_pet_friendly"));
   assert(gate.includes("driver_controllable"));
-  // Same legacy fallback as auto-dispatch resolveEffectiveVehicleTypeId.
-  assert(gate.includes("COALESCE(NULLIF(btrim(t.vehicle_type), ''), 'economy')"));
+  // Legacy rows: slug from the old text column, else the catalog default row.
+  assert(gate.includes("WHERE vt.slug = btrim(t.vehicle_type)"));
+  assert(gate.includes("WHERE vt.is_default LIMIT 1"));
   assert(!/\bvt\.name\b|'ONECAB GO'/.test(gate), "category identity must come from ids/flags, never names");
+  assert(!/economy/i.test(gate), "ONECAB GO is identified by vehicle_types.is_default, never the 'economy' slug");
 });
 
 Deno.test("gate helper is not callable by app users", () => {

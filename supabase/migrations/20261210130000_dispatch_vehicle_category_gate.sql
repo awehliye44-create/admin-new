@@ -24,13 +24,14 @@ AS $gate$
   WITH trip_type AS (
     SELECT
       t.vehicle_type_id AS stamped_id,
-      COALESCE(
-        t.vehicle_type_id,
-        -- Same legacy fallback as auto-dispatch resolveEffectiveVehicleTypeId.
-        (SELECT vt.id FROM public.vehicle_types vt
-          WHERE vt.slug = COALESCE(NULLIF(btrim(t.vehicle_type), ''), 'economy')
-          LIMIT 1)
-      ) AS type_id
+      CASE
+        WHEN t.vehicle_type_id IS NOT NULL THEN t.vehicle_type_id
+        -- Legacy rows without an id: the old text column holds a catalog slug.
+        WHEN NULLIF(btrim(t.vehicle_type), '') IS NOT NULL THEN
+          (SELECT vt.id FROM public.vehicle_types vt WHERE vt.slug = btrim(t.vehicle_type))
+        -- Nothing booked at all: the catalog default (ONECAB GO), never a literal slug.
+        ELSE (SELECT vt.id FROM public.vehicle_types vt WHERE vt.is_default LIMIT 1)
+      END AS type_id
     FROM public.trips t
     WHERE t.id = p_trip_id
   ),
