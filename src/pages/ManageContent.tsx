@@ -261,9 +261,9 @@ function ScopeSection({ scope, icon, items, onRefresh, apiParam }: {
 export default function ManageContent() {
   const [items, setItems] = useState<ContentItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [activeTab, setActiveTab] = useState('contact');
 
   const fetchItems = useCallback(async () => {
-    setLoading(true);
     const { data, error } = await supabase
       .from('content_items')
       .select('id, app_scope, slug, title, content_html, status, version, change_log, updated_at, published_at')
@@ -301,7 +301,7 @@ export default function ManageContent() {
           <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
         </div>
       ) : (
-        <Tabs defaultValue="contact" className="space-y-6">
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
           <TabsList className="flex-wrap h-auto gap-1">
             <TabsTrigger value="contact" className="gap-1.5">
               <Phone className="h-3.5 w-3.5" /> Contact & Branding
