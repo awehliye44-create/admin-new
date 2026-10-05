@@ -3871,6 +3871,160 @@ export type Database = {
         }
         Relationships: []
       }
+      customer_driver_blocks: {
+        Row: {
+          blocked_by: string
+          created_at: string
+          customer_id: string
+          driver_id: string
+          id: string
+          trip_id: string | null
+        }
+        Insert: {
+          blocked_by: string
+          created_at?: string
+          customer_id: string
+          driver_id: string
+          id?: string
+          trip_id?: string | null
+        }
+        Update: {
+          blocked_by?: string
+          created_at?: string
+          customer_id?: string
+          driver_id?: string
+          id?: string
+          trip_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "customer_driver_blocks_customer_id_fkey"
+            columns: ["customer_id"]
+            isOneToOne: false
+            referencedRelation: "admin_customer_code_audit"
+            referencedColumns: ["customer_id"]
+          },
+          {
+            foreignKeyName: "customer_driver_blocks_customer_id_fkey"
+            columns: ["customer_id"]
+            isOneToOne: false
+            referencedRelation: "admin_riders_with_trip_stats"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "customer_driver_blocks_customer_id_fkey"
+            columns: ["customer_id"]
+            isOneToOne: false
+            referencedRelation: "customers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "customer_driver_blocks_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "admin_driver_fleet_status"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "customer_driver_blocks_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "admin_driver_online_snapshot"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "customer_driver_blocks_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "commission_wallet_driver_financial_summary"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "customer_driver_blocks_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "dispatchable_drivers"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "customer_driver_blocks_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "driver_document_compliance_ssot"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "customer_driver_blocks_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "driver_document_status"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "customer_driver_blocks_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "driver_financial_summary"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "customer_driver_blocks_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "driver_passenger_profile"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "customer_driver_blocks_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "drivers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "customer_driver_blocks_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "drivers_public_safe"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "customer_driver_blocks_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "platform_collected_driver_financial_summary"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "customer_driver_blocks_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "admin_trip_lifecycle_fees"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "customer_driver_blocks_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "available_scheduled_jobs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "customer_driver_blocks_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "trips"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "customer_driver_blocks_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "v_payment_lifecycle_audit"
+            referencedColumns: ["trip_id"]
+          },
+        ]
+      }
       customer_email_confirm_reconcile_audit: {
         Row: {
           created_at: string
@@ -4710,7 +4864,7 @@ export type Database = {
           revolut_customer_id: string | null
           rider_status: string
           updated_at: string
-          user_id: string
+          user_id: string | null
         }
         Insert: {
           active_trip_id?: string | null
@@ -4742,7 +4896,7 @@ export type Database = {
           revolut_customer_id?: string | null
           rider_status?: string
           updated_at?: string
-          user_id: string
+          user_id?: string | null
         }
         Update: {
           active_trip_id?: string | null
@@ -4774,7 +4928,7 @@ export type Database = {
           revolut_customer_id?: string | null
           rider_status?: string
           updated_at?: string
-          user_id?: string
+          user_id?: string | null
         }
         Relationships: [
           {
@@ -29024,6 +29178,10 @@ export type Database = {
           phone: string
         }[]
       }
+      admin_minimise_deleted_customer: {
+        Args: { p_customer_id: string }
+        Returns: string
+      }
       admin_remove_corporate_account: {
         Args: { p_account_id: string }
         Returns: Json
@@ -29051,6 +29209,10 @@ export type Database = {
       admin_restore_service_area: {
         Args: { p_service_area_id: string }
         Returns: undefined
+      }
+      admin_revoke_user_sessions: {
+        Args: { p_user_id: string }
+        Returns: number
       }
       admin_save_demand_zone_settings: {
         Args: { _service_area_id: string; _settings: Json }
@@ -29272,6 +29434,7 @@ export type Database = {
         Args: { lat1: number; lat2: number; lng1: number; lng2: number }
         Returns: number
       }
+      block_trip_counterparty: { Args: { p_trip_id: string }; Returns: Json }
       booking_delivery_phase_is_idempotent: {
         Args: { p_phase: string }
         Returns: boolean
@@ -29301,6 +29464,10 @@ export type Database = {
       can_write_corporate: {
         Args: { p_corporate_account_id: string; p_user_id: string }
         Returns: boolean
+      }
+      cancel_account_deletion_request: {
+        Args: { p_app: string }
+        Returns: string
       }
       cancel_driver_own_lost_property_report: {
         Args: { p_report_id: string }
@@ -29632,6 +29799,10 @@ export type Database = {
           p_selected_fare_pence: number
         }
         Returns: Json
+      }
+      customer_driver_pair_blocked: {
+        Args: { p_customer_id: string; p_driver_id: string }
+        Returns: boolean
       }
       customer_list_my_receivables: {
         Args: never
@@ -30060,6 +30231,10 @@ export type Database = {
           sent_at: string
           trip_id: string
         }[]
+      }
+      driver_vehicle_category_reject_reason: {
+        Args: { p_driver_id: string; p_trip_id: string }
+        Returns: string
       }
       driver_wallet_active_reservation_pence: {
         Args: { p_driver_id: string }
@@ -31467,6 +31642,10 @@ export type Database = {
           updated_at: string
         }[]
       }
+      passenger_offer_rating: {
+        Args: { p_passenger_id: string }
+        Returns: Json
+      }
       payment_authorisation_valid: {
         Args: { p_trip_id: string }
         Returns: boolean
@@ -31684,6 +31863,10 @@ export type Database = {
         }
         Returns: string
       }
+      record_offer_alert_event: {
+        Args: { p_detail?: Json; p_offer_id: string; p_phase: string }
+        Returns: Json
+      }
       record_push_send_result: {
         Args: {
           p_detail?: Json
@@ -31795,6 +31978,15 @@ export type Database = {
       }
       repair_user_stale_auth_identities: {
         Args: { _user_id: string }
+        Returns: Json
+      }
+      report_trip_chat_message: {
+        Args: {
+          p_details?: string
+          p_message_id: string
+          p_reason: string
+          p_trip_id: string
+        }
         Returns: Json
       }
       require_authenticated_driver_id: { Args: never; Returns: string }
@@ -32276,6 +32468,14 @@ export type Database = {
           p_status: string
         }
         Returns: string
+      }
+      trip_chat_participant: {
+        Args: { p_trip_id: string }
+        Returns: {
+          customer_id: string
+          driver_id: string
+          role: string
+        }[]
       }
       trip_commission_reserve_fare_minor: {
         Args: { p_trip: Database["public"]["Tables"]["trips"]["Row"] }
