@@ -25611,9 +25611,18 @@ export type Database = {
       vehicle_change_requests: {
         Row: {
           admin_notes: string | null
+          cancelled_at: string | null
+          confirmed_vehicle_type_ids: string[] | null
           created_at: string
           driver_id: string
           id: string
+          idempotency_key: string | null
+          previous_color: string | null
+          previous_license_plate: string | null
+          previous_make: string | null
+          previous_model: string | null
+          previous_year: number | null
+          rejection_reason: string | null
           requested_color: string
           requested_license_plate: string
           requested_make: string
@@ -25621,6 +25630,7 @@ export type Database = {
           requested_year: number
           reviewed_at: string | null
           reviewed_by: string | null
+          reviewed_document_ids: string[] | null
           status: string
           updated_at: string
           vehicle_id: string
@@ -28983,6 +28993,21 @@ export type Database = {
           p_note?: string
           p_verification_id: string
         }
+        Returns: Json
+      }
+      admin_decide_vehicle_change_request: {
+        Args: {
+          p_admin_notes?: string
+          p_decision: string
+          p_enabled_vehicle_type_ids?: string[]
+          p_rejection_reason?: string
+          p_request_id: string
+          p_reviewed_document_ids?: string[]
+        }
+        Returns: Json
+      }
+      admin_get_vehicle_change_review: {
+        Args: { p_request_id: string }
         Returns: Json
       }
       admin_driver_financial_repair_lock: {

@@ -11,19 +11,9 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-  DialogFooter,
-} from '@/components/ui/dialog';
-import { Textarea } from '@/components/ui/textarea';
-import { Label } from '@/components/ui/label';
+import { VehicleChangeReviewDialog } from '@/components/vehicles/VehicleChangeReviewDialog';
 import { supabase } from '@/integrations/supabase/client';
-import { Plus, CarTaxiFront, Loader2, CheckCircle, XCircle, ArrowRight, AlertTriangle, Clock, Archive } from 'lucide-react';
-import { toast } from 'sonner';
+import { Plus, CarTaxiFront, Loader2, ArrowRight, AlertTriangle, Clock, Archive } from 'lucide-react';
 
 interface Vehicle {
   id: string;
@@ -60,7 +50,10 @@ interface VehicleChangeRequest {
   requested_license_plate: string;
   status: string;
   admin_notes: string | null;
+  rejection_reason: string | null;
   created_at: string;
+  reviewed_at: string | null;
+  cancelled_at: string | null;
   driver?: {
     first_name: string;
     last_name: string;
@@ -85,8 +78,6 @@ export default function Vehicles() {
   // Review dialog state
   const [reviewRequest, setReviewRequest] = useState<VehicleChangeRequest | null>(null);
   const [showArchived, setShowArchived] = useState(false);
-  const [adminNotes, setAdminNotes] = useState('');
-  const [isProcessing, setIsProcessing] = useState(false);
 
   const fetchVehicles = async () => {
     try {
@@ -114,7 +105,7 @@ export default function Vehicles() {
       const { data, error } = await supabase
         .from('vehicle_change_requests')
         .select(`
-          id, driver_id, vehicle_id, requested_make, requested_model, requested_year, requested_color, requested_license_plate, status, admin_notes, reviewed_at, reviewed_by, created_at, updated_at,
+          id, driver_id, vehicle_id, requested_make, requested_model, requested_year, requested_color, requested_license_plate, status, admin_notes, rejection_reason, reviewed_at, reviewed_by, cancelled_at, created_at, updated_at,
           driver:drivers(first_name, last_name, driver_code),
           vehicle:vehicles(make, model, year, color, license_plate)
         `)
@@ -158,67 +149,10 @@ export default function Vehicles() {
   const pendingRequests = changeRequests.filter(r => r.status === 'pending');
   const reviewedRequests = changeRequests.filter(r => r.status !== 'pending');
 
-  const handleReview = async (approved: boolean) => {
-    if (!reviewRequest) return;
-    setIsProcessing(true);
-
-    try {
-      const newStatus = approved ? 'approved' : 'rejected';
-
-      // Update the change request
-      const { error: updateError } = await supabase
-        .from('vehicle_change_requests')
-        .update({
-          status: newStatus,
-          admin_notes: adminNotes || null,
-          reviewed_at: new Date().toISOString(),
-          reviewed_by: (await supabase.auth.getUser()).data.user?.id,
-        })
-        .eq('id', reviewRequest.id);
-
-      if (updateError) throw updateError;
-
-      // If approved, update the actual vehicle
-      if (approved) {
-        const { error: vehicleError } = await supabase
-          .from('vehicles')
-          .update({
-            make: reviewRequest.requested_make,
-            model: reviewRequest.requested_model,
-            year: reviewRequest.requested_year,
-            color: reviewRequest.requested_color,
-            license_plate: reviewRequest.requested_license_plate,
-          })
-          .eq('id', reviewRequest.vehicle_id);
-
-        if (vehicleError) throw vehicleError;
-
-        // Update driver's vehicle_edit_request_status
-        await supabase
-          .from('drivers')
-          .update({ vehicle_edit_request_status: 'approved' })
-          .eq('id', reviewRequest.driver_id);
-
-        toast.success('Vehicle change approved and applied');
-        fetchVehicles();
-      } else {
-        await supabase
-          .from('drivers')
-          .update({ vehicle_edit_request_status: 'rejected' })
-          .eq('id', reviewRequest.driver_id);
-
-        toast.success('Vehicle change rejected');
-      }
-
-      setReviewRequest(null);
-      setAdminNotes('');
-      fetchChangeRequests();
-    } catch (err) {
-      console.error('Error processing request:', err);
-      toast.error('Failed to process request');
-    } finally {
-      setIsProcessing(false);
-    }
+  const handleDecided = (decision: 'approve' | 'reject') => {
+    setReviewRequest(null);
+    if (decision === 'approve') fetchVehicles();
+    fetchChangeRequests();
   };
 
   return (
@@ -283,10 +217,7 @@ export default function Vehicles() {
                         <Button
                           size="sm"
                           variant="outline"
-                          onClick={() => {
-                            setReviewRequest(req);
-                            setAdminNotes('');
-                          }}
+                            onClick={() => setReviewRequest(req)}
                         >
                           Review
                         </Button>
@@ -434,17 +365,27 @@ export default function Vehicles() {
                       </TableCell>
                       <TableCell>
                         <Badge
-                          variant={req.status === 'approved' ? 'default' : 'destructive'}
+                          variant={req.status === 'rejected' ? 'destructive' : req.status === 'approved' ? 'default' : 'secondary'}
                           className={req.status === 'approved' ? 'bg-green-500/10 text-green-600' : ''}
                         >
                           {req.status}
                         </Badge>
                       </TableCell>
-                      <TableCell className="text-muted-foreground text-sm max-w-[200px] truncate">
-                        {req.admin_notes || '—'}
+                      <TableCell className="text-muted-foreground text-sm max-w-[260px]">
+                        {req.rejection_reason && (
+                          <div className="truncate" title={req.rejection_reason}>
+                            Driver: {req.rejection_reason}
+                          </div>
+                        )}
+                        {req.admin_notes && (
+                          <div className="truncate" title={req.admin_notes}>
+                            Internal: {req.admin_notes}
+                          </div>
+                        )}
+                        {!req.rejection_reason && !req.admin_notes && '—'}
                       </TableCell>
                       <TableCell className="text-muted-foreground text-sm">
-                        {new Date(req.created_at).toLocaleDateString()}
+                        {new Date(req.cancelled_at ?? req.reviewed_at ?? req.created_at).toLocaleDateString()}
                       </TableCell>
                     </TableRow>
                   ))}
@@ -455,70 +396,17 @@ export default function Vehicles() {
         )}
       </div>
 
-      {/* Review Dialog */}
-      <Dialog open={!!reviewRequest} onOpenChange={(open) => !open && setReviewRequest(null)}>
-        <DialogContent className="max-w-lg">
-          <DialogHeader>
-            <DialogTitle>Review Vehicle Change Request</DialogTitle>
-            <DialogDescription>
-              {reviewRequest?.driver?.first_name} {reviewRequest?.driver?.last_name}
-              {reviewRequest?.driver?.driver_code && ` (${reviewRequest.driver.driver_code})`} wants to update their vehicle.
-            </DialogDescription>
-          </DialogHeader>
-
-          {reviewRequest && (
-            <div className="space-y-4">
-              {/* Current → Requested comparison */}
-              <div className="grid grid-cols-2 gap-4">
-                <div className="rounded-lg border p-3 space-y-1">
-                  <p className="text-xs font-medium text-muted-foreground uppercase">Current</p>
-                  {reviewRequest.vehicle ? (
-                    <>
-                      <p className="font-medium">{reviewRequest.vehicle.year} {reviewRequest.vehicle.make} {reviewRequest.vehicle.model}</p>
-                      <p className="text-sm text-muted-foreground">{reviewRequest.vehicle.color} · {reviewRequest.vehicle.license_plate}</p>
-                    </>
-                  ) : (
-                    <p className="text-muted-foreground">N/A</p>
-                  )}
-                </div>
-                <div className="rounded-lg border border-primary/30 bg-primary/5 p-3 space-y-1">
-                  <p className="text-xs font-medium text-primary uppercase">Requested</p>
-                  <p className="font-medium">{reviewRequest.requested_year} {reviewRequest.requested_make} {reviewRequest.requested_model}</p>
-                  <p className="text-sm text-muted-foreground">{reviewRequest.requested_color} · {reviewRequest.requested_license_plate}</p>
-                </div>
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="admin-notes">Admin Notes (optional)</Label>
-                <Textarea
-                  id="admin-notes"
-                  placeholder="Add notes about this decision..."
-                  value={adminNotes}
-                  onChange={(e) => setAdminNotes(e.target.value)}
-                />
-              </div>
-            </div>
-          )}
-
-          <DialogFooter className="flex gap-2">
-            <Button
-              variant="destructive"
-              onClick={() => handleReview(false)}
-              disabled={isProcessing}
-            >
-              {isProcessing ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <XCircle className="h-4 w-4 mr-2" />}
-              Reject
-            </Button>
-            <Button
-              onClick={() => handleReview(true)}
-              disabled={isProcessing}
-            >
-              {isProcessing ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <CheckCircle className="h-4 w-4 mr-2" />}
-              Approve & Apply
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <VehicleChangeReviewDialog
+        requestId={reviewRequest?.id ?? null}
+        driverLabel={
+          reviewRequest
+            ? `${reviewRequest.driver?.first_name ?? ''} ${reviewRequest.driver?.last_name ?? ''}`.trim() +
+              (reviewRequest.driver?.driver_code ? ` (${reviewRequest.driver.driver_code})` : '')
+            : ''
+        }
+        onClose={() => setReviewRequest(null)}
+        onDecided={handleDecided}
+      />
     </AdminLayout>
   );
 }
