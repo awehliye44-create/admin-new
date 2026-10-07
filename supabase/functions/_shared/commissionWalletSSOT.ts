@@ -2285,6 +2285,32 @@ export function shouldSkipPlatformPreauthForCommissionWallet(
     && pairing.financial_model === SERVICE_AREA_FINANCIAL_MODEL.DRIVER_COLLECTED_COMMISSION_WALLET;
 }
 
+/** Methods that only settle through a platform Payment Session (Revolut preauth). */
+const PLATFORM_COLLECTED_ONLY_PAYMENT_METHODS = new Set([
+  "card",
+  "saved_card",
+  "new_card",
+  "apple_pay",
+  "applepay",
+  "google_pay",
+  "googlepay",
+]);
+
+export function isPlatformCollectedOnlyPaymentMethod(method: string | null | undefined): boolean {
+  return PLATFORM_COLLECTED_ONLY_PAYMENT_METHODS.has(String(method ?? "").trim().toLowerCase());
+}
+
+/**
+ * A driver-collected trip skips the Payment Session, so a platform card/wallet
+ * method would book an unpaid trip even if Admin mis-enables that method.
+ */
+export function isDriverCollectedPlatformMethodViolation(args: {
+  skipPlatformPreauth: boolean;
+  paymentMethod: string | null | undefined;
+}): boolean {
+  return args.skipPlatformPreauth && isPlatformCollectedOnlyPaymentMethod(args.paymentMethod);
+}
+
 /**
  * Phase 8 — trip payment columns for DRIVER_COLLECTS_UPFRONT (cash to driver).
  * Omit payment_reauth_status (CHECK allows only pending|success|failed).

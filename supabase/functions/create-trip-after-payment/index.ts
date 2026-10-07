@@ -46,6 +46,7 @@ import {
   buildTripFinancialModelSnapshot,
   classifyServiceAreaFinancialPairing,
   INVALID_CONFIGURATION,
+  isDriverCollectedPlatformMethodViolation,
   shouldSkipPlatformPreauthForCommissionWallet,
   type ServiceAreaCommissionWalletConfig,
 } from "../_shared/commissionWalletSSOT.ts";
@@ -391,6 +392,20 @@ serveWithEdgeTiming("create-trip-after-payment", corsHeaders, async (req) => {
     if (skipPlatformPreauth && body.payment_intent_id) {
       return new Response(JSON.stringify({
         error: "Payment Session is forbidden for DRIVER_COLLECTED_COMMISSION_WALLET",
+        error_code: "FINANCIAL_MODEL_VIOLATION",
+        code: "FINANCIAL_MODEL_VIOLATION",
+      }), {
+        status: 409,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+    if (isDriverCollectedPlatformMethodViolation({ skipPlatformPreauth, paymentMethod: body.payment_method })) {
+      log("REJECTED — platform payment method in driver-collected area", {
+        service_area_id: body.service_area_id,
+        payment_method: body.payment_method,
+      });
+      return new Response(JSON.stringify({
+        error: "This payment method isn't available in this area.",
         error_code: "FINANCIAL_MODEL_VIOLATION",
         code: "FINANCIAL_MODEL_VIOLATION",
       }), {

@@ -1,4 +1,4 @@
-import { createClient } from "npm:@supabase/supabase-js@2.57.2";
+import { createClient, type SupabaseClient } from "npm:@supabase/supabase-js@2.57.2";
 import {
   isAuthorisedHoldSessionStatus,
   loadPaymentSession,
@@ -9,6 +9,9 @@ import {
   sessionAgeMs,
   shouldForceAuthorisedSessionRelease,
 } from "../_shared/holdReleaseSSOT.ts";
+import { isPendingOrderWithoutProviderPayment } from "../_shared/holdReleasePure.ts";
+import { resolveRevolutMerchantContext } from "../_shared/revolutMerchantContext.ts";
+import { retrieveRevolutOrder } from "../_shared/revolutOrders.ts";
 import { serveWithEdgeTiming } from "../_shared/edgeFunctionTiming.ts";
 import { reconcileReceivablesOnAbandonOrCancel } from "../_shared/customerReceivableLifecycle.ts";
 
@@ -271,6 +274,31 @@ serveWithEdgeTiming("abandon-payment-session", corsHeaders, async (req) => {
       });
     }
 
+    // Cancel failed, but a same-order read-back showing PENDING with no payment
+    // proves no hold exists: abandon locally instead of a 500 retry loop.
+    if (await isPendingOrderWithoutPaymentReadBack(supabase, orderId)) {
+      await markPaymentSessionAbandoned(supabase, {
+        clientActionId: clientActionId ?? String(session.client_action_id ?? ""),
+        providerOrderId: orderId,
+        reason,
+      });
+      const recv = await reconcileReceivables({ hold_safely_released: false });
+      console.info("CHECKOUT_CANCELLED", {
+        client_action_id: clientActionId ?? session.client_action_id,
+        provider_order_id: orderId,
+        reason,
+        release_status: "abandoned_local_no_provider_payment",
+        release_error: release.error ?? null,
+      });
+      return json({
+        success: true,
+        abandoned: true,
+        released: false,
+        release_status: "abandoned_local_no_provider_payment",
+        ...recv,
+      });
+    }
+
     // UNKNOWN / cancel failed — retain RESERVED; same-order reconcile only.
     const recv = await reconcileReceivables({ hold_safely_released: false });
     return json({
@@ -306,6 +334,19 @@ serveWithEdgeTiming("abandon-payment-session", corsHeaders, async (req) => {
     ...recv,
   });
 });
+
+async function isPendingOrderWithoutPaymentReadBack(
+  supabase: SupabaseClient,
+  orderId: string,
+): Promise<boolean> {
+  try {
+    const merchant = await resolveRevolutMerchantContext(supabase, "live");
+    const order = await retrieveRevolutOrder(merchant.environment, merchant.secretKey, orderId);
+    return isPendingOrderWithoutProviderPayment(order);
+  } catch {
+    return false;
+  }
+}
 
 function json(body: Record<string, unknown>, status = 200): Response {
   return new Response(JSON.stringify(body), {
