@@ -20,6 +20,10 @@ import {
 } from "./tripModificationPaymentGateSSOT.ts";
 import { SERVICE_AREA_FINANCIAL_MODEL } from "./commissionWalletSSOT.ts";
 import { TRIP_CHANGE_BANK_DECLINED_CUSTOMER_MESSAGE } from "./revolutCustomerError.ts";
+import {
+  failureClassForModificationFailure,
+  type ModificationPaymentFailureClass,
+} from "./modificationPaymentFailureTaxonomy.ts";
 
 export const CUSTOMER_PAYMENT_INCREMENT_UNRESOLVED =
   "CUSTOMER_PAYMENT_INCREMENT_UNRESOLVED";
@@ -48,6 +52,7 @@ export type FareIncreasePaymentResult = {
   /** Revolut's issuer/card reason when the bank declined the increment. */
   declineReason?: string | null;
   bankDeclined?: boolean;
+  failure_class?: ModificationPaymentFailureClass;
   httpStatus: number;
   requiresApproval?: boolean;
   navigationImpacted?: boolean;
@@ -467,6 +472,11 @@ export async function executeFareIncreaseModificationPayment(
       errorCode,
       declineReason: pending ? null : failure.bankDeclineReason,
       bankDeclined: !pending && failure.kind === "bank_declined",
+      failure_class: failureClassForModificationFailure({
+        pending,
+        kind: failure.kind,
+        bankDeclineReason: failure.bankDeclineReason,
+      }),
       error: customerMessageForGate(gate, failure),
       httpStatus: pending ? 202 : 402,
     };

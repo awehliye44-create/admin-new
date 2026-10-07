@@ -567,6 +567,7 @@ serveWithEdgeTiming("request-trip-modification", corsHeaders, async (req) => {
             code: resume.errorCode ?? "PAYMENT_CONFIRMATION_FAILED",
             decline_reason: resume.declineReason ?? null,
             bank_declined: resume.bankDeclined === true,
+            failure_class: resume.failure_class ?? "UNKNOWN_PROVIDER_ERROR",
           }), {
             status: resume.httpStatus,
             headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -1286,6 +1287,7 @@ serveWithEdgeTiming("request-trip-modification", corsHeaders, async (req) => {
           code: paymentResult.errorCode ?? "PAYMENT_CONFIRMATION_FAILED",
           decline_reason: paymentResult.declineReason ?? null,
           bank_declined: paymentResult.bankDeclined === true,
+          failure_class: paymentResult.failure_class ?? "UNKNOWN_PROVIDER_ERROR",
           preview,
           newFare: newCustomerTotalPence / 100,
           newFarePence,

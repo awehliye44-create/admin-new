@@ -34,6 +34,7 @@ import {
   classifyModificationPaymentFailure,
   decideFromPreauthInvokeResult,
 } from "../../functions/_shared/tripModificationPaymentGateSSOT.ts";
+import { failureClassForModificationFailure } from "../../functions/_shared/modificationPaymentFailureTaxonomy.ts";
 
 const read = (path: string) => Deno.readTextFile(new URL(path, import.meta.url));
 
@@ -270,6 +271,21 @@ Deno.test("trip change: backend returns trip-change copy only for bank declines"
   const request = await read("../../functions/request-trip-modification/index.ts");
   assertEquals(request.match(/decline_reason: (paymentResult|resume)\.declineReason/g)?.length, 2);
   assertEquals(request.match(/bank_declined: (paymentResult|resume)\.bankDeclined === true/g)?.length, 2);
+});
+
+Deno.test("trip change failure_class never claims an issuer decline without a bank reason", async () => {
+  const cls = (kind: "bank_declined" | "not_authorised" | "technical", reason: string | null, pending = false) =>
+    failureClassForModificationFailure({ pending, kind, bankDeclineReason: reason });
+  assertEquals(cls("bank_declined", "do_not_honour"), "ISSUER_DECLINED");
+  assertEquals(cls("bank_declined", "insufficient_funds"), "INSUFFICIENT_FUNDS");
+  assertEquals(cls("not_authorised", null), "UNKNOWN_PROVIDER_ERROR");
+  assertEquals(cls("technical", null), "UNKNOWN_PROVIDER_ERROR");
+  assertEquals(cls("technical", null, true), "NETWORK_OR_TIMEOUT");
+
+  const taxonomy = await read("../../functions/_shared/modificationPaymentFailureTaxonomy.ts");
+  assertFalse(taxonomy.includes("customerSafeErrorForFailureClass"));
+  assertFalse(/Insufficient funds for this trip change/i.test(taxonomy));
+  assertFalse(/use another payment method/i.test(taxonomy));
 });
 
 Deno.test("Google Pay submit resolves the provider reason before choosing copy", async () => {
