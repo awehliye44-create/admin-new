@@ -1,9 +1,9 @@
 import { createClient } from "npm:@supabase/supabase-js@2.57.2";
 import {
-  isAuthorisedHoldSessionStatus,
   loadPaymentSession,
   markPaymentSessionCheckoutOpen,
 } from "../_shared/paymentSessionSSOT.ts";
+import { isAuthorisedHoldSessionStatus } from "../_shared/revolutPaymentHoldSSOT.ts";
 import { serveWithEdgeTiming } from "../_shared/edgeFunctionTiming.ts";
 
 const corsHeaders = {

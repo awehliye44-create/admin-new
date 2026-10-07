@@ -118,22 +118,24 @@ Deno.test("P5: anything that may hold funds is NOT locally abandoned", () => {
   }
 });
 
-Deno.test("abandon-payment-session boots: every named _shared import is exported by its module", async () => {
-  const src = await read("supabase/functions/abandon-payment-session/index.ts");
-  const imports = [...src.matchAll(/import\s*\{([^}]+)\}\s*from\s*"\.\.\/_shared\/([^"]+)"/g)];
-  assert(imports.length > 0);
-  for (const [, names, file] of imports) {
-    const mod = await read(`supabase/functions/_shared/${file}`);
-    for (const raw of names.split(",")) {
-      const name = raw.replace(/^\s*type\s+/, "").split(/\s+as\s+/)[0].trim();
-      if (!name) continue;
-      const exported = new RegExp(
-        `export\\s+(?:async\\s+)?(?:function|const|let|class|type|interface)\\s+${name}\\b|export\\s*\\{[^}]*\\b${name}\\b[^}]*\\}`,
-      ).test(mod);
-      assert(exported, `${file} must export ${name} (a missing export is a worker boot error → 503)`);
+for (const fn of ["abandon-payment-session", "open-payment-session-checkout"]) {
+  Deno.test(`${fn} boots: every named _shared import is exported by its module`, async () => {
+    const src = await read(`supabase/functions/${fn}/index.ts`);
+    const imports = [...src.matchAll(/import\s*\{([^}]+)\}\s*from\s*"\.\.\/_shared\/([^"]+)"/g)];
+    assert(imports.length > 0);
+    for (const [, names, file] of imports) {
+      const mod = await read(`supabase/functions/_shared/${file}`);
+      for (const raw of names.split(",")) {
+        const name = raw.replace(/^\s*type\s+/, "").split(/\s+as\s+/)[0].trim();
+        if (!name) continue;
+        const exported = new RegExp(
+          `export\\s+(?:async\\s+)?(?:function|const|let|class|type|interface)\\s+${name}\\b|export\\s*\\{[^}]*\\b${name}\\b[^}]*\\}`,
+        ).test(mod);
+        assert(exported, `${file} must export ${name} (a missing export is a worker boot error → 503)`);
+      }
     }
-  }
-});
+  });
+}
 
 Deno.test("P5: abandon-payment-session returns 200 local abandon only after a same-order read-back", async () => {
   const src = await read("supabase/functions/abandon-payment-session/index.ts");

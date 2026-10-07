@@ -43,6 +43,24 @@ export const COMMISSION_WALLET_ENTRY_TYPE = {
 export type CommissionWalletEntryType =
   typeof COMMISSION_WALLET_ENTRY_TYPE[keyof typeof COMMISSION_WALLET_ENTRY_TYPE];
 
+/**
+ * Entries a Driver may see in Commission Wallet history. Commission deductions,
+ * reservations, subsidies and corrections stay internal (driver privacy).
+ * Mirrors the Driver app `COMMISSION_WALLET_DRIVER_VISIBLE_ENTRY_TYPES`.
+ */
+export const COMMISSION_WALLET_DRIVER_VISIBLE_ENTRY_TYPES: readonly string[] = [
+  COMMISSION_WALLET_ENTRY_TYPE.TOP_UP_CREDIT,
+  COMMISSION_WALLET_ENTRY_TYPE.WELCOME_CREDIT,
+  COMMISSION_WALLET_ENTRY_TYPE.PROMOTIONAL_CREDIT,
+  COMMISSION_WALLET_ENTRY_TYPE.ADMIN_CREDIT,
+];
+
+export function isDriverVisibleCommissionWalletEntryType(
+  entryType: string | null | undefined,
+): boolean {
+  return COMMISSION_WALLET_DRIVER_VISIBLE_ENTRY_TYPES.includes(String(entryType ?? "").toUpperCase());
+}
+
 export const DEFAULT_CASH_UPFRONT_POLICY_NOTICE =
   "ONECAB is digital-only. Passenger cash is retired — customers must pay in the app (card or mobile wallet). Driver-collected cash is not supported for new trips.";
 
