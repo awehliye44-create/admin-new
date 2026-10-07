@@ -108,6 +108,8 @@ Deno.serve(async (req) => {
       error: result.error,
       error_code: result.errorCode,
       code: result.errorCode,
+      decline_reason: result.declineReason ?? null,
+      bank_declined: result.bankDeclined === true,
       ...(result.error && !result.success ? { details: result.error } : {}),
     }, result.httpStatus);
   } catch (error) {

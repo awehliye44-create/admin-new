@@ -73,6 +73,8 @@ export type SameOrderIncrementResult =
      * target" and must not be presented to a customer as a bank/issuer decline.
      */
     providerDeclineEvidence?: ProviderDeclineEvidence | null;
+    /** Revolut's own reason for an evidenced decline (null when Revolut gave none). */
+    providerDeclineReason?: string | null;
   };
 
 export type ProviderDeclineEvidence = "provider_increment_declined" | "provider_http_declined";
@@ -671,6 +673,8 @@ export async function executeSameOrderIncrement(args: {
             errorClassification: "PROVIDER_INCREMENT_FAILED",
           };
         }
+        const priorDeclineEvidenced = providerIncrementOutcome(priorEvidence) === "declined"
+          && isExplicitAttemptMatch(priorEvidence);
         return {
           ok: false,
           kind: "declined",
@@ -678,9 +682,9 @@ export async function executeSameOrderIncrement(args: {
           providerConfirmedTotalPence: providerTotal,
           eligibility,
           errorClassification: "AUTHORISED_TOTAL_BELOW_TARGET",
-          providerDeclineEvidence: providerIncrementOutcome(priorEvidence) === "declined"
-              && isExplicitAttemptMatch(priorEvidence)
-            ? "provider_increment_declined"
+          providerDeclineEvidence: priorDeclineEvidenced ? "provider_increment_declined" : null,
+          providerDeclineReason: priorDeclineEvidenced
+            ? priorEvidence.increment_reason ?? null
             : null,
         };
       }
@@ -1258,6 +1262,9 @@ export async function executeSameOrderIncrement(args: {
       errorClassification: failedErrorClassification
         ?? failCode ?? String(failOutcome).toUpperCase(),
       providerDeclineEvidence,
+      providerDeclineReason: providerDeclineEvidence
+        ? finalEvidence.increment_reason ?? null
+        : null,
     };
   } finally {
     await releasePaymentSessionFinancialLock(args.supabase, {

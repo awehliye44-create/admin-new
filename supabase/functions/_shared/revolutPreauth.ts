@@ -4,7 +4,10 @@ import {
   buildPreauthIdempotencyKey,
   recordPaymentAuthorizationEvent,
 } from "./dynamicPaymentWorkflow.ts";
-import { humanizeRevolutPreauthCustomerError } from "./revolutCustomerError.ts";
+import {
+  findBankDeclineReason,
+  humanizeRevolutPreauthCustomerError,
+} from "./revolutCustomerError.ts";
 import { ensureRevolutCustomerForBooking } from "./revolutCustomers.ts";
 import {
   buildPreauthOrderCreateMetadata,
@@ -1534,6 +1537,8 @@ async function attemptRevolutSavedCardCharge(args: {
         charge_state: "no_charge",
         client_state: preserveCard ? "PAYMENT_FAILED" : "DECLINED",
         terminal: true,
+        decline_reason: declineReason,
+        bank_declined: findBankDeclineReason(declineReason) !== null,
         preserve_saved_card: preserveCard,
         retry_after_ms: SAVED_CARD_TERMINAL_FAILURE_THROTTLE_MS,
         throttle_ms: SAVED_CARD_TERMINAL_FAILURE_THROTTLE_MS,

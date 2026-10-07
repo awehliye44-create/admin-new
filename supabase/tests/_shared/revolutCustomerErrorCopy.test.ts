@@ -1,8 +1,9 @@
 /**
- * Booking/preauth customer copy invariant:
- *   Revolut decline_reason attributed to issuer/card → bank wording allowed
+ * Booking/preauth customer copy invariant (unified-bank-decline-copy lock):
+ *   issuer/card/network decline reason (incl. failed 3DS) → unified bank copy
  *   payment state (FAILED/DECLINED), generic failed/declined text, technical,
- *   risk, 3DS, timeout, unknown → neutral; raw provider/internal text never shown.
+ *   risk, merchant, form data, timeout, unknown → neutral
+ *   abandoned / rejected 3DS → cancellation; raw provider/internal text never shown.
  */
 import { assert, assertEquals, assertStrictEquals } from "https://deno.land/std@0.224.0/assert/mod.ts";
 import {
@@ -31,6 +32,18 @@ Deno.test("issuer/card decline_reason → bank wording", () => {
       "withdrawal_limit_exceeded",
       "transaction_not_allowed_for_cardholder",
       "REVOLUT_PAYMENT_FAILED:do_not_honour",
+      "do_not_honor",
+      "issuer_declined",
+      "card_declined",
+      "card_not_supported",
+      "3ds_challenge_failed",
+      "3ds_challenge_failed_manually",
+      "customer_challenge_failed",
+      "authentication_required",
+      "doNotHonour",
+      "insufficientFunds",
+      "threeDSChallengeFailed",
+      "REVOLUT_PAYMENT_DECLINED:INSUFFICIENT_FUNDS",
     ]
   ) {
     assert(isRevolutIssuerCardDeclineReason(reason), reason);
@@ -49,11 +62,14 @@ Deno.test("payment states and non-issuer reasons → neutral, never bank wording
       "issuer_not_available",
       "high_risk",
       "suspected_fraud",
-      "3ds_challenge_failed",
-      "customer_challenge_failed",
+      "invalid_merchant",
       "invalid_amount",
       "invalid_email",
-      "rejected_by_customer",
+      "invalid_address",
+      "invalid_country",
+      "invalid_phone",
+      "cardholder_name_missing",
+      "customer_name_mismatch",
       "REVOLUT_PAYMENT_FAILED",
     ]
   ) {
@@ -61,6 +77,24 @@ Deno.test("payment states and non-issuer reasons → neutral, never bank wording
     const out = humanizeRevolutPreauthCustomerError(reason);
     assertEquals(out, REVOLUT_PAYMENT_NOT_AUTHORISED_CUSTOMER_MESSAGE, reason);
     assertNeutral(reason, out);
+  }
+});
+
+Deno.test("abandoned / rejected 3DS → cancellation, never bank decline", () => {
+  for (
+    const reason of [
+      "3ds_challenge_abandoned",
+      "customer_challenge_abandoned",
+      "rejected_by_customer",
+      "threeDSChallengeAbandoned",
+    ]
+  ) {
+    assertStrictEquals(isRevolutIssuerCardDeclineReason(reason), false, reason);
+    assertEquals(
+      humanizeRevolutPreauthCustomerError(reason),
+      "Payment was cancelled. No booking has been created.",
+      reason,
+    );
   }
 });
 

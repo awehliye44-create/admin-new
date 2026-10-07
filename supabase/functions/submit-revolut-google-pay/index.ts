@@ -24,6 +24,11 @@ import {
   retrieveRevolutOrder,
   type GooglePayBillingAddress,
 } from "../_shared/revolutOrders.ts";
+import {
+  classifyGooglePaySubmitFailure,
+  isFailedPaymentState,
+  latestFailedPaymentDeclineReason,
+} from "../_shared/googlePaySubmitOutcome.ts";
 
 const RATE_LIMIT_CONFIG = { limit: 15, windowMs: 60 * 1000 };
 
@@ -225,21 +230,32 @@ serve(async (req) => {
         billingAddress: mapBillingAddress(body.billing_address),
       });
     } catch (err) {
+      // Read-only GET of the same order for Revolut's decline_reason. Never re-submits.
+      let declineReason: string | null = null;
+      try {
+        const after = await retrieveRevolutOrder(environment, secretKey, providerOrderId);
+        declineReason = latestFailedPaymentDeclineReason(after.payments);
+      } catch {
+        declineReason = null;
+      }
+      const failure = classifyGooglePaySubmitFailure({ declineReason, providerRejected: false });
       await logAuditEvent(supabase, "GOOGLE_PAY_SUBMIT_FAILED", {
         details: {
           payment_session_id: ps.id,
           provider_order_id: providerOrderId,
           token_sha256: tokenHash,
           message: err instanceof Error ? err.message : "pay_failed",
+          decline_reason: failure.decline_reason,
+          customer_code: failure.code,
         },
         ipAddress: clientIP,
         userAgent: req.headers.get("user-agent") || "unknown",
       });
       return errorResponse(
-        "Google Pay submission failed",
-        502,
-        undefined,
-        "GOOGLE_PAY_SUBMIT_FAILED",
+        failure.message,
+        failure.status,
+        { decline_reason: failure.decline_reason, bank_declined: failure.bank_declined },
+        failure.code,
       );
     }
 
@@ -267,6 +283,23 @@ serve(async (req) => {
       ipAddress: clientIP,
       userAgent: req.headers.get("user-agent") || "unknown",
     });
+
+    if (isFailedPaymentState(revolutResult.state)) {
+      const failure = classifyGooglePaySubmitFailure({
+        declineReason: revolutResult.decline_reason ?? null,
+        providerRejected: true,
+      });
+      return errorResponse(
+        failure.message,
+        failure.status,
+        {
+          decline_reason: failure.decline_reason,
+          bank_declined: failure.bank_declined,
+          provider_state: revolutResult.state ?? null,
+        },
+        failure.code,
+      );
+    }
 
     return successResponse({
       submitted: true,

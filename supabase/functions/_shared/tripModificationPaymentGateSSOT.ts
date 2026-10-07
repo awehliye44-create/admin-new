@@ -12,6 +12,7 @@ import {
   revolutProviderAuthorisedTotalPence,
   type RevolutOrder,
 } from "./revolutOrders.ts";
+import { findBankDeclineReason } from "./revolutCustomerError.ts";
 
 export type ModificationPaymentPhase =
   | "MODIFICATION_REQUESTED"
@@ -236,9 +237,13 @@ export function decideFromPreauthInvokeResult(args: {
   }
 
   // Revolut increment state `failed` is a technical/provider failure, not a decline.
+  // Persist failures are internal (revolut-incremental-auth lock) — never a decline.
   if (
     code === "PROVIDER_INCREMENT_FAILED"
     || coverage === "authorization_provider_failed"
+    || code === "INCREMENT_CONFIRM_PERSIST_FAILED"
+    || code === "PERSIST_FAILED"
+    || coverage === "authorization_persist_failed"
   ) {
     return {
       phase: "PAYMENT_FAILED",
@@ -347,6 +352,27 @@ export function decideFromPreauthInvokeResult(args: {
     authorisedTotalPence: authorised,
     reason: "declined",
   };
+}
+
+export type ModificationPaymentFailureKind = "bank_declined" | "not_authorised" | "technical";
+
+/**
+ * Customer-facing class of a failed fare-increase authorisation.
+ * Bank decline only with an issuer/card reason from Revolut (or an explicit
+ * issuer code); technical/internal failures and bare "declined"/below-target
+ * outcomes never get bank wording (unified-bank-decline-copy lock).
+ */
+export function classifyModificationPaymentFailure(args: {
+  gate: ModificationPaymentGateDecision;
+  declineReason?: string | null;
+  errorCode?: string | null;
+}): { kind: ModificationPaymentFailureKind; bankDeclineReason: string | null } {
+  if (args.gate.phase !== "PAYMENT_FAILED" || args.gate.reason === "failed") {
+    return { kind: "technical", bankDeclineReason: null };
+  }
+  const bankDeclineReason = findBankDeclineReason(args.declineReason, args.errorCode);
+  if (bankDeclineReason) return { kind: "bank_declined", bankDeclineReason };
+  return { kind: "not_authorised", bankDeclineReason: null };
 }
 
 /**
