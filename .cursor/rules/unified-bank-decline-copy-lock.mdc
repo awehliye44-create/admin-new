@@ -1,0 +1,76 @@
+---
+description: Every bank/card-issuer decline shows one unified customer popup regardless of payment method; wallet wording only for wallet-side failures.
+alwaysApply: true
+---
+
+# Unified bank-decline copy lock
+
+## Canonical rule
+
+**When the bank, card issuer or card network declines a payment, the customer sees the same popup for every payment method — Apple Pay, Google Pay, saved card, new card, 3DS card.** The wording never depends on the payment method and never blames ONECAB, Apple Pay, Google Pay or Revolut.
+
+### Booking / new payment
+
+- Title: `Payment declined by your bank`
+- Message: `Your bank declined this payment. Please check your card, use another card, or choose another payment method.`
+- Buttons: `Choose another card` / `Cancel`
+
+### Trip modification
+
+- Title: `Payment declined by your bank`
+- Message: `Your bank declined the payment for this trip change. Please check your card or contact your bank, then try the change again.`
+- Button: `OK` only
+
+No card switch is offered mid-trip: a fare increase must increment the **same** Revolut order, and a second pre-authorisation/order is forbidden (see `revolut-incremental-auth-primary-lock.mdc`). Original destination/stops/fare stay unchanged.
+
+## What counts as a bank decline
+
+Use the unified copy **only** for a provider decline reason attributed to the issuer/card (any spelling/casing, Revolut or card-network equivalent):
+
+- issuer_decline / issuer_declined / card_declined
+- do_not_honour / do_not_honor
+- insufficient_funds
+- expired_card, lost_card, stolen_card, restricted_card, pick_up_card
+- card_not_supported
+- transaction_not_allowed_for_cardholder
+- invalid_cvv, invalid_expiry, invalid_pin, pin_try_exceeded
+- withdrawal_limit_exceeded, withdrawal_frequency_exceeded
+- new_card_not_unblocked, invalid_account
+- authentication_required after failed authorisation; 3DS / customer challenge **failed**
+
+## Never bank-decline copy
+
+These get neutral payment copy (no bank blame):
+
+- high_risk, suspected_fraud (may be Revolut risk tools)
+- issuer_not_available, technical_error, timeouts, unknown/missing reason
+- invalid_merchant and other merchant configuration errors
+- form/data errors (email, amount, address, country, cardholder name, phone)
+- internal failures: `persist_failed`, `INCREMENT_CONFIRM_PERSIST_FAILED`, provider technical increment failure
+- a bare `declined` / `failed` state with no issuer reason
+
+3DS challenge **abandoned** / rejected by customer, and wallet sheet dismissal, are **cancellations** — not declines.
+
+## Wallet wording
+
+`Apple Pay …` / `Google Pay …` wording is allowed **only** when the wallet itself is cancelled, unavailable, not set up, or fails before card authorisation. After token handoff, resolve the provider decline reason (same order/session reconcile) before choosing copy — never default a post-handoff failure to wallet wording.
+
+## Do not
+
+- Show different decline wording per payment method
+- Show "Apple Pay couldn't complete this payment" / "Google Pay couldn't complete this payment" / "ONECAB could not take payment" for a bank/card decline
+- Keep a separate "Insufficient funds" title, or put a decline under "Booking didn't complete"
+- Map technical, risk, internal or unknown failures to the bank-decline popup
+- Keep separate decline lists in client and backend that disagree
+- Pass raw provider/internal text to the customer
+- Offer "Choose another card" for a trip-modification decline
+- Change Revolut increment, capture, idempotency or create a second order to support decline copy
+
+## SSOT
+
+- Backend: `supabase/functions/_shared/revolutCustomerError.ts` → `BANK_DECLINE_REASONS`, `findBankDeclineReason`
+- Customer: `src/features/payments/bankDeclineReasons.ts` (same list, parity-tested both sides)
+
+Lock tests: `supabase/tests/_shared/unifiedBankDeclineCopyLock.test.ts`
+Customer: `/Users/admin/ONECAB/onecab-customer-native/src/features/payments/unifiedBankDeclineCopy.lock.test.ts`
+**If they fail, fix the code — never delete or soften the lock.**
