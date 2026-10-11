@@ -32,6 +32,15 @@ const STATEMENT_PERIODS: Array<{ value: FinancePeriod; label: string }> = [
   { value: 'custom', label: 'Custom' },
 ];
 
+/** ONECAB Revenue & Profit Report — Today / Weekly / Monthly / This year / Custom. */
+export const REVENUE_PERIODS: Array<{ value: FinancePeriod; label: string }> = [
+  { value: 'today', label: 'Today' },
+  { value: 'week', label: 'Weekly' },
+  { value: 'month', label: 'Monthly' },
+  { value: 'year', label: 'This year' },
+  { value: 'custom', label: 'Custom' },
+];
+
 export function FinancePeriodFilter({
   period,
   onPeriodChange,
@@ -47,9 +56,10 @@ export function FinancePeriodFilter({
   customTo?: Date;
   onCustomFromChange: (date: Date | undefined) => void;
   onCustomToChange: (date: Date | undefined) => void;
-  variant?: 'default' | 'statement';
+  variant?: 'default' | 'statement' | 'revenue';
 }) {
-  const periods = variant === 'statement' ? STATEMENT_PERIODS : DEFAULT_PERIODS;
+  const periods =
+    variant === 'statement' ? STATEMENT_PERIODS : variant === 'revenue' ? REVENUE_PERIODS : DEFAULT_PERIODS;
   const [draftFrom, setDraftFrom] = useState<Date | undefined>(customFrom);
   const [draftTo, setDraftTo] = useState<Date | undefined>(customTo);
 
