@@ -25637,9 +25637,18 @@ export type Database = {
         }
         Insert: {
           admin_notes?: string | null
+          cancelled_at?: string | null
+          confirmed_vehicle_type_ids?: string[] | null
           created_at?: string
           driver_id: string
           id?: string
+          idempotency_key?: string | null
+          previous_color?: string | null
+          previous_license_plate?: string | null
+          previous_make?: string | null
+          previous_model?: string | null
+          previous_year?: number | null
+          rejection_reason?: string | null
           requested_color: string
           requested_license_plate: string
           requested_make: string
@@ -25647,15 +25656,25 @@ export type Database = {
           requested_year: number
           reviewed_at?: string | null
           reviewed_by?: string | null
+          reviewed_document_ids?: string[] | null
           status?: string
           updated_at?: string
           vehicle_id: string
         }
         Update: {
           admin_notes?: string | null
+          cancelled_at?: string | null
+          confirmed_vehicle_type_ids?: string[] | null
           created_at?: string
           driver_id?: string
           id?: string
+          idempotency_key?: string | null
+          previous_color?: string | null
+          previous_license_plate?: string | null
+          previous_make?: string | null
+          previous_model?: string | null
+          previous_year?: number | null
+          rejection_reason?: string | null
           requested_color?: string
           requested_license_plate?: string
           requested_make?: string
@@ -25663,6 +25682,7 @@ export type Database = {
           requested_year?: number
           reviewed_at?: string | null
           reviewed_by?: string | null
+          reviewed_document_ids?: string[] | null
           status?: string
           updated_at?: string
           vehicle_id?: string
@@ -29006,10 +29026,6 @@ export type Database = {
         }
         Returns: Json
       }
-      admin_get_vehicle_change_review: {
-        Args: { p_request_id: string }
-        Returns: Json
-      }
       admin_driver_financial_repair_lock: {
         Args: { p_acquire?: boolean; p_driver_id: string }
         Returns: Json
@@ -29071,6 +29087,10 @@ export type Database = {
         }[]
       }
       admin_get_user_email: { Args: { _user_id: string }; Returns: string }
+      admin_get_vehicle_change_review: {
+        Args: { p_request_id: string }
+        Returns: Json
+      }
       admin_list_customer_receivables: {
         Args: { p_customer_id?: string; p_limit?: number; p_status?: string }
         Returns: {
@@ -29496,6 +29516,10 @@ export type Database = {
       }
       cancel_driver_own_lost_property_report: {
         Args: { p_report_id: string }
+        Returns: Json
+      }
+      cancel_driver_vehicle_change_request: {
+        Args: { p_request_id: string }
         Returns: Json
       }
       canonical_trip_terminal_stop_reason: {
@@ -30079,6 +30103,17 @@ export type Database = {
       driver_effective_payout_allowed: {
         Args: { p_driver_id: string }
         Returns: boolean
+      }
+      driver_effective_vehicle_categories: {
+        Args: { p_driver_id: string }
+        Returns: {
+          driver_controllable: boolean
+          enabled: boolean
+          is_default: boolean
+          name: string
+          slug: string
+          vehicle_type_id: string
+        }[]
       }
       driver_freshness_reason: {
         Args: {
@@ -31331,6 +31366,10 @@ export type Database = {
         }[]
       }
       list_driver_trip_history: { Args: { p_limit?: number }; Returns: Json }
+      list_driver_vehicle_change_requests: {
+        Args: { p_limit?: number }
+        Returns: Json
+      }
       list_enabled_otp_country_codes: { Args: never; Returns: Json }
       list_pending_driver_tip_thanks: {
         Args: never
@@ -31448,6 +31487,10 @@ export type Database = {
         Returns: string
       }
       normalize_phone_digits: { Args: { p_phone: string }; Returns: string }
+      normalize_vehicle_licence_plate: {
+        Args: { p_raw: string }
+        Returns: string
+      }
       notify_drivers_trip_cancelled: {
         Args: { p_reason: string; p_trip_id: string }
         Returns: undefined
@@ -32384,6 +32427,17 @@ export type Database = {
         }
         Returns: Json
       }
+      submit_driver_vehicle_change_request: {
+        Args: {
+          p_color: string
+          p_idempotency_key?: string
+          p_license_plate: string
+          p_make: string
+          p_model: string
+          p_year: number
+        }
+        Returns: Json
+      }
       suspend_corporate_account: {
         Args: { p_account_id: string }
         Returns: undefined
@@ -32684,6 +32738,18 @@ export type Database = {
         Args: { p_region_id: string; p_service_area_ids: string[] }
         Returns: Json
       }
+      vehicle_change_applicable_documents: {
+        Args: { p_driver_id: string }
+        Returns: Json
+      }
+      vehicle_change_document_slugs: { Args: never; Returns: string[] }
+      vehicle_change_request_json: {
+        Args: {
+          r: Database["public"]["Tables"]["vehicle_change_requests"]["Row"]
+        }
+        Returns: Json
+      }
+      vehicle_licence_plate_key: { Args: { p_raw: string }; Returns: string }
       verify_active_device: {
         Args: { p_device_id: string }
         Returns: {
