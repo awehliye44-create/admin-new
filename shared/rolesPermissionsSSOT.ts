@@ -271,6 +271,20 @@ export const DELEGATION_CONFIRM = {
   confirm: 'Grant Permission',
 } as const;
 
+/** Step-by-step guide shown in the Add Staff dialog and help modal. */
+export const STAFF_CREDENTIALS_GUIDE = {
+  title: 'How to create staff login credentials',
+  steps: [
+    '1. Create the login in Supabase: Dashboard → Authentication → Users → Add user. Enter the staff email and a temporary password (they can change it later).',
+    '2. Copy the User ID (UUID) shown next to the new user.',
+    '3. Back here, click Add Staff, paste the User ID, and fill in full name, username, and role.',
+    '4. Choose the service areas the staff member may work in (leave empty for all areas).',
+    '5. The staff member signs in with that email and password — their role controls which admin pages and actions they can use.',
+  ],
+  updateNote:
+    'To update a staff member, use Edit (name, username, service areas). To remove admin access, use Remove Access — this deletes their staff profile and permissions but keeps their login so the account stays traceable. Deleting the login itself is done in Supabase Authentication → Users.',
+} as const;
+
 export const DENIED_COPY = {
   readOnlyBanner:
     'You have read-only access. A Super Admin must grant additional permission before you can change staff roles or permissions.',
