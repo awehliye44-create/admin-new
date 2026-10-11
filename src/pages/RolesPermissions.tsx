@@ -1228,6 +1228,18 @@ export default function RolesPermissions() {
             </DialogDescription>
           </DialogHeader>
 
+          <Alert className="bg-primary/5 border-primary/20">
+            <Info className="h-4 w-4 text-primary shrink-0" />
+            <AlertDescription className="space-y-1.5 text-sm">
+              <p className="font-medium text-foreground">{STAFF_CREDENTIALS_GUIDE.title}</p>
+              <ol className="list-decimal list-inside space-y-1 text-muted-foreground">
+                {STAFF_CREDENTIALS_GUIDE.steps.map((step) => (
+                  <li key={step}>{step}</li>
+                ))}
+              </ol>
+            </AlertDescription>
+          </Alert>
+
           <div className="space-y-4">
             <div className="space-y-2">
               <Label>User ID (UUID)</Label>
