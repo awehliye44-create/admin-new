@@ -138,6 +138,7 @@ export const HELP_MODAL_BODY = [
   'Only a Super Admin can create roles, assign roles, change permissions, or grant access to service areas.',
   'Other staff members can manage roles and permissions only when a Super Admin explicitly grants them the required permission.',
   'Giving access to this page does not automatically give permission to change staff roles. View, create, edit, assign, and delete permissions are controlled separately.',
+  'Staff logins are created in Supabase (Authentication → Users, with an email and password), then linked here with Add Staff to give them a role.',
   'Changes take effect immediately and are recorded in the Audit Log.',
 ];
 
@@ -146,7 +147,7 @@ export const HELP_MODAL_WARNING =
 
 export const TAB_HELP = {
   staff:
-    'View staff accounts, assigned roles, account status, and service-area access. Role assignments may only be changed by authorised staff.',
+    'View staff accounts, assigned roles, account status, and service-area access. Create each staff login in Supabase first (Authentication → Users), then link it here with Add Staff. Role assignments may only be changed by authorised staff. To update a staff member use Edit; to revoke admin access use Remove Access — that removes their staff profile and admin permissions but does not delete their login.',
   permissions:
     'Control which pages and actions each role can access. Super Admin access is protected and cannot be removed.',
   audit:
@@ -268,6 +269,20 @@ export const DELEGATION_CONFIRM = {
     'This permission allows the role to manage staff access or security settings. Only grant it to trusted staff.',
   cancel: 'Cancel',
   confirm: 'Grant Permission',
+} as const;
+
+/** Step-by-step guide shown in the Add Staff dialog and help modal. */
+export const STAFF_CREDENTIALS_GUIDE = {
+  title: 'How to create staff login credentials',
+  steps: [
+    '1. Create the login in Supabase: Dashboard → Authentication → Users → Add user. Enter the staff email and a temporary password (they can change it later).',
+    '2. Copy the User ID (UUID) shown next to the new user.',
+    '3. Back here, click Add Staff, paste the User ID, and fill in full name, username, and role.',
+    '4. Choose the service areas the staff member may work in (leave empty for all areas).',
+    '5. The staff member signs in with that email and password — their role controls which admin pages and actions they can use.',
+  ],
+  updateNote:
+    'To update a staff member, use Edit (name, username, service areas). To remove admin access, use Remove Access — this deletes their staff profile and permissions but keeps their login so the account stays traceable. Deleting the login itself is done in Supabase Authentication → Users.',
 } as const;
 
 export const DENIED_COPY = {

@@ -17,6 +17,7 @@ import {
   Shield,
   Search,
   UserPlus,
+  Info,
   Loader2,
   AlertCircle,
   CheckCircle,
@@ -58,6 +59,7 @@ import {
   TAB_HELP,
   DENIED_COPY,
   STAFF_FORM_HELP,
+  STAFF_CREDENTIALS_GUIDE,
   pageHelpText,
   isSensitiveActionKey,
   canTogglePagePermission,
@@ -1227,6 +1229,18 @@ export default function RolesPermissions() {
               Create a new staff profile with role-based access
             </DialogDescription>
           </DialogHeader>
+
+          <Alert className="bg-primary/5 border-primary/20">
+            <Info className="h-4 w-4 text-primary shrink-0" />
+            <AlertDescription className="space-y-1.5 text-sm">
+              <p className="font-medium text-foreground">{STAFF_CREDENTIALS_GUIDE.title}</p>
+              <ol className="list-decimal list-inside space-y-1 text-muted-foreground">
+                {STAFF_CREDENTIALS_GUIDE.steps.map((step) => (
+                  <li key={step}>{step}</li>
+                ))}
+              </ol>
+            </AlertDescription>
+          </Alert>
 
           <div className="space-y-4">
             <div className="space-y-2">
