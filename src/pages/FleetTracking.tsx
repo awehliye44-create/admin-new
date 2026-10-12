@@ -35,6 +35,20 @@ import { ACTIVE_TRIP_DB_STATUSES } from '@/lib/activeTripStatuses';
 
 const STALE_LOCATION_MS = 5 * 60 * 1000;
 
+/** "5 min ago" style relative label; null/never-seen falls back to a friendly placeholder. */
+function formatLastSeen(lastSeenAt: string | null | undefined): string {
+  if (!lastSeenAt) return 'Never';
+  const ms = Date.now() - new Date(lastSeenAt).getTime();
+  if (ms < 0) return 'Just now';
+  const mins = Math.floor(ms / 60_000);
+  if (mins < 1) return 'Just now';
+  if (mins < 60) return `${mins} min ago`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours}h ${mins % 60}m ago`;
+  const days = Math.floor(hours / 24);
+  return `${days}d ago`;
+}
+
 interface Driver {
   id: string;
   first_name: string;
@@ -861,6 +875,12 @@ export default function FleetTracking() {
                             <span className="flex items-center gap-1">
                               <Star className="h-3 w-3 text-yellow-500" />
                               {driver.rating?.toFixed(2) || '5.00'}
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-3 mt-1 text-xs text-muted-foreground">
+                            <span className="flex items-center gap-1">
+                              <Clock className="h-3 w-3" />
+                              Last seen: {formatLastSeen(driver.last_seen_at)}
                             </span>
                           </div>
                           {driver.current_trip && (
