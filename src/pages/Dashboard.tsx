@@ -44,7 +44,6 @@ import {
 } from "@/components/ui/select";
 import { PieChart, Pie, Cell, ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, BarChart, Bar } from 'recharts';
 import { preloadMarkerImage, createCarMarkerElement, type DriverMarkerStatus } from '@/lib/mapMarkers';
-import { isValidUkCoord } from '@/lib/mapBounds';
 
 import { mapboxgl } from '@/lib/mapbox';
 import { createMapboxMap } from '@/lib/mapboxMap';
@@ -222,6 +221,7 @@ export default function Dashboard() {
   const mapboxMapRef = useRef<mapboxgl.Map | null>(null);
   const fleetMarkersRef = useRef<globalThis.Map<string, mapboxgl.Marker>>(new globalThis.Map());
   const hasFittedFleetRef = useRef(false);
+  const fleetStatusRef = useRef<globalThis.Map<string, DriverMarkerStatus>>(new globalThis.Map());
 
 
   // Preload marker image
@@ -380,15 +380,19 @@ export default function Dashboard() {
 
   // ─── LIVE FLEET MAP — online drivers with GPS (short poll, map only) ───
   const { data: liveDrivers = [] } = useQuery({
-    queryKey: ['dashboard-live-drivers'],
+    queryKey: ['dashboard-live-drivers', selectedServiceArea],
     queryFn: async () => {
-      const { data, error } = await supabase
+      let q = supabase
         .from('drivers')
         .select('id, first_name, last_name, is_online, current_lat, current_lng, heading, current_trip_id, last_location_updated_at')
-        .eq('is_online', true)
+        .is('deleted_at', null)
+        .neq('driver_status', 'deleted')
         .not('current_lat', 'is', null)
         .not('current_lng', 'is', null)
+        .order('is_online', { ascending: false })
         .limit(ADMIN_DASHBOARD_LIVE_FLEET_CAP);
+      if (selectedServiceArea !== 'all') q = q.eq('service_area_id', selectedServiceArea);
+      const { data, error } = await q;
       if (error) throw error;
       return (data || []) as LiveFleetDriver[];
     },
@@ -396,6 +400,8 @@ export default function Dashboard() {
     refetchInterval: () => (isAdminPageLiveActive() ? 20_000 : false),
     refetchIntervalInBackground: false,
   });
+
+  useEffect(() => { hasFittedFleetRef.current = false; }, [selectedServiceArea]);
 
   // Render / update driver markers on the live fleet map
   useEffect(() => {
@@ -409,7 +415,7 @@ export default function Dashboard() {
     for (const driver of liveDrivers) {
       const lat = driver.current_lat;
       const lng = driver.current_lng;
-      if (lat == null || lng == null || !isValidUkCoord(lng, lat)) continue;
+      if (lat == null || lng == null || !Number.isFinite(lat) || !Number.isFinite(lng) || (lat === 0 && lng === 0)) continue;
 
       seen.add(driver.id);
       hasPoint = true;
@@ -418,19 +424,23 @@ export default function Dashboard() {
       const staleMs = driver.last_location_updated_at
         ? Date.now() - new Date(driver.last_location_updated_at).getTime()
         : 0;
-      const status: DriverMarkerStatus = driver.current_trip_id
-        ? 'on_trip'
-        : staleMs > 120_000
-          ? 'stale'
-          : 'live';
+      const status: DriverMarkerStatus = !driver.is_online
+        ? 'offline'
+        : driver.current_trip_id
+          ? 'on_trip'
+          : staleMs > 120_000
+            ? 'stale'
+            : 'live';
 
       const existing = fleetMarkersRef.current.get(driver.id);
-      if (existing) {
+      if (existing && fleetStatusRef.current.get(driver.id) === status) {
         existing.setLngLat([lng, lat]);
         existing.setRotation(driver.heading || 0);
         continue;
       }
 
+      if (existing) existing.remove();
+      fleetStatusRef.current.set(driver.id, status);
       const el = createCarMarkerElement(32, status);
       el.title = `${driver.first_name ?? ''} ${driver.last_name ?? ''}`.trim();
       const marker = new mapboxgl.Marker({
@@ -448,6 +458,7 @@ export default function Dashboard() {
       if (!seen.has(id)) {
         marker.remove();
         fleetMarkersRef.current.delete(id);
+        fleetStatusRef.current.delete(id);
       }
     });
 
