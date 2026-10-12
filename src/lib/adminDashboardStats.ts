@@ -57,7 +57,11 @@ async function tripHeadCount(
 async function driversHeadCount(
   filter?: { column: string; value: string | boolean },
 ): Promise<number> {
-  let q: any = supabase.from('drivers').select('id', { count: 'exact', head: true });
+  let q: any = supabase
+    .from('drivers')
+    .select('id', { count: 'exact', head: true })
+    .is('deleted_at', null)
+    .neq('driver_status', 'deleted');
   if (filter) {
     q = q.eq(filter.column, filter.value);
   }
@@ -102,11 +106,15 @@ export async function fetchDashboardPeriodStats(
     supabase
       .from('drivers')
       .select('id', { count: 'exact', head: true })
+      .is('deleted_at', null)
+      .neq('driver_status', 'deleted')
       .eq('is_online', true)
       .not('current_trip_id', 'is', null),
     supabase
       .from('drivers')
       .select('id', { count: 'exact', head: true })
+      .is('deleted_at', null)
+      .neq('driver_status', 'deleted')
       .eq('is_online', true)
       .is('current_trip_id', null),
     supabase.from('customers').select('id', { count: 'exact', head: true }),
