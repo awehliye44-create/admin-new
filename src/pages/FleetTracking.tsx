@@ -912,10 +912,20 @@ export default function FleetTracking() {
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+            <div className="grid grid-cols-2 md:grid-cols-6 gap-4">
               <div className="p-3 bg-muted/50 rounded-lg">
                 <p className="text-xs text-muted-foreground">Phone</p>
                 <p className="font-medium">{selectedDriver.phone}</p>
+              </div>
+              <div className="p-3 bg-muted/50 rounded-lg">
+                <p className="text-xs text-muted-foreground">Last Seen</p>
+                <p className="font-medium flex items-center gap-1">
+                  <Clock className="h-4 w-4 text-muted-foreground" />
+                  {formatLastSeen(selectedDriver.last_seen_at)}
+                </p>
+                <p className="text-[10px] text-muted-foreground">
+                  {selectedDriver.is_online ? 'Currently online' : 'Currently offline'}
+                </p>
               </div>
               <div className="p-3 bg-muted/50 rounded-lg">
                 <p className="text-xs text-muted-foreground">Rating</p>
