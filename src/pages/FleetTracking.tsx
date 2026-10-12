@@ -51,6 +51,7 @@ interface Driver {
   heading: number | null;
   speed: number | null;
   last_location_updated_at: string | null;
+  last_seen_at: string | null;
   region?: { name: string };
   current_trip?: {
     id: string;
@@ -284,7 +285,7 @@ export default function FleetTracking() {
         supabase
           .from('drivers')
           .select(
-            'id, first_name, last_name, driver_code, is_online, approval_status, documents_approved, current_lat, current_lng, heading, region_id, service_area_id, profile_photo_url, rating, total_trips, driver_status, region:regions(name)',
+            'id, first_name, last_name, driver_code, is_online, approval_status, documents_approved, current_lat, current_lng, heading, region_id, service_area_id, profile_photo_url, rating, total_trips, driver_status, last_seen_at, region:regions(name)',
           )
           .eq('approval_status', 'approved')
           .eq('documents_approved', true)
@@ -412,6 +413,7 @@ export default function FleetTracking() {
                 speed: updatedDriver.speed,
                 is_online: updatedDriver.is_online,
                 last_location_updated_at: updatedDriver.last_location_updated_at,
+                last_seen_at: updatedDriver.last_seen_at,
               };
             }
             return driver;
