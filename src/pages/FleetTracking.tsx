@@ -35,6 +35,20 @@ import { ACTIVE_TRIP_DB_STATUSES } from '@/lib/activeTripStatuses';
 
 const STALE_LOCATION_MS = 5 * 60 * 1000;
 
+/** "5 min ago" style relative label; null/never-seen falls back to a friendly placeholder. */
+function formatLastSeen(lastSeenAt: string | null | undefined): string {
+  if (!lastSeenAt) return 'Never';
+  const ms = Date.now() - new Date(lastSeenAt).getTime();
+  if (ms < 0) return 'Just now';
+  const mins = Math.floor(ms / 60_000);
+  if (mins < 1) return 'Just now';
+  if (mins < 60) return `${mins} min ago`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours}h ${mins % 60}m ago`;
+  const days = Math.floor(hours / 24);
+  return `${days}d ago`;
+}
+
 interface Driver {
   id: string;
   first_name: string;
@@ -51,6 +65,7 @@ interface Driver {
   heading: number | null;
   speed: number | null;
   last_location_updated_at: string | null;
+  last_seen_at: string | null;
   region?: { name: string };
   current_trip?: {
     id: string;
@@ -284,7 +299,7 @@ export default function FleetTracking() {
         supabase
           .from('drivers')
           .select(
-            'id, first_name, last_name, driver_code, is_online, approval_status, documents_approved, current_lat, current_lng, heading, region_id, service_area_id, profile_photo_url, rating, total_trips, driver_status, region:regions(name)',
+            'id, first_name, last_name, driver_code, is_online, approval_status, documents_approved, current_lat, current_lng, heading, region_id, service_area_id, profile_photo_url, rating, total_trips, driver_status, last_seen_at, region:regions(name)',
           )
           .eq('approval_status', 'approved')
           .eq('documents_approved', true)
@@ -412,6 +427,7 @@ export default function FleetTracking() {
                 speed: updatedDriver.speed,
                 is_online: updatedDriver.is_online,
                 last_location_updated_at: updatedDriver.last_location_updated_at,
+                last_seen_at: updatedDriver.last_seen_at,
               };
             }
             return driver;
@@ -861,6 +877,12 @@ export default function FleetTracking() {
                               {driver.rating?.toFixed(2) || '5.00'}
                             </span>
                           </div>
+                          <div className="flex items-center gap-3 mt-1 text-xs text-muted-foreground">
+                            <span className="flex items-center gap-1">
+                              <Clock className="h-3 w-3" />
+                              Last seen: {formatLastSeen(driver.last_seen_at)}
+                            </span>
+                          </div>
                           {driver.current_trip && (
                             <div className="mt-2 text-xs p-2 bg-amber-50 rounded border border-amber-100">
                               <div className="flex items-center gap-1 text-amber-700">
@@ -890,10 +912,20 @@ export default function FleetTracking() {
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+            <div className="grid grid-cols-2 md:grid-cols-6 gap-4">
               <div className="p-3 bg-muted/50 rounded-lg">
                 <p className="text-xs text-muted-foreground">Phone</p>
                 <p className="font-medium">{selectedDriver.phone}</p>
+              </div>
+              <div className="p-3 bg-muted/50 rounded-lg">
+                <p className="text-xs text-muted-foreground">Last Seen</p>
+                <p className="font-medium flex items-center gap-1">
+                  <Clock className="h-4 w-4 text-muted-foreground" />
+                  {formatLastSeen(selectedDriver.last_seen_at)}
+                </p>
+                <p className="text-[10px] text-muted-foreground">
+                  {selectedDriver.is_online ? 'Currently online' : 'Currently offline'}
+                </p>
               </div>
               <div className="p-3 bg-muted/50 rounded-lg">
                 <p className="text-xs text-muted-foreground">Rating</p>
