@@ -401,6 +401,8 @@ export default function Dashboard() {
     refetchIntervalInBackground: false,
   });
 
+  useEffect(() => { hasFittedFleetRef.current = false; }, [selectedServiceArea]);
+
   // Render / update driver markers on the live fleet map
   useEffect(() => {
     const map = mapboxMapRef.current;
