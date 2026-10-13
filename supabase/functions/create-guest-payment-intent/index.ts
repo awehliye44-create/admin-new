@@ -730,7 +730,7 @@ Deno.serve(async (req) => {
     }, 400);
   }
   const resolvedCurrency = saCurrency.toUpperCase();
-
+  const discardNewGuest = async () => {
   // hold = server fare + service-area buffer; client amount/buffer/hold are never read.
   const preauth = await resolveChannelPreauthAmounts(supabase, priced.amountPence, service_area_id);
 
@@ -747,19 +747,9 @@ Deno.serve(async (req) => {
       environment,
       secretKey,
       amountMinor: preauth.authorisedAmountPence,
-      currency: resolvedCurrency,
-      tripId: client_request_id,
-      description: `ONECAB WhatsApp booking – ${customer_name.trim()}`,
-      metadata: {
-        booking_source: "whatsapp_booking",
-        service_area_id,
-        vehicle_type_id,
         customer_name: customer_name.trim(),
         client_request_id,
         guest_user_id: guestUserId,
-        estimated_total_pence: String(preauth.farePence),
-        buffer_pence: String(preauth.bufferPence),
-        authorised_amount_pence: String(preauth.authorisedAmountPence),
       },
       enableIncrementalAuthorisation: true,
       redirectUrl,
@@ -767,9 +757,9 @@ Deno.serve(async (req) => {
   } catch (err) {
     console.error(JSON.stringify({ event: "REVOLUT_ORDER_CREATE_FAILED", code: "REVOLUT_ORDER_CREATE_FAILED" }));
     await discardNewGuest();
-    return json({ error: "Payment provider order creation failed", code: "REVOLUT_ORDER_CREATE_FAILED" }, 502);
-  }
-
+        estimated_total_pence: String(preauth.farePence),
+        buffer_pence: String(preauth.bufferPence),
+        authorised_amount_pence: String(preauth.authorisedAmountPence),
   if (!order.id || !order.checkout_url) {
     await discardNewGuest();
     return json({ error: "The payment provider did not return a checkout link.", code: "CHECKOUT_URL_MISSING" }, 502);
@@ -807,6 +797,16 @@ Deno.serve(async (req) => {
     serviceAreaId: service_area_id,
     paymentProvider: "revolut",
     providerOrderId: order.id,
+    estimatedTotalPence: priced.amountPence,
+    paymentMethod: resolvedPaymentMethod,
+    bookingSnapshot,
+    fareSnapshot: {
+      estimated_fare_pence: priced.amountPence,
+      currency: resolvedCurrency,
+      vehicle_type_id,
+      service_area_id,
+    },
+    metadata: {
     estimatedTotalPence: preauth.farePence,
     authorisedAmountPence: preauth.authorisedAmountPence,
     bufferPence: preauth.bufferPence,
@@ -828,19 +828,8 @@ Deno.serve(async (req) => {
       buffer_pence: preauth.bufferPence,
       buffer_source: preauth.bufferSource,
       authorised_amount_pence: preauth.authorisedAmountPence,
-    },
-  });
-
-  if (sessionError || !sessionId) {
-    console.error("[create-guest-payment-intent] payment session persist failed:", sessionError);
-    await discardNewGuest();
-    return json({ error: "Failed to persist payment session", code: "PAYMENT_SESSION_CREATE_FAILED" }, 500);
-  }
-
-  console.log(
     `[create-guest-payment-intent] order=${order.id} sa=${service_area_id}` +
-    ` fare=${preauth.farePence} buffer=${preauth.bufferPence} (${preauth.bufferSource.buffer_type})` +
-    ` authorised=${preauth.authorisedAmountPence}${resolvedCurrency} guest=${guestUserId} session=${sessionId}`,
+    ` amount=${priced.amountPence}${resolvedCurrency} guest=${guestUserId} session=${sessionId}`,
   );
 
   return json({
@@ -850,4 +839,5 @@ Deno.serve(async (req) => {
     provider_order_id: order.id,
     session_id: sessionId,
   });
-});
+    ` fare=${preauth.farePence} buffer=${preauth.bufferPence} (${preauth.bufferSource.buffer_type})` +
+    ` authorised=${preauth.authorisedAmountPence}${resolvedCurrency} guest=${guestUserId} session=${sessionId}`,
