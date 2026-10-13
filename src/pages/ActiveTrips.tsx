@@ -568,7 +568,9 @@ export default function ActiveTrips() {
           const ctx = (error as { context?: Response }).context;
           if (ctx && typeof ctx.json === 'function') {
             const body = (await ctx.json()) as { error?: string; message?: string };
-            detail = body.error || body.message || detail;
+            detail = body.error === 'COMPLETED_TRIP_NOT_CANCELLABLE'
+              ? (body.message || 'This trip is completed and cannot be cancelled.')
+              : (body.error || body.message || detail);
           }
         } catch {
           // keep FunctionsHttpError message
