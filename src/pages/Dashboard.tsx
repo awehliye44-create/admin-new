@@ -258,7 +258,24 @@ export default function Dashboard() {
   const recenterFleet = useCallback(() => {
     const map = mapboxMapRef.current;
     if (!map) return;
-    fitFleet();
+    userAdjustedViewRef.current = false;
+    const area = serviceAreasRef.current.find((x) => x.id === selectedServiceAreaRef.current);
+    if (area?.center_lat != null && area?.center_lng != null) {
+      map.flyTo({ center: [area.center_lng, area.center_lat], zoom: 11, duration: 600 });
+      return;
+    }
+    const online = liveDriversRef.current.filter(
+      (d) => d.is_online && d.current_lat != null && d.current_lng != null
+        && Number.isFinite(d.current_lat) && Number.isFinite(d.current_lng)
+        && !(d.current_lat === 0 && d.current_lng === 0),
+    );
+    if (online.length === 0) {
+      fitFleet();
+      return;
+    }
+    const bounds = new mapboxgl.LngLatBounds();
+    online.forEach((d) => bounds.extend([d.current_lng as number, d.current_lat as number]));
+    fitMapToLngLatBounds(map, bounds, { maxZoom: 13, padding: 64 });
   }, [fitFleet]);
   const fleetStatusRef = useRef<globalThis.Map<string, DriverMarkerStatus>>(new globalThis.Map());
 
