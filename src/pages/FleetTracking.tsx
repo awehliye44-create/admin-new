@@ -701,12 +701,12 @@ export default function FleetTracking() {
         <div className="lg:col-span-2">
           <Card className="h-full">
             <CardHeader className="pb-2">
-              <div className="flex items-center justify-between">
+              <div className="flex flex-wrap items-center justify-between gap-2">
                 <CardTitle className="flex items-center gap-2">
                   <MapPin className="h-5 w-5 text-primary" />
                   Live Map
                 </CardTitle>
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2">
                   <span className="text-xs text-muted-foreground">
                     Last updated: {lastRefresh.toLocaleTimeString()}
                   </span>
