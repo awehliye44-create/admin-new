@@ -191,8 +191,7 @@ serve(async (req) => {
       });
     }
 
-    // Same vault-first merchant as order creation and confirm/reconcile of this order.
-    const { secretKey, environment } = await resolveRevolutMerchantContext(supabase, "live");
+    const { secretKey, environment } = getRevolutMerchantConfig();
 
     // Soft-check order still payable
     try {
