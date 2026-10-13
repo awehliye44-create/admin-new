@@ -13,11 +13,17 @@ import {
   upsertTripRoutePolyline,
 } from "./tripModificationApply.ts";
 import {
+  classifyModificationPaymentFailure,
   decideFromPreauthInvokeResult,
   isAlreadyAppliedModification,
   type ModificationPaymentGateDecision,
 } from "./tripModificationPaymentGateSSOT.ts";
 import { SERVICE_AREA_FINANCIAL_MODEL } from "./commissionWalletSSOT.ts";
+import { TRIP_CHANGE_BANK_DECLINED_CUSTOMER_MESSAGE } from "./revolutCustomerError.ts";
+import {
+  failureClassForModificationFailure,
+  type ModificationPaymentFailureClass,
+} from "./modificationPaymentFailureTaxonomy.ts";
 
 export const CUSTOMER_PAYMENT_INCREMENT_UNRESOLVED =
   "CUSTOMER_PAYMENT_INCREMENT_UNRESOLVED";
@@ -40,13 +46,53 @@ export type FareIncreasePaymentResult = {
   claimCode?: string;
   authorisedTotalPence?: number;
   requiredPayablePence?: number;
+  fareDeltaPence?: number;
   error?: string;
+  errorCode?: string;
+  /** Revolut's issuer/card reason when the bank declined the increment. */
+  declineReason?: string | null;
+  bankDeclined?: boolean;
+  failure_class?: ModificationPaymentFailureClass;
   httpStatus: number;
   requiresApproval?: boolean;
   navigationImpacted?: boolean;
   trip?: Record<string, unknown> | null;
   tripUpdated?: Record<string, unknown> | null;
 };
+
+function errorCodeForGate(
+  gate: ModificationPaymentGateDecision,
+  failure: ReturnType<typeof classifyModificationPaymentFailure>,
+): string {
+  if (gate.phase === "PAYMENT_PENDING") {
+    return "PAYMENT_AUTHORISATION_PENDING";
+  }
+  if (gate.phase === "PAYMENT_FAILED") {
+    if (failure.kind === "technical") return "PAYMENT_AUTHORISATION_FAILED";
+    if (failure.kind === "bank_declined") {
+      return failure.bankDeclineReason === "insufficient_funds"
+        ? "INSUFFICIENT_FUNDS"
+        : "PAYMENT_DECLINED_BY_BANK";
+    }
+    if (gate.reason === "amount_mismatch") return "AUTHORISED_TOTAL_BELOW_TARGET";
+    return "PAYMENT_NOT_AUTHORISED";
+  }
+  return "PAYMENT_CONFIRMATION_FAILED";
+}
+
+function customerMessageForGate(
+  gate: ModificationPaymentGateDecision,
+  failure: ReturnType<typeof classifyModificationPaymentFailure>,
+): string {
+  if (gate.phase === "PAYMENT_PENDING") {
+    return "Payment is still processing. Your trip has not been changed.";
+  }
+  if (failure.kind === "bank_declined") return TRIP_CHANGE_BANK_DECLINED_CUSTOMER_MESSAGE;
+  if (failure.kind === "technical") {
+    return "We couldn't confirm the payment for this trip change. Your original trip is unchanged. Please try again in a moment.";
+  }
+  return "The updated fare couldn't be authorised. Your original trip is unchanged.";
+}
 
 /** Canonical protected customer amount for PLATFORM_COLLECTED hold. */
 export function resolveProtectedCustomerPayablePence(trip: Record<string, unknown>): number {
@@ -229,6 +275,8 @@ export async function executeFareIncreaseModificationPayment(
   }
 
   let preauthResult: Record<string, unknown> | null = null;
+  let providerDeclineReason: string | null = null;
+  let providerErrorCode: string | null = null;
   try {
     preauthResult = await invokePreauthUpdateOnModification(
       supabase,
@@ -236,15 +284,19 @@ export async function executeFareIncreaseModificationPayment(
       newFarePence,
     ) as Record<string, unknown> | null;
   } catch (invokeErr) {
+    // Only genuinely unknown outcomes (timeout / network with no structured body)
+    // become payment_pending. Structured declines are returned by invoke, not thrown.
     const message = invokeErr instanceof Error ? invokeErr.message : String(invokeErr);
+    const isTimeout = /timeout/i.test(message);
+    const isNetwork = /network|fetch|failed to fetch|econnreset|enotfound/i.test(message);
     gate = decideFromPreauthInvokeResult({
       success: false,
       requiredPayablePence: newFarePence,
       authorisedAmountPence: 0,
       paymentCoverageStatus: "authorization_reconciliation_pending",
-      errorCode: /timeout/i.test(message)
+      errorCode: isTimeout
         ? "TIMEOUT"
-        : /network|fetch/i.test(message)
+        : isNetwork
         ? "NETWORK"
         : "AUTHORISATION_RECONCILIATION_PENDING",
       warning: message,
@@ -253,6 +305,12 @@ export async function executeFareIncreaseModificationPayment(
   }
 
   if (preauthResult) {
+    providerDeclineReason = typeof preauthResult.decline_reason === "string"
+      ? preauthResult.decline_reason
+      : null;
+    providerErrorCode = typeof preauthResult.error_code === "string"
+      ? preauthResult.error_code
+      : null;
     gate = decideFromPreauthInvokeResult({
       success: preauthResult.success === true,
       skipped: preauthResult.skipped === true,
@@ -275,6 +333,62 @@ export async function executeFareIncreaseModificationPayment(
         ? preauthResult.error
         : null,
     });
+  }
+
+  // Safety net: if auth row already recorded a definitive decline, never leave pending.
+  if (gate.phase === "PAYMENT_PENDING") {
+    const sessionId = trip.payment_session_id
+      ? String(trip.payment_session_id)
+      : null;
+    let declinedAuth: { id?: string; metadata?: Record<string, unknown> | null } | null = null;
+    if (sessionId) {
+      const { data } = await supabase
+        .from("payment_session_authorisations")
+        .select("id, metadata")
+        .eq("payment_session_id", sessionId)
+        .eq("requested_target_total_pence", newFarePence)
+        .eq("status", "ADDITIONAL_AUTHORISATION_DECLINED")
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      declinedAuth = data ?? null;
+    }
+    if (!declinedAuth && trip.id) {
+      const { data: sess } = await supabase
+        .from("payment_sessions")
+        .select("id")
+        .eq("trip_id", String(trip.id))
+        .neq("purpose", "PAYMENT_RECOVERY")
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (sess?.id) {
+        const { data } = await supabase
+          .from("payment_session_authorisations")
+          .select("id, metadata")
+          .eq("payment_session_id", String(sess.id))
+          .eq("requested_target_total_pence", newFarePence)
+          .eq("status", "ADDITIONAL_AUTHORISATION_DECLINED")
+          .order("created_at", { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        declinedAuth = data ?? null;
+      }
+    }
+    if (declinedAuth) {
+      const storedReason = declinedAuth.metadata?.provider_decline_reason;
+      if (typeof storedReason === "string" && storedReason.trim()) {
+        providerDeclineReason = storedReason.trim();
+      }
+      gate = {
+        phase: "PAYMENT_FAILED",
+        mayApply: false,
+        paymentStatus: "failed",
+        requestStatus: "payment_failed",
+        authorisedTotalPence: gate.authorisedTotalPence,
+        reason: "declined",
+      };
+    }
   }
 
   // Fail closed: re-read canonical protected amount after provider result (#10–11).
@@ -338,6 +452,12 @@ export async function executeFareIncreaseModificationPayment(
       })
       .eq("id", requestId);
 
+    const failure = classifyModificationPaymentFailure({
+      gate,
+      declineReason: providerDeclineReason,
+      errorCode: providerErrorCode,
+    });
+    const errorCode = errorCodeForGate(gate, failure);
     return {
       success: false,
       requestId,
@@ -348,9 +468,16 @@ export async function executeFareIncreaseModificationPayment(
       tripUnchanged: true,
       authorisedTotalPence: gate.authorisedTotalPence,
       requiredPayablePence: newFarePence,
-      error: pending
-        ? "Payment is still processing. Your trip has not been changed."
-        : "Payment confirmation failed",
+      fareDeltaPence: fareDelta,
+      errorCode,
+      declineReason: pending ? null : failure.bankDeclineReason,
+      bankDeclined: !pending && failure.kind === "bank_declined",
+      failure_class: failureClassForModificationFailure({
+        pending,
+        kind: failure.kind,
+        bankDeclineReason: failure.bankDeclineReason,
+      }),
+      error: customerMessageForGate(gate, failure),
       httpStatus: pending ? 202 : 402,
     };
   }
@@ -414,6 +541,8 @@ export async function executeFareIncreaseModificationPayment(
         paymentPhase: "PAYMENT_PENDING",
         paymentProcessing: true,
         tripUnchanged: true,
+        fareDeltaPence: fareDelta,
+        errorCode: "PAYMENT_AUTHORISATION_PENDING",
         error: "Payment is still processing. Your trip has not been changed.",
         httpStatus: 202,
       };

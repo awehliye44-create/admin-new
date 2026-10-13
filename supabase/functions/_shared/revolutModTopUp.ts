@@ -40,6 +40,9 @@ export type RevolutModAuthResult =
     error_code?: string;
     status?: number;
     payment_coverage_status?: string;
+    authorised_amount_pence?: number;
+    /** Revolut's reason, only when Revolut itself evidenced the increment decline. */
+    decline_reason?: string | null;
   };
 
 async function isIncrementFeatureEnabled(supabase: SupabaseClient): Promise<boolean> {
@@ -151,6 +154,18 @@ export async function prepareRevolutModificationAuthorisation(args: {
     };
   }
 
+  if (incrementResult.kind === "provider_failed") {
+    // Fail closed, but never as a decline: Revolut reported a technical failure.
+    return {
+      ok: false,
+      error: incrementResult.message,
+      error_code: incrementResult.errorClassification || "PROVIDER_INCREMENT_FAILED",
+      status: 409,
+      authorised_amount_pence: incrementResult.providerConfirmedTotalPence,
+      payment_coverage_status: "authorization_provider_failed",
+    };
+  }
+
   if (
     incrementResult.kind === "declined"
     || incrementResult.kind === "customer_action_required"
@@ -172,6 +187,11 @@ export async function prepareRevolutModificationAuthorisation(args: {
         : declined
         ? 409
         : 409,
+      // Preserve current authorised total so callers can map decline ≠ unknown.
+      authorised_amount_pence: incrementResult.providerConfirmedTotalPence,
+      decline_reason: declined && incrementResult.providerDeclineEvidence
+        ? incrementResult.providerDeclineReason ?? null
+        : null,
       payment_coverage_status: declined
         ? "authorization_insufficient"
         : pending

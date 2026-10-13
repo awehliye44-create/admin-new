@@ -135,6 +135,12 @@ Deno.serve(async (req) => {
         warning: result.error,
         payment_coverage_status: result.payment_coverage_status ?? "authorization_insufficient",
         error_code: result.error_code,
+        decline_reason: result.decline_reason ?? null,
+        authorised_amount_pence:
+          typeof (result as { authorised_amount_pence?: unknown }).authorised_amount_pence ===
+              "number"
+            ? (result as { authorised_amount_pence: number }).authorised_amount_pence
+            : undefined,
       }), {
         status: result.status ?? 402,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
