@@ -21,9 +21,6 @@ const corsHeaders = {
 
 type DeleteTarget = 'driver' | 'customer';
 
-/** Matches the pending-request unique indexes on support_conversations. */
-const PENDING_DELETION_STATUSES = ['open', 'waiting'];
-
 interface DeleteBody {
   target: DeleteTarget;
   profile_id: string;
@@ -147,6 +144,9 @@ Deno.serve(async (req) => {
   // 5. Remove the role profile.
   // Drivers: soft-delete + detach Auth. Commission wallet / payout / settlement
   // rows keep driver_id (NOT NULL) — hard-deleting the driver aborts Auth delete.
+  // Customers: hard-delete (payment_sessions SET NULL; history retained).
+  let profileMode: 'hard_deleted' | 'soft_deleted' = 'hard_deleted';
+
   // Customers: minimise + detach Auth. A hard delete would cascade wallet ledger,
   // identity verification and feedback rows, and is blocked by payment quotes and
   // receivables (migration 20261209130000_customer_deletion_minimise.sql).
@@ -192,9 +192,6 @@ Deno.serve(async (req) => {
       );
     }
     profileMode = 'soft_deleted';
-  }
-
-  // 6. Check for any remaining role profiles for this auth user
   const [{ count: remainingDrivers }, { count: remainingCustomers }] =
     await Promise.all([
       admin
@@ -237,41 +234,6 @@ Deno.serve(async (req) => {
     authUserDeleted = true;
   }
 
-  // Deleting the Auth user cascades its sessions. A user who keeps another
-  // profile still loses every session here, so the deleted app is signed out.
-  let sessionsRevoked = authUserDeleted;
-  let sessionsRevokedCount: number | null = null;
-  if (!authUserDeleted) {
-    const { data: revoked, error: revokeErr } = await admin.rpc('admin_revoke_user_sessions', {
-      p_user_id: targetUserId,
-    });
-    if (revokeErr) {
-      console.warn('ADMIN_DELETE_SESSION_REVOKE_FAILED', JSON.stringify({
-        user_id: targetUserId,
-        error: revokeErr.message,
-      }));
-    } else {
-      sessionsRevoked = true;
-      sessionsRevokedCount = typeof revoked === 'number' ? revoked : null;
-    }
-  }
-
-  let deletionRequestsResolved = 0;
-  if (pendingDeletionIds.length > 0) {
-    const { error: resolveErr } = await admin
-      .from('support_conversations')
-      .update({ status: 'resolved', resolved_at: new Date().toISOString() })
-      .in('id', pendingDeletionIds);
-    if (resolveErr) {
-      console.warn('ADMIN_DELETE_REQUEST_RESOLVE_FAILED', JSON.stringify({
-        conversation_ids: pendingDeletionIds,
-        error: resolveErr.message,
-      }));
-    } else {
-      deletionRequestsResolved = pendingDeletionIds.length;
-    }
-  }
-
   // 7. Audit log
   await admin.from('audit_logs').insert({
     event_type: `${target}_hard_deleted`,
@@ -285,10 +247,6 @@ Deno.serve(async (req) => {
       remaining_drivers: remainingDrivers ?? 0,
       remaining_customers: remainingCustomers ?? 0,
       remaining_roles: remainingRoles ?? 0,
-      sessions_revoked: sessionsRevoked,
-      sessions_revoked_count: sessionsRevokedCount,
-      deletion_request_ids: pendingDeletionIds,
-      deletion_requests_resolved: deletionRequestsResolved,
       deleted_by: caller.id,
     },
   });
@@ -299,8 +257,6 @@ Deno.serve(async (req) => {
     profile_id,
     profile_mode: profileMode,
     auth_user_deleted: authUserDeleted,
-    sessions_revoked: sessionsRevoked,
-    deletion_requests_resolved: deletionRequestsResolved,
     remaining_profiles: {
       drivers: remainingDrivers ?? 0,
       customers: remainingCustomers ?? 0,
