@@ -22,6 +22,10 @@ import {
 import { readSavedCardAttemptFromSessionMetadata } from "../_shared/tripHistoryShortfallRecaptureSSOT.ts";
 import { resolveCustomerPayablePenceForAudit } from "../_shared/extraPaymentRecoverySSOT.ts";
 import { resolveTripHistoryPaymentLayers } from "../_shared/tripHistoryPaymentLayersSSOT.ts";
+import {
+  resolveCurrentOutstandingFromReceivables,
+} from "../_shared/frCardReconciliationIdentitySSOT.ts";
+import type { SourceTripReceivableRecoveryRow } from "../_shared/frCaptureCompositionIdentitySSOT.ts";
 
 const InputSchema = z.object({ trip_id: z.string().uuid() });
 
@@ -122,7 +126,7 @@ serve(async (req) => {
       provider_settlement_warning: null,
     } as unknown as TripAuditSourceRow & Record<string, any>;
 
-    const [paymentsRes, payoutItemsRes, ledgerRes, paymentSessionsRes] = await Promise.all([
+    const [paymentsRes, payoutItemsRes, ledgerRes, paymentSessionsRes, receivablesRes] = await Promise.all([
       gate.supabase
         .from('payments')
         .select('trip_id, captured_amount_pence, amount_pence, status, provider_status, provider_payment_id:provider_payment_id, provider_available_on')
@@ -139,6 +143,10 @@ serve(async (req) => {
         .from('payment_sessions')
         .select(PAYMENT_SESSION_MONEY_SELECT)
         .eq('trip_id', trip_id),
+      gate.supabase
+        .from('customer_receivables')
+        .select('source_trip_id, status, outstanding_amount_pence, original_amount_pence, reserved_payment_session_id, settled_at')
+        .eq('source_trip_id', trip_id),
     ]);
 
     const sessionOrderId = (() => {
@@ -327,9 +335,27 @@ serve(async (req) => {
       provider_settlement_verified = true;
     }
 
-    const outstanding_pence = customer_payable_pence > 0
-      ? Math.max(0, customer_payable_pence - netCaptured)
-      : nonNegPence(auditRow.outstanding_pence);
+    // Current outstanding = OPEN/RESERVED receivable outstanding only.
+    // Never final_fare − original_capture (that left SETTLED MK-017 at 6p).
+    const receivablesLedgerAvailable = !receivablesRes.error;
+    const recoveryReceivables: SourceTripReceivableRecoveryRow[] = receivablesLedgerAvailable
+      ? (receivablesRes.data ?? []).map((r) => ({
+        source_trip_id: String(r.source_trip_id),
+        status: String(r.status),
+        outstanding_amount_pence: Math.round(Number(r.outstanding_amount_pence) || 0),
+        original_amount_pence: Math.round(Number(r.original_amount_pence) || 0),
+        reserved_payment_session_id: r.reserved_payment_session_id
+          ? String(r.reserved_payment_session_id)
+          : null,
+        settled_at: r.settled_at ? String(r.settled_at) : null,
+      }))
+      : [];
+    const outstandingResolved = resolveCurrentOutstandingFromReceivables({
+      receivablesLedgerAvailable,
+      receivables: recoveryReceivables,
+      sourceTripId: trip_id,
+    });
+    const outstanding_pence = outstandingResolved.outstanding_pence;
 
     const provider_settlement_warning_severity = getSettlementWarningSeverity(
       provider_settlement_verified,

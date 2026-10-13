@@ -12,6 +12,16 @@ import {
 import { notifyDriverTripStopped } from "../_shared/notifyDriverTripStopped.ts";
 import { notifyCustomerTripLifecycle } from "../_shared/customerTripLifecycleNotify.ts";
 import { maybeResumeTerminalFeeSettlementAfterProviderFee } from "../_shared/terminalFeeSettlementResumptionSSOT.ts";
+import { assertServiceRole } from "../_shared/internalAuth.ts";
+import { requireAuthenticatedUser } from "../_shared/edgeAuth.ts";
+import {
+  authoriseLateCancellationCaller,
+  type LateCancelCaller,
+} from "../_shared/lateCancellationCallerAuthSSOT.ts";
+import {
+  buildCancelledScheduledStatePatch,
+  TERMINAL_TRIP_STATUS_POSTGREST_LIST,
+} from "../_shared/tripTerminalDispatch.ts";
 
 const RATE_LIMIT_CONFIG = {
   limit: 20,
@@ -44,8 +54,39 @@ Deno.serve(async (req) => {
     const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const supabase = createClient(supabaseUrl, serviceRoleKey);
 
+    let caller: LateCancelCaller;
+    if (assertServiceRole(req) === null) {
+      caller = { kind: "service_role" };
+    } else {
+      const auth = await requireAuthenticatedUser(req, supabaseUrl, Deno.env.get("SUPABASE_ANON_KEY")!);
+      if (!auth.ok) return auth.response;
+      const { data: staff } = await supabase
+        .from("staff_profiles")
+        .select("role, is_active")
+        .eq("user_id", auth.userId)
+        .maybeSingle();
+      if (staff) {
+        caller = {
+          kind: "staff",
+          userId: auth.userId,
+          role: String(staff.role ?? ""),
+          isActive: staff.is_active !== false,
+        };
+      } else {
+        const { data: customers } = await supabase
+          .from("customers")
+          .select("id")
+          .eq("user_id", auth.userId);
+        caller = {
+          kind: "user",
+          userId: auth.userId,
+          customerIds: (customers ?? []).map((c: { id: string }) => String(c.id)),
+        };
+      }
+    }
+
     const body = await req.json();
-    const { trip_id, cancelled_by } = body;
+    const { trip_id } = body;
 
     if (!trip_id || !isValidUUID(trip_id)) {
       return validationErrorResponse({ trip_id: "Valid trip_id required" });
@@ -55,16 +96,47 @@ Deno.serve(async (req) => {
     const { data: trip, error: tripErr } = await supabase
       .from("trips")
       .select(
-        "id, status, service_area_id, driver_id, confirmed_driver_id, passenger_id, created_at, is_scheduled, scheduled_at, accepted_at, arrived_at, no_show_charge_pence, late_cancel_fee_pence, total_waiting_charge_pence, pickup_waiting_charge_pence"
+        "id, status, service_area_id, driver_id, confirmed_driver_id, passenger_id, created_at, is_scheduled, scheduled_at, accepted_at, arrived_at, no_show_charge_pence, late_cancel_fee_pence, total_waiting_charge_pence, pickup_waiting_charge_pence, completed_at"
       )
       .eq("id", trip_id)
       .single();
 
     if (tripErr || !trip) return errorResponse("NOT_FOUND", "Trip not found", 404);
 
+    const authz = authoriseLateCancellationCaller({
+      caller,
+      tripPassengerId: trip.passenger_id,
+      requestedCancelledBy: body.cancelled_by,
+    });
+    if (!authz.ok) {
+      console.warn("[late-cancellation-check] caller rejected", { trip_id, code: authz.code, caller: caller.kind });
+      return errorResponse(authz.code, "Not allowed to cancel this trip", authz.status);
+    }
+    const cancelled_by = authz.cancelledBy;
+
     const driverIdEarly = trip.driver_id || trip.confirmed_driver_id;
     const preservedDriver = driverIdEarly ? { previous_driver_id: driverIdEarly } : {};
-    const cancelledByRole = cancelled_by || "passenger";
+    const cancelledByRole = cancelled_by;
+    const scheduledCancelPatch = buildCancelledScheduledStatePatch(trip);
+
+    // Every cancel write is conditional: a trip that completed or reached a
+    // terminal status after the read above must not be overwritten.
+    const cancelTripRow = async (patch: Record<string, unknown>): Promise<boolean> => {
+      const { data: rows, error } = await supabase
+        .from("trips")
+        .update({ ...patch, ...scheduledCancelPatch })
+        .eq("id", trip_id)
+        .is("completed_at", null)
+        .not("status", "in", TERMINAL_TRIP_STATUS_POSTGREST_LIST)
+        .select("id");
+      if (error) {
+        console.error("[late-cancellation-check] cancel update failed", { trip_id, error: error.message });
+        return false;
+      }
+      return (rows ?? []).length > 0;
+    };
+    const terminalConflict = () =>
+      errorResponse("TRIP_TERMINAL", "Trip completed or reached a terminal status before it could be cancelled", 409);
 
     const notifyDriverIfAssigned = async () => {
       if (!driverIdEarly) return;
@@ -115,7 +187,7 @@ Deno.serve(async (req) => {
     }
 
     // Already terminal (and not awaiting cancellation processing)
-    if (["completed", "expired", "declined"].includes(trip.status)) {
+    if (trip.completed_at || ["completed", "expired", "declined"].includes(trip.status)) {
       return successResponse({ success: true, fee_applied: false, reason: "Trip already terminal" });
     }
 
@@ -163,20 +235,18 @@ Deno.serve(async (req) => {
       // After-arrival here is not Late Passenger Cancellation and does not
       // check free-wait arrival eligibility. Do not stamp late_cancel_fee_pence
       // or a canonical chargeable outcome. cancel-trip owns arrival settlement.
-      await supabase
-        .from("trips")
-        .update({
-          status: "cancelled",
-          cancelled_at: nowIso,
-          cancelled_by: cancelled_by || "passenger",
-          cancel_reason: elapsedSec >= gracePeriodSec ? "cancelled_after_grace" : "cancelled_after_arrival",
-          cancellation_fee_pence: feePence,
-          ...preservedDriver,
-          pickup_waiting_charge_pence: 0,
-          total_waiting_charge_pence: 0,
-          updated_at: nowIso,
-        })
-        .eq("id", trip_id);
+      const cancelled = await cancelTripRow({
+        status: "cancelled",
+        cancelled_at: nowIso,
+        cancelled_by,
+        cancel_reason: elapsedSec >= gracePeriodSec ? "cancelled_after_grace" : "cancelled_after_arrival",
+        cancellation_fee_pence: feePence,
+        ...preservedDriver,
+        pickup_waiting_charge_pence: 0,
+        total_waiting_charge_pence: 0,
+        updated_at: nowIso,
+      });
+      if (!cancelled) return terminalConflict();
 
       if (driverId) {
         await supabase
@@ -202,17 +272,15 @@ Deno.serve(async (req) => {
     if (!lateEnabled) {
       // Disabled — just cancel without fee (don't double-update if already cancelled)
       if (trip.status !== "cancelled") {
-        await supabase
-          .from("trips")
-          .update({
-            status: "cancelled",
-            cancelled_at: nowIso,
-            cancelled_by: cancelled_by || "passenger",
-            cancel_reason: "passenger_cancelled",
-            updated_at: nowIso,
-            ...preservedDriver,
-          })
-          .eq("id", trip_id);
+        const cancelled = await cancelTripRow({
+          status: "cancelled",
+          cancelled_at: nowIso,
+          cancelled_by,
+          cancel_reason: "passenger_cancelled",
+          updated_at: nowIso,
+          ...preservedDriver,
+        });
+        if (!cancelled) return terminalConflict();
         if (driverId) {
           await supabase
             .from("drivers")
@@ -244,17 +312,15 @@ Deno.serve(async (req) => {
     if (!isLate) {
       // Cancel without fee
       if (trip.status !== "cancelled") {
-        await supabase
-          .from("trips")
-          .update({
-            status: "cancelled",
-            cancelled_at: nowIso,
-            cancelled_by: cancelled_by || "passenger",
-            cancel_reason: "passenger_cancelled",
-            updated_at: nowIso,
-            ...preservedDriver,
-          })
-          .eq("id", trip_id);
+        const cancelled = await cancelTripRow({
+          status: "cancelled",
+          cancelled_at: nowIso,
+          cancelled_by,
+          cancel_reason: "passenger_cancelled",
+          updated_at: nowIso,
+          ...preservedDriver,
+        });
+        if (!cancelled) return terminalConflict();
         if (driverId) {
           await supabase
             .from("drivers")
@@ -268,19 +334,17 @@ Deno.serve(async (req) => {
     }
 
     // Apply late-cancel fee
-    await supabase
-      .from("trips")
-      .update({
-        status: "cancelled",
-        cancelled_at: nowIso,
-        cancelled_by: cancelled_by || "passenger",
-        cancel_reason: "late_cancellation",
-        late_cancel_fee_pence: lateFeePence,
-        financial_outcome: "LATE_PASSENGER_CANCELLATION",
-        updated_at: nowIso,
-        ...preservedDriver,
-      })
-      .eq("id", trip_id);
+    const lateCancelled = await cancelTripRow({
+      status: "cancelled",
+      cancelled_at: nowIso,
+      cancelled_by,
+      cancel_reason: "late_cancellation",
+      late_cancel_fee_pence: lateFeePence,
+      financial_outcome: "LATE_PASSENGER_CANCELLATION",
+      updated_at: nowIso,
+      ...preservedDriver,
+    });
+    if (!lateCancelled) return terminalConflict();
 
     if (driverIdEarly) {
       try {

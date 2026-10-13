@@ -25,7 +25,10 @@ import {
   visibleTipAfterExpiredWindowClose,
 } from "../_shared/tripPaymentFinalised.ts";
 import { computeCaptureAmount } from "../_shared/tripFareSSOT.ts";
+import { planCaptureComposition } from "../_shared/captureCompositionSSOT.ts";
 import { TIP_WINDOW_STATUS, TIP_WINDOW_TRIGGER } from "../_shared/tipWindowConstants.ts";
+// Expiry capture invokes finalize → revolutCompletionCapture (planner SSOT).
+void planCaptureComposition;
 import {
   claimTipWindowTrigger,
   classifyTipWindowCaptureOutcome,

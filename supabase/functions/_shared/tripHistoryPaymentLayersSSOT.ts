@@ -45,7 +45,7 @@ export type TripHistoryPaymentLayerTrip = {
   no_show_charge_pence?: number | null;
   cancellation_fee_pence?: number | null;
   arrival_cancellation_applied?: boolean | null;
-  arrival_cancellation_fee?: number | null; // pounds (legacy trip column)
+  arrival_cancellation_fee?: number | null; // pence (legacy trip column; see column comment)
   arrival_cancellation_fee_pence?: number | null;
   outstanding_balance_pence?: number | null;
   tip_pence?: number | null;
@@ -164,8 +164,8 @@ export function resolveTripHistoryCustomerPayablePence(
     && trip.arrival_cancellation_applied === true
     && trip.arrival_cancellation_fee != null
   ) {
-    const pounds = Number(trip.arrival_cancellation_fee);
-    if (Number.isFinite(pounds) && pounds > 0) cancelFee = Math.round(pounds * 100);
+    const legacyPence = Number(trip.arrival_cancellation_fee);
+    if (Number.isFinite(legacyPence) && legacyPence > 0) cancelFee = Math.round(legacyPence);
   }
   const resolved = resolveAuthoritativeCustomerPayable({
     final_customer_fare_pence: trip.final_customer_fare_pence,

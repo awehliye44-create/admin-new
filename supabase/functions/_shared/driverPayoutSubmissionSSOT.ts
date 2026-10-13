@@ -296,12 +296,25 @@ export function evaluateSubmissionEligibility(args: {
  * Map Revolut provider state (+ HTTP outcome) to Slice 7 intent/item execution outcome.
  * PENDING and SUBMITTED (provider pending) are success for Slice 7 — reservation stays ACTIVE.
  */
+/**
+ * Relay/HTTP results that cannot prove /pay was not executed: transport failure
+ * (status 0), request timeout (408) and any 5xx. A 5xx body may be empty, so only
+ * an explicit `revolut_pay_called: false` from the relay makes them certain.
+ */
+export function isUncertainPayoutSubmissionHttpStatus(status: number | null | undefined): boolean {
+  if (status == null || !Number.isFinite(Number(status))) return false;
+  const s = Number(status);
+  return s === 0 || s === 408 || s >= 500;
+}
+
 export function mapProviderSubmissionOutcome(args: {
   http_ok: boolean;
   timed_out?: boolean;
   provider_payment_id?: string | null;
   provider_state?: string | null;
   hard_reject?: boolean;
+  http_status?: number | null;
+  pay_call_explicitly_not_made?: boolean;
 }): {
   execution_status: "SUBMITTED" | "FAILED" | "DECLINED" | "UNKNOWN";
   item_status: "SUBMITTED" | "FAILED" | "DECLINED" | "UNKNOWN";
@@ -321,6 +334,22 @@ export function mapProviderSubmissionOutcome(args: {
     };
   }
   const state = String(args.provider_state ?? "").trim().toLowerCase();
+  const providerSaidNo = state === "declined" || state === "failed" || state === "reverted";
+  if (
+    !args.http_ok
+    && !providerSaidNo
+    && !args.pay_call_explicitly_not_made
+    && isUncertainPayoutSubmissionHttpStatus(args.http_status)
+  ) {
+    return {
+      execution_status: "UNKNOWN",
+      item_status: "UNKNOWN",
+      keep_reservation_active: true,
+      release_reservation: false,
+      wallet_debited: false,
+      paid: false,
+    };
+  }
   if (args.hard_reject || state === "declined") {
     return {
       execution_status: state === "declined" ? "DECLINED" : "FAILED",

@@ -83,9 +83,29 @@ Deno.test("sweep releases trip-less AUTHORISED holds after grace", async () => {
 
 Deno.test("markPaymentSessionReleased flips provider_state before status cancelled", async () => {
   const src = await Deno.readTextFile(sessionPath);
-  assertStringIncludes(src, "provider_state pre-flip");
+  // Canonical behaviour (not comment-only): AUTHORISED/COMPLETED provider_state must
+  // flip via mutatePaymentSession BEFORE markPaymentSessionStatus("released", …).
+  // prevent_authorised_session_client_cancel reads OLD.provider_state — flipping first
+  // is required so status→cancelled is not blocked while still AUTHORISED.
   assertStringIncludes(src, "prevent_authorised_session_client_cancel");
   assertStringIncludes(src, 'provider_state_verified_by: "markPaymentSessionReleased"');
+
+  const fnStart = src.indexOf("export async function markPaymentSessionReleased");
+  assert(fnStart >= 0, "markPaymentSessionReleased must exist");
+  const fnEnd = src.indexOf("\nexport async function", fnStart + 1);
+  const body = fnEnd > fnStart ? src.slice(fnStart, fnEnd) : src.slice(fnStart);
+
+  const flipIdx = body.indexOf('provider_state_verified_by: "markPaymentSessionReleased"');
+  const statusIdx = body.indexOf('markPaymentSessionStatus(supabase, "released"');
+  assert(flipIdx >= 0, "provider_state flip must set verified_by markPaymentSessionReleased");
+  assert(statusIdx >= 0, "markPaymentSessionStatus(released) must follow");
+  assert(
+    flipIdx < statusIdx,
+    "provider_state flip must execute before markPaymentSessionStatus(released)",
+  );
+  assertStringIncludes(body, 'oldState === "AUTHORISED"');
+  assertStringIncludes(body, 'provider_state: oldState === "COMPLETED" ? "REFUNDED" : "CANCELLED"');
+  assertStringIncludes(body, "await mutatePaymentSession");
 });
 
 Deno.test("CTAP still reverses in-function when it actually starts", async () => {

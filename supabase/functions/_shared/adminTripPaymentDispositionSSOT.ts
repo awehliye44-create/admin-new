@@ -27,7 +27,6 @@ export type AdminPaymentSessionDispositionInput = {
 
 export type AdminTripPaymentDispositionTrip = AdminTripClassificationRow & {
   financial_model?: string | null;
-  arrival_cancellation_applied?: boolean | null;
   cancellation_fee_pence?: number | null;
   payment_status?: string | null;
   payment_disposition?: AdminTripPaymentDispositionRead | null;
@@ -373,7 +372,7 @@ export function buildAdminTripPaymentDispositionRead(args: {
 export function tripHistoryStatusLabel(trip: AdminTripPaymentDispositionTrip): string {
   const kind = resolveTripHistoryTerminalOutcomeKind(trip);
   if (kind === "ARRIVAL_CANCELLATION") return "Arrival Cancellation";
-  if (kind === "NO_SHOW") return "No-Show";
+  if (kind === "NO_SHOW") return "No-show";
   if (kind === "LATE_PASSENGER_CANCELLATION") return "Late Passenger Cancellation";
   const status = String(trip.status ?? "").trim().toLowerCase();
   const outcome = String(trip.financial_outcome ?? "").trim().toUpperCase();

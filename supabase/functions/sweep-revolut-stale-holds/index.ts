@@ -37,7 +37,9 @@ import {
   tipWindowCloseAllowedAfterFinalize,
 } from "../_shared/tripPaymentFinalised.ts";
 import { computeCaptureAmount } from "../_shared/tripFareSSOT.ts";
+import { planCaptureComposition } from "../_shared/captureCompositionSSOT.ts";
 import { TIP_WINDOW_STATUS } from "../_shared/tipWindowConstants.ts";
+void planCaptureComposition;
 
 const cors = {
   "Access-Control-Allow-Origin": "*",

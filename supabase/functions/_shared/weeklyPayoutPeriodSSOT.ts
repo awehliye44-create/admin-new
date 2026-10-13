@@ -299,6 +299,29 @@ export function resolveWeeklyOccurrenceMoneyAmounts(args: {
 
 export const WEEKLY_PAYOUT_FEE_PENCE = 0;
 
+/**
+ * Weekly payable amount = period-scoped credits capped by the wallet SSOT
+ * Available balance. `eligible_entries` are per-credit and uncapped: legacy
+ * unallocated payouts (e.g. pre-lineage WEEKLY_PAYOUT debits) can leave credits
+ * that look unpaid while Live is already 0. Planning from them alone pays twice.
+ */
+export function resolveWeeklyPayableAmountPence(args: {
+  scoped_amount_pence: number;
+  wallet_available_pence: number;
+  minimum_payout_pence: number;
+}): {
+  amount_pence: number;
+  blocked_reason: "NO_AVAILABLE_BALANCE" | "BELOW_MIN_PAYOUT" | null;
+} {
+  const scoped = Math.max(0, Math.round(Number(args.scoped_amount_pence ?? 0)));
+  const available = Math.max(0, Math.round(Number(args.wallet_available_pence ?? 0)));
+  const minimum = Math.max(0, Math.round(Number(args.minimum_payout_pence ?? 0)));
+  const amount = Math.min(scoped, available);
+  if (amount <= 0) return { amount_pence: 0, blocked_reason: "NO_AVAILABLE_BALANCE" };
+  if (amount < minimum) return { amount_pence: 0, blocked_reason: "BELOW_MIN_PAYOUT" };
+  return { amount_pence: amount, blocked_reason: null };
+}
+
 export const WEEKLY_NEVER_REPAY_LEDGER_TYPES = [
   "EARLY_CASHOUT",
   "CASHOUT_FEE",

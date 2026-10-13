@@ -21,9 +21,12 @@ import { computeCaptureAmount } from "../_shared/tripFareSSOT.ts";
 import { handleQueuedTripAfterCurrentTripFailure } from "../_shared/stackedRideLifecycle.ts";
 import { notifyCustomerTripLifecycle } from "../_shared/customerTripLifecycleNotify.ts";
 import {
+  finalizeWaitingSegmentsAtTerminal,
+  resolveCanonicalWaitingSeconds,
   resolveEffectiveWaitingRadiusMeters,
   resolveTrustedDriverLocation,
   syncWaitingGeofenceClock,
+  WAITING_EVIDENCE_UNAVAILABLE,
 } from "../_shared/waitingSegmentClock.ts";
 import { loadAdminWaitingConfig } from "../_shared/waitingAdminConfig.ts";
 
@@ -172,13 +175,16 @@ Deno.serve(async (req) => {
       trip.vehicle_type_id,
     );
 
-    let countedInRadiusSeconds = Number(trip.pickup_waiting_counted_seconds ?? 0);
+    // No-Show decision time. Eligibility reads segments at this instant, never
+    // the trips counter cache; unreadable segments block the No-Show (no
+    // trip, fee or payment mutation) until the Driver retries.
+    const decisionAtIso = new Date().toISOString();
     if (
       trip.pickup_waiting_started_at &&
       trip.pickup_latitude != null &&
       trip.pickup_longitude != null
     ) {
-      const clock = await syncWaitingGeofenceClock(supabase, {
+      await syncWaitingGeofenceClock(supabase, {
         tripId: trip_id,
         driverId: driver.id,
         locationType: "pickup",
@@ -193,9 +199,28 @@ Deno.serve(async (req) => {
         },
         bodyLat: typeof driver_lat === "number" ? driver_lat : null,
         bodyLng: typeof driver_lng === "number" ? driver_lng : null,
+        nowIso: decisionAtIso,
       });
-      countedInRadiusSeconds = clock.countedSeconds;
     }
+    const canonicalWaiting = await resolveCanonicalWaitingSeconds(supabase, {
+      tripId: trip_id,
+      locationType: "pickup",
+      atIso: decisionAtIso,
+    });
+    if (!canonicalWaiting.ok) {
+      console.error("[pickup-no-show] WAITING_EVIDENCE_UNAVAILABLE — no decision, no mutation", {
+        trip_id,
+        reason: canonicalWaiting.reason,
+        message: canonicalWaiting.message,
+        evaluated_at: decisionAtIso,
+      });
+      return errorResponse(
+        WAITING_EVIDENCE_UNAVAILABLE,
+        "Unable to verify waiting time right now. Please try again.",
+        503,
+      );
+    }
+    const countedInRadiusSeconds = canonicalWaiting.countedSeconds;
 
     const eligibility = evaluateCanMarkNoShow({
       tripStatus: trip.status,
@@ -222,7 +247,7 @@ Deno.serve(async (req) => {
       String(trip.financial_model ?? "").toUpperCase() === "DRIVER_COLLECTED_COMMISSION_WALLET";
     const cashTrip = isCashPayment(trip.payment_method) || driverCollected;
     const effectiveNoShowFeePence = cashTrip ? 0 : configuredNoShowFeePence;
-    const now = new Date().toISOString();
+    const now = decisionAtIso;
 
     let updateErr = (await supabase
       .from("trips")
@@ -275,6 +300,15 @@ Deno.serve(async (req) => {
       return errorResponse("UPDATE_FAILED", "Could not update trip — please try again", 500);
     }
 
+    const frozenWaiting = await finalizeWaitingSegmentsAtTerminal(supabase, {
+      tripId: trip_id,
+      locationType: "pickup",
+      atIso: decisionAtIso,
+    });
+    if (!frozenWaiting.ok) {
+      console.error("[pickup-no-show] waiting segment finalize failed", { trip_id, ...frozenWaiting });
+    }
+
     console.log("NO_SHOW_TERMINAL_CONFIRMED", JSON.stringify({
       trip_id,
       driver_id: driver.id,
@@ -284,6 +318,9 @@ Deno.serve(async (req) => {
       configured_no_show_fee_pence: configuredNoShowFeePence,
       effective_no_show_fee_pence: effectiveNoShowFeePence,
       cash_zero_policy: cashTrip,
+      pickup_waiting_counted_seconds: countedInRadiusSeconds,
+      waiting_evidence_source: canonicalWaiting.source,
+      waiting_evaluated_at: decisionAtIso,
     }));
 
     await supabase

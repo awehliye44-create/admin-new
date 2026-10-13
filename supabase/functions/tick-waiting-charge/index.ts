@@ -162,9 +162,23 @@ Deno.serve(async (req) => {
         stop_id,
         status: clock.status,
         counted_seconds: clock.countedSeconds,
+        evidence_complete: clock.evidenceComplete,
         used_source: clock.usedSource,
         trusted_overrides_body: clock.trustedOverridesBody,
       });
+      if (!clock.evidenceComplete) {
+        return successResponse({
+          success: true,
+          no_op: true,
+          waiting_evidence_unavailable: true,
+          message: "Waiting segments unavailable — charge unchanged",
+          counted_in_radius_seconds: countedSeconds,
+          total_amount_pence: previousPence,
+          stop_arrived_at: stop.arrived_at ?? null,
+          waiting_geofence_status: geofenceStatus,
+          admin_waiting_config_snapshot: config,
+        });
+      }
     }
 
     const wallElapsed = Math.max(

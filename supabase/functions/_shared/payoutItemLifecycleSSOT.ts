@@ -279,3 +279,48 @@ export function isConflictingActivePayoutItem(item: {
 
 /** Canonical completed execution_status persisted by finalize / repair. */
 export const CANONICAL_COMPLETED_EXECUTION_STATUS = "COMPLETED" as const;
+
+/**
+ * Pre-reservation statuses only. Anything at or past RESERVING may have touched
+ * the wallet or the provider and must be reconciled, never retired.
+ */
+export const STALE_UNSUBMITTED_RETIRABLE_STATUSES = new Set([
+  "CREATED",
+  "VALIDATED",
+  "BLOCKED_EXECUTION_DISABLED",
+]);
+
+export const STALE_UNSUBMITTED_RETIRE_RPC = "retire_unsubmitted_payout_item" as const;
+
+/**
+ * Weekly conflict gate: a never-submitted item left behind by an EARLIER weekly
+ * occurrence is a retirement candidate instead of a permanent blocker.
+ * Candidate only — `retire_unsubmitted_payout_item` re-proves (under row lock)
+ * no reservation, no provider intent, no provider reference before retiring.
+ */
+export function isStaleUnsubmittedWeeklyItemCandidate(item: {
+  status?: string | null;
+  execution_status?: string | null;
+  batch_kind?: string | null;
+  batch_schedule_occurrence_key?: string | null;
+  current_schedule_occurrence_key: string;
+  provider_reference?: string | null;
+  provider_payout_id?: string | null;
+  provider_transfer_id?: string | null;
+  ledger_entry_id?: string | null;
+}): boolean {
+  if (norm(item.batch_kind) !== "WEEKLY_SCHEDULED") return false;
+  const batchKey = String(item.batch_schedule_occurrence_key ?? "").trim();
+  if (batchKey && batchKey === item.current_schedule_occurrence_key) return false;
+  const status = norm(item.status);
+  const execution = norm(item.execution_status);
+  if (!STALE_UNSUBMITTED_RETIRABLE_STATUSES.has(status)) return false;
+  if (execution && !STALE_UNSUBMITTED_RETIRABLE_STATUSES.has(execution)) return false;
+  const hasProviderTrace = [
+    item.provider_reference,
+    item.provider_payout_id,
+    item.provider_transfer_id,
+    item.ledger_entry_id,
+  ].some((v) => String(v ?? "").trim() !== "");
+  return !hasProviderTrace;
+}

@@ -1,0 +1,54 @@
+# Capture composition SSOT lock (Customer / financial-main)
+
+## Proven classification — MK-260925-002
+
+**C. CAPTURE_USES_CUSTOMER_PAYABLE_ONLY** (primary)
+
+First broken assignment (pre-SSOT `revolutCompletionCapture`):
+
+```
+finalFarePence = computeCaptureAmount(...).capture_amount_pence
+// = final_fare_pence + tips_pence   ← no receivable
+```
+
+Then `planRevolutCompletionCapture` set `release_remainder_pence = hold − finalFare`,
+so the 36p RESERVED debt was treated as unused hold remainder. Metadata still had
+`customer_receivables_pence` (not D). Buffer field was not rewritten as 36 (A not
+proven as a buffer-field write); collapse was via capture-payable-only + remainder.
+
+Co-fact **B**: receivable component dropped before capture POST.
+
+## Canonical typed components (never infer across types)
+
+1. `trip_fare_component_pence`
+2. `preauth_buffer_component_pence` — explicit persisted buffer only
+3. `customer_receivable_component_pence` — same-session RESERVED only
+4. `tip_component_pence`
+
+```
+displayed = fare + receivable
+auth_target = fare + receivable + buffer
+capture_target = fare + tip + receivable
+release = auth_target − capture_target   // buffer when tip=0; NEVER receivable
+```
+
+## Never remove
+
+- `planCaptureComposition` / `planTypedMoneyTargets` / `rejectAuthorisationRemainderAsBuffer`
+- Persist composition before provider POST
+- Settle only from planned receivable component
+- Tip auth decline must not fare-capture
+
+## Lock tests
+
+`supabase/tests/_shared/captureCompositionSSOTLock.test.ts`
+
+**If they fail, fix the code — never delete or soften the lock.**
+
+## Do not
+
+- Derive buffer as `authorised − fare`
+- Derive receivable from authorisation remainder
+- POST `customer_payable` alone when RESERVED exist
+- Put receivable into TEN / commission / tip / payout
+- Enable `CUSTOMER_RECEIVABLE_FOLD_ENABLED` in this PR

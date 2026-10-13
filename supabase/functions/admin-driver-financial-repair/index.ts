@@ -40,6 +40,8 @@ import {
   buildCertificationNonPayableIdempotencyKey,
   type CertificationTripEvidence,
 } from "../_shared/certificationNonPayableRepairSSOT.ts";
+import { isCanonicalTerminalFinancialOutcome } from "../_shared/frDriverExpectedEntitlementSSOT.ts";
+import { resolveTerminalEntitledDriverId } from "../_shared/terminalOutcomeKindSSOT.ts";
 
 const PAGE_SLUG = FINANCE_EXECUTION_PAGE_SLUGS.DRIVER_WALLET_LEDGER;
 
@@ -181,7 +183,7 @@ async function loadTripEvidence(
   | { ok: true; evidence: DriverFinancialRepairEvidence; trip: Record<string, unknown> }
   | { ok: false; response: Response }
 > {
-  const { data: tripRow, error } = await supabase
+  const { data: trip, error } = await supabase
     .from("trips")
     .select(
       [
@@ -191,6 +193,8 @@ async function loadTripEvidence(
         "financial_outcome",
         "financial_model",
         "driver_id",
+        "confirmed_driver_id",
+        "previous_driver_id",
         "driver_net_pence",
         "commission_pence",
         "tip_pence",
@@ -227,12 +231,22 @@ async function loadTripEvidence(
     )
     .eq("id", args.tripId)
     .maybeSingle();
-  const trip = tripRow as Record<string, unknown> | null;
 
   if (error || !trip) {
     return { ok: false, response: json({ error: "Trip not found", error_code: "TRIP_NOT_FOUND" }, 404) };
   }
-  if (String(trip.driver_id) !== args.driverId) {
+  // Canonical terminal outcomes clear driver_id on cancel; the preserved
+  // beneficiary (resolveTerminalEntitledDriverId) owns the fee. Every other trip
+  // still requires the assigned driver.
+  const terminalOutcome = isCanonicalTerminalFinancialOutcome(trip as { financial_outcome?: string | null });
+  const beneficiaryDriverId = terminalOutcome
+    ? resolveTerminalEntitledDriverId(trip as {
+      driver_id?: string | null;
+      confirmed_driver_id?: string | null;
+      previous_driver_id?: string | null;
+    })
+    : (String(trip.driver_id ?? "") || null);
+  if (beneficiaryDriverId !== args.driverId) {
     return {
       ok: false,
       response: json({ error: "Trip driver mismatch", error_code: "TRIP_DRIVER_MISMATCH" }, 409),
@@ -243,7 +257,7 @@ async function loadTripEvidence(
     .from("payment_sessions")
     .select(
       // Live schema: payment_sessions.provider_state (not provider_status).
-      "id, trip_id, provider_order_id, provider_payment_id, provider_state, status, captured_amount_pence, currency, metadata",
+      "id, trip_id, provider_order_id, provider_payment_id, provider_state, status, captured_amount_pence, provider_processing_fee_pence, fee_status, currency, metadata",
     )
     .eq("trip_id", args.tripId)
     .order("created_at", { ascending: false })
@@ -474,6 +488,8 @@ async function loadTripEvidence(
 
   const captured = primary?.captured_amount_pence != null
     ? Math.round(Number(primary.captured_amount_pence))
+    : terminalOutcome
+    ? null
     : trip.capture_amount_pence != null
     ? Math.round(Number(trip.capture_amount_pence))
     : null;
@@ -487,7 +503,10 @@ async function loadTripEvidence(
   // Trip stamp fields first; else accepted ride_offer for THIS trip (booking-time rule).
   let commissionRate: number | null = null;
   let commissionRuleSource: string | null = null;
-  if (trip.accepted_commission_percent != null && Number.isFinite(Number(trip.accepted_commission_percent))) {
+  if (terminalOutcome) {
+    commissionRate = 0;
+    commissionRuleSource = "terminal_outcome_commission_zero";
+  } else if (trip.accepted_commission_percent != null && Number.isFinite(Number(trip.accepted_commission_percent))) {
     commissionRate = Number(trip.accepted_commission_percent);
     commissionRuleSource = "trips.accepted_commission_percent";
   } else if (trip.commission_pct != null && Number.isFinite(Number(trip.commission_pct))) {
@@ -540,8 +559,12 @@ async function loadTripEvidence(
     provider_payment_id: primary?.provider_payment_id ? String(primary.provider_payment_id) : null,
     provider_state: providerState,
     captured_amount_pence: captured,
-    final_fare_pence: trip.final_fare_pence != null ? Math.round(Number(trip.final_fare_pence)) : null,
-    commission_basis_pence: trip.final_fare_pence != null
+    final_fare_pence: terminalOutcome
+      ? captured
+      : trip.final_fare_pence != null ? Math.round(Number(trip.final_fare_pence)) : null,
+    commission_basis_pence: terminalOutcome
+      ? captured
+      : trip.final_fare_pence != null
       ? Math.max(
         0,
         Math.round(Number(trip.final_fare_pence)) - Math.round(Number(trip.airport_charge_pence ?? 0)),
@@ -551,6 +574,10 @@ async function loadTripEvidence(
     commission_rule_source: commissionRuleSource,
     commission_pence: trip.commission_pence != null ? Math.round(Number(trip.commission_pence)) : null,
     provider_fee_pence: trip.provider_fee_pence != null ? Math.round(Number(trip.provider_fee_pence)) : null,
+    provider_processing_fee_pence: primary?.provider_processing_fee_pence != null
+      ? Math.round(Number(primary.provider_processing_fee_pence))
+      : null,
+    provider_fee_status: primary?.fee_status != null ? String(primary.fee_status) : null,
     tip_pence: Math.round(Number(trip.tip_pence ?? trip.tip_amount_pence ?? 0)),
     airport_charge_pence: trip.airport_charge_pence != null
       ? Math.round(Number(trip.airport_charge_pence))
@@ -1206,7 +1233,7 @@ async function handleApply(
           driverNetPence: Math.min(tenOnly, tenRestore),
           tipPence: tipOnly,
           currency: loaded.evidence.currency ?? "GBP",
-          commissionPct: stamp?.commission_pct ?? undefined,
+          commissionPct: stamp?.commission_pct,
         });
         tenRestoredPence = tenRestore;
         walletDelta += tenRestore;

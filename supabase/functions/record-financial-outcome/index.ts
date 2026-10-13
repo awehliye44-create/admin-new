@@ -4,6 +4,7 @@ import { resolveCurrencyFromTrip } from "../_shared/regionCurrency.ts";
 import { assertServiceRole } from "../_shared/internalAuth.ts";
 import { tripBlocksDriverWalletLedgerPosting } from "../_shared/commissionWalletDeduction.ts";
 import { postTerminalOutcomeSettlement } from "../_shared/canonicalTypedWalletPostingSSOT.ts";
+import { evaluateFinancialOutcomeEntitlement } from "../_shared/financialOutcomeEntitlementGuardSSOT.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -68,7 +69,7 @@ serve(async (req) => {
 
     const { data: trip, error: tripError } = await supabase
       .from('trips')
-      .select('id, status, driver_id, service_area_id, financial_outcome')
+      .select('id, status, completed_at, driver_id, confirmed_driver_id, previous_driver_id, arrived_at, service_area_id, financial_outcome')
       .eq('id', trip_id)
       .single();
 
@@ -76,6 +77,15 @@ serve(async (req) => {
       return new Response(
         JSON.stringify({ error: 'Trip not found' }),
         { status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    const entitlement = evaluateFinancialOutcomeEntitlement({ trip, requestedDriverId: driver_id, outcome });
+    if (!entitlement.ok) {
+      console.warn(`[record-financial-outcome] refused ${outcome} for trip ${trip_id}: ${entitlement.code}`);
+      return new Response(
+        JSON.stringify({ success: false, trip_id, outcome, error_code: entitlement.code }),
+        { status: entitlement.status, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 

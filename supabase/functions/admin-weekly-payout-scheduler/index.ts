@@ -21,6 +21,7 @@ import { loadPayoutControlCentreSettings } from "../_shared/payoutControlCentreS
 import { fetchDriverPayoutEligibility } from "../_shared/fetchDriverPayoutEligibility.ts";
 import { planPayoutItemFromEligibleEntries, type PlannedLedgerAllocation } from "../_shared/payoutLedgerHandoffSSOT.ts";
 import { persistPayoutItemLedgerAllocations } from "../_shared/payoutItemLedgerAllocationWrite.ts";
+import { resolveWeeklyPayableAmountPence } from "../_shared/weeklyPayoutPeriodSSOT.ts";
 import {
   ADMIN_EXECUTION_DISABLED_LABEL,
   isConflictingActivePayoutItem,
@@ -29,6 +30,8 @@ import {
   WEEKLY_PAYOUT_BATCH_KIND,
   assertSlice5MoneySafety,
   evaluateDriverBatchEligibility,
+  isPayoutDriverDeleted,
+  isPayoutDriverHeldOrBlocked,
   isLivePayoutExecutionEnabled,
   isRevolutPaymentTransportEnabled,
   itemIdempotencyKey,
@@ -260,13 +263,12 @@ serve(async (req) => {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
-    const dueOccurrence = occurrence as ScheduleOccurrence;
 
     // Idempotent reuse
     const { data: existingBatch } = await supabase
       .from("payout_batches")
       .select("*")
-      .eq("schedule_occurrence_key", dueOccurrence.schedule_occurrence_key)
+      .eq("schedule_occurrence_key", occurrence.schedule_occurrence_key)
       .maybeSingle();
 
     if (existingBatch?.id && !dryRun) {
@@ -350,7 +352,7 @@ serve(async (req) => {
     let driverQuery = supabase
       .from("drivers")
       .select(
-        "id, region_id, service_area_id, first_name, last_name, payouts_enabled, payout_operational_paused, approval_status, driver_status",
+        "id, region_id, service_area_id, first_name, last_name, payouts_enabled, payout_operational_paused, approval_status, driver_status, deleted_at",
       )
       .eq("approval_status", "approved")
       .in("id", platformDriverIds);
@@ -417,18 +419,41 @@ serve(async (req) => {
 
     const planned: PlannedItem[] = [];
     const ineligible: Array<{ driver_id: string; reasons: string[] }> = [];
+    const deletedDriversHeldForReview: Array<Record<string, unknown>> = [];
 
     for (const driver of drivers ?? []) {
       const driverId = String(driver.id);
       const dest = destByDriver.get(driverId) ?? null;
-      const driverStatus = String(driver.driver_status ?? "").toLowerCase();
-      const held = ["suspended", "blocked", "banned", "held"].includes(driverStatus);
+      const held = isPayoutDriverHeldOrBlocked(driver);
       const eligibility = await fetchDriverPayoutEligibility(supabase, { driver_id: driverId });
+      if (isPayoutDriverDeleted(driver)) {
+        if (eligibility.live_balance_pence > 0 || eligibility.available_balance_pence > 0) {
+          deletedDriversHeldForReview.push({
+            driver_id: driverId,
+            deleted_at: driver.deleted_at ?? null,
+            driver_status: driver.driver_status ?? null,
+            wallet_live_balance_pence: eligibility.live_balance_pence,
+            wallet_available_pence: eligibility.available_balance_pence,
+            reason: "DRIVER_DELETED",
+          });
+        }
+        ineligible.push({ driver_id: driverId, reasons: ["DRIVER_DELETED"] });
+        continue;
+      }
+      const payable = resolveWeeklyPayableAmountPence({
+        scoped_amount_pence: eligibility.available_balance_pence,
+        wallet_available_pence: eligibility.available_balance_pence,
+        minimum_payout_pence: controlCentre.payout_min_pence,
+      });
+      if (payable.blocked_reason === "BELOW_MIN_PAYOUT") {
+        ineligible.push({ driver_id: driverId, reasons: ["BELOW_MIN_PAYOUT"] });
+        continue;
+      }
       let lineage: ReturnType<typeof planPayoutItemFromEligibleEntries> = null;
       try {
         lineage = planPayoutItemFromEligibleEntries({
           eligible_entries: eligibility.eligible_entries,
-          available_balance_pence: eligibility.available_balance_pence,
+          available_balance_pence: payable.amount_pence,
         });
       } catch {
         lineage = null;
@@ -445,6 +470,7 @@ serve(async (req) => {
         payout_operational_paused: driver.payout_operational_paused === true,
         payouts_enabled: driver.payouts_enabled !== false,
         driver_held_or_blocked: held,
+        driver_deleted: false,
         currency: serviceAreaCurrency,
         expected_currency: serviceAreaCurrency,
         destination: dest
@@ -486,7 +512,7 @@ serve(async (req) => {
     }
 
     const totalAmount = planned.reduce((s, p) => s + p.amount_pence, 0);
-    const runDate = dueOccurrence.scheduled_utc_at.slice(0, 10);
+    const runDate = occurrence.scheduled_utc_at.slice(0, 10);
 
     if (dryRun) {
       assertSlice5MoneySafety({
@@ -503,12 +529,12 @@ serve(async (req) => {
         batch_id: null,
         batch_status: SLICE5_BATCH_STATUS.BLOCKED_EXECUTION_DISABLED,
         batch_status_label: ADMIN_EXECUTION_DISABLED_LABEL,
-        schedule_occurrence_key: dueOccurrence.schedule_occurrence_key,
-        schedule_id: dueOccurrence.schedule_id,
-        scheduled_local_at: dueOccurrence.scheduled_local_at,
-        scheduled_utc_at: dueOccurrence.scheduled_utc_at,
-        timezone: dueOccurrence.timezone,
-        currency: dueOccurrence.currency,
+        schedule_occurrence_key: occurrence.schedule_occurrence_key,
+        schedule_id: occurrence.schedule_id,
+        scheduled_local_at: occurrence.scheduled_local_at,
+        scheduled_utc_at: occurrence.scheduled_utc_at,
+        timezone: occurrence.timezone,
+        currency: occurrence.currency,
         eligible_driver_count: planned.length,
         total_amount_pence: totalAmount,
         items: planned.map((p) => ({
@@ -516,6 +542,7 @@ serve(async (req) => {
           execution_status: SLICE5_ITEM_STATUS.BLOCKED_EXECUTION_DISABLED,
         })),
         ineligible,
+        deleted_drivers_held_for_review: deletedDriversHeldForReview,
         settings,
         live_payout_execution_enabled: live,
         revolut_payment_transport_enabled: transport,
@@ -539,14 +566,14 @@ serve(async (req) => {
         total_amount_pence: 0,
         eligible_driver_count: 0,
         created_by: actorUserId,
-        service_area_id: dueOccurrence.service_area_id ?? serviceAreaId,
-        schedule_id: dueOccurrence.schedule_id,
-        schedule_occurrence_key: dueOccurrence.schedule_occurrence_key,
-        frequency: dueOccurrence.frequency,
-        scheduled_local_at: dueOccurrence.scheduled_local_at,
-        scheduled_utc_at: dueOccurrence.scheduled_utc_at,
-        timezone: dueOccurrence.timezone,
-        currency: dueOccurrence.currency,
+        service_area_id: occurrence.service_area_id ?? serviceAreaId,
+        schedule_id: occurrence.schedule_id,
+        schedule_occurrence_key: occurrence.schedule_occurrence_key,
+        frequency: occurrence.frequency,
+        scheduled_local_at: occurrence.scheduled_local_at,
+        scheduled_utc_at: occurrence.scheduled_utc_at,
+        timezone: occurrence.timezone,
+        currency: occurrence.currency,
         notes: scheduledRun
           ? "created_by=pg_cron_scheduler slice5"
           : "created_by=admin slice5",
@@ -561,7 +588,7 @@ serve(async (req) => {
         const { data: raced } = await supabase
           .from("payout_batches")
           .select("*")
-          .eq("schedule_occurrence_key", dueOccurrence.schedule_occurrence_key)
+          .eq("schedule_occurrence_key", occurrence.schedule_occurrence_key)
           .maybeSingle();
         if (raced?.id) {
           return new Response(JSON.stringify({
@@ -611,7 +638,7 @@ serve(async (req) => {
       wallet_snapshot_available_pence: p.wallet_snapshot_available_pence,
       eligibility_snapshot: p.eligibility_snapshot,
       provider_request_id: itemProviderRequestId(batchId, p.driver_id),
-      idempotency_key: itemIdempotencyKey(dueOccurrence.schedule_occurrence_key, p.driver_id),
+      idempotency_key: itemIdempotencyKey(occurrence.schedule_occurrence_key, p.driver_id),
     }));
 
     if (itemRows.length > 0) {
@@ -708,16 +735,17 @@ serve(async (req) => {
       batch_id: batchId,
       batch_status: SLICE5_BATCH_STATUS.BLOCKED_EXECUTION_DISABLED,
       batch_status_label: ADMIN_EXECUTION_DISABLED_LABEL,
-      schedule_occurrence_key: dueOccurrence.schedule_occurrence_key,
-      schedule_id: dueOccurrence.schedule_id,
-      scheduled_local_at: dueOccurrence.scheduled_local_at,
-      scheduled_utc_at: dueOccurrence.scheduled_utc_at,
-      timezone: dueOccurrence.timezone,
-      currency: dueOccurrence.currency,
+      schedule_occurrence_key: occurrence.schedule_occurrence_key,
+      schedule_id: occurrence.schedule_id,
+      scheduled_local_at: occurrence.scheduled_local_at,
+      scheduled_utc_at: occurrence.scheduled_utc_at,
+      timezone: occurrence.timezone,
+      currency: occurrence.currency,
       eligible_driver_count: planned.length,
       total_amount_pence: totalAmount,
       items: savedItems ?? [],
       ineligible,
+      deleted_drivers_held_for_review: deletedDriversHeldForReview,
       settings,
       live_payout_execution_enabled: live,
       revolut_payment_transport_enabled: transport,

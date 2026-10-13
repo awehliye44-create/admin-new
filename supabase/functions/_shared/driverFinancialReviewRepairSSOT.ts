@@ -16,7 +16,16 @@ import {
   type TripSettlementResult,
   type TripSettlementTripRow,
 } from "./tripSettlement.ts";
-import { FR_EXPECTED_STAMP_STATUS } from "./frDriverExpectedEntitlementSSOT.ts";
+import {
+  FR_EXPECTED_STAMP_STATUS,
+  isCanonicalTerminalFinancialOutcome,
+  resolveCanonicalTerminalEntitlement,
+} from "./frDriverExpectedEntitlementSSOT.ts";
+import {
+  buildTerminalOutcomeTripPatch,
+  computeTerminalOutcomeEntitlement,
+  type TerminalOutcomeKind,
+} from "./terminalOutcomeEntitlementSSOT.ts";
 import {
   buildCertificationEvidenceForPreview,
   buildCertificationNonPayableIdempotencyKey,
@@ -309,6 +318,10 @@ export type DriverFinancialRepairEvidence = {
   /** Audit label for how commission_rate_percent was established (e.g. ride_offers.effective_commission_percent). */
   commission_rule_source?: string | null;
   provider_fee_pence?: number | null;
+  /** payment_sessions.provider_processing_fee_pence — authoritative terminal fee. */
+  provider_processing_fee_pence?: number | null;
+  /** payment_sessions.fee_status — terminal entitlement requires "ACTUAL". */
+  provider_fee_status?: string | null;
   tip_pence?: number | null;
   airport_charge_pence?: number | null;
   existing_driver_net_pence?: number | null;
@@ -525,6 +538,7 @@ export function isTerminalTripForFinancialRepair(args: {
   const outcome = String(args.financial_outcome ?? "").trim().toUpperCase();
   return (
     outcome === "NO_SHOW"
+    || outcome === "ARRIVAL_CANCELLATION"
     || outcome === "CANCELLED_WITH_FEE"
     || outcome === "LATE_PASSENGER_CANCELLATION"
     || outcome === "COMPLETED"
@@ -636,9 +650,107 @@ export function resolveProvenCommissionPercentForRepair(
   };
 }
 
+/** Non-financial keys of the terminal trip patch — Repair never changes lifecycle. */
+const TERMINAL_PATCH_LIFECYCLE_KEYS = new Set([
+  "status",
+  "financial_outcome",
+  "payment_method",
+  "updated_at",
+]);
+
+/**
+ * Canonical terminal outcome stamp: captured − ACTUAL provider fee, commission 0.
+ * Same entitlement and trip columns as terminal settlement
+ * (computeTerminalOutcomeEntitlement + buildTerminalOutcomeTripPatch), cross-checked
+ * against the FR resolver. Never fare × commission %.
+ */
+function computeTerminalOutcomeStampForRepair(
+  evidence: DriverFinancialRepairEvidence,
+  captured: number,
+): ReturnType<typeof computeExpectedStampForRepair> {
+  const outcome = String(evidence.financial_outcome ?? "").trim().toUpperCase() as TerminalOutcomeKind;
+  const fr = resolveCanonicalTerminalEntitlement({
+    captured_pence: captured,
+    provider_fee_pence: evidence.provider_processing_fee_pence,
+    provider_fee_status: evidence.provider_fee_status,
+  });
+  if (fr.entitlement_pence == null) {
+    return {
+      ok: false,
+      block_code: DRIVER_FINANCIAL_REPAIR_BLOCK.INSUFFICIENT_EVIDENCE,
+      reason: fr.reason === "terminal_fee_capture_missing"
+        ? "Terminal outcome capture amount unknown"
+        : "Terminal outcome requires an ACTUAL provider fee",
+    };
+  }
+  const entitlement = computeTerminalOutcomeEntitlement({
+    payment_session_id: evidence.payment_session_id ?? null,
+    captured_pence: captured,
+    provider_fee_pence: Math.round(Number(evidence.provider_processing_fee_pence)),
+    provider_fee_confirmed: true,
+  });
+  const patch = buildTerminalOutcomeTripPatch({ outcome, entitlement, nowIso: new Date(0).toISOString() });
+  if (
+    !patch
+    || entitlement.expected_driver_entitlement_pence == null
+    || entitlement.expected_driver_entitlement_pence !== fr.entitlement_pence
+  ) {
+    return {
+      ok: false,
+      block_code: DRIVER_FINANCIAL_REPAIR_BLOCK.AMBIGUOUS_ENTITLEMENT,
+      reason: "Terminal settlement and reconciliation entitlement disagree",
+    };
+  }
+  const columns: Record<string, number | string | null> = {};
+  for (const [key, value] of Object.entries(patch)) {
+    if (TERMINAL_PATCH_LIFECYCLE_KEYS.has(key) || value === undefined) continue;
+    columns[key] = value as number | string | null;
+  }
+  const net = entitlement.expected_driver_entitlement_pence;
+  const fee = entitlement.provider_fee_pence ?? 0;
+  const settlement: TripSettlementResult = {
+    final_fare_pence: captured,
+    commissionable_fare_pence: captured,
+    commission_pence: 0,
+    locked_promotion_pence: 0,
+    applied_customer_promotion_pence: 0,
+    commission_after_promotion_pence: 0,
+    driver_net_pence: net,
+    driver_total_earnings_pence: net,
+    airport_charge_pence: 0,
+    other_pass_through_charges_pence: 0,
+    tips_pence: 0,
+    provider_fee_pence: fee,
+    provider_fee_confirmed: true,
+    platform_gross_revenue_pence: 0,
+    platform_net_revenue_pence: Number(columns.platform_net_revenue_pence ?? 0),
+    onecab_net_pence: columns.onecab_net_pence == null ? null : Number(columns.onecab_net_pence),
+    tier_percent_used: 0,
+    formula_version: entitlement.formula_version,
+  };
+  return {
+    ok: true,
+    settlement,
+    expected_credit_pence: net,
+    commission_rule_source: "terminal_outcome_commission_zero",
+    stamp: {
+      driver_net_pence: net,
+      commission_pence: 0,
+      tip_pence: 0,
+      airport_charge_pence: 0,
+      final_fare_pence: captured,
+      commission_pct: 0,
+      provider_fee_pence: fee,
+      settlement_formula_version: entitlement.formula_version,
+      columns,
+    },
+  };
+}
+
 /**
  * Server-only stamp calculation. Admin override fields are deliberately ignored.
  * Hard rule: unknown commission is not 0% commission.
+ * Canonical terminal outcomes use the terminal settlement rule, never fare × commission.
  */
 export function computeExpectedStampForRepair(evidence: DriverFinancialRepairEvidence): {
   ok: true;
@@ -663,8 +775,12 @@ export function computeExpectedStampForRepair(evidence: DriverFinancialRepairEvi
     };
   }
 
+  if (isCanonicalTerminalFinancialOutcome(evidence)) {
+    return computeTerminalOutcomeStampForRepair(evidence, captured);
+  }
+
   const proven = resolveProvenCommissionPercentForRepair(evidence);
-  if (proven.ok === false) {
+  if (!proven.ok) {
     return {
       ok: false,
       block_code: proven.block_code,
@@ -755,8 +871,16 @@ export function listMissingEvidenceFields(evidence: DriverFinancialRepairEvidenc
   if (evidence.payment_session_lineage_ok === false) missing.push("payment_session_lineage");
   if (!evidence.provider_state) missing.push("provider_state");
   if (asNullableInt(evidence.captured_amount_pence) == null) missing.push("captured_amount_pence");
-  // Rate must be positively present. commission_pence alone is not a commission rule.
-  if (evidence.commission_rate_percent == null) {
+  if (isCanonicalTerminalFinancialOutcome(evidence)) {
+    // Terminal rule: commission 0 by definition; the provider fee must be ACTUAL.
+    if (
+      String(evidence.provider_fee_status ?? "").trim().toUpperCase() !== "ACTUAL"
+      || asNullableInt(evidence.provider_processing_fee_pence) == null
+    ) {
+      missing.push("provider_fee_actual");
+    }
+  } else if (evidence.commission_rate_percent == null) {
+    // Rate must be positively present. commission_pence alone is not a commission rule.
     missing.push("commission_rule");
   }
   if (evidence.existing_driver_net_pence == null) missing.push("expected_stamp.driver_net_pence");
@@ -1154,7 +1278,7 @@ export function buildDriverFinancialRepairPreview(args: {
 
   const stampMissing = evidence.existing_driver_net_pence == null;
   const stampCompute = computeExpectedStampForRepair(evidence);
-  if (stampCompute.ok === false) {
+  if (!stampCompute.ok) {
     const insufficient =
       stampCompute.block_code === DRIVER_FINANCIAL_REPAIR_BLOCK.INSUFFICIENT_EVIDENCE
       || stampCompute.block_code === DRIVER_FINANCIAL_REPAIR_BLOCK.AMBIGUOUS_ENTITLEMENT;
@@ -1237,7 +1361,9 @@ export function buildDriverFinancialRepairPreview(args: {
     canonical_expected_credit_pence: expectedCredit,
     variance_pence: variance,
     missing_evidence_fields: needsStampRestore
-      ? missing.filter((f) => f.startsWith("expected_stamp") || f === "commission_rule")
+      ? missing.filter((f) =>
+        f.startsWith("expected_stamp") || f === "commission_rule" || f === "provider_fee_actual"
+      )
       : missing.filter((f) => f !== "expected_stamp.driver_net_pence"),
     proposed_repair: proposed,
     block_code: null,
@@ -1380,7 +1506,7 @@ export function enforceWalletCorrectionPreviewCertification(
   preview: DriverFinancialRepairPreview,
 ): DriverFinancialRepairPreview {
   const gate = assertWalletCorrectionApplyCertified({ classification: preview.classification });
-  if (gate.ok !== false) return preview;
+  if (gate.ok) return preview;
   return {
     ...preview,
     apply_allowed: false,

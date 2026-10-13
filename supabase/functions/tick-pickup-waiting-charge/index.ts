@@ -249,6 +249,7 @@ Deno.serve(async (req) => {
     let geofenceStatus: WaitingGeofenceStatus | string =
       trip.waiting_geofence_status ?? "paused";
     let countedSeconds = Number(trip.pickup_waiting_counted_seconds ?? 0);
+    let waitingEvidenceComplete = true;
 
     if (trip.pickup_latitude != null && trip.pickup_longitude != null) {
       const clock = await syncWaitingGeofenceClock(supabase, {
@@ -274,10 +275,12 @@ Deno.serve(async (req) => {
         trip_id,
         status: clock.status,
         counted_seconds: clock.countedSeconds,
+        evidence_complete: clock.evidenceComplete,
         used_source: clock.usedSource,
         trusted_overrides_body: clock.trustedOverridesBody,
         distance_meters: clock.distanceMeters,
       });
+      waitingEvidenceComplete = clock.evidenceComplete;
     }
 
     const noShowFields = noShowFieldsFromCounted({
@@ -287,6 +290,21 @@ Deno.serve(async (req) => {
       config,
       nowMs,
     });
+
+    if (!waitingEvidenceComplete) {
+      return successResponse({
+        success: true,
+        no_op: true,
+        waiting_evidence_unavailable: true,
+        message: "Waiting segments unavailable — charge unchanged",
+        elapsed_seconds: wallElapsedSeconds,
+        counted_in_radius_seconds: countedSeconds,
+        waiting_geofence_status: geofenceStatus,
+        admin_waiting_config_snapshot: config,
+        ...noShowFields,
+        ...liveFareFields(trip as Record<string, unknown>),
+      });
+    }
 
     // Free-wait / paid gate uses counted in-radius seconds (not wall elapsed).
     const graceExpired = countedSeconds >= gracePeriodSeconds;

@@ -35,6 +35,7 @@ import {
   blockedTerminalTripLogPayload,
   isTripTerminalForDispatch,
   revokePendingOffersForTerminalTrip,
+  TERMINAL_TRIP_STATUS_POSTGREST_LIST,
 } from "../_shared/tripTerminalDispatch.ts";
 import {
   loadStackedRideConfig,
@@ -45,7 +46,6 @@ import {
   notifyCustomerTripLifecycle,
 } from "../_shared/customerTripLifecycleNotify.ts";
 import { notifyCustomerNegotiationRematch } from "../_shared/negotiationFailureRematch.ts";
-import { assertCronOrServiceRoleAuth } from "../_shared/cronEdgeAuth.ts";
 
 declare const EdgeRuntime:
   | { waitUntil?: (promise: Promise<unknown>) => void }
@@ -66,11 +66,6 @@ function queueBackground(promise: Promise<unknown>) {
 }
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
-
-/** Fire-and-forget: never blocks the sweep, never leaves a rejection unhandled. */
-function voidBackground(task: Promise<unknown>): void {
-  task.catch((err) => console.warn("[scheduled-dispatch] background task failed:", err));
-}
 
 interface ScheduledTrip {
   id: string;
@@ -96,9 +91,6 @@ interface ScheduledTrip {
   passenger_name: string;
   passenger_id?: string | null;
   trip_number?: string | null;
-  driver_net_pence?: number | null;
-  driver_net_before_tip_pence?: number | null;
-  special_instructions?: string | null;
   final_fare_pence?: number | null;
   gross_fare_pence?: number | null;
   estimated_total_pence?: number | null;
@@ -292,6 +284,8 @@ async function releaseAndRebroadcast(
     .from("trips")
     .update(updatePatch)
     .eq("id", trip.id)
+    .is("completed_at", null)
+    .not("status", "in", TERMINAL_TRIP_STATUS_POSTGREST_LIST)
     .in("scheduled_status", [
       "scheduled_committed",
       "driver_assigned",
@@ -331,8 +325,6 @@ async function releaseAndRebroadcast(
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return handleCORSPreflight();
-  const cronAuth = await assertCronOrServiceRoleAuth(req);
-  if (!cronAuth.ok) return cronAuth.response;
 
   const clientIP = getClientIP(req);
   const rateLimitResult = checkRateLimit(clientIP, RATE_LIMIT_CONFIG);
@@ -446,6 +438,8 @@ Deno.serve(async (req) => {
               .from("trips")
               .update(buildAssignNowPatch({ driverId, nowIso: now.toISOString() }))
               .eq("id", trip.id)
+              .is("completed_at", null)
+              .not("status", "in", TERMINAL_TRIP_STATUS_POSTGREST_LIST)
               .eq("pending_release_kind", "assign")
               .in("scheduled_status", [
                 "admin_held",
@@ -513,6 +507,8 @@ Deno.serve(async (req) => {
               .from("trips")
               .update(buildBroadcastNowPatch({ nowIso: now.toISOString() }))
               .eq("id", trip.id)
+              .is("completed_at", null)
+              .not("status", "in", TERMINAL_TRIP_STATUS_POSTGREST_LIST)
               .eq("pending_release_kind", "broadcast")
               .in("scheduled_status", [
                 "admin_held",
@@ -570,6 +566,8 @@ Deno.serve(async (req) => {
               .from("trips")
               .update(buildMakeAvailableScheduledJobsPatch({ nowIso: now.toISOString() }))
               .eq("id", trip.id)
+              .is("completed_at", null)
+              .not("status", "in", TERMINAL_TRIP_STATUS_POSTGREST_LIST)
               .eq("pending_release_kind", "jobs")
               .in("scheduled_status", ["admin_held", "scheduled", "pending"])
               .is("driver_id", null)
@@ -745,6 +743,8 @@ Deno.serve(async (req) => {
             updated_at: now.toISOString(),
           })
           .eq("id", trip.id)
+          .is("completed_at", null)
+          .not("status", "in", TERMINAL_TRIP_STATUS_POSTGREST_LIST)
           .in("scheduled_status", ["scheduled", "driver_assigned", "scheduled_committed"])
           .is("driver_id", null)
           .select("id");
@@ -911,6 +911,8 @@ Deno.serve(async (req) => {
             updated_at: now.toISOString(),
           })
           .eq("id", trip.id)
+          .is("completed_at", null)
+          .not("status", "in", TERMINAL_TRIP_STATUS_POSTGREST_LIST)
           .in("scheduled_status", ["admin_held", "scheduled", "pending"])
           .is("confirmed_driver_id", null)
           .is("driver_id", null)
@@ -1118,6 +1120,8 @@ Deno.serve(async (req) => {
           .from("trips")
           .update(conversionPatch)
           .eq("id", trip.id)
+          .is("completed_at", null)
+          .not("status", "in", TERMINAL_TRIP_STATUS_POSTGREST_LIST)
           .in("scheduled_status", [...NO_PRECONFIRMED_CONVERT_SCHEDULED_STATUSES])
           .is("driver_id", null)
           .is("confirmed_driver_id", null)
@@ -1308,6 +1312,8 @@ Deno.serve(async (req) => {
               confirmed_driver_id: null,
             })
             .eq("id", trip.id)
+            .is("completed_at", null)
+            .not("status", "in", TERMINAL_TRIP_STATUS_POSTGREST_LIST)
             .is("driver_id", null);
         } else if (!trip.searching_expires_at) {
           // expire_trip_when_search_exhausted invents now+findMinutes when
@@ -1324,7 +1330,7 @@ Deno.serve(async (req) => {
         }
 
         const { expired: didExpire, rpcError } =
-          await expireTripWhenSearchExhaustedAndNotifyCustomer(supabase as never, {
+          await expireTripWhenSearchExhaustedAndNotifyCustomer(supabase, {
             tripId: trip.id,
             passengerId: trip.passenger_id ?? null,
           });
@@ -1335,11 +1341,7 @@ Deno.serve(async (req) => {
         }
 
         if (didExpire === true) {
-          await revokePendingOffersForTerminalTrip(
-            supabase as never,
-            trip.id,
-            "trip_expired_no_driver",
-          );
+          await revokePendingOffersForTerminalTrip(supabase, trip.id, "trip_expired_no_driver");
           await supabase
             .from("trips")
             .update({

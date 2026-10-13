@@ -7,6 +7,10 @@ import {
 } from "./revolutBusinessRelayClient.ts";
 import { ensureFreshRevolutBusinessAccessToken } from "./revolutBusinessAccessTokenRefresh.ts";
 import { maskProviderId, redactProviderEvidence } from "./driverPayoutSubmissionSSOT.ts";
+import {
+  FAIL_SUBMITTED_EARLY_CASHOUT_RPC,
+  isEarlyCashoutProviderTerminalFailure,
+} from "./earlyCashoutInvariantSSOT.ts";
 
 export type ReconcileSubmittedPayoutResult = {
   ok: boolean;
@@ -223,6 +227,45 @@ export async function reconcileSubmittedDriverWithdrawPayout(args: {
       already_applied: false,
       error: statusRes.error ?? "PROVIDER_STATUS_UNAVAILABLE",
       message: "Could not read provider payment status.",
+    };
+  }
+
+  if (isEarlyCashoutProviderTerminalFailure(liveState)) {
+    const { data: failRaw } = await args.supabase.rpc(FAIL_SUBMITTED_EARLY_CASHOUT_RPC, {
+      p_payout_item_id: payoutItemId,
+      p_provider_payment_id: providerPaymentId,
+      p_provider_state: liveState,
+      p_evidence_redacted: {
+        ...redactProviderEvidence({
+          provider_payment_id: providerPaymentId,
+          provider_state: liveState,
+          provider_request_id: null,
+          http_status: statusRes.status,
+          created_at: statusRes.created_at,
+          failure_code: `PROVIDER_${String(liveState).toUpperCase()}`,
+        }),
+        reconciled_via: "driver_withdraw_provider_status",
+        revolut_pay_called: false,
+      },
+    });
+    const fail = (failRaw ?? {}) as Record<string, unknown>;
+    return {
+      ok: false,
+      payout_item_id: payoutItemId,
+      provider_payment_id: providerPaymentId,
+      provider_payment_id_masked: maskProviderId(providerPaymentId),
+      provider_state: liveState,
+      previous_provider_state: previousState,
+      revolut_pay_called: false,
+      wallet_debited: false,
+      reservation_consumed: false,
+      item_status: fail.ok === true ? "FAILED" : String(item.status ?? ""),
+      financially_applied: false,
+      already_applied: false,
+      error: fail.ok === true ? "PROVIDER_FAILED_RESERVATION_RELEASED" : String(fail.error ?? "PROVIDER_FAILED_RELEASE_PENDING"),
+      message: fail.ok === true
+        ? `Provider state is ${liveState}; reservation released, no wallet debit.`
+        : `Provider state is ${liveState}; release not applied.`,
     };
   }
 
