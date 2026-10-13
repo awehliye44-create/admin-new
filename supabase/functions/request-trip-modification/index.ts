@@ -1288,8 +1288,6 @@ serveWithEdgeTiming("request-trip-modification", corsHeaders, async (req) => {
           decline_reason: paymentResult.declineReason ?? null,
           bank_declined: paymentResult.bankDeclined === true,
           failure_class: paymentResult.failure_class ?? "UNKNOWN_PROVIDER_ERROR",
-          preview,
-          newFare: newCustomerTotalPence / 100,
           newFarePence,
           newCustomerTotalPence,
           currentConfirmedCustomerTotalPence,

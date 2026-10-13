@@ -19,11 +19,11 @@ import {
   logAuditEvent,
 } from "../_shared/security.ts";
 import {
+  getRevolutMerchantConfig,
   payRevolutOrderWithGooglePay,
   retrieveRevolutOrder,
   type GooglePayBillingAddress,
 } from "../_shared/revolutOrders.ts";
-import { resolveRevolutMerchantContext } from "../_shared/revolutMerchantContext.ts";
 import {
   classifyGooglePaySubmitFailure,
   isFailedPaymentState,
@@ -191,8 +191,7 @@ serve(async (req) => {
       });
     }
 
-    // Same vault-first merchant as order creation and confirm/reconcile of this order.
-    const { secretKey, environment } = await resolveRevolutMerchantContext(supabase, "live");
+    const { secretKey, environment } = getRevolutMerchantConfig();
 
     // Soft-check order still payable
     try {

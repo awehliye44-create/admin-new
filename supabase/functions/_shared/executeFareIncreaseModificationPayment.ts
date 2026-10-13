@@ -478,28 +478,6 @@ export async function executeFareIncreaseModificationPayment(
         bankDeclineReason: failure.bankDeclineReason,
       }),
       error: customerMessageForGate(gate, failure),
-      httpStatus: pending ? 202 : 402,
-    };
-  }
-
-  const expectedPrevious = Number(changeRequest.original_fare_pence ?? 0);
-  const expectedTripStatus = String(trip.status ?? "").toLowerCase();
-  const { data: claimResult, error: claimError } = await supabase.rpc(
-    "claim_and_apply_fare_increase_modification",
-    {
-      p_trip_id: trip.id,
-      p_request_id: requestId,
-      p_expected_original_fare_pence: expectedPrevious,
-      p_expected_trip_status: expectedTripStatus,
-      p_required_authorised_total_pence: newFarePence,
-      p_provider_confirmed: true,
-      p_authorised_total_pence: gate.authorisedTotalPence,
-    },
-  );
-
-  if (claimError) {
-    const msg = String(claimError.message ?? claimError.details ?? "");
-    const code = msg.includes("ALREADY_APPLIED")
       ? "ALREADY_APPLIED"
       : msg.includes("PAYMENT_NOT_CONFIRMED")
       ? "PAYMENT_NOT_CONFIRMED"

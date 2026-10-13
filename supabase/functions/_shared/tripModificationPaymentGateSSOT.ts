@@ -237,13 +237,9 @@ export function decideFromPreauthInvokeResult(args: {
   }
 
   // Revolut increment state `failed` is a technical/provider failure, not a decline.
-  // Persist failures are internal (revolut-incremental-auth lock) — never a decline.
   if (
     code === "PROVIDER_INCREMENT_FAILED"
     || coverage === "authorization_provider_failed"
-    || code === "INCREMENT_CONFIRM_PERSIST_FAILED"
-    || code === "PERSIST_FAILED"
-    || coverage === "authorization_persist_failed"
   ) {
     return {
       phase: "PAYMENT_FAILED",
@@ -354,6 +350,10 @@ export function decideFromPreauthInvokeResult(args: {
   };
 }
 
+/**
+ * Optimistic concurrency: apply only when trip still matches the fare basis
+ * the modification was quoted against. Concurrent winners move the fare;
+ * losers must not stack a second delta.
 export type ModificationPaymentFailureKind = "bank_declined" | "not_authorised" | "technical";
 
 /**
@@ -375,10 +375,6 @@ export function classifyModificationPaymentFailure(args: {
   return { kind: "not_authorised", bankDeclineReason: null };
 }
 
-/**
- * Optimistic concurrency: apply only when trip still matches the fare basis
- * the modification was quoted against. Concurrent winners move the fare;
- * losers must not stack a second delta.
  */
 export function tripFareBasisMatchesExpectation(args: {
   expectedPreviousFarePence: number | null | undefined;

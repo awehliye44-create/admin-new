@@ -189,9 +189,6 @@ export async function prepareRevolutModificationAuthorisation(args: {
         : 409,
       // Preserve current authorised total so callers can map decline ≠ unknown.
       authorised_amount_pence: incrementResult.providerConfirmedTotalPence,
-      decline_reason: declined && incrementResult.providerDeclineEvidence
-        ? incrementResult.providerDeclineReason ?? null
-        : null,
       payment_coverage_status: declined
         ? "authorization_insufficient"
         : pending

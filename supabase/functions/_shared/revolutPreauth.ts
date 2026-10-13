@@ -1537,8 +1537,6 @@ async function attemptRevolutSavedCardCharge(args: {
         charge_state: "no_charge",
         client_state: preserveCard ? "PAYMENT_FAILED" : "DECLINED",
         terminal: true,
-        decline_reason: declineReason,
-        bank_declined: findBankDeclineReason(declineReason) !== null,
         preserve_saved_card: preserveCard,
         retry_after_ms: SAVED_CARD_TERMINAL_FAILURE_THROTTLE_MS,
         throttle_ms: SAVED_CARD_TERMINAL_FAILURE_THROTTLE_MS,

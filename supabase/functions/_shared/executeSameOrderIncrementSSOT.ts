@@ -673,8 +673,6 @@ export async function executeSameOrderIncrement(args: {
             errorClassification: "PROVIDER_INCREMENT_FAILED",
           };
         }
-        const priorDeclineEvidenced = providerIncrementOutcome(priorEvidence) === "declined"
-          && isExplicitAttemptMatch(priorEvidence);
         return {
           ok: false,
           kind: "declined",
@@ -682,9 +680,9 @@ export async function executeSameOrderIncrement(args: {
           providerConfirmedTotalPence: providerTotal,
           eligibility,
           errorClassification: "AUTHORISED_TOTAL_BELOW_TARGET",
-          providerDeclineEvidence: priorDeclineEvidenced ? "provider_increment_declined" : null,
-          providerDeclineReason: priorDeclineEvidenced
-            ? priorEvidence.increment_reason ?? null
+          providerDeclineEvidence: providerIncrementOutcome(priorEvidence) === "declined"
+              && isExplicitAttemptMatch(priorEvidence)
+            ? "provider_increment_declined"
             : null,
         };
       }
@@ -1262,9 +1260,6 @@ export async function executeSameOrderIncrement(args: {
       errorClassification: failedErrorClassification
         ?? failCode ?? String(failOutcome).toUpperCase(),
       providerDeclineEvidence,
-      providerDeclineReason: providerDeclineEvidence
-        ? finalEvidence.increment_reason ?? null
-        : null,
     };
   } finally {
     await releasePaymentSessionFinancialLock(args.supabase, {
