@@ -88,6 +88,7 @@ import { finalizeRideAssignmentSideEffects } from "../_shared/rideAssignmentFina
 import {
   blockedTerminalTripLogPayload,
   isTripTerminalForDispatch,
+  TERMINAL_TRIP_STATUS_POSTGREST_LIST,
 } from "../_shared/tripTerminalDispatch.ts";
 import {
   evaluateStackedDriverEligibility,
@@ -1070,7 +1071,9 @@ Deno.serve(async (req) => {
           status: trip.status === "searching_new_driver" ? "searching_new_driver" : "searching",
           updated_at: new Date().toISOString(),
         })
-        .eq("id", trip_id);
+        .eq("id", trip_id)
+        .is("completed_at", null)
+        .not("status", "in", TERMINAL_TRIP_STATUS_POSTGREST_LIST);
       abortDispatch("WAVES_EXHAUSTED_WAITING", {
         round: maxRounds,
         searching_expires_at: trip.searching_expires_at ?? null,
@@ -2377,7 +2380,9 @@ Deno.serve(async (req) => {
             current_broadcast_round: currentRound,
             updated_at: new Date().toISOString(),
           })
-          .eq("id", trip_id);
+          .eq("id", trip_id)
+          .is("completed_at", null)
+          .not("status", "in", TERMINAL_TRIP_STATUS_POSTGREST_LIST);
 
         abortDispatch("NO_DRIVERS_FINAL_WAVE", {
           round: currentRound,
@@ -2402,7 +2407,9 @@ Deno.serve(async (req) => {
           current_broadcast_round: currentRound,
           updated_at: new Date().toISOString(),
         })
-        .eq("id", trip_id);
+        .eq("id", trip_id)
+        .is("completed_at", null)
+        .not("status", "in", TERMINAL_TRIP_STATUS_POSTGREST_LIST);
 
       abortDispatch("NO_DRIVERS_WAIT_NEXT_ROUND", {
         round: currentRound,

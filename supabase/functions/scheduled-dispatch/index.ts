@@ -35,6 +35,7 @@ import {
   blockedTerminalTripLogPayload,
   isTripTerminalForDispatch,
   revokePendingOffersForTerminalTrip,
+  TERMINAL_TRIP_STATUS_POSTGREST_LIST,
 } from "../_shared/tripTerminalDispatch.ts";
 import {
   loadStackedRideConfig,
@@ -283,6 +284,8 @@ async function releaseAndRebroadcast(
     .from("trips")
     .update(updatePatch)
     .eq("id", trip.id)
+    .is("completed_at", null)
+    .not("status", "in", TERMINAL_TRIP_STATUS_POSTGREST_LIST)
     .in("scheduled_status", [
       "scheduled_committed",
       "driver_assigned",
@@ -435,6 +438,8 @@ Deno.serve(async (req) => {
               .from("trips")
               .update(buildAssignNowPatch({ driverId, nowIso: now.toISOString() }))
               .eq("id", trip.id)
+              .is("completed_at", null)
+              .not("status", "in", TERMINAL_TRIP_STATUS_POSTGREST_LIST)
               .eq("pending_release_kind", "assign")
               .in("scheduled_status", [
                 "admin_held",
@@ -502,6 +507,8 @@ Deno.serve(async (req) => {
               .from("trips")
               .update(buildBroadcastNowPatch({ nowIso: now.toISOString() }))
               .eq("id", trip.id)
+              .is("completed_at", null)
+              .not("status", "in", TERMINAL_TRIP_STATUS_POSTGREST_LIST)
               .eq("pending_release_kind", "broadcast")
               .in("scheduled_status", [
                 "admin_held",
@@ -559,6 +566,8 @@ Deno.serve(async (req) => {
               .from("trips")
               .update(buildMakeAvailableScheduledJobsPatch({ nowIso: now.toISOString() }))
               .eq("id", trip.id)
+              .is("completed_at", null)
+              .not("status", "in", TERMINAL_TRIP_STATUS_POSTGREST_LIST)
               .eq("pending_release_kind", "jobs")
               .in("scheduled_status", ["admin_held", "scheduled", "pending"])
               .is("driver_id", null)
@@ -734,6 +743,8 @@ Deno.serve(async (req) => {
             updated_at: now.toISOString(),
           })
           .eq("id", trip.id)
+          .is("completed_at", null)
+          .not("status", "in", TERMINAL_TRIP_STATUS_POSTGREST_LIST)
           .in("scheduled_status", ["scheduled", "driver_assigned", "scheduled_committed"])
           .is("driver_id", null)
           .select("id");
@@ -900,6 +911,8 @@ Deno.serve(async (req) => {
             updated_at: now.toISOString(),
           })
           .eq("id", trip.id)
+          .is("completed_at", null)
+          .not("status", "in", TERMINAL_TRIP_STATUS_POSTGREST_LIST)
           .in("scheduled_status", ["admin_held", "scheduled", "pending"])
           .is("confirmed_driver_id", null)
           .is("driver_id", null)
@@ -1107,6 +1120,8 @@ Deno.serve(async (req) => {
           .from("trips")
           .update(conversionPatch)
           .eq("id", trip.id)
+          .is("completed_at", null)
+          .not("status", "in", TERMINAL_TRIP_STATUS_POSTGREST_LIST)
           .in("scheduled_status", [...NO_PRECONFIRMED_CONVERT_SCHEDULED_STATUSES])
           .is("driver_id", null)
           .is("confirmed_driver_id", null)
@@ -1297,6 +1312,8 @@ Deno.serve(async (req) => {
               confirmed_driver_id: null,
             })
             .eq("id", trip.id)
+            .is("completed_at", null)
+            .not("status", "in", TERMINAL_TRIP_STATUS_POSTGREST_LIST)
             .is("driver_id", null);
         } else if (!trip.searching_expires_at) {
           // expire_trip_when_search_exhausted invents now+findMinutes when

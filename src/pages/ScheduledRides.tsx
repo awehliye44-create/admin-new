@@ -80,6 +80,10 @@ import {
 import { validateAdminScheduledActionAt } from '@/lib/adminScheduledActionAt';
 import { adminScheduledBoardExcludedStatusInFilter } from '@/lib/adminScheduledBoardMembership';
 
+// Scheduled Rides actions must never reopen a completed or terminal trip.
+const TERMINAL_TRIP_STATUS_FILTER =
+  '(completed,cancelled,canceled,customer_cancelled,customer_canceled,expired,expired_no_driver,no_show,declined,failed)';
+
 interface ScheduledTrip {
   id: string;
   trip_number: string | null;
@@ -357,6 +361,8 @@ export default function ScheduledRides() {
           'driver_assigned',
         ])
         .is('driver_id', null)
+        .is('completed_at', null)
+        .not('status', 'in', TERMINAL_TRIP_STATUS_FILTER)
         .select('id');
 
       if (error) throw error;
@@ -433,6 +439,8 @@ export default function ScheduledRides() {
           'driver_assigned',
         ])
         .is('driver_id', null)
+        .is('completed_at', null)
+        .not('status', 'in', TERMINAL_TRIP_STATUS_FILTER)
         .select('id');
       if (error) throw error;
       if (!pendingRows?.length) {
@@ -540,6 +548,8 @@ export default function ScheduledRides() {
         .in('scheduled_status', ['admin_held', 'scheduled', 'pending'])
         .is('confirmed_driver_id', null)
         .is('driver_id', null)
+        .is('completed_at', null)
+        .not('status', 'in', TERMINAL_TRIP_STATUS_FILTER)
         .select('id');
 
       if (error) throw error;
@@ -587,6 +597,8 @@ export default function ScheduledRides() {
         .in('scheduled_status', ['admin_held', 'scheduled', 'pending'])
         .is('confirmed_driver_id', null)
         .is('driver_id', null)
+        .is('completed_at', null)
+        .not('status', 'in', TERMINAL_TRIP_STATUS_FILTER)
         .select('id');
       if (error) throw error;
       if (!pendingRows?.length) {
@@ -633,6 +645,8 @@ export default function ScheduledRides() {
           'driver_assigned',
         ])
         .is('driver_id', null)
+        .is('completed_at', null)
+        .not('status', 'in', TERMINAL_TRIP_STATUS_FILTER)
         .select('id');
 
       if (error) throw error;
@@ -694,6 +708,8 @@ export default function ScheduledRides() {
           'driver_assigned',
         ])
         .is('driver_id', null)
+        .is('completed_at', null)
+        .not('status', 'in', TERMINAL_TRIP_STATUS_FILTER)
         .select('id');
       if (error) throw error;
       if (!pendingRows?.length) {
