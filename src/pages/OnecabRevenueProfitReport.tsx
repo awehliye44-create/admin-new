@@ -152,6 +152,7 @@ export default function OnecabRevenueProfitReport() {
       totalBooking: profitSsot?.gross_customer_revenue_pence ?? null,
       commission: profitSsot?.gross_commission_pence ?? null,
       netCommission: profitSsot?.net_commission_pence ?? null,
+      earlyCashoutFees: profitSsot?.early_cashout_fee_revenue_pence ?? null,
       providerFees: profitSsot?.provider_fees_pence ?? null,
       refunds: profitSsot?.refunds_pence ?? null,
       chargebacks: profitSsot?.chargebacks_pence ?? null,
@@ -289,6 +290,7 @@ export default function OnecabRevenueProfitReport() {
         { line: 'Gross customer revenue', value: money(revenue.totalBooking) },
         { line: 'Gross commission', value: money(revenue.commission) },
         { line: 'Net commission', value: money(revenue.netCommission) },
+        { line: 'Early cash-out fees', value: money(revenue.earlyCashoutFees) },
         { line: 'Provider fees', value: money(revenue.providerFees) },
         { line: 'Refunds', value: money(revenue.refunds) },
         { line: 'Chargebacks', value: money(revenue.chargebacks) },
@@ -322,6 +324,7 @@ export default function OnecabRevenueProfitReport() {
             ['Gross customer revenue', money(revenue.totalBooking)],
             ['Gross commission', money(revenue.commission)],
             ['Net commission', money(revenue.netCommission)],
+            ['Early cash-out fees', money(revenue.earlyCashoutFees)],
             ['Provider fees', money(revenue.providerFees)],
             ['Refunds', money(revenue.refunds)],
             ['Chargebacks', money(revenue.chargebacks)],
@@ -457,6 +460,10 @@ export default function OnecabRevenueProfitReport() {
                 <div className="font-semibold">{fmtRev(revenue.netCommission)}</div>
               </div>
               <div className="rounded-md border bg-background p-3">
+                <div className="text-xs text-muted-foreground">Early cash-out fees</div>
+                <div className="font-semibold">{fmtRev(revenue.earlyCashoutFees)}</div>
+              </div>
+              <div className="rounded-md border bg-background p-3">
                 <div className="text-xs text-muted-foreground">Provider fees</div>
                 <div className="font-semibold">{fmtRev(revenue.providerFees)}</div>
               </div>
@@ -478,7 +485,7 @@ export default function OnecabRevenueProfitReport() {
               </div>
             </div>
             <p className="text-xs text-muted-foreground">
-              Display-only from Financial Reconciliation SSOT (chargebacks = abs sum of CHARGEBACK_DEBIT ledger in period).
+              Display-only from Financial Reconciliation SSOT (chargebacks = abs sum of CHARGEBACK_DEBIT ledger in period; early cash-out fees = abs sum of CASHOUT_FEE ledger in period, included once in platform net revenue).
               {' '}
               <Link to="/financial-reconciliation?tab=overview" className="underline">Open FR Overview</Link>
               {' · '}

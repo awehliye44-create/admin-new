@@ -37,6 +37,7 @@ import {
 import { resolveLiveCompanyBalanceSnapshot } from "../_shared/companyBalanceResolveSSOT.ts";
 import { ensureFreshRevolutBusinessAccessToken } from "../_shared/revolutBusinessAccessTokenRefresh.ts";
 import { reconcileSubmittedDriverWithdrawPayout } from "../_shared/driverWithdrawProviderReconcile.ts";
+import { earlyCashoutAmountsBalance } from "../_shared/earlyCashoutInvariantSSOT.ts";
 import {
   buildDriverWithdrawDiag,
   DRIVER_WITHDRAW_INTERNAL_ERROR,
@@ -723,7 +724,14 @@ Deno.serve(async (req) => {
       revolut_pay_called: false,
     }, 409);
   }
-  if (receivesPence <= 0 || receivesPence > amountPence) {
+  if (
+    receivesPence <= 0 || receivesPence > amountPence ||
+    !earlyCashoutAmountsBalance({
+      gross_pence: amountPence,
+      net_pence: receivesPence,
+      fee_pence: feePence,
+    })
+  ) {
     return json({
       ok: false,
       error: "INVALID_WITHDRAWAL_AMOUNT",
@@ -1177,7 +1185,7 @@ Deno.serve(async (req) => {
   });
 
   let walletDebited = false;
-  let finalStatus = outcome.item_status;
+  let finalStatus: string = outcome.item_status;
   let paidAt: string | null = null;
   let finalProviderState = providerState;
 

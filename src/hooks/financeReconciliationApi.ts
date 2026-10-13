@@ -138,6 +138,8 @@ export type OnecabProfitSsot = {
   gross_customer_revenue_pence?: number | null;
   gross_commission_pence?: number | null;
   net_commission_pence?: number | null;
+  /** ONECAB revenue from early cash-out fees (CASHOUT_FEE ledger); included in platform_net_revenue_pence. */
+  early_cashout_fee_revenue_pence?: number | null;
   provider_fees_pence?: number | null;
   refunds_pence?: number | null;
   chargebacks_pence?: number | null;

@@ -18,8 +18,13 @@ import {
   WEEKLY_PAYOUT_FEE_PENCE,
   freezeWeeklyOccurrencePeriod,
   resolveWeeklyOccurrenceMoneyAmounts,
+  resolveWeeklyPayableAmountPence,
   selectWeeklyPeriodPayableCredits,
 } from "../_shared/weeklyPayoutPeriodSSOT.ts";
+import {
+  STALE_UNSUBMITTED_RETIRE_RPC,
+  isStaleUnsubmittedWeeklyItemCandidate,
+} from "../_shared/payoutItemLifecycleSSOT.ts";
 import {
   assertPayoutItemLedgerLineage,
   persistPayoutItemLedgerAllocations,
@@ -425,18 +430,70 @@ async function handleWeeklyPayoutOccurrence(req: Request): Promise<Response> {
   }
 
   const conflictDrivers = new Set<string>();
+  const staleItemOutcomes: Array<Record<string, unknown>> = [];
   if (driverIds.length > 0) {
     const { data: activeItems } = await supabase
       .from("payout_items")
-      .select("driver_id, status, execution_status")
+      .select(
+        "id, batch_id, driver_id, status, execution_status, provider_reference, provider_payout_id, provider_transfer_id, ledger_entry_id",
+      )
       .in("driver_id", driverIds);
-    for (const item of activeItems ?? []) {
-      if (isConflictingActivePayoutItem({
+    const conflicting = (activeItems ?? []).filter((item) =>
+      isConflictingActivePayoutItem({
         status: item.status,
         execution_status: item.execution_status,
-      })) {
-        conflictDrivers.add(String(item.driver_id));
+      })
+    );
+    const conflictBatchIds = [...new Set(conflicting.map((item) => String(item.batch_id)))];
+    const batchById = new Map<string, { kind: string | null; schedule_occurrence_key: string | null }>();
+    if (conflictBatchIds.length > 0) {
+      const { data: conflictBatches } = await supabase
+        .from("payout_batches")
+        .select("id, kind, schedule_occurrence_key")
+        .in("id", conflictBatchIds);
+      for (const b of conflictBatches ?? []) {
+        batchById.set(String(b.id), {
+          kind: b.kind == null ? null : String(b.kind),
+          schedule_occurrence_key: b.schedule_occurrence_key == null
+            ? null
+            : String(b.schedule_occurrence_key),
+        });
       }
+    }
+    for (const item of conflicting) {
+      const batch = batchById.get(String(item.batch_id));
+      const candidate = batch != null && isStaleUnsubmittedWeeklyItemCandidate({
+        status: item.status,
+        execution_status: item.execution_status,
+        batch_kind: batch.kind,
+        batch_schedule_occurrence_key: batch.schedule_occurrence_key,
+        current_schedule_occurrence_key: occurrenceKey,
+        provider_reference: item.provider_reference,
+        provider_payout_id: item.provider_payout_id,
+        provider_transfer_id: item.provider_transfer_id,
+        ledger_entry_id: item.ledger_entry_id,
+      });
+      if (candidate) {
+        const { data: retired, error: retireErr } = await supabase.rpc(STALE_UNSUBMITTED_RETIRE_RPC, {
+          p_payout_item_id: String(item.id),
+          p_reason: `superseded_by_occurrence:${occurrenceKey}`,
+          p_actor: scheduledRun ? "pg_cron_orchestrator" : "admin_orchestrator",
+          p_dry_run: dryRun,
+        });
+        const result = (retired ?? {}) as Record<string, unknown>;
+        const retiredOk = !retireErr && result.ok === true;
+        staleItemOutcomes.push({
+          payout_item_id: String(item.id),
+          driver_id: String(item.driver_id),
+          dry_run: dryRun,
+          retired: retiredOk && !dryRun,
+          would_retire: retiredOk && dryRun,
+          error: retireErr?.message ?? (retiredOk ? null : String(result.error ?? "retire_refused")),
+          released_allocation_pence: result.released_allocation_pence ?? null,
+        });
+        if (retiredOk) continue;
+      }
+      conflictDrivers.add(String(item.driver_id));
     }
   }
 
@@ -469,7 +526,7 @@ async function handleWeeklyPayoutOccurrence(req: Request): Promise<Response> {
       const id = String(rec.ledger_entry_id ?? "");
       if (id) econById.set(id, rec);
     }
-    const scoped = selectWeeklyPeriodPayableCredits({
+    const periodScope = selectWeeklyPeriodPayableCredits({
       period_start: occurrencePeriod.period_start,
       period_end: occurrencePeriod.period_end,
       entries: eligibility.eligible_entries.map((entry) => {
@@ -484,6 +541,15 @@ async function handleWeeklyPayoutOccurrence(req: Request): Promise<Response> {
         };
       }),
     });
+    const payable = resolveWeeklyPayableAmountPence({
+      scoped_amount_pence: periodScope.amount_pence,
+      wallet_available_pence: eligibility.available_balance_pence,
+      minimum_payout_pence: controlCentre.payout_min_pence,
+    });
+    if (payable.amount_pence <= 0) continue;
+    // Period scope never exceeds wallet Available: credits already held by an
+    // in-flight or stale item must not be planned a second time.
+    const scoped = { ...periodScope, amount_pence: payable.amount_pence };
     let lineage: ReturnType<typeof planPayoutItemFromEligibleEntries> = null;
     try {
       lineage = planPayoutItemFromEligibleEntries({
@@ -539,6 +605,8 @@ async function handleWeeklyPayoutOccurrence(req: Request): Promise<Response> {
         period_end: occurrencePeriod.period_end,
         period_timezone: occurrencePeriod.timezone,
         ledger_allocation_ids: lineage.allocations.map((a) => a.ledger_entry_id),
+        period_scoped_amount_pence: periodScope.amount_pence,
+        wallet_available_cap_pence: eligibility.available_balance_pence,
         excluded_current_week_pence: scoped.excluded_current_week_pence,
         excluded_older_unpaid_pence: scoped.excluded_older_unpaid_pence,
         included_arrears_pence: scoped.included_arrears_pence,
@@ -891,6 +959,7 @@ async function handleWeeklyPayoutOccurrence(req: Request): Promise<Response> {
       expected_drivers: plan.eligible_driver_count,
       required_batch_pence: plan.required_batch_pence,
       items: plan.items,
+      stale_items: staleItemOutcomes,
       provider_request_payloads: providerPayloads,
       revolut_pay_called: false,
       wallet_debited: false,
@@ -926,6 +995,7 @@ async function handleWeeklyPayoutOccurrence(req: Request): Promise<Response> {
       expected_drivers: plan.eligible_driver_count,
       required_batch_pence: plan.required_batch_pence,
       items: plan.items,
+      stale_items: staleItemOutcomes,
       provider_request_payloads: providerPayloads,
       revolut_pay_called: false,
       wallet_debited: false,
@@ -1534,6 +1604,7 @@ async function handleWeeklyPayoutOccurrence(req: Request): Promise<Response> {
     batch_status: agg.status,
     funding: fundingGate,
     items: itemOutcomes,
+    stale_items: staleItemOutcomes,
     revolut_pay_called: anyPayCalled,
     wallet_debited: anyDebited,
     unfinished_count: agg.unfinished,
