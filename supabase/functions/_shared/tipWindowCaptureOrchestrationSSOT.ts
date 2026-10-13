@@ -23,6 +23,9 @@ import {
   tipRequestedButNotCollected,
 } from "./tipWindowTriggerMutexSSOT.ts";
 import { tipWindowCloseAllowedAfterFinalize } from "./tripPaymentFinalised.ts";
+// Capture amount composition is owned by revolutCompletionCapture via planCaptureComposition.
+import { planCaptureComposition } from "./captureCompositionSSOT.ts";
+void planCaptureComposition;
 
 export type CaptureInvokeFn = (args: {
   tripId: string;

@@ -1,5 +1,7 @@
 /**
- * Clearing-delay smoke tests (27h default).
+ * LOCK — strict 27h clearing for PLATFORM_COLLECTED earnings.
+ * Stable clearing origin + payout_clearing_delay_hours, with no provider
+ * early-clear exception (business policy 2026-10-02).
  * Run: deno test --allow-read supabase/functions/_shared/driverWalletClearingDelay27h.test.ts
  */
 import {
@@ -117,12 +119,102 @@ Deno.test("DRIVER_COLLECTED TRIP_EARNING_NET is never payout-eligible", () => {
   assertEquals(r.payable_pence, 0);
 });
 
-Deno.test("provider available_on clears immediately even under 27h", () => {
-  const r = evaluateLedgerEntryEligibility(
-    earning({ provider_available_on: CLEARED_AT, captured_at: FRESH_CAPTURE }),
-    POLICY_27H,
+/**
+ * STRICT 27h policy: provider availability / settlement can never shorten the
+ * configured delay, and a pending provider state never extends it. The SQL
+ * mirror (driver_wallet_eligibility_balances) carries the same rule.
+ */
+const PROVIDER_EARLY_STATES = ["AVAILABLE", "PAID_OUT", "FUNDS_AVAILABLE", "BALANCE_AVAILABLE", "SETTLE", "SETTLED"];
+const CAPTURE_1H = "2026-08-15T15:00:00.000Z"; // earning age 1h at NOW_MS
+const PROVIDER_AVAILABLE_AT_PLUS_1H = "2026-08-15T16:00:00.000Z"; // capture + 1h, reached at NOW_MS
+
+Deno.test("strict 27h: provider_available_on at +1h, earning age 1h → Pending", () => {
+  const e = earning({
+    captured_at: CAPTURE_1H,
+    earning_credited_at: CAPTURE_1H,
+    completed_at: CAPTURE_1H,
+    provider_available_on: PROVIDER_AVAILABLE_AT_PLUS_1H,
+  });
+  assertEquals(isPayoutClearedForPlatformCollected(e, POLICY_27H), false);
+  assertEquals(evaluateLedgerEntryEligibility(e, POLICY_27H).status, PAYOUT_ELIGIBILITY_STATUS.SETTLEMENT_PENDING);
+  const agg = aggregateDriverPayoutEligibility({ live_balance_pence: 421, entries: [e], clearing_policy: POLICY_27H });
+  assertEquals([agg.pending_balance_pence, agg.available_balance_pence], [421, 0]);
+});
+
+for (const state of PROVIDER_EARLY_STATES) {
+  Deno.test(`strict 27h: provider state ${state} at +1h, earning age 1h → Pending`, () => {
+    const e = earning({
+      captured_at: CAPTURE_1H,
+      earning_credited_at: CAPTURE_1H,
+      completed_at: CAPTURE_1H,
+      provider_state: state,
+    });
+    assertEquals(isPayoutClearedForPlatformCollected(e, POLICY_27H), false);
+    assertEquals(evaluateLedgerEntryEligibility(e, POLICY_27H).status, PAYOUT_ELIGIBILITY_STATUS.SETTLEMENT_PENDING);
+    const agg = aggregateDriverPayoutEligibility({ live_balance_pence: 421, entries: [e], clearing_policy: POLICY_27H });
+    assertEquals([agg.pending_balance_pence, agg.available_balance_pence], [421, 0]);
+  });
+}
+
+Deno.test("strict 27h: 26:59:59 Pending and 27:00:00 Available regardless of provider fields", () => {
+  const origin = "2026-08-14T13:00:00.000Z";
+  const at265959 = Date.parse("2026-08-15T15:59:59.000Z");
+  const at270000 = Date.parse("2026-08-15T16:00:00.000Z");
+  const providerVariants: Array<Partial<LedgerEligibilityEvidence>> = [
+    {},
+    { provider_available_on: "2026-08-14T14:00:00.000Z" },
+    ...PROVIDER_EARLY_STATES.map((provider_state) => ({ provider_state })),
+    { provider_state: "PENDING" },
+    { provider_state: "PROCESSING" },
+    { provider_available_on: "2026-08-20T00:00:00.000Z" },
+  ];
+  for (const variant of providerVariants) {
+    const e = earning({ captured_at: origin, earning_credited_at: origin, completed_at: origin, ...variant });
+    const label = JSON.stringify(variant);
+    assertEquals(isPayoutClearedForPlatformCollected(e, { now_ms: at265959, clearing_delay_hours: 27 }), false, label);
+    assertEquals(isPayoutClearedForPlatformCollected(e, { now_ms: at270000, clearing_delay_hours: 27 }), true, label);
+    assertEquals(
+      evaluateLedgerEntryEligibility(e, { now_ms: at265959, clearing_delay_hours: 27 }).status,
+      PAYOUT_ELIGIBILITY_STATUS.SETTLEMENT_PENDING,
+      label,
+    );
+    assertEquals(
+      evaluateLedgerEntryEligibility(e, { now_ms: at270000, clearing_delay_hours: 27 }).status,
+      PAYOUT_ELIGIBILITY_STATUS.ELIGIBLE,
+      label,
+    );
+  }
+});
+
+Deno.test("strict 27h: SQL wallet SSOT has no provider early-clear branch", () => {
+  const sql = Deno.readTextFileSync(
+    new URL(
+      "../../migrations/20261205120000_terminal_wallet_eligibility_and_stamp_invariant.sql",
+      import.meta.url,
+    ),
   );
-  assertEquals(r.status, PAYOUT_ELIGIBILITY_STATUS.ELIGIBLE);
+  const body = sql.slice(
+    sql.indexOf("CREATE OR REPLACE FUNCTION public.driver_wallet_eligibility_balances"),
+    sql.indexOf("$function$;", sql.indexOf("CREATE OR REPLACE FUNCTION public.driver_wallet_eligibility_balances")),
+  );
+  assert(body.length > 0);
+  assert(!body.includes("provider_available_on"), "provider_available_on must not clear early");
+  assert(!body.includes("driver_wallet_provider_funds_cleared"), "provider state must not clear early");
+  assert(body.includes("v_origin := public.driver_wallet_stable_clearing_origin("));
+  assert(body.includes("(v_origin + (v_delay_hours * interval '1 hour')) <= now()"));
+});
+
+Deno.test("strict 27h: TS mirror has no provider early-clear branch", () => {
+  const src = Deno.readTextFileSync(
+    new URL("../../functions/_shared/driverPayoutEligibilitySSOT.ts", import.meta.url),
+  );
+  const fn = src.slice(
+    src.indexOf("export function isPayoutClearedForPlatformCollected"),
+    src.indexOf("export type LedgerEligibilityEvidence"),
+  );
+  assert(!fn.includes("evidence.provider_available_on"));
+  assert(!fn.includes("evidence.provider_state"));
+  assert(!src.includes("isProviderFundsClearedState"));
 });
 
 Deno.test("Pending + Available = live for unpaid set", () => {

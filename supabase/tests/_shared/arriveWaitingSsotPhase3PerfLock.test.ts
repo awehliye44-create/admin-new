@@ -109,8 +109,10 @@ Deno.test("waiting geofence accepts pre-resolved trusted (no duplicate ladder)",
   const src = await Deno.readTextFile(segmentPath);
   assertStringIncludes(src, "trustedResolved");
   assertStringIncludes(src, "openedFresh");
-  // Fresh open skips full segment sum SELECT.
-  assertStringIncludes(src, "First open segment this session");
+  // A fresh open still sums every segment: skipping the sum reset the counted
+  // total to 0 on re-open after a pause (MK-261002-004).
+  assertEquals(src.includes("First open segment this session"), false);
+  assertStringIncludes(src, "resolveCanonicalWaitingSeconds");
 });
 
 Deno.test("lifecycle perf emits waiting_* sub-stages", async () => {

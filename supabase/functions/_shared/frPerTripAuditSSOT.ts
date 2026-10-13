@@ -796,7 +796,7 @@ export function buildFrPerTripAuditRecord(args: {
     ? Math.max(0, Math.round(Number(r.airport_charge_pence)))
     : 0;
 
-  const settlementIdentity = evaluateFrSettlementCaptureIdentity({
+  const allocationIdentity = evaluateFrSettlementCaptureIdentity({
     captured_pence: captured,
     driver_net_pence: driverEntitlement,
     commission_pence: grossCommission,
@@ -805,6 +805,25 @@ export function buildFrPerTripAuditRecord(args: {
     airport_charge_pence: airport,
     tips_pence: tips,
   });
+  // Prefer composition / trip-audit identity when already resolved upstream
+  // (fare+tip+receivable expected capture). Do not overwrite with fare-only
+  // allocation variance that treats receivable recovery as overcapture.
+  const rowIdentityBalanced = r.settlement_identity_balanced;
+  const rowCaptureVariance = r.capture_variance_pence != null
+    ? Math.round(Number(r.capture_variance_pence))
+    : null;
+  const settlementIdentity = {
+    evaluable: rowIdentityBalanced != null
+      ? true
+      : allocationIdentity.evaluable,
+    balanced: rowIdentityBalanced != null
+      ? rowIdentityBalanced === true
+      : allocationIdentity.balanced,
+    variance_pence: rowCaptureVariance != null
+      ? rowCaptureVariance
+      : allocationIdentity.variance_pence,
+    allocated_driver_entitlement_pence: allocationIdentity.allocated_driver_entitlement_pence,
+  };
 
   const walletVariance = r.credit_difference_pence != null
     ? Math.round(Number(r.credit_difference_pence))

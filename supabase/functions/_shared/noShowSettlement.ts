@@ -73,6 +73,8 @@ export interface NoShowSettlementResult {
   driverMessage: string;
   entitlement_pence?: number | null;
   pending_settlement?: boolean;
+  stamp_status?: string | null;
+  status_update_error?: string | null;
 }
 
 export function isCashPayment(method: string | null | undefined): boolean {
@@ -181,7 +183,7 @@ export async function settleNoShowFee(
   }
 
   const evidence = await loadTerminalCaptureEvidence(supabase, tripId, cardCharged ? feePence : null);
-  await stampTerminalOutcomeTripRow({
+  const stamp = await stampTerminalOutcomeTripRow({
     supabase,
     tripId,
     outcome: "NO_SHOW",
@@ -220,20 +222,32 @@ export async function settleNoShowFee(
     }
   }
 
-  await supabase
+  // Settlement amounts are owned by stampTerminalOutcomeTripRow
+  // (capture − 0 commission − ACTUAL fee). Only a zero capture is projected here.
+  const statusPatch: Record<string, unknown> = {
+    payment_status: paymentStatus,
+    financial_outcome: "NO_SHOW",
+    debt_recovery_pence: customerDebtPence,
+    no_show_charge_pence: feePence,
+    capture_amount_pence: evidence.captured_pence,
+    updated_at: new Date().toISOString(),
+  };
+  if (evidence.captured_pence <= 0) {
+    statusPatch.gross_fare_pence = 0;
+    statusPatch.driver_net_pence = 0;
+    statusPatch.commission_pence = 0;
+  }
+  const { error: statusErr } = await supabase
     .from("trips")
-    .update({
-      payment_status: paymentStatus,
-      financial_outcome: "NO_SHOW",
-      debt_recovery_pence: customerDebtPence,
-      gross_fare_pence: evidence.captured_pence,
-      no_show_charge_pence: feePence,
-      capture_amount_pence: evidence.captured_pence,
-      driver_net_pence: posted.entitlement_pence ?? 0,
-      commission_pence: 0,
-      updated_at: new Date().toISOString(),
-    })
+    .update(statusPatch)
     .eq("id", tripId);
+  if (statusErr) {
+    console.error("[noShowSettlement] NO_SHOW_STATUS_UPDATE_FAILED", JSON.stringify({
+      trip_id: tripId,
+      payment_status: paymentStatus,
+      error: statusErr.message ?? String(statusErr),
+    }));
+  }
 
   return {
     paymentStatus,
@@ -242,6 +256,8 @@ export async function settleNoShowFee(
     driverMessage: posted.pending ? NO_SHOW_DRIVER_MESSAGE_PENDING : NO_SHOW_DRIVER_MESSAGE,
     entitlement_pence: posted.entitlement_pence,
     pending_settlement: posted.pending,
+    stamp_status: stamp.stamp_status,
+    status_update_error: statusErr ? (statusErr.message ?? String(statusErr)) : null,
   };
 }
 

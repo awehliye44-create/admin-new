@@ -41,6 +41,11 @@ import {
 } from "./paymentSessionFinancialLockSSOT.ts";
 import { shouldBlockPrematureScheduledSearchHoldRelease } from "./scheduledHandoverHoldLock.ts";
 import { transitionPaymentSession } from "./paymentSessionTransitionFacade.ts";
+import { reconcileReceivablesOnAbandonOrCancel } from "./customerReceivableLifecycle.ts";
+import {
+  resolveCanonicalWaitingSeconds,
+  WAITING_EVIDENCE_UNAVAILABLE,
+} from "./waitingSegmentClock.ts";
 
 export type { TerminalPaymentDecision, FarePricingFeeConfig } from "./terminalFeeDecisionSSOT.ts";
 export { resolveTerminalPaymentDecision } from "./terminalFeeDecisionSSOT.ts";
@@ -403,6 +408,44 @@ async function reconcileSessionCancelled(
     },
   });
 
+  // Receivable contract (fresh provider GET/cancel result only — never stale
+  // pre-dispose local provider_state):
+  //   CANCELLED/RELEASED + captured=0 → RELEASE allocations → OPEN
+  //   COMPLETED/CAPTURED → SETTLE covered (partial = historical-first)
+  //   UNKNOWN → KEEP_RESERVED (planner fail-closed)
+  const stateFresh = String(providerState ?? "").trim().toUpperCase();
+  const hasCapture = capturedFeePence > 0;
+  const holdSafelyReleased =
+    !hasCapture &&
+    (stateFresh === "CANCELLED" ||
+      stateFresh === "CANCELED" ||
+      stateFresh === "RELEASED");
+  try {
+    const recv = await reconcileReceivablesOnAbandonOrCancel(supabase, {
+      payment_session_id: sessionId,
+      provider_order_id: orderId,
+      provider_state: stateFresh,
+      has_capture: hasCapture,
+      hold_safely_released: holdSafelyReleased || hasCapture,
+      reason: `terminal_disposition:${dispositionKey}`,
+      settle_evidence: hasCapture
+        ? {
+          orderId,
+          terminalState: stateFresh === "CAPTURED" ? "CAPTURED" : "COMPLETED",
+          confirmedCapturedPence: capturedFeePence,
+          amountFromProviderGet: true,
+        }
+        : null,
+    });
+    if (!recv.ok) {
+      console.error("[terminalDisposition] receivable reconcile failed", recv.error);
+      // Provider hold already reconciled locally — do not roll back session.
+      // Keep RESERVED for manual/ops follow-up (same as abandon fail-open).
+    }
+  } catch (err) {
+    console.error("[terminalDisposition] receivable reconcile exception", err);
+  }
+
   return true;
 }
 
@@ -431,6 +474,26 @@ async function markDispositionFinal(
   });
 }
 
+export const TRIP_FEE_PATCH_FAILED = "TRIP_FEE_PATCH_FAILED";
+
+/**
+ * Legacy arrival-cancellation compatibility metadata. The canonical outcome is
+ * financial_outcome / cancellation_fee_pence; these columns must agree with it.
+ * trips.arrival_cancellation_fee is integer pence (column comment:
+ * "Arrival cancellation fee charged (pence)").
+ */
+export function arrivalCancellationLegacyPatch(
+  feePence: number,
+  decidedAtIso: string,
+): Record<string, unknown> {
+  return {
+    arrival_cancellation_applied: true,
+    arrival_cancellation_fee: Math.max(0, Math.round(Number(feePence) || 0)),
+    arrival_cancellation_applied_at: decidedAtIso,
+    arrival_cancellation_reason: "ARRIVAL_CANCELLATION_FEE",
+  };
+}
+
 export async function disposeTerminalTripPayment(
   supabase: SupabaseClient,
   args: {
@@ -440,6 +503,8 @@ export async function disposeTerminalTripPayment(
     feePence?: number | null;
     force?: boolean;
     forceFeePenceOverride?: boolean;
+    /** Counted pickup waiting the caller already resolved from segments at cancelled_at. */
+    canonicalPickupWaitingSeconds?: number | null;
   },
 ): Promise<TerminalDispositionResult> {
   const { data: trip, error: tripErr } = await supabase
@@ -495,6 +560,52 @@ export async function disposeTerminalTripPayment(
   );
   const priorCaptured = Number(paymentSession?.captured_amount_pence ?? 0);
 
+  // Arrival-cancellation eligibility reads counted waiting from segments at
+  // cancelled_at, never trips.pickup_waiting_counted_seconds (a cache that a
+  // pause/re-open zeroed in MK-261002-004). Unreadable segments keep the hold
+  // and decide nothing; a later disposition retries.
+  const decisionAtIso = new Date().toISOString();
+  let pickupWaitingCountedSeconds: number | null = null;
+  let waitingEvidenceSource: string | null = null;
+  let waitingEvaluatedAt: string | null = null;
+  const suppliedWaiting = args.canonicalPickupWaitingSeconds;
+  const cancelledByCustomer = ["rider", "customer", "passenger"].includes(
+    String(trip.cancelled_by ?? "").toLowerCase(),
+  );
+  if (typeof suppliedWaiting === "number" && Number.isFinite(suppliedWaiting)) {
+    pickupWaitingCountedSeconds = Math.max(0, Math.floor(suppliedWaiting));
+    waitingEvidenceSource = "trip_waiting_segments:caller";
+    waitingEvaluatedAt = (trip.cancelled_at as string | null) ?? null;
+  } else if (
+    config?.arrival_cancellation_enabled === true &&
+    cancelledByCustomer &&
+    !!trip.arrived_at
+  ) {
+    waitingEvaluatedAt = (trip.cancelled_at as string | null) ?? decisionAtIso;
+    const resolved = await resolveCanonicalWaitingSeconds(supabase, {
+      tripId: args.tripId,
+      locationType: "pickup",
+      atIso: waitingEvaluatedAt,
+    });
+    if (!resolved.ok) {
+      console.error("[terminalDisposition] WAITING_EVIDENCE_UNAVAILABLE — hold kept, no decision", {
+        trip_id: args.tripId,
+        reason: resolved.reason,
+        message: resolved.message,
+        evaluated_at: waitingEvaluatedAt,
+      });
+      return {
+        outcome: "SKIPPED_SAFETY_CHECK",
+        trip_id: args.tripId,
+        disposition_key: `terminal-void:${args.tripId}:${args.reason}`,
+        message: `${WAITING_EVIDENCE_UNAVAILABLE}:${resolved.reason}`,
+        provider_order_id_mask: maskOrderId(orderId),
+      };
+    }
+    pickupWaitingCountedSeconds = resolved.countedSeconds;
+    waitingEvidenceSource = "trip_waiting_segments";
+  }
+
   let decision = resolveTerminalPaymentDecision({
     evidence: {
       trip_id: args.tripId,
@@ -513,14 +624,21 @@ export async function disposeTerminalTripPayment(
       previously_captured_amount_pence: priorCaptured,
       payment_session_id: (paymentSession?.id as string | null) ?? null,
       provider: provider ?? "unknown",
-      decision_at: new Date().toISOString(),
-      pickup_waiting_counted_seconds: trip.pickup_waiting_counted_seconds == null
-        ? null
-        : Number(trip.pickup_waiting_counted_seconds),
+      decision_at: decisionAtIso,
+      pickup_waiting_counted_seconds: pickupWaitingCountedSeconds,
     },
     config,
     feePolicyId,
   });
+  decision = {
+    ...decision,
+    decision_evidence: {
+      ...decision.decision_evidence,
+      pickup_waiting_counted_seconds: pickupWaitingCountedSeconds,
+      waiting_evidence_source: waitingEvidenceSource,
+      waiting_evaluated_at: waitingEvaluatedAt,
+    },
+  };
 
   if (shouldApplyForceFeeOverride({
     force: args.forceFeePenceOverride === true,
@@ -804,17 +922,36 @@ export async function disposeTerminalTripPayment(
     tripFeePatch.cancellation_fee_pence = decision.fee_amount_pence;
   }
   if (decision.disposition_reason === "ARRIVAL_CANCELLATION_FEE") {
-    tripFeePatch.arrival_cancellation_applied = true;
-    tripFeePatch.arrival_cancellation_fee = decision.fee_amount_pence / 100;
-    tripFeePatch.arrival_cancellation_applied_at = new Date().toISOString();
-    tripFeePatch.arrival_cancellation_reason = "ARRIVAL_CANCELLATION_FEE";
+    Object.assign(
+      tripFeePatch,
+      arrivalCancellationLegacyPatch(
+        decision.fee_amount_pence,
+        (trip.cancelled_at as string | null) ?? decisionAtIso,
+      ),
+    );
     tripFeePatch.cancellation_fee_pence = decision.fee_amount_pence;
   }
   if (decision.disposition_reason === "LATE_PASSENGER_CANCELLATION") {
     tripFeePatch.late_cancel_fee_pence = decision.fee_amount_pence;
     tripFeePatch.cancellation_fee_pence = decision.fee_amount_pence;
   }
-  await supabase.from("trips").update(tripFeePatch).eq("id", args.tripId);
+  const { error: feePatchErr } = await supabase.from("trips").update(tripFeePatch).eq("id", args.tripId);
+  if (feePatchErr) {
+    console.error("[terminalDisposition] TRIP_FEE_PATCH_FAILED — hold kept, no provider mutation", {
+      trip_id: args.tripId,
+      disposition_key: dispositionKey,
+      disposition_reason: decision.disposition_reason,
+      error: feePatchErr.message,
+    });
+    return {
+      outcome: "SKIPPED_SAFETY_CHECK",
+      trip_id: args.tripId,
+      disposition_key: dispositionKey,
+      decision,
+      message: `${TRIP_FEE_PATCH_FAILED}:${feePatchErr.message}`,
+      provider_order_id_mask: maskOrderId(orderId),
+    };
+  }
 
   if (paymentSession?.id) {
     await transitionPaymentSession(supabase, {
@@ -834,7 +971,9 @@ export async function disposeTerminalTripPayment(
 
   let dispositionLockOwner: string | null = null;
   if (paymentSession?.id) {
-    dispositionLockOwner = `terminal_disposition:${dispositionKey}`;
+    // Per-invocation owner: cancel-trip and the trips trigger can dispose the
+    // same decision concurrently; a shared owner would let both re-enter the lock.
+    dispositionLockOwner = `terminal_disposition:${dispositionKey}:${crypto.randomUUID()}`;
     const claim = await claimPaymentSessionFinancialLock(supabase, {
       paymentSessionId: String(paymentSession.id),
       owner: dispositionLockOwner,

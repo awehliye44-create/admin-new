@@ -166,6 +166,102 @@ export function evaluateBatchFundingGate(args: {
   };
 }
 
+export type RunningFundingDecision = {
+  key: string;
+  amount_pence: number;
+  funded: boolean;
+  remaining_before_pence: number | null;
+  remaining_after_pence: number | null;
+};
+
+/**
+ * One funding allowance per pass, drawn down item by item so two drivers can
+ * never both be approved against the same pence. Smallest amount first (driver
+ * key breaks ties) so the order is deterministic and an unaffordable large item
+ * cannot block smaller ones behind it. Unknown balance funds nothing.
+ */
+export function allocateRunningPayoutFunding(args: {
+  available_pence: number | null | undefined;
+  items: ReadonlyArray<{ key: string; amount_pence: number }>;
+}): { decisions: RunningFundingDecision[]; funded_count: number; remaining_pence: number | null } {
+  const known = args.available_pence != null && Number.isFinite(Number(args.available_pence));
+  let remaining = known ? Math.max(0, Math.round(Number(args.available_pence))) : null;
+  const ordered = [...args.items]
+    .map((it) => ({ key: String(it.key), amount_pence: Math.max(0, Math.round(Number(it.amount_pence ?? 0))) }))
+    .sort((a, b) => a.amount_pence - b.amount_pence || (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
+  const decisions: RunningFundingDecision[] = [];
+  let funded_count = 0;
+  for (const it of ordered) {
+    if (remaining == null || it.amount_pence <= 0 || it.amount_pence > remaining) {
+      decisions.push({
+        key: it.key,
+        amount_pence: it.amount_pence,
+        funded: false,
+        remaining_before_pence: remaining,
+        remaining_after_pence: remaining,
+      });
+      continue;
+    }
+    const before = remaining;
+    remaining -= it.amount_pence;
+    funded_count += 1;
+    decisions.push({
+      key: it.key,
+      amount_pence: it.amount_pence,
+      funded: true,
+      remaining_before_pence: before,
+      remaining_after_pence: remaining,
+    });
+  }
+  return { decisions, funded_count, remaining_pence: remaining };
+}
+
+/** Immutable per-attempt record of the funding the pay decision relied on. */
+export function buildPayoutFundingAttemptSnapshot(args: {
+  run_id: string | null;
+  schedule_occurrence_key: string | null;
+  payout_item_id: string;
+  intent_id: string;
+  driver_id: string;
+  claim_token: string;
+  source_account_id: string;
+  source_account_label?: string | null;
+  balance_read_at: string;
+  provider_available_pence: number;
+  decision: RunningFundingDecision;
+}): Readonly<Record<string, unknown>> {
+  if (!args.decision.funded || args.decision.remaining_before_pence == null
+    || args.decision.remaining_after_pence == null) {
+    throw new Error("FUNDING_SNAPSHOT_REQUIRES_FUNDED_DECISION");
+  }
+  return Object.freeze({
+    run_id: args.run_id,
+    schedule_occurrence_key: args.schedule_occurrence_key,
+    payout_item_id: args.payout_item_id,
+    intent_id: args.intent_id,
+    driver_id: args.driver_id,
+    claim_token: args.claim_token,
+    source_account_id: args.source_account_id,
+    source_account_label: args.source_account_label ?? null,
+    balance_read_at: args.balance_read_at,
+    provider_available_pence: Math.round(args.provider_available_pence),
+    remaining_before_pence: args.decision.remaining_before_pence,
+    amount_pence: args.decision.amount_pence,
+    remaining_after_pence: args.decision.remaining_after_pence,
+    allocation_order: "amount_asc_driver_id",
+  });
+}
+
+/** Provider states that undo a completed driver payout. Flag only — never auto-correct money. */
+export function classifyPayoutReversalProviderState(
+  state: string | null | undefined,
+): "REVERSED" | "FAILED" | null {
+  const s = String(state ?? "").trim().toLowerCase();
+  if (s === "reverted" || s === "reversed" || s === "returned" || s === "refunded") return "REVERSED";
+  if (s === "failed" || s === "declined" || s === "cancelled" || s === "canceled") return "FAILED";
+  return null;
+}
+
 export function mayOrchestratorMoveMoney(env: {
   get(key: string): string | undefined;
 }): { ok: true } | { ok: false; blocker_code: OrchestratorBlockerCode } {
@@ -309,6 +405,7 @@ export function shouldReleaseReservationOnSubmitClaimFailure(
   const code = String(errorCode ?? "").toUpperCase();
   if (!code) return true;
   if (code === "ALREADY_SUBMITTED") return false;
+  if (code === "SUBMISSION_IN_FLIGHT") return false;
   if (code === "UNKNOWN_NO_BLIND_RETRY") return false;
   if (code.includes("UNKNOWN")) return false;
   return true;
@@ -347,14 +444,18 @@ export function shouldContinueOrchestratorMoneyPath(args: {
   fresh_eligible_count: number;
   in_flight_item_count: number;
   blocker_code: string | null | undefined;
+  /** Items the running funding allowance can cover; a batch-wide shortfall must not block them. */
+  fundable_item_count?: number;
 }): { continue: boolean; reconciling_in_flight: boolean; ignore_zero_eligible_blocker: boolean } {
   const reconciling_in_flight = args.in_flight_item_count > 0;
-  const ignore_zero_eligible_blocker = reconciling_in_flight
+  const partially_fundable = (args.fundable_item_count ?? 0) > 0
+    && args.blocker_code === "INSUFFICIENT_SETTLED_FUNDS";
+  const ignore_zero_eligible_blocker = partially_fundable || (reconciling_in_flight
     && (
       args.blocker_code == null
       || args.blocker_code === "ZERO_ELIGIBLE_DRIVERS"
       || args.blocker_code === "INSUFFICIENT_SETTLED_FUNDS"
-    );
+    ));
   const blockerBlocks = args.blocker_code != null && !ignore_zero_eligible_blocker;
   const continuePath = !args.dry_run
     && args.live_enabled

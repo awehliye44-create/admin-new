@@ -16,6 +16,7 @@ import {
   isRecoveryCompletionIdempotent,
 } from "../_shared/paymentSessionsRecoveryCompletionSSOT.ts";
 import { resolvePaymentSessionCaptureAdvanceExtras } from "../_shared/paymentSessionCaptureTimestampSSOT.ts";
+import { applyPaymentSessionWebhookLifecycleUpdate } from "../_shared/applyPaymentSessionWebhookLifecycleUpdate.ts";
 import { FINANCIAL_MODEL, resolveServiceAreaFinancialScope } from "../_shared/financialModelScopeGate.ts";
 import { classifyTripForPlatformCollectedAdminPage } from "../_shared/financialModelScopeSSOT.ts";
 import { transitionPaymentSession } from "../_shared/paymentSessionTransitionFacade.ts";

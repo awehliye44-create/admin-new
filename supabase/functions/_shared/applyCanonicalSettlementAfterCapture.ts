@@ -97,6 +97,7 @@ function resolveExpectedEntitlementPence(
   mode: "fresh_capture" | "recovery",
   captureAmountPence: number,
   tipPenceArg?: number,
+  tripFareComponentPence?: number | null,
 ): { expectedCredit: number; tipPence: number; commissionPct?: number } {
   const coveredTip = coveredTipPenceAfterCapture(trip, captureAmountPence, tipPenceArg);
   if (mode === "recovery") {
@@ -111,6 +112,7 @@ function resolveExpectedEntitlementPence(
     trip: trip as TripSettlementTripRow,
     captureAmountPence,
     tipPence: coveredTip,
+    tripFareComponentPence,
   });
   return {
     expectedCredit: credit.driverNetPence,
@@ -197,6 +199,11 @@ export async function applyCanonicalSettlementAfterCapture(args: {
   trip: Record<string, unknown>;
   captureAmountPence: number;
   tipPence?: number;
+  /**
+   * Immutable capture-composition fare component. When set, trip stamps / TEN /
+   * commission use this — never the provider capture total (may include receivable).
+   */
+  tripFareComponentPence?: number | null;
   /** fresh_capture: this request just captured. recovery: already-captured posting retry. */
   mode?: "fresh_capture" | "recovery";
   /** Test/ops override for the historical posting boundary. */
@@ -210,6 +217,7 @@ export async function applyCanonicalSettlementAfterCapture(args: {
     mode,
     args.captureAmountPence,
     args.tipPence,
+    args.tripFareComponentPence,
   );
 
   if (
@@ -424,6 +432,7 @@ export async function applyCanonicalSettlementAfterCapture(args: {
       trip: args.trip as TripSettlementTripRow,
       captureAmountPence: args.captureAmountPence,
       tipPence: coveredTip,
+      tripFareComponentPence: args.tripFareComponentPence,
     });
     if (credit.settlement) {
       const existingSnap = args.trip.fare_snapshot_json;
@@ -436,6 +445,7 @@ export async function applyCanonicalSettlementAfterCapture(args: {
       const { error: stampErr } = await args.supabase.from("trips").update({
         ...tripSettlementDbColumns(credit.settlement),
         fare_snapshot_json: fareSnapshotJson,
+        // Provider captured total (may include receivable) — not the trip fare stamp.
         capture_amount_pence: Math.max(0, Math.round(Number(args.captureAmountPence) || 0)),
         updated_at: new Date().toISOString(),
       }).eq("id", tripId);

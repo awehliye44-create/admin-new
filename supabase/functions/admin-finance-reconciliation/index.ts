@@ -1,18 +1,26 @@
 import type { AnySupabaseClient } from "../_shared/supabaseClientTypes.ts";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "npm:@supabase/supabase-js@2.57.2";
-import { computeSSOTMetrics, mergePaymentSessionsIntoCaptureRows, sumCapturedPaymentsByTripId, SSOT_VERSION, type PaymentSessionMoneyRow } from "../_shared/financialReconciliationSSOT.ts";
+import {
+  buildPaymentSessionMoneyByTrip,
+  computeSSOTMetrics,
+  mergePaymentSessionsIntoCaptureRows,
+  sumCapturedPaymentsByTripId,
+  SSOT_VERSION,
+  type PaymentSessionMoneyRow,
+  type TripSSOTRow,
+} from "../_shared/financialReconciliationSSOT.ts";
 import { fetchPerDriverFinancialReconciliation } from "../_shared/perDriverFinancialReconciliation.ts";
 import {
   buildFinanceReconciliationSummary,
   classifyOnecabSettlementStatus,
-  COUNTABLE_FINANCIAL_OUTCOMES,
   buildTripFinancialAuditContext,
   mapTripToFinancialAuditRow,
   sumCommissionableFromTrips,
   sumTripFinanceMetrics,
   type TripAuditSourceRow,
 } from "../_shared/financeSettlementSummary.ts";
+import { computeCardReconciliationIdentityAggregate } from "../_shared/frCardReconciliationIdentitySSOT.ts";
 import {
   isTripUuid,
   NO_MATCH_TRIP_ID,
@@ -34,6 +42,11 @@ import {
 } from "../_shared/providerPlatformBalanceSSOT.ts";
 import { computeLedgerWalletBalancePence } from "../_shared/onecabFinanceLedger.ts";
 import {
+  classifySourceTripReceivableRecovery,
+  sumOpenReservedReceivableOutstandingPence,
+  type SourceTripReceivableRecoveryRow,
+} from "../_shared/frCaptureCompositionIdentitySSOT.ts";
+import {
   aggregateFrOverviewFromPerTripRecords,
   buildFrPerTripAuditRecord,
   buildFrPeriodAuditSummary,
@@ -49,11 +62,13 @@ import { excludeTripFromPlatformCollectedFinance } from "../_shared/commissionWa
 import {
   applyFinanceReconciliationTripLocationFilter,
   buildFinanceReconciliationTripQuery,
+  FINANCE_RECONCILIATION_TRIP_TERMINAL_OR,
   resolveFinanceReconciliationAuditLimit,
+  tripQualifiesForFinanceReconciliationAudit,
 } from "../_shared/financeReconciliationTripQuery.ts";
 
 const PAYMENT_SESSION_MONEY_SELECT =
-  "id, trip_id, purpose, status, payment_method, captured_amount_pence, authorised_amount_pence, total_authorised_amount_pence, released_amount_pence, refunded_amount_pence, provider_processing_fee_pence, fee_status, provider_state, provider_state_verified_at, release_evidence_status, release_evidence_source, release_verified_at, metadata";
+  "id, trip_id, purpose, status, payment_method, captured_amount_pence, authorised_amount_pence, total_authorised_amount_pence, released_amount_pence, refunded_amount_pence, provider_processing_fee_pence, fee_status, provider_state, provider_state_verified_at, release_evidence_status, release_evidence_source, release_verified_at, metadata, trip_fare_component_pence, tip_component_pence, receivable_component_pence, buffer_pence, provider_capture_target_pence";
 
 const TRIP_AUDIT_SELECT = `
         id,
@@ -128,7 +143,7 @@ function buildProviderOrderAuditRows(
   }> = [];
 
   for (const trip of tripRows) {
-    const orderId = String((trip as { provider_order_id?: unknown }).provider_order_id ?? "").trim();
+    const orderId = String(trip.provider_order_id ?? "").trim();
     if (!orderId || seen.has(orderId)) continue;
     seen.add(orderId);
     const driverName = trip.driver
@@ -518,7 +533,7 @@ serve(async (req) => {
       select: TRIP_AUDIT_SELECT,
     });
 
-    tripQuery = (await applyFinanceReconciliationTripLocationFilter(
+    tripQuery = await applyFinanceReconciliationTripLocationFilter(
       tripQuery,
       supabase,
       {
@@ -526,7 +541,7 @@ serve(async (req) => {
         serviceAreaId,
         allowedServiceAreaIds: modelScope.allowedServiceAreaIds,
       },
-    )) as unknown as typeof tripQuery;
+    );
 
     const financialPromise = resolvedRegionId
       ? supabase
@@ -601,8 +616,8 @@ serve(async (req) => {
       walletDownstream = "UNAVAILABLE";
     }
 
-    const tripRows = (tripResult.data || []) as unknown as TripAuditSourceRow[];
-    const tripIds = tripRows.map((t) => t.id);
+    let tripRows = (tripResult.data || []) as TripAuditSourceRow[];
+    let tripIds = tripRows.map((t) => t.id);
     let paymentRows: Array<{
       captured_amount_pence: number | null;
       status: string | null;
@@ -662,7 +677,7 @@ serve(async (req) => {
         paymentSessionRows = (paymentSessionsRes.data ?? []) as PaymentSessionMoneyRow[];
         paymentRows = mergePaymentSessionsIntoCaptureRows({
           paymentSessions: paymentSessionRows,
-        }).rows as unknown as typeof paymentRows;
+        }).rows;
       }
       // Legacy payments: PI / provider status for badges only — amounts come from paymentSessions.
       auditPaymentBadgeRows = (paymentsRes.error ? [] : (paymentsRes.data || [])).map((p) => ({
@@ -709,8 +724,28 @@ serve(async (req) => {
         paymentSessionRows = (paymentSessionsRes.data ?? []) as PaymentSessionMoneyRow[];
         paymentRows = mergePaymentSessionsIntoCaptureRows({
           paymentSessions: paymentSessionRows,
-        }).rows as unknown as typeof paymentRows;
+        }).rows;
       }
+    }
+
+    // Drop cancelled/thin lifecycle rows that lack financial evidence; never require driver_id.
+    {
+      const capturedByTrip = sumCapturedPaymentsByTripId(paymentRows);
+      const tenTripIds = new Set(
+        auditLedgerRows
+          .filter((r) => String(r.type ?? "").toUpperCase() === "TRIP_EARNING_NET")
+          .map((r) => String(r.related_trip_id ?? ""))
+          .filter(Boolean),
+      );
+      tripRows = tripRows.filter((t) =>
+        tripQualifiesForFinanceReconciliationAudit({
+          ...t,
+          has_payment_session_capture: capturedByTrip.has(t.id)
+            && (capturedByTrip.get(t.id) ?? 0) > 0,
+          has_ten_credit: tenTripIds.has(t.id),
+        })
+      );
+      tripIds = tripRows.map((t) => t.id);
     }
 
     const finance = sumTripFinanceMetrics(tripRows);
@@ -839,7 +874,7 @@ serve(async (req) => {
       .map((d) => String(d.region_id ?? ""))
       .filter(Boolean);
     const { meta: currencyMeta, currencyGroups: baseCurrencyGroups } = await resolveFinanceCurrencyScope(
-      supabase as never,
+      supabase,
       {
         resolvedRegionId: resolvedRegionId ?? null,
         serviceAreaId: serviceAreaId ?? null,
@@ -893,7 +928,7 @@ serve(async (req) => {
           select: TRIP_AUDIT_SELECT,
         });
 
-        auditSearchQuery = (await applyFinanceReconciliationTripLocationFilter(
+        auditSearchQuery = await applyFinanceReconciliationTripLocationFilter(
           auditSearchQuery,
           supabase,
           {
@@ -901,7 +936,7 @@ serve(async (req) => {
             serviceAreaId,
             allowedServiceAreaIds: modelScope.allowedServiceAreaIds,
           },
-        )) as unknown as typeof auditSearchQuery;
+        );
 
         const term = search.trim();
         if (searchType === "id") {
@@ -917,7 +952,7 @@ serve(async (req) => {
         const { data: searchTrips, error: searchError } = await auditSearchQuery;
         if (searchError) throw searchError;
 
-        const auditSourceRows = (searchTrips || []) as unknown as TripAuditSourceRow[];
+        const auditSourceRows = (searchTrips || []) as TripAuditSourceRow[];
         const auditTripIds = auditSourceRows.map((t) => t.id);
         if (auditTripIds.length === 0) return [];
 
@@ -1022,7 +1057,7 @@ serve(async (req) => {
         .gte("completed_at", londonStart.toISOString())
         .lte("completed_at", londonEnd.toISOString())
         .not("completed_at", "is", null)
-        .or(`financial_outcome.in.(${COUNTABLE_FINANCIAL_OUTCOMES.join(",")}),status.in.(completed,no_show)`);
+        .or(FINANCE_RECONCILIATION_TRIP_TERMINAL_OR);
 
       if (serviceAreaId) todayTripQuery = todayTripQuery.eq("service_area_id", serviceAreaId);
       else if (modelScope.allowedServiceAreaIds.length > 0) {
@@ -1052,7 +1087,7 @@ serve(async (req) => {
           .in("trip_id", todayTripIds);
         todayPayments = mergePaymentSessionsIntoCaptureRows({
           paymentSessions: sessionData.data ?? [],
-        }).rows as unknown as typeof todayPayments;
+        }).rows;
       }
       const capturedByTrip = new Map<string, number>();
       for (const p of todayPayments) {
@@ -1084,7 +1119,24 @@ serve(async (req) => {
     }
 
     if (profitSsotOnly) {
-      const net = finance_reconciliation_summary.onecab_money.onecab_net_commission_pence;
+      const netCommission = finance_reconciliation_summary.onecab_money.onecab_net_commission_pence;
+      // Early cash-out fee: ONECAB revenue recognised once, from CASHOUT_FEE ledger rows only.
+      let early_cashout_fee_revenue_pence: number | null = 0;
+      if (platformDriverIds.length > 0) {
+        const { data: feeRows, error: feeErr } = await supabase
+          .from("driver_wallet_ledger")
+          .select("amount_pence")
+          .eq("type", "CASHOUT_FEE")
+          .in("driver_id", platformDriverIds)
+          .gte("created_at", periodFrom)
+          .lte("created_at", periodTo);
+        early_cashout_fee_revenue_pence = feeErr
+          ? null
+          : (feeRows ?? []).reduce((s, row) => s + Math.abs(Number(row.amount_pence ?? 0)), 0);
+      }
+      const net = netCommission == null || early_cashout_fee_revenue_pence == null
+        ? null
+        : netCommission + early_cashout_fee_revenue_pence;
       const fromDate = periodFrom.slice(0, 10);
       const toDate = periodTo.slice(0, 10);
       let expQuery = supabase
@@ -1150,6 +1202,7 @@ serve(async (req) => {
             ?? om.onecab_gross_commission_pence
             ?? null,
           net_commission_pence: om.onecab_net_commission_pence ?? null,
+          early_cashout_fee_revenue_pence,
           provider_fees_pence: om.provider_processing_fee_pence ?? null,
           refunds_pence: cr.refunded_amount_pence ?? null,
           chargebacks_pence,
@@ -1181,6 +1234,126 @@ serve(async (req) => {
     ].some((s) => s === "UNAVAILABLE");
     const pageStatus = anyDownstreamUnavailable ? "PARTIAL" : "LIVE";
     const canonicalSessionsByTrip = resolveCanonicalPaymentSessionMoneyByTrip(paymentSessionRows);
+
+    // Customer outstanding + receivable recovery classification (before per-trip audit).
+    let openReceivables: OpenReceivableRow[] = [];
+    let recoveryReceivables: SourceTripReceivableRecoveryRow[] = [];
+    let receivablesLedgerAvailable = false;
+    try {
+      const { data: recvRows, error: recvErr } = await supabase
+        .from("customer_receivables")
+        .select(
+          "id, customer_id, outstanding_amount_pence, original_amount_pence, status, currency, source_trip_id, idempotency_key, created_at, reserved_payment_session_id, settled_at",
+        )
+        .in("status", ["OPEN", "RESERVED", "SETTLED", "WAIVED"])
+        .order("created_at", { ascending: true })
+        .limit(2000);
+      if (!recvErr && recvRows) {
+        receivablesLedgerAvailable = true;
+        recoveryReceivables = recvRows.map((r) => ({
+          source_trip_id: String(r.source_trip_id),
+          status: String(r.status),
+          outstanding_amount_pence: Math.round(Number(r.outstanding_amount_pence) || 0),
+          original_amount_pence: Math.round(Number(r.original_amount_pence) || 0),
+          reserved_payment_session_id: r.reserved_payment_session_id
+            ? String(r.reserved_payment_session_id)
+            : null,
+          settled_at: r.settled_at ? String(r.settled_at) : null,
+        }));
+        openReceivables = recvRows
+          .filter((r) => {
+            const st = String(r.status ?? "").toUpperCase();
+            return st === "OPEN" || st === "RESERVED";
+          })
+          .map((r) => ({
+            id: String(r.id),
+            customer_id: String(r.customer_id),
+            outstanding_amount_pence: Math.round(Number(r.outstanding_amount_pence) || 0),
+            status: String(r.status),
+            currency: String(r.currency ?? "gbp"),
+            source_trip_id: String(r.source_trip_id),
+            idempotency_key: String(r.idempotency_key ?? ""),
+            created_at: r.created_at ? String(r.created_at) : undefined,
+          }));
+      }
+    } catch (recvCatch) {
+      console.warn(
+        "[admin-finance-reconciliation] customer_receivables read skipped",
+        recvCatch,
+      );
+    }
+
+    for (const row of trip_financial_audit) {
+      const tripId = String(row.trip_id ?? "");
+      const recovery = classifySourceTripReceivableRecovery(recoveryReceivables, tripId);
+      const openOutstanding = sumOpenReservedReceivableOutstandingPence(
+        recoveryReceivables,
+        tripId,
+      );
+      if (receivablesLedgerAvailable) {
+        row.outstanding_pence = openOutstanding;
+      }
+      if (recovery.resolved_by_receivable_recovery) {
+        row.resolved_by_receivable_recovery = true;
+        row.receivable_recovery_status = recovery.status;
+        row.settled_receivable_original_pence = recovery.settled_original_pence;
+        row.recovery_payment_session_id = recovery.recovery_payment_session_id;
+        row.outstanding_pence = 0;
+        if (String(row.reconciliation_status?.label ?? "") === "SETTLEMENT_MISMATCH"
+          && (row.credit_difference_pence == null || row.credit_difference_pence === 0)
+          && (row.wallet_variance_pence == null || row.wallet_variance_pence === 0)) {
+          row.reconciliation_status = {
+            ...(row.reconciliation_status ?? { label: "BALANCED", tone: "green" }),
+            label: "RESOLVED_BY_RECEIVABLE_RECOVERY",
+            tone: "green",
+          };
+          row.capture_mismatch = false;
+        }
+      }
+      // Cancelled fare-settlement recovered sources: present as resolved evidence even when
+      // legacy capture vs fare still shows a historical shortfall (immutable decline evidence).
+      if (
+        recovery.resolved_by_receivable_recovery
+        && String(row.reconciliation_status?.label ?? "") !== "RESOLVED_BY_RECEIVABLE_RECOVERY"
+        && (row.credit_difference_pence == null || row.credit_difference_pence === 0)
+        && (row.wallet_variance_pence == null || row.wallet_variance_pence === 0)
+      ) {
+        row.reconciliation_status = {
+          ...(row.reconciliation_status ?? { label: "BALANCED", tone: "green" }),
+          label: "RESOLVED_BY_RECEIVABLE_RECOVERY",
+          tone: "green",
+        };
+        row.capture_mismatch = false;
+      }
+    }
+
+    // Overview card identity: fare-leg + settled source allocations (not raw capture−liabilities).
+    {
+      const sessionByTrip = buildPaymentSessionMoneyByTrip(paymentSessionRows);
+      const paymentByTrip = sumCapturedPaymentsByTripId(paymentRows);
+      const identity = computeCardReconciliationIdentityAggregate({
+        trips: tripRows as unknown as TripSSOTRow[],
+        paymentByTrip,
+        sessionByTrip,
+        receivables: recoveryReceivables,
+      });
+      const check = finance_reconciliation_summary.reconciliation_check;
+      const card = check.card_reconciliation;
+      const variance = identity.fail_closed ? (identity.variance_pence ?? 0) : (identity.variance_pence ?? 0);
+      const balanced = identity.balanced && !identity.fail_closed;
+      const status = balanced ? "BALANCED" as const : "RECONCILIATION_MISMATCH" as const;
+      check.variance_pence = Math.abs(variance);
+      check.delta_pence = Math.abs(variance);
+      check.balanced = balanced;
+      check.status = status;
+      card.variance_pence = variance;
+      card.delta_pence = variance;
+      card.balanced = balanced;
+      card.status = status;
+      (card as { identity_applied?: boolean }).identity_applied = true;
+      (card as { identity_fail_closed?: boolean }).identity_fail_closed = identity.fail_closed;
+    }
+
     const fr_per_trip_audit = trip_financial_audit.map((row) =>
       buildFrPerTripAuditRecord({
         row: row as unknown as Record<string, unknown>,
@@ -1193,45 +1366,13 @@ serve(async (req) => {
       trip_financial_audit as unknown as Array<Record<string, unknown>>,
     );
 
-    // Customer outstanding — separate from wallet_gap / payout variance.
-    let openReceivables: OpenReceivableRow[] = [];
-    let receivablesLedgerAvailable = false;
-    try {
-      const { data: recvRows, error: recvErr } = await supabase
-        .from("customer_receivables")
-        .select(
-          "id, customer_id, outstanding_amount_pence, status, currency, source_trip_id, idempotency_key, created_at",
-        )
-        .in("status", ["OPEN", "RESERVED"])
-        .order("created_at", { ascending: true })
-        .limit(500);
-      if (!recvErr && recvRows) {
-        receivablesLedgerAvailable = true;
-        openReceivables = recvRows.map((r) => ({
-          id: String(r.id),
-          customer_id: String(r.customer_id),
-          outstanding_amount_pence: Math.round(Number(r.outstanding_amount_pence) || 0),
-          status: String(r.status),
-          currency: String(r.currency ?? "gbp"),
-          source_trip_id: String(r.source_trip_id),
-          idempotency_key: String(r.idempotency_key ?? ""),
-          created_at: r.created_at ? String(r.created_at) : undefined,
-        }));
-      }
-    } catch (recvCatch) {
-      console.warn(
-        "[admin-finance-reconciliation] customer_receivables read skipped",
-        recvCatch,
-      );
-    }
-
     const customer_outstanding_overview = buildFrCustomerOutstandingOverview({
       trips: trip_financial_audit.map((row) => ({
         trip_code: row.trip_code ?? null,
         trip_id: row.trip_id ?? null,
         final_fare_pence: row.final_fare_pence ?? null,
-        capture_amount_pence: row.captured_pence ?? null,
-        outstanding_balance_pence: row.outstanding_pence ?? null,
+        capture_amount_pence: row.capture_amount_pence ?? null,
+        outstanding_balance_pence: row.outstanding_balance_pence ?? null,
         provider_state: row.provider_state ?? null,
         pickup_waiting_charge_pence: row.pickup_waiting_charge_pence ?? null,
         receivable_outstanding_pence: openReceivables
@@ -1271,15 +1412,24 @@ serve(async (req) => {
       trips: trip_financial_audit,
       drivers: undefined,
       mismatches: trip_financial_audit.filter((r) =>
-        r.capture_mismatch
-        || (r.driver_credit_health != null && isDriverCreditExceptionHealth(r.driver_credit_health))
-        || String(r.reconciliation_status?.tone ?? "").toLowerCase() === "error"
-        || String(r.reconciliation_status?.label ?? "").toLowerCase().includes("mismatch")
+        !r.resolved_by_receivable_recovery
+        && (
+          r.capture_mismatch
+          || (r.driver_credit_health != null && isDriverCreditExceptionHealth(r.driver_credit_health))
+          || String(r.reconciliation_status?.tone ?? "").toLowerCase() === "error"
+          || (
+            String(r.reconciliation_status?.label ?? "").toLowerCase().includes("mismatch")
+            && String(r.reconciliation_status?.label ?? "") !== "RESOLVED_BY_RECEIVABLE_RECOVERY"
+          )
+        )
       ),
       alerts: undefined,
       resolved_history: trip_financial_audit.filter((r) =>
-        !r.capture_mismatch
-        && String(r.reconciliation_status?.label ?? "").toLowerCase().includes("balanced")
+        r.resolved_by_receivable_recovery === true
+        || (
+          !r.capture_mismatch
+          && String(r.reconciliation_status?.label ?? "").toLowerCase().includes("balanced")
+        )
       ),
       downstream_status: {
         payment_sessions: paymentSessionsDownstream,
@@ -1316,7 +1466,7 @@ serve(async (req) => {
           driver_wallet: "card: +driver_net+tips; cash: -commission (fare already with driver)",
           provider_payout_confirmation: "driver bank receipt requires a completed provider payout item + matching ledger debit",
           card_reconciliation:
-            "card_customer_revenue = card_driver_payable + onecab_card_commission",
+            "identity: recovery-session uses frozen fare/tip/receivable composition; source trips add settled receivable allocations via source_trip_id — never full capture vs own-trip liabilities alone",
           historical_legacy_cash_trips:
             "excluded from digital finance reconciliation — audit display only",
         },

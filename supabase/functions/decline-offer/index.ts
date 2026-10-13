@@ -13,6 +13,7 @@ import {
   errorResponse,
 } from "../_shared/security.ts";
 import { requireAuthenticatedUser } from "../_shared/edgeAuth.ts";
+import { TERMINAL_TRIP_STATUS_POSTGREST_LIST } from "../_shared/tripTerminalDispatch.ts";
 
 interface DeclineRequest {
   offer_id: string;
@@ -340,7 +341,7 @@ Deno.serve(async (req) => {
       const tripId = offerRow.trip_id;
       console.log("[decline-offer] Urgent scheduled offer declined — escalating trip:", tripId);
 
-      const { error: tripUpdateErr } = await supabase
+      const { data: escalatedRows, error: tripUpdateErr } = await supabase
         .from("trips")
         .update({
           scheduled_status: "broadcasting",
@@ -350,10 +351,15 @@ Deno.serve(async (req) => {
           confirm_deadline_at: null,
           updated_at: new Date().toISOString(),
         })
-        .eq("id", tripId);
+        .eq("id", tripId)
+        .is("completed_at", null)
+        .not("status", "in", TERMINAL_TRIP_STATUS_POSTGREST_LIST)
+        .select("id");
 
       if (tripUpdateErr) {
         console.error("[decline-offer] Failed to escalate trip:", tripUpdateErr);
+      } else if (!escalatedRows?.length) {
+        console.log("[decline-offer] Urgent escalation skipped — trip is terminal:", tripId);
       } else {
         try {
           const resp = await fetch(`${supabaseUrl}/functions/v1/auto-dispatch`, {

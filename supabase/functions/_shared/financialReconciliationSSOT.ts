@@ -119,6 +119,12 @@ export type PaymentSessionMoneyRow = {
   /** May include capture_breakdown owned by Payment Sessions. */
   metadata?: Record<string, unknown> | null;
   purpose?: string | null;
+  /** Typed capture composition — FR must consume when present. */
+  trip_fare_component_pence?: number | null;
+  tip_component_pence?: number | null;
+  receivable_component_pence?: number | null;
+  buffer_pence?: number | null;
+  provider_capture_target_pence?: number | null;
 };
 
 export type PaymentSessionMoneyByTrip = {
@@ -135,6 +141,12 @@ export type PaymentSessionMoneyByTrip = {
   payment_method: string | null;
   status: string | null;
   metadata?: Record<string, unknown> | null;
+  purpose?: string | null;
+  trip_fare_component_pence?: number | null;
+  tip_component_pence?: number | null;
+  receivable_component_pence?: number | null;
+  buffer_pence?: number | null;
+  provider_capture_target_pence?: number | null;
 };
 
 /** Confirmed capture only — never invent £0; never treat 0 as confirmed. */
@@ -191,6 +203,12 @@ export function buildPaymentSessionMoneyByTrip(
         payment_method: paymentMethod,
         status: s.status ?? null,
         metadata,
+        purpose: s.purpose ?? null,
+        trip_fare_component_pence: s.trip_fare_component_pence ?? null,
+        tip_component_pence: s.tip_component_pence ?? null,
+        receivable_component_pence: s.receivable_component_pence ?? null,
+        buffer_pence: s.buffer_pence ?? null,
+        provider_capture_target_pence: s.provider_capture_target_pence ?? null,
       });
       continue;
     }
@@ -231,6 +249,24 @@ export function buildPaymentSessionMoneyByTrip(
       payment_method: existing.payment_method ?? paymentMethod,
       status: s.status ?? existing.status,
       metadata: preferNewId ? metadata : (existing.metadata ?? metadata),
+      purpose: preferNewId
+        ? (s.purpose ?? null)
+        : (existing.purpose ?? s.purpose ?? null),
+      trip_fare_component_pence: preferNewId
+        ? (s.trip_fare_component_pence ?? null)
+        : (existing.trip_fare_component_pence ?? s.trip_fare_component_pence ?? null),
+      tip_component_pence: preferNewId
+        ? (s.tip_component_pence ?? null)
+        : (existing.tip_component_pence ?? s.tip_component_pence ?? null),
+      receivable_component_pence: preferNewId
+        ? (s.receivable_component_pence ?? null)
+        : (existing.receivable_component_pence ?? s.receivable_component_pence ?? null),
+      buffer_pence: preferNewId
+        ? (s.buffer_pence ?? null)
+        : (existing.buffer_pence ?? s.buffer_pence ?? null),
+      provider_capture_target_pence: preferNewId
+        ? (s.provider_capture_target_pence ?? null)
+        : (existing.provider_capture_target_pence ?? s.provider_capture_target_pence ?? null),
     });
   }
   return byTrip;
@@ -913,9 +949,17 @@ export function buildSplitReconciliationCheck(args: {
   airportChargesPence?: number;
   driverTipsPence?: number;
   tolerancePence?: number;
+  /**
+   * When set, Overview uses composition/recovery identity residual instead of
+   * raw provider-capture − (driver+commission+tips+airport). Receivable cash on
+   * recovery sessions and settled allocations on source trips are handled by
+   * {@link computeCardReconciliationIdentityAggregate}.
+   */
+  identityVariancePence?: number | null;
+  identityFailClosed?: boolean;
 }) {
   const l = args.ledger;
-  // Hard identity: captured = driver_net + gross_commission + airport + tips (zero tolerance).
+  // Legacy slice kept for component display; variance may be overridden by identity.
   const cardBase = buildLedgerSliceCheck({
     lhs: l.card_customer_revenue_pence,
     rhsComponents: [
@@ -926,18 +970,39 @@ export function buildSplitReconciliationCheck(args: {
     ],
     tolerancePence: 0,
   });
+  const useIdentity = args.identityVariancePence !== undefined
+    || args.identityFailClosed === true;
+  const identityFailClosed = args.identityFailClosed === true;
+  const identityVariance = args.identityVariancePence;
+  const variance = useIdentity
+    ? (identityFailClosed ? (identityVariance ?? 0) : (identityVariance ?? cardBase.variance_pence))
+    : cardBase.variance_pence;
+  const balanced = useIdentity
+    ? (!identityFailClosed && variance === 0)
+    : cardBase.balanced;
+  const status = balanced ? ("BALANCED" as const) : ("RECONCILIATION_MISMATCH" as const);
   const card_reconciliation = {
-    ...cardBase,
+    expected_sum_pence: cardBase.expected_sum_pence,
+    variance_pence: variance,
+    delta_pence: variance,
+    balanced,
+    status,
     card_customer_revenue_pence: l.card_customer_revenue_pence,
     card_driver_payable_pence: l.card_driver_payable_pence,
     onecab_card_commission_pence: l.onecab_card_commission_pence,
     airport_charges_pence: Math.max(0, args.airportChargesPence ?? 0),
     driver_tips_pence: Math.max(0, args.driverTipsPence ?? 0),
+    ...(useIdentity
+      ? {
+        identity_applied: true as const,
+        identity_fail_closed: identityFailClosed,
+      }
+      : {}),
   };
   return {
     card_reconciliation,
-    balanced: card_reconciliation.balanced,
-    status: card_reconciliation.balanced ? ("BALANCED" as const) : ("RECONCILIATION_MISMATCH" as const),
+    balanced,
+    status,
   };
 }
 

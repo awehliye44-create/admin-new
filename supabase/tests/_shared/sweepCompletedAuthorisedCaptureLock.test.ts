@@ -3,7 +3,7 @@
  * MK-260815-010 sat capture_failed while Revolut stayed AUTHORISED because the
  * 5-min sweep excluded completed trips from every recapture path.
  *
- * Run: deno test --allow-read supabase/functions/_shared/sweepCompletedAuthorisedCaptureLock.test.ts
+ * Run: deno test --allow-read supabase/tests/_shared/sweepCompletedAuthorisedCaptureLock.test.ts
  */
 import { assertEquals, assertStringIncludes } from "https://deno.land/std@0.224.0/assert/mod.ts";
 
@@ -13,7 +13,8 @@ const stopPath = new URL("../../functions/stop-workflow/index.ts", import.meta.u
 
 Deno.test("sweep retries completed AUTHORISED via finalize, never dispose/void", async () => {
   const src = await Deno.readTextFile(sweepPath);
-  assertStringIncludes(src, 'from "../../functions/_shared/invokeFinalizeTripCapture.ts"');
+  // Edge entrypoint imports sibling _shared via ../_shared/
+  assertStringIncludes(src, 'from "../_shared/invokeFinalizeTripCapture.ts"');
   assertStringIncludes(src, "invokeFinalizeTripCapture");
   assertStringIncludes(src, "completed_authorised_retry");
   assertStringIncludes(src, "COMPLETED_CAPTURE_RETRY_PAYMENT_STATUSES");
@@ -38,10 +39,11 @@ Deno.test("sweep and complete_trip statically import capture modules", async () 
   const capture = await Deno.readTextFile(capturePath);
   const stop = await Deno.readTextFile(stopPath);
   assertEquals(/await\s+import\s*\(/.test(sweep), false);
-  assertEquals(/await\s+import\s*\(/.test(capture), false);
-  assertEquals(stop.includes('await import("../../functions/_shared/digitalPaymentCapture.ts")'), false);
-  assertEquals(stop.includes('from "../../functions/_shared/digitalPaymentCapture.ts"'), true);
-  assertEquals(sweep.includes('from "../../functions/_shared/revolutOrders.ts"'), true);
-  assertEquals(sweep.includes('from "../../functions/_shared/applyCanonicalSettlementAfterCapture.ts"'), true);
+  // Completion capture must not dynamically import revolutOrders (boot lock).
+  assertEquals(/await\s+import\s*\(\s*["']\.\/revolutOrders\.ts["']\s*\)/.test(capture), false);
+  assertEquals(stop.includes('await import("../_shared/digitalPaymentCapture.ts")'), false);
+  assertEquals(stop.includes('from "../_shared/digitalPaymentCapture.ts"'), true);
+  assertEquals(sweep.includes('from "../_shared/revolutOrders.ts"'), true);
+  assertEquals(sweep.includes('from "../_shared/applyCanonicalSettlementAfterCapture.ts"'), true);
   assertEquals(sweep.includes('mode: "recovery"'), true);
 });

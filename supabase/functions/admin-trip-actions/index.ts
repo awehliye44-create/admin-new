@@ -79,6 +79,34 @@ Deno.serve(async (req) => {
 
     console.log(`[admin-trip-actions] Executing cancel: trip=${trip_id} admin=${userId}`);
 
+    const writeAdminAudit = async (eventType: string, details: Record<string, unknown>) => {
+      const { error: auditErr } = await supabase.from("audit_logs").insert({
+        event_type: eventType,
+        user_id: userId,
+        trip_id,
+        details: { staff_role: staff.role, reason: reason || null, source: "admin-trip-actions", ...details },
+        user_agent: req.headers.get("user-agent"),
+      });
+      if (auditErr) console.error("[admin-trip-actions] audit write failed:", auditErr.message);
+    };
+
+    const { data: current } = await supabase
+      .from("trips")
+      .select("status, completed_at")
+      .eq("id", trip_id)
+      .maybeSingle();
+    if (!current) return json({ error: "Trip not found" }, 404);
+    if (current.status === "completed" || current.completed_at) {
+      await writeAdminAudit("ADMIN_TRIP_CANCEL_REFUSED", {
+        refusal: "COMPLETED_TRIP_NOT_CANCELLABLE",
+        trip_status: current.status,
+      });
+      return json({
+        error: "COMPLETED_TRIP_NOT_CANCELLABLE",
+        message: "This trip is completed and cannot be cancelled. Use a refund or adjustment instead.",
+      }, 409);
+    }
+
     // 3) Terminal trip state via existing RPC (same as prior Admin cancel).
     const { data: cancelResult, error: cancelErr } = await supabase.rpc(
       "apply_terminal_trip_cancellation",
@@ -91,7 +119,13 @@ Deno.serve(async (req) => {
 
     if (cancelErr) {
       console.error("[admin-trip-actions] Cancellation failed:", cancelErr);
-      return json({ error: "Cancellation failed", details: cancelErr.message }, 500);
+      const locked = /TERMINAL_STATE_LOCKED/.test(cancelErr.message ?? "");
+      await writeAdminAudit("ADMIN_TRIP_CANCEL_REFUSED", {
+        refusal: locked ? "TERMINAL_STATE_LOCKED" : "RPC_ERROR",
+      });
+      return locked
+        ? json({ error: "COMPLETED_TRIP_NOT_CANCELLABLE", message: "This trip is completed and cannot be cancelled." }, 409)
+        : json({ error: "Cancellation failed", details: cancelErr.message }, 500);
     }
 
     if (
@@ -99,10 +133,12 @@ Deno.serve(async (req) => {
       typeof cancelResult === "object" &&
       (cancelResult as { success?: boolean }).success === false
     ) {
+      const rpcError = (cancelResult as { error?: string }).error || "Cancellation failed";
+      await writeAdminAudit("ADMIN_TRIP_CANCEL_REFUSED", { refusal: rpcError });
       return json({
-        error: (cancelResult as { error?: string }).error || "Cancellation failed",
+        error: rpcError,
         result: cancelResult,
-      }, 400);
+      }, rpcError === "COMPLETED_TRIP_NOT_CANCELLABLE" ? 409 : 400);
     }
 
     // 4) SAME dispose path as cancel-trip — void/release current Revolut order.
@@ -126,6 +162,13 @@ Deno.serve(async (req) => {
         holdErr,
       );
     }
+
+    await writeAdminAudit("ADMIN_TRIP_CANCELLED", {
+      previous_status: current.status,
+      already_terminal: (cancelResult as { already_terminal?: boolean } | null)?.already_terminal === true,
+      hold_disposition_outcome: holdDisposition?.outcome ?? null,
+      hold_disposition_key: holdDisposition?.disposition_key ?? null,
+    });
 
     // After terminal cancel succeeds — Customer trip_cancelled lifecycle push.
     try {

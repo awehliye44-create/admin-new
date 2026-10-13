@@ -51,7 +51,13 @@ Deno.serve(async (req) => {
       });
     }
 
-    const rpcResult = data as { success?: boolean; cancelled?: boolean } | null;
+    const rpcResult = data as { success?: boolean; cancelled?: boolean; error?: string } | null;
+    if (rpcResult?.success === false) {
+      return new Response(JSON.stringify({ success: false, error: rpcResult.error ?? "TRIP_NOT_CANCELLABLE" }), {
+        status: 409,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
     const { data: tripRow } = await supabase
       .from("trips")
       .select("status, passenger_id")
