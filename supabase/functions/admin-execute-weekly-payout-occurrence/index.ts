@@ -33,6 +33,8 @@ import {
   isConflictingActivePayoutItem,
   WEEKLY_PAYOUT_BATCH_KIND,
   evaluateDriverBatchEligibility,
+  isPayoutDriverDeleted,
+  isPayoutDriverHeldOrBlocked,
   isLivePayoutExecutionEnabled,
   isRevolutPaymentTransportEnabled,
   itemIdempotencyKey,
@@ -50,7 +52,11 @@ import {
   ORCHESTRATOR_BLOCKER,
   ORCHESTRATOR_ITEM_STATUS,
   ORCHESTRATOR_RUN_STATUS,
+  allocateRunningPayoutFunding,
   buildOrchestratorPlanSnapshot,
+  buildPayoutFundingAttemptSnapshot,
+  classifyPayoutReversalProviderState,
+  type RunningFundingDecision,
   classifyWeeklyOccurrenceClaimFailure,
   evaluateBatchFundingGate,
   orchestratorBlockerLabel,
@@ -399,7 +405,7 @@ async function handleWeeklyPayoutOccurrence(req: Request): Promise<Response> {
   let driverQuery = supabase
     .from("drivers")
     .select(
-      "id, region_id, service_area_id, first_name, last_name, payouts_enabled, payout_operational_paused, approval_status, driver_status",
+      "id, region_id, service_area_id, first_name, last_name, payouts_enabled, payout_operational_paused, approval_status, driver_status, deleted_at",
     )
     .eq("approval_status", "approved")
     .in("id", platformDriverIds);
@@ -494,6 +500,26 @@ async function handleWeeklyPayoutOccurrence(req: Request): Promise<Response> {
       }
       conflictDrivers.add(String(item.driver_id));
     }
+
+    // Cross-run: a provider intent still in flight blocks a new item even when its
+    // payout_items row was (wrongly) left terminal by an earlier run.
+    const { data: openIntents, error: openIntentsErr } = await supabase
+      .from("driver_payout_payment_intents")
+      .select("driver_id, payout_item_id, execution_status")
+      .in("driver_id", driverIds)
+      .in("execution_status", ["SUBMITTING", "SUBMITTED", "UNKNOWN", "PROCESSING"]);
+    if (openIntentsErr) {
+      return json({
+        success: false,
+        error: "open_intent_check_failed",
+        message: openIntentsErr.message,
+        revolut_pay_called: false,
+        wallet_debited: false,
+      }, 500);
+    }
+    for (const intent of openIntents ?? []) {
+      conflictDrivers.add(String(intent.driver_id));
+    }
   }
 
   type Planned = {
@@ -510,12 +536,26 @@ async function handleWeeklyPayoutOccurrence(req: Request): Promise<Response> {
     destination_verified: boolean;
   };
   const planned: Planned[] = [];
+  const deletedDriversHeldForReview: Array<Record<string, unknown>> = [];
   for (const driver of drivers ?? []) {
     const driverId = String(driver.id);
     const dest = destByDriver.get(driverId) ?? null;
-    const driverStatus = String(driver.driver_status ?? "").toLowerCase();
-    const held = ["suspended", "blocked", "banned", "held"].includes(driverStatus);
+    const held = isPayoutDriverHeldOrBlocked(driver);
     const eligibility = await fetchDriverPayoutEligibility(supabase, { driver_id: driverId });
+    if (isPayoutDriverDeleted(driver)) {
+      // Never planned: no item, no allocation lock, no share of the batch total.
+      if (eligibility.live_balance_pence > 0 || eligibility.available_balance_pence > 0) {
+        deletedDriversHeldForReview.push({
+          driver_id: driverId,
+          deleted_at: driver.deleted_at ?? null,
+          driver_status: driver.driver_status ?? null,
+          wallet_live_balance_pence: eligibility.live_balance_pence,
+          wallet_available_pence: eligibility.available_balance_pence,
+          reason: "DRIVER_DELETED",
+        });
+      }
+      continue;
+    }
     const { data: econRows } = await supabase.rpc("driver_wallet_ledger_economic_fields", {
       p_driver_id: driverId,
     });
@@ -569,6 +609,7 @@ async function handleWeeklyPayoutOccurrence(req: Request): Promise<Response> {
       payout_operational_paused: driver.payout_operational_paused === true,
       payouts_enabled: driver.payouts_enabled !== false,
       driver_held_or_blocked: held,
+      driver_deleted: false,
       currency: serviceAreaCurrency,
       expected_currency: serviceAreaCurrency,
       destination: dest
@@ -623,6 +664,7 @@ async function handleWeeklyPayoutOccurrence(req: Request): Promise<Response> {
   let fundingAvailable: number | null = null;
   let sourceAccountId: string | null = null;
   let sourceLabel: string | null = null;
+  const balanceReadAt = new Date().toISOString();
   try {
     const companyBalance = await resolveLiveCompanyBalanceSnapshot({
       supabase,
@@ -879,6 +921,28 @@ async function handleWeeklyPayoutOccurrence(req: Request): Promise<Response> {
     }));
   }
 
+  // Items already submitted / completed spend no new funds; only fresh /pay attempts
+  // draw on the single running allowance for this pass.
+  const existingStatusByDriver = new Map(
+    existingBatchItems.map((it) => [it.driver_id, String(it.status || it.execution_status || "").toUpperCase()]),
+  );
+  const needsFunding = (driverId: string): boolean => {
+    const st = existingStatusByDriver.get(driverId) ?? "";
+    return !(st === "COMPLETED" || st === "PAID" || isOrchestratorReconcileOnlyItemStatus(st));
+  };
+  moneyWork = [...moneyWork].sort((a, b) =>
+    a.amount_pence - b.amount_pence || (a.driver_id < b.driver_id ? -1 : a.driver_id > b.driver_id ? 1 : 0)
+  );
+  const runningFunding = allocateRunningPayoutFunding({
+    available_pence: sourceAccountId ? fundingAvailable : null,
+    items: moneyWork
+      .filter((w) => needsFunding(w.driver_id))
+      .map((w) => ({ key: w.driver_id, amount_pence: w.amount_pence })),
+  });
+  const fundingDecisionByDriver = new Map<string, RunningFundingDecision>(
+    runningFunding.decisions.map((d) => [d.key, d]),
+  );
+
   const moneyGate = shouldContinueOrchestratorMoneyPath({
     dry_run: dryRun,
     live_enabled: live,
@@ -887,6 +951,7 @@ async function handleWeeklyPayoutOccurrence(req: Request): Promise<Response> {
     fresh_eligible_count: planned.length,
     in_flight_item_count: inFlightExisting.length,
     blocker_code: blocker,
+    fundable_item_count: runningFunding.funded_count,
   });
   if (
     moneyGate.ignore_zero_eligible_blocker
@@ -959,6 +1024,8 @@ async function handleWeeklyPayoutOccurrence(req: Request): Promise<Response> {
       required_batch_pence: plan.required_batch_pence,
       items: plan.items,
       stale_items: staleItemOutcomes,
+      deleted_drivers_held_for_review: deletedDriversHeldForReview,
+      running_funding: runningFunding,
       provider_request_payloads: providerPayloads,
       revolut_pay_called: false,
       wallet_debited: false,
@@ -995,6 +1062,8 @@ async function handleWeeklyPayoutOccurrence(req: Request): Promise<Response> {
       required_batch_pence: plan.required_batch_pence,
       items: plan.items,
       stale_items: staleItemOutcomes,
+      deleted_drivers_held_for_review: deletedDriversHeldForReview,
+      running_funding: runningFunding,
       provider_request_payloads: providerPayloads,
       revolut_pay_called: false,
       wallet_debited: false,
@@ -1038,126 +1107,571 @@ async function handleWeeklyPayoutOccurrence(req: Request): Promise<Response> {
   let anyDebited = false;
 
   for (const p of moneyWork) {
-    const payoutItemId = itemIdsByDriver.get(p.driver_id);
-    if (!payoutItemId) {
-      itemOutcomes.push({
-        driver_id: p.driver_id,
-        status: ORCHESTRATOR_ITEM_STATUS.FAILED_PERMANENT,
-        error: "missing_payout_item",
-      });
-      continue;
-    }
-
-    const { data: itemRow } = await supabase
-      .from("payout_items")
-      .select(
-        "id, status, execution_status, provider_request_id, provider_reference, amount_pence",
-      )
-      .eq("id", payoutItemId)
-      .maybeSingle();
-    const itemStatus = String(
-      (itemRow as { status?: string } | null)?.status
-        ?? (itemRow as { execution_status?: string } | null)?.execution_status
-        ?? "",
-    ).toUpperCase();
-    let existingPaymentId =
-      (itemRow as { provider_reference?: string | null } | null)?.provider_reference
-        ? String((itemRow as { provider_reference: string }).provider_reference)
-        : null;
-    if (!existingPaymentId) {
-      const { data: intentRow } = await supabase
-        .from("driver_payout_payment_intents")
-        .select("provider_payment_id, execution_status, provider_state")
-        .eq("payout_item_id", payoutItemId)
-        .order("created_at", { ascending: false })
-        .limit(1)
-        .maybeSingle();
-      if ((intentRow as { provider_payment_id?: string | null } | null)?.provider_payment_id) {
-        existingPaymentId = String(
-          (intentRow as { provider_payment_id: string }).provider_payment_id,
-        );
-      }
-    }
-
-    if (itemStatus === "COMPLETED" || itemStatus === "PAID") {
-      anyDebited = true;
-      itemOutcomes.push({
-        driver_id: p.driver_id,
-        driver_name: p.driver_name,
-        payout_item_id: payoutItemId,
-        amount_pence: p.amount_pence,
-        status: ORCHESTRATOR_ITEM_STATUS.COMPLETED,
-        provider_payment_id: existingPaymentId,
-        reused: true,
-      });
-      continue;
-    }
-
-    // Reconcile already-submitted / UNKNOWN items (no second /pay, no re-reserve).
-    if (isOrchestratorReconcileOnlyItemStatus(itemStatus) || existingPaymentId) {
-      if (!existingPaymentId) {
-        // Timeout/UNKNOWN after possible accept: keep reservation; never blind-retry /pay.
+    try {
+      const payoutItemId = itemIdsByDriver.get(p.driver_id);
+      if (!payoutItemId) {
         itemOutcomes.push({
           driver_id: p.driver_id,
-          payout_item_id: payoutItemId,
-          status: itemStatus === "UNKNOWN"
-            ? ORCHESTRATOR_ITEM_STATUS.SUBMITTING
-            : ORCHESTRATOR_ITEM_STATUS.FAILED_RETRYABLE,
-          error: ORCHESTRATOR_BLOCKER.PROVIDER_STATUS_PENDING,
-          note: itemStatus === "UNKNOWN"
-            ? "UNKNOWN â reservation kept; no debit and no second /pay until provider id known"
-            : "Submitted without provider_payment_id â needs reconcile",
-          reservation_kept_active: true,
+          status: ORCHESTRATOR_ITEM_STATUS.FAILED_PERMANENT,
+          error: "missing_payout_item",
         });
         continue;
       }
+
+      const { data: itemRow } = await supabase
+        .from("payout_items")
+        .select(
+          "id, status, execution_status, provider_request_id, provider_reference, amount_pence",
+        )
+        .eq("id", payoutItemId)
+        .maybeSingle();
+      const itemStatus = String(
+        (itemRow as { status?: string } | null)?.status
+          ?? (itemRow as { execution_status?: string } | null)?.execution_status
+          ?? "",
+      ).toUpperCase();
+      let existingPaymentId =
+        (itemRow as { provider_reference?: string | null } | null)?.provider_reference
+          ? String((itemRow as { provider_reference: string }).provider_reference)
+          : null;
+      if (!existingPaymentId) {
+        const { data: intentRow } = await supabase
+          .from("driver_payout_payment_intents")
+          .select("provider_payment_id, execution_status, provider_state")
+          .eq("payout_item_id", payoutItemId)
+          .order("created_at", { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        if ((intentRow as { provider_payment_id?: string | null } | null)?.provider_payment_id) {
+          existingPaymentId = String(
+            (intentRow as { provider_payment_id: string }).provider_payment_id,
+          );
+        }
+      }
+
+      if (itemStatus === "COMPLETED" || itemStatus === "PAID") {
+        anyDebited = true;
+        itemOutcomes.push({
+          driver_id: p.driver_id,
+          driver_name: p.driver_name,
+          payout_item_id: payoutItemId,
+          amount_pence: p.amount_pence,
+          status: ORCHESTRATOR_ITEM_STATUS.COMPLETED,
+          provider_payment_id: existingPaymentId,
+          reused: true,
+        });
+        continue;
+      }
+
+      // Reconcile already-submitted / UNKNOWN items (no second /pay, no re-reserve).
+      if (isOrchestratorReconcileOnlyItemStatus(itemStatus) || existingPaymentId) {
+        if (!existingPaymentId) {
+          // Timeout/UNKNOWN after possible accept: keep reservation; never blind-retry /pay.
+          itemOutcomes.push({
+            driver_id: p.driver_id,
+            payout_item_id: payoutItemId,
+            status: itemStatus === "UNKNOWN"
+              ? ORCHESTRATOR_ITEM_STATUS.SUBMITTING
+              : ORCHESTRATOR_ITEM_STATUS.FAILED_RETRYABLE,
+            error: ORCHESTRATOR_BLOCKER.PROVIDER_STATUS_PENDING,
+            note: itemStatus === "UNKNOWN"
+              ? "UNKNOWN â reservation kept; no debit and no second /pay until provider id known"
+              : "Submitted without provider_payment_id â needs reconcile",
+            reservation_kept_active: true,
+          });
+          continue;
+        }
+        let accessToken: string;
+        try {
+          const tok = await ensureFreshRevolutBusinessAccessToken(supabase);
+          accessToken = tok.accessToken;
+        } catch (err) {
+          itemOutcomes.push({
+            driver_id: p.driver_id,
+            payout_item_id: payoutItemId,
+            status: ORCHESTRATOR_ITEM_STATUS.PROVIDER_ACCEPTED,
+            provider_payment_id: existingPaymentId,
+            error: ORCHESTRATOR_BLOCKER.PROVIDER_UNAVAILABLE,
+            message: err instanceof Error ? err.message : "token",
+          });
+          continue;
+        }
+        const statusResult = await relayApprovedDriverPayoutPaymentStatus({
+          providerPaymentId: existingPaymentId,
+          accessToken,
+          payoutItemId,
+        });
+        const syncedState = statusResult.provider_state;
+        if (!syncedState || !mayFinaliseFromProviderState(syncedState).ok
+          || !isCanonicalProviderCompleted(syncedState)) {
+          itemOutcomes.push({
+            driver_id: p.driver_id,
+            payout_item_id: payoutItemId,
+            status: ORCHESTRATOR_ITEM_STATUS.PROVIDER_ACCEPTED,
+            provider_payment_id: existingPaymentId,
+            provider_state: syncedState,
+            error: ORCHESTRATOR_BLOCKER.PROVIDER_STATUS_PENDING,
+          });
+          continue;
+        }
+        const completionEvidence = redactCompletionEvidence({
+          provider_payment_id: existingPaymentId,
+          provider_state: syncedState,
+          provider_request_id: (itemRow as { provider_request_id?: string | null } | null)
+            ?.provider_request_id ?? null,
+          completed_at: statusResult.completed_at,
+          amount_pence: p.amount_pence,
+          currency: serviceAreaCurrency,
+        });
+        const { data: finalized, error: finalizeErr } = await supabase.rpc(
+          "finalize_driver_payout_completion",
+          {
+            p_payout_item_id: payoutItemId,
+            p_provider_payment_id: existingPaymentId,
+            p_provider_state: "completed",
+            p_provider_completed_at: statusResult.completed_at,
+            p_evidence_redacted: completionEvidence,
+          },
+        );
+        if (finalizeErr || (finalized as Record<string, unknown>)?.ok === false) {
+          itemOutcomes.push({
+            driver_id: p.driver_id,
+            payout_item_id: payoutItemId,
+            status: ORCHESTRATOR_ITEM_STATUS.PROVIDER_ACCEPTED,
+            error: finalizeErr?.message ?? "finalize_failed",
+            provider_payment_id: existingPaymentId,
+          });
+          continue;
+        }
+        anyDebited = true;
+        itemOutcomes.push({
+          driver_id: p.driver_id,
+          driver_name: p.driver_name,
+          payout_item_id: payoutItemId,
+          amount_pence: p.amount_pence,
+          status: ORCHESTRATOR_ITEM_STATUS.COMPLETED,
+          provider_payment_id: existingPaymentId,
+          reconciled: true,
+        });
+        continue;
+      }
+
+      if (itemStatus !== "RESERVED" && itemStatus !== "RESERVING") {
+        const { data: reserveRaw, error: reserveErr } = await supabase.rpc(
+          "reserve_driver_payout_item",
+          { p_payout_item_id: payoutItemId },
+        );
+        if (reserveErr || (reserveRaw as Record<string, unknown>)?.ok === false) {
+          itemOutcomes.push({
+            driver_id: p.driver_id,
+            payout_item_id: payoutItemId,
+            status: ORCHESTRATOR_ITEM_STATUS.FAILED_RETRYABLE,
+            error: reserveErr?.message
+              ?? (reserveRaw as Record<string, unknown>)?.error
+              ?? (reserveRaw as Record<string, unknown>)?.error_code
+              ?? "reserve_failed",
+          });
+          continue;
+        }
+      }
+
+      // Submit — only against this item's share of the single running allowance.
+      const fundingDecision = fundingDecisionByDriver.get(p.driver_id);
+      if (!fundingDecision?.funded || fundingDecision.amount_pence !== p.amount_pence || !sourceAccountId) {
+        await supabase.rpc("release_driver_payout_reservation", {
+          p_payout_item_id: payoutItemId,
+          p_release_reason: "INSUFFICIENT_SETTLED_FUNDS",
+        });
+        itemOutcomes.push({
+          driver_id: p.driver_id,
+          payout_item_id: payoutItemId,
+          status: ORCHESTRATOR_ITEM_STATUS.RESERVATION_RELEASED,
+          error: ORCHESTRATOR_BLOCKER.INSUFFICIENT_SETTLED_FUNDS,
+          funding_remaining_before_pence: fundingDecision?.remaining_before_pence ?? null,
+        });
+        continue;
+      }
+
       let accessToken: string;
       try {
         const tok = await ensureFreshRevolutBusinessAccessToken(supabase);
         accessToken = tok.accessToken;
       } catch (err) {
+        await supabase.rpc("release_driver_payout_reservation", {
+          p_payout_item_id: payoutItemId,
+          p_release_reason: "PROVIDER_UNAVAILABLE",
+        });
         itemOutcomes.push({
           driver_id: p.driver_id,
           payout_item_id: payoutItemId,
-          status: ORCHESTRATOR_ITEM_STATUS.PROVIDER_ACCEPTED,
-          provider_payment_id: existingPaymentId,
+          status: ORCHESTRATOR_ITEM_STATUS.RESERVATION_RELEASED,
           error: ORCHESTRATOR_BLOCKER.PROVIDER_UNAVAILABLE,
           message: err instanceof Error ? err.message : "token",
         });
         continue;
       }
+
+      const { data: claimSubRaw, error: claimSubErr } = await supabase.rpc(
+        "claim_driver_payout_submission",
+        {
+          p_payout_item_id: payoutItemId,
+          p_source_account_id: sourceAccountId,
+          p_claim_token: crypto.randomUUID(),
+        },
+      );
+      if (claimSubErr || (claimSubRaw as Record<string, unknown>)?.ok !== true) {
+        const errCode = String((claimSubRaw as Record<string, unknown>)?.error ?? claimSubErr?.message ?? "");
+        if (errCode === "ALREADY_SUBMITTED") {
+          // Fall through to reconcile on next tick via PROVIDER_ACCEPTED / payment id.
+          const alreadyId = (claimSubRaw as Record<string, unknown>)?.provider_payment_id
+            ? String((claimSubRaw as Record<string, unknown>).provider_payment_id)
+            : existingPaymentId;
+          if (alreadyId) {
+            const statusResult = await relayApprovedDriverPayoutPaymentStatus({
+              providerPaymentId: alreadyId,
+              accessToken,
+              payoutItemId,
+            });
+            const syncedState = statusResult.provider_state;
+            if (syncedState && mayFinaliseFromProviderState(syncedState).ok
+              && isCanonicalProviderCompleted(syncedState)) {
+              const completionEvidence = redactCompletionEvidence({
+                provider_payment_id: alreadyId,
+                provider_state: syncedState,
+                completed_at: statusResult.completed_at,
+                amount_pence: p.amount_pence,
+                currency: serviceAreaCurrency,
+              });
+              const { data: finalized, error: finalizeErr } = await supabase.rpc(
+                "finalize_driver_payout_completion",
+                {
+                  p_payout_item_id: payoutItemId,
+                  p_provider_payment_id: alreadyId,
+                  p_provider_state: "completed",
+                  p_provider_completed_at: statusResult.completed_at,
+                  p_evidence_redacted: completionEvidence,
+                },
+              );
+              if (!finalizeErr && (finalized as Record<string, unknown>)?.ok !== false) {
+                anyDebited = true;
+                itemOutcomes.push({
+                  driver_id: p.driver_id,
+                  driver_name: p.driver_name,
+                  payout_item_id: payoutItemId,
+                  amount_pence: p.amount_pence,
+                  status: ORCHESTRATOR_ITEM_STATUS.COMPLETED,
+                  provider_payment_id: alreadyId,
+                  reused: true,
+                });
+                continue;
+              }
+            }
+          }
+          itemOutcomes.push({
+            driver_id: p.driver_id,
+            payout_item_id: payoutItemId,
+            status: ORCHESTRATOR_ITEM_STATUS.PROVIDER_ACCEPTED,
+            provider_payment_id: alreadyId,
+            reused: true,
+            error: ORCHESTRATOR_BLOCKER.PROVIDER_STATUS_PENDING,
+          });
+        } else if (shouldReleaseReservationOnSubmitClaimFailure(errCode)) {
+          await supabase.rpc("release_driver_payout_reservation", {
+            p_payout_item_id: payoutItemId,
+            p_release_reason: "SUBMIT_CLAIM_FAILED",
+          });
+          itemOutcomes.push({
+            driver_id: p.driver_id,
+            payout_item_id: payoutItemId,
+            status: ORCHESTRATOR_ITEM_STATUS.RESERVATION_RELEASED,
+            error: errCode || "claim_failed",
+          });
+        } else {
+          // UNKNOWN_NO_BLIND_RETRY etc. â keep reservation; later tick reconciles.
+          itemOutcomes.push({
+            driver_id: p.driver_id,
+            payout_item_id: payoutItemId,
+            status: ORCHESTRATOR_ITEM_STATUS.SUBMITTING,
+            error: errCode || "claim_failed_keep_reservation",
+            reservation_kept_active: true,
+            note: "No reservation release; no second /pay",
+          });
+        }
+        continue;
+      }
+      const claimSub = claimSubRaw as Record<string, unknown>;
+
+      const paymentBody: Record<string, unknown> = {
+        payout_item_id: String(claimSub.payout_item_id),
+        driver_id: String(claimSub.driver_id),
+        payout_destination_id: String(claimSub.payout_destination_id),
+        source_account_id: String(claimSub.source_account_id),
+        provider_counterparty_id: String(claimSub.provider_counterparty_id),
+        provider_recipient_account_id: String(claimSub.provider_recipient_account_id),
+        amount_pence: Number(claimSub.amount_pence),
+        currency: String(claimSub.currency ?? "GBP"),
+        payment_reference: claimSub.payment_reference ?? null,
+        provider_request_id: canonicalProviderRequestId(String(claimSub.payout_item_id)),
+        idempotency_key: canonicalIdempotencyKey(String(claimSub.payout_item_id)),
+      };
+
+      const { data: dest } = await supabase
+        .from("driver_payout_destinations")
+        .select(
+          "id, driver_id, currency_code, verification_status, provider_link_status, provider_counterparty_id, provider_recipient_account_id, is_active, archived_at",
+        )
+        .eq("id", String(claimSub.payout_destination_id))
+        .maybeSingle();
+
+      const validated = validateApprovedDriverPayoutPayment({ body: paymentBody, destination: dest });
+      if (!validated.ok) {
+        await supabase.rpc("finalize_driver_payout_submission", {
+          p_payout_item_id: payoutItemId,
+          p_claim_token: String(claimSub.claim_token),
+          p_execution_status: "FAILED",
+          p_provider_failure_code: validated.code,
+          p_provider_failure_reason_safe: validated.message,
+          p_evidence_redacted: { validation_failed: true },
+          p_release_reservation: true,
+        });
+        itemOutcomes.push({
+          driver_id: p.driver_id,
+          payout_item_id: payoutItemId,
+          status: ORCHESTRATOR_ITEM_STATUS.RESERVATION_RELEASED,
+          error: validated.code,
+        });
+        continue;
+      }
+
+      if (!isRevolutBusinessRelayConfigured()) {
+        await supabase.rpc("abort_driver_payout_submission_claim", {
+          p_payout_item_id: payoutItemId,
+          p_claim_token: String(claimSub.claim_token),
+          p_failure_code: ORCHESTRATOR_BLOCKER.PROVIDER_UNAVAILABLE,
+          p_failure_reason_safe: "relay not configured",
+        });
+        itemOutcomes.push({
+          driver_id: p.driver_id,
+          payout_item_id: payoutItemId,
+          status: ORCHESTRATOR_ITEM_STATUS.FAILED_RETRYABLE,
+          error: ORCHESTRATOR_BLOCKER.PROVIDER_UNAVAILABLE,
+          reservation_kept_active: true,
+        });
+        continue;
+      }
+
+      try {
+        await assertPayoutItemLedgerLineage({
+          supabase,
+          payout_item_id: payoutItemId,
+          expected_amount_pence: p.amount_pence,
+        });
+      } catch (lineageErr) {
+        await supabase.rpc("abort_driver_payout_submission_claim", {
+          p_payout_item_id: payoutItemId,
+          p_claim_token: String(claimSub.claim_token),
+          p_failure_code: "PAYOUT_LINEAGE_MISSING",
+          p_failure_reason_safe: lineageErr instanceof Error ? lineageErr.message : "lineage missing",
+        });
+        itemOutcomes.push({
+          driver_id: p.driver_id,
+          payout_item_id: payoutItemId,
+          status: ORCHESTRATOR_ITEM_STATUS.FAILED_RETRYABLE,
+          error: "PAYOUT_LINEAGE_MISSING",
+        });
+        continue;
+      }
+
+      // Immutable evidence of the funding this /pay relies on. No snapshot → no /pay.
+      let fundingSnapshotOk = false;
+      try {
+        const snapshot = buildPayoutFundingAttemptSnapshot({
+          run_id: runId,
+          schedule_occurrence_key: occurrenceKey,
+          payout_item_id: payoutItemId,
+          intent_id: String(claimSub.intent_id ?? ""),
+          driver_id: p.driver_id,
+          claim_token: String(claimSub.claim_token),
+          source_account_id: sourceAccountId,
+          source_account_label: sourceLabel,
+          balance_read_at: balanceReadAt,
+          provider_available_pence: Number(fundingAvailable ?? 0),
+          decision: fundingDecision,
+        });
+        if (!claimSub.intent_id) throw new Error("claim returned no intent_id");
+        const { error: snapErr } = await supabase
+          .from("driver_payout_funding_attempt_snapshots")
+          .insert({
+            intent_id: snapshot.intent_id,
+            payout_item_id: snapshot.payout_item_id,
+            driver_id: snapshot.driver_id,
+            claim_token: snapshot.claim_token,
+            run_id: snapshot.run_id,
+            schedule_occurrence_key: snapshot.schedule_occurrence_key,
+            source_account_id: snapshot.source_account_id,
+            balance_read_at: snapshot.balance_read_at,
+            provider_available_pence: snapshot.provider_available_pence,
+            remaining_before_pence: snapshot.remaining_before_pence,
+            amount_pence: snapshot.amount_pence,
+            remaining_after_pence: snapshot.remaining_after_pence,
+            snapshot,
+          });
+        if (snapErr) throw new Error(snapErr.message);
+        fundingSnapshotOk = true;
+      } catch (snapshotErr) {
+        await supabase.rpc("abort_driver_payout_submission_claim", {
+          p_payout_item_id: payoutItemId,
+          p_claim_token: String(claimSub.claim_token),
+          p_failure_code: "FUNDING_SNAPSHOT_FAILED",
+          p_failure_reason_safe: snapshotErr instanceof Error ? snapshotErr.message : "funding snapshot failed",
+        });
+        itemOutcomes.push({
+          driver_id: p.driver_id,
+          payout_item_id: payoutItemId,
+          status: ORCHESTRATOR_ITEM_STATUS.FAILED_RETRYABLE,
+          error: "FUNDING_SNAPSHOT_FAILED",
+          reservation_kept_active: true,
+        });
+      }
+      if (!fundingSnapshotOk) continue;
+
+      let timedOut = false;
+      let relayResult: Awaited<ReturnType<typeof relayApprovedDriverPayoutPayment>>;
+      try {
+        relayResult = await relayApprovedDriverPayoutPayment({
+          body: {
+            payout_item_id: validated.normalized.payout_item_id,
+            driver_id: validated.normalized.driver_id,
+            payout_destination_id: validated.normalized.payout_destination_id,
+            source_account_id: validated.normalized.source_account_id,
+            provider_counterparty_id: validated.normalized.provider_counterparty_id,
+            provider_recipient_account_id: validated.normalized.provider_recipient_account_id,
+            amount_pence: validated.normalized.amount_pence,
+            currency: validated.normalized.currency,
+            payment_reference: validated.normalized.payment_reference,
+            provider_request_id: validated.normalized.provider_request_id,
+            idempotency_key: validated.normalized.idempotency_key,
+          },
+          idempotencyKey: validated.normalized.idempotency_key,
+          accessToken,
+          timeoutMs: 25_000,
+        });
+      } catch {
+        timedOut = true;
+        relayResult = {
+          status: 0,
+          error: "relay_timeout",
+          revolut_pay_called: true,
+          provider_payment_id: null,
+          provider_state: null,
+          json: {},
+        };
+      }
+
+      if (relayResult.revolut_pay_called === true) anyPayCalled = true;
+
+      const providerPaymentId = relayResult.provider_payment_id
+        ?? (typeof relayResult.json?.id === "string" ? String(relayResult.json.id) : null);
+      const providerState = relayResult.provider_state
+        ?? (typeof relayResult.json?.state === "string" ? String(relayResult.json.state) : null);
+
+      const outcome = mapProviderSubmissionOutcome({
+        http_ok: relayResult.status >= 200 && relayResult.status < 300,
+        timed_out: timedOut || relayResult.error === "relay_timeout",
+        provider_payment_id: providerPaymentId,
+        provider_state: providerState,
+        hard_reject: relayResult.revolut_pay_called === true
+          && relayResult.status >= 400
+          && relayResult.status < 500
+          && !timedOut
+          && !providerPaymentId,
+        http_status: relayResult.status,
+        pay_call_explicitly_not_made: relayResult.revolut_pay_called === false
+          || relayResult.json?.revolut_pay_called === false,
+      });
+
+      const evidence = redactProviderEvidence({
+        provider_payment_id: providerPaymentId,
+        provider_state: providerState,
+        provider_request_id: validated.normalized.provider_request_id,
+        amount_pence: validated.normalized.amount_pence,
+        currency: validated.normalized.currency,
+      });
+
+      await supabase.rpc("finalize_driver_payout_submission", {
+        p_payout_item_id: payoutItemId,
+        p_claim_token: String(claimSub.claim_token),
+        p_execution_status: outcome.execution_status,
+        p_provider_payment_id: providerPaymentId,
+        p_provider_state: providerState,
+        p_provider_failure_code: outcome.failure_code,
+        p_provider_failure_reason_safe: outcome.failure_reason,
+        p_evidence_redacted: evidence,
+        p_release_reservation: outcome.release_reservation === true,
+      });
+
+      if (outcome.release_reservation) {
+        itemOutcomes.push({
+          driver_id: p.driver_id,
+          payout_item_id: payoutItemId,
+          status: ORCHESTRATOR_ITEM_STATUS.RESERVATION_RELEASED,
+          error: outcome.failure_code,
+        });
+        continue;
+      }
+
+      if (outcome.execution_status !== "SUBMITTED" || !providerPaymentId) {
+        const uncertain = timedOut || outcome.execution_status === "UNKNOWN";
+        itemOutcomes.push({
+          driver_id: p.driver_id,
+          payout_item_id: payoutItemId,
+          status: uncertain
+            ? ORCHESTRATOR_ITEM_STATUS.SUBMITTING
+            : ORCHESTRATOR_ITEM_STATUS.FAILED_RETRYABLE,
+          error: outcome.failure_code ?? ORCHESTRATOR_BLOCKER.PROVIDER_STATUS_PENDING,
+          provider_payment_id: providerPaymentId,
+          reservation_kept_active: true,
+          note: uncertain
+            ? "Timeout/unknown â reservation kept; no debit until provider truth known"
+            : undefined,
+        });
+        continue;
+      }
+
+      // Finalize when provider completed
       const statusResult = await relayApprovedDriverPayoutPaymentStatus({
-        providerPaymentId: existingPaymentId,
+        providerPaymentId,
         accessToken,
         payoutItemId,
       });
-      const syncedState = statusResult.provider_state;
+      const syncedState = statusResult.provider_state ?? providerState;
       if (!syncedState || !mayFinaliseFromProviderState(syncedState).ok
         || !isCanonicalProviderCompleted(syncedState)) {
         itemOutcomes.push({
           driver_id: p.driver_id,
           payout_item_id: payoutItemId,
           status: ORCHESTRATOR_ITEM_STATUS.PROVIDER_ACCEPTED,
-          provider_payment_id: existingPaymentId,
+          provider_payment_id: providerPaymentId,
           provider_state: syncedState,
           error: ORCHESTRATOR_BLOCKER.PROVIDER_STATUS_PENDING,
         });
         continue;
       }
+
       const completionEvidence = redactCompletionEvidence({
-        provider_payment_id: existingPaymentId,
+        provider_payment_id: providerPaymentId,
         provider_state: syncedState,
-        provider_request_id: (itemRow as { provider_request_id?: string | null } | null)
-          ?.provider_request_id ?? null,
+        provider_request_id: validated.normalized.provider_request_id,
         completed_at: statusResult.completed_at,
         amount_pence: p.amount_pence,
         currency: serviceAreaCurrency,
       });
+
       const { data: finalized, error: finalizeErr } = await supabase.rpc(
         "finalize_driver_payout_completion",
         {
           p_payout_item_id: payoutItemId,
-          p_provider_payment_id: existingPaymentId,
+          p_provider_payment_id: providerPaymentId,
           p_provider_state: "completed",
           p_provider_completed_at: statusResult.completed_at,
           p_evidence_redacted: completionEvidence,
@@ -1169,10 +1683,11 @@ async function handleWeeklyPayoutOccurrence(req: Request): Promise<Response> {
           payout_item_id: payoutItemId,
           status: ORCHESTRATOR_ITEM_STATUS.PROVIDER_ACCEPTED,
           error: finalizeErr?.message ?? "finalize_failed",
-          provider_payment_id: existingPaymentId,
+          provider_payment_id: providerPaymentId,
         });
         continue;
       }
+
       anyDebited = true;
       itemOutcomes.push({
         driver_id: p.driver_id,
@@ -1180,398 +1695,23 @@ async function handleWeeklyPayoutOccurrence(req: Request): Promise<Response> {
         payout_item_id: payoutItemId,
         amount_pence: p.amount_pence,
         status: ORCHESTRATOR_ITEM_STATUS.COMPLETED,
-        provider_payment_id: existingPaymentId,
-        reconciled: true,
+        provider_payment_id: providerPaymentId,
       });
-      continue;
-    }
-
-    if (itemStatus !== "RESERVED" && itemStatus !== "RESERVING") {
-      const { data: reserveRaw, error: reserveErr } = await supabase.rpc(
-        "reserve_driver_payout_item",
-        { p_payout_item_id: payoutItemId },
-      );
-      if (reserveErr || (reserveRaw as Record<string, unknown>)?.ok === false) {
-        itemOutcomes.push({
-          driver_id: p.driver_id,
-          payout_item_id: payoutItemId,
-          status: ORCHESTRATOR_ITEM_STATUS.FAILED_RETRYABLE,
-          error: reserveErr?.message
-            ?? (reserveRaw as Record<string, unknown>)?.error
-            ?? (reserveRaw as Record<string, unknown>)?.error_code
-            ?? "reserve_failed",
-        });
-        continue;
-      }
-    }
-
-    // Submit
-    const amountGate = evaluateBatchFundingGate({
-      required_batch_pence: p.amount_pence,
-      available_pence: fundingAvailable,
-    });
-    if (amountGate.result !== FUNDING_RESULT.SUFFICIENT || !sourceAccountId) {
-      await supabase.rpc("release_driver_payout_reservation", {
-        p_payout_item_id: payoutItemId,
-        p_release_reason: "INSUFFICIENT_SETTLED_FUNDS",
-      });
+    } catch (driverErr) {
+      // One driver's failure never stops the rest. Unknown point of failure →
+      // keep any reservation; the next tick reconciles via claim / intent state.
       itemOutcomes.push({
         driver_id: p.driver_id,
-        payout_item_id: payoutItemId,
-        status: ORCHESTRATOR_ITEM_STATUS.RESERVATION_RELEASED,
-        error: ORCHESTRATOR_BLOCKER.INSUFFICIENT_SETTLED_FUNDS,
-      });
-      continue;
-    }
-
-    let accessToken: string;
-    try {
-      const tok = await ensureFreshRevolutBusinessAccessToken(supabase);
-      accessToken = tok.accessToken;
-    } catch (err) {
-      await supabase.rpc("release_driver_payout_reservation", {
-        p_payout_item_id: payoutItemId,
-        p_release_reason: "PROVIDER_UNAVAILABLE",
-      });
-      itemOutcomes.push({
-        driver_id: p.driver_id,
-        payout_item_id: payoutItemId,
-        status: ORCHESTRATOR_ITEM_STATUS.RESERVATION_RELEASED,
-        error: ORCHESTRATOR_BLOCKER.PROVIDER_UNAVAILABLE,
-        message: err instanceof Error ? err.message : "token",
-      });
-      continue;
-    }
-
-    const { data: claimSubRaw, error: claimSubErr } = await supabase.rpc(
-      "claim_driver_payout_submission",
-      {
-        p_payout_item_id: payoutItemId,
-        p_source_account_id: sourceAccountId,
-        p_claim_token: crypto.randomUUID(),
-      },
-    );
-    if (claimSubErr || (claimSubRaw as Record<string, unknown>)?.ok !== true) {
-      const errCode = String((claimSubRaw as Record<string, unknown>)?.error ?? claimSubErr?.message ?? "");
-      if (errCode === "ALREADY_SUBMITTED") {
-        // Fall through to reconcile on next tick via PROVIDER_ACCEPTED / payment id.
-        const alreadyId = (claimSubRaw as Record<string, unknown>)?.provider_payment_id
-          ? String((claimSubRaw as Record<string, unknown>).provider_payment_id)
-          : existingPaymentId;
-        if (alreadyId) {
-          const statusResult = await relayApprovedDriverPayoutPaymentStatus({
-            providerPaymentId: alreadyId,
-            accessToken,
-            payoutItemId,
-          });
-          const syncedState = statusResult.provider_state;
-          if (syncedState && mayFinaliseFromProviderState(syncedState).ok
-            && isCanonicalProviderCompleted(syncedState)) {
-            const completionEvidence = redactCompletionEvidence({
-              provider_payment_id: alreadyId,
-              provider_state: syncedState,
-              completed_at: statusResult.completed_at,
-              amount_pence: p.amount_pence,
-              currency: serviceAreaCurrency,
-            });
-            const { data: finalized, error: finalizeErr } = await supabase.rpc(
-              "finalize_driver_payout_completion",
-              {
-                p_payout_item_id: payoutItemId,
-                p_provider_payment_id: alreadyId,
-                p_provider_state: "completed",
-                p_provider_completed_at: statusResult.completed_at,
-                p_evidence_redacted: completionEvidence,
-              },
-            );
-            if (!finalizeErr && (finalized as Record<string, unknown>)?.ok !== false) {
-              anyDebited = true;
-              itemOutcomes.push({
-                driver_id: p.driver_id,
-                driver_name: p.driver_name,
-                payout_item_id: payoutItemId,
-                amount_pence: p.amount_pence,
-                status: ORCHESTRATOR_ITEM_STATUS.COMPLETED,
-                provider_payment_id: alreadyId,
-                reused: true,
-              });
-              continue;
-            }
-          }
-        }
-        itemOutcomes.push({
-          driver_id: p.driver_id,
-          payout_item_id: payoutItemId,
-          status: ORCHESTRATOR_ITEM_STATUS.PROVIDER_ACCEPTED,
-          provider_payment_id: alreadyId,
-          reused: true,
-          error: ORCHESTRATOR_BLOCKER.PROVIDER_STATUS_PENDING,
-        });
-      } else if (shouldReleaseReservationOnSubmitClaimFailure(errCode)) {
-        await supabase.rpc("release_driver_payout_reservation", {
-          p_payout_item_id: payoutItemId,
-          p_release_reason: "SUBMIT_CLAIM_FAILED",
-        });
-        itemOutcomes.push({
-          driver_id: p.driver_id,
-          payout_item_id: payoutItemId,
-          status: ORCHESTRATOR_ITEM_STATUS.RESERVATION_RELEASED,
-          error: errCode || "claim_failed",
-        });
-      } else {
-        // UNKNOWN_NO_BLIND_RETRY etc. â keep reservation; later tick reconciles.
-        itemOutcomes.push({
-          driver_id: p.driver_id,
-          payout_item_id: payoutItemId,
-          status: ORCHESTRATOR_ITEM_STATUS.SUBMITTING,
-          error: errCode || "claim_failed_keep_reservation",
-          reservation_kept_active: true,
-          note: "No reservation release; no second /pay",
-        });
-      }
-      continue;
-    }
-    const claimSub = claimSubRaw as Record<string, unknown>;
-
-    const paymentBody: Record<string, unknown> = {
-      payout_item_id: String(claimSub.payout_item_id),
-      driver_id: String(claimSub.driver_id),
-      payout_destination_id: String(claimSub.payout_destination_id),
-      source_account_id: String(claimSub.source_account_id),
-      provider_counterparty_id: String(claimSub.provider_counterparty_id),
-      provider_recipient_account_id: String(claimSub.provider_recipient_account_id),
-      amount_pence: Number(claimSub.amount_pence),
-      currency: String(claimSub.currency ?? "GBP"),
-      payment_reference: claimSub.payment_reference ?? null,
-      provider_request_id: canonicalProviderRequestId(String(claimSub.payout_item_id)),
-      idempotency_key: canonicalIdempotencyKey(String(claimSub.payout_item_id)),
-    };
-
-    const { data: dest } = await supabase
-      .from("driver_payout_destinations")
-      .select(
-        "id, driver_id, currency_code, verification_status, provider_link_status, provider_counterparty_id, provider_recipient_account_id, is_active, archived_at",
-      )
-      .eq("id", String(claimSub.payout_destination_id))
-      .maybeSingle();
-
-    const validated = validateApprovedDriverPayoutPayment({ body: paymentBody, destination: dest });
-    if (!validated.ok) {
-      await supabase.rpc("finalize_driver_payout_submission", {
-        p_payout_item_id: payoutItemId,
-        p_claim_token: String(claimSub.claim_token),
-        p_execution_status: "FAILED",
-        p_provider_failure_code: validated.code,
-        p_provider_failure_reason_safe: validated.message,
-        p_evidence_redacted: { validation_failed: true },
-        p_release_reservation: true,
-      });
-      itemOutcomes.push({
-        driver_id: p.driver_id,
-        payout_item_id: payoutItemId,
-        status: ORCHESTRATOR_ITEM_STATUS.RESERVATION_RELEASED,
-        error: validated.code,
-      });
-      continue;
-    }
-
-    if (!isRevolutBusinessRelayConfigured()) {
-      await supabase.rpc("abort_driver_payout_submission_claim", {
-        p_payout_item_id: payoutItemId,
-        p_claim_token: String(claimSub.claim_token),
-        p_failure_code: ORCHESTRATOR_BLOCKER.PROVIDER_UNAVAILABLE,
-        p_failure_reason_safe: "relay not configured",
-      });
-      itemOutcomes.push({
-        driver_id: p.driver_id,
-        payout_item_id: payoutItemId,
+        payout_item_id: itemIdsByDriver.get(p.driver_id) ?? null,
         status: ORCHESTRATOR_ITEM_STATUS.FAILED_RETRYABLE,
-        error: ORCHESTRATOR_BLOCKER.PROVIDER_UNAVAILABLE,
+        error: "DRIVER_ITEM_EXCEPTION",
+        message: driverErr instanceof Error ? driverErr.message : String(driverErr),
         reservation_kept_active: true,
       });
-      continue;
     }
-
-    try {
-      await assertPayoutItemLedgerLineage({
-        supabase,
-        payout_item_id: payoutItemId,
-        expected_amount_pence: p.amount_pence,
-      });
-    } catch (lineageErr) {
-      await supabase.rpc("abort_driver_payout_submission_claim", {
-        p_payout_item_id: payoutItemId,
-        p_claim_token: String(claimSub.claim_token),
-        p_failure_code: "PAYOUT_LINEAGE_MISSING",
-        p_failure_reason_safe: lineageErr instanceof Error ? lineageErr.message : "lineage missing",
-      });
-      itemOutcomes.push({
-        driver_id: p.driver_id,
-        payout_item_id: payoutItemId,
-        status: ORCHESTRATOR_ITEM_STATUS.FAILED_RETRYABLE,
-        error: "PAYOUT_LINEAGE_MISSING",
-      });
-      continue;
-    }
-
-    let timedOut = false;
-    let relayResult: Awaited<ReturnType<typeof relayApprovedDriverPayoutPayment>>;
-    try {
-      relayResult = await relayApprovedDriverPayoutPayment({
-        body: {
-          payout_item_id: validated.normalized.payout_item_id,
-          driver_id: validated.normalized.driver_id,
-          payout_destination_id: validated.normalized.payout_destination_id,
-          source_account_id: validated.normalized.source_account_id,
-          provider_counterparty_id: validated.normalized.provider_counterparty_id,
-          provider_recipient_account_id: validated.normalized.provider_recipient_account_id,
-          amount_pence: validated.normalized.amount_pence,
-          currency: validated.normalized.currency,
-          payment_reference: validated.normalized.payment_reference,
-          provider_request_id: validated.normalized.provider_request_id,
-          idempotency_key: validated.normalized.idempotency_key,
-        },
-        idempotencyKey: validated.normalized.idempotency_key,
-        accessToken,
-        timeoutMs: 25_000,
-      });
-    } catch {
-      timedOut = true;
-      relayResult = {
-        status: 0,
-        error: "relay_timeout",
-        revolut_pay_called: true,
-        provider_payment_id: null,
-        provider_state: null,
-        json: {},
-      };
-    }
-
-    if (relayResult.revolut_pay_called === true) anyPayCalled = true;
-
-    const providerPaymentId = relayResult.provider_payment_id
-      ?? (typeof relayResult.json?.id === "string" ? String(relayResult.json.id) : null);
-    const providerState = relayResult.provider_state
-      ?? (typeof relayResult.json?.state === "string" ? String(relayResult.json.state) : null);
-
-    const outcome = mapProviderSubmissionOutcome({
-      http_ok: relayResult.status >= 200 && relayResult.status < 300,
-      timed_out: timedOut || relayResult.error === "relay_timeout",
-      provider_payment_id: providerPaymentId,
-      provider_state: providerState,
-      hard_reject: relayResult.revolut_pay_called === true
-        && relayResult.status >= 400
-        && relayResult.status < 500
-        && !timedOut
-        && !providerPaymentId,
-    });
-
-    const evidence = redactProviderEvidence({
-      provider_payment_id: providerPaymentId,
-      provider_state: providerState,
-      provider_request_id: validated.normalized.provider_request_id,
-      amount_pence: validated.normalized.amount_pence,
-      currency: validated.normalized.currency,
-    });
-
-    await supabase.rpc("finalize_driver_payout_submission", {
-      p_payout_item_id: payoutItemId,
-      p_claim_token: String(claimSub.claim_token),
-      p_execution_status: outcome.execution_status,
-      p_provider_payment_id: providerPaymentId,
-      p_provider_state: providerState,
-      p_provider_failure_code: outcome.failure_code,
-      p_provider_failure_reason_safe: outcome.failure_reason,
-      p_evidence_redacted: evidence,
-      p_release_reservation: outcome.release_reservation === true,
-    });
-
-    if (outcome.release_reservation) {
-      itemOutcomes.push({
-        driver_id: p.driver_id,
-        payout_item_id: payoutItemId,
-        status: ORCHESTRATOR_ITEM_STATUS.RESERVATION_RELEASED,
-        error: outcome.failure_code,
-      });
-      continue;
-    }
-
-    if (outcome.execution_status !== "SUBMITTED" || !providerPaymentId) {
-      itemOutcomes.push({
-        driver_id: p.driver_id,
-        payout_item_id: payoutItemId,
-        status: timedOut
-          ? ORCHESTRATOR_ITEM_STATUS.SUBMITTING
-          : ORCHESTRATOR_ITEM_STATUS.FAILED_RETRYABLE,
-        error: outcome.failure_code ?? ORCHESTRATOR_BLOCKER.PROVIDER_STATUS_PENDING,
-        provider_payment_id: providerPaymentId,
-        note: timedOut
-          ? "Timeout/unknown â reservation kept; no debit until provider truth known"
-          : undefined,
-      });
-      continue;
-    }
-
-    // Finalize when provider completed
-    const statusResult = await relayApprovedDriverPayoutPaymentStatus({
-      providerPaymentId,
-      accessToken,
-      payoutItemId,
-    });
-    const syncedState = statusResult.provider_state ?? providerState;
-    if (!syncedState || !mayFinaliseFromProviderState(syncedState).ok
-      || !isCanonicalProviderCompleted(syncedState)) {
-      itemOutcomes.push({
-        driver_id: p.driver_id,
-        payout_item_id: payoutItemId,
-        status: ORCHESTRATOR_ITEM_STATUS.PROVIDER_ACCEPTED,
-        provider_payment_id: providerPaymentId,
-        provider_state: syncedState,
-        error: ORCHESTRATOR_BLOCKER.PROVIDER_STATUS_PENDING,
-      });
-      continue;
-    }
-
-    const completionEvidence = redactCompletionEvidence({
-      provider_payment_id: providerPaymentId,
-      provider_state: syncedState,
-      provider_request_id: validated.normalized.provider_request_id,
-      completed_at: statusResult.completed_at,
-      amount_pence: p.amount_pence,
-      currency: serviceAreaCurrency,
-    });
-
-    const { data: finalized, error: finalizeErr } = await supabase.rpc(
-      "finalize_driver_payout_completion",
-      {
-        p_payout_item_id: payoutItemId,
-        p_provider_payment_id: providerPaymentId,
-        p_provider_state: "completed",
-        p_provider_completed_at: statusResult.completed_at,
-        p_evidence_redacted: completionEvidence,
-      },
-    );
-    if (finalizeErr || (finalized as Record<string, unknown>)?.ok === false) {
-      itemOutcomes.push({
-        driver_id: p.driver_id,
-        payout_item_id: payoutItemId,
-        status: ORCHESTRATOR_ITEM_STATUS.PROVIDER_ACCEPTED,
-        error: finalizeErr?.message ?? "finalize_failed",
-        provider_payment_id: providerPaymentId,
-      });
-      continue;
-    }
-
-    anyDebited = true;
-    itemOutcomes.push({
-      driver_id: p.driver_id,
-      driver_name: p.driver_name,
-      payout_item_id: payoutItemId,
-      amount_pence: p.amount_pence,
-      status: ORCHESTRATOR_ITEM_STATUS.COMPLETED,
-      provider_payment_id: providerPaymentId,
-    });
   }
+
+  const reversalChecks = await pollCompletedPayoutReversals(supabase);
 
   const finish = resolveOrchestratorRunFinish({
     item_statuses: itemOutcomes.map((o) => String(o.status)),
@@ -1602,6 +1742,9 @@ async function handleWeeklyPayoutOccurrence(req: Request): Promise<Response> {
     funding: fundingGate,
     items: itemOutcomes,
     stale_items: staleItemOutcomes,
+    deleted_drivers_held_for_review: deletedDriversHeldForReview,
+    running_funding: runningFunding,
+    reversal_checks: reversalChecks,
     revolut_pay_called: anyPayCalled,
     wallet_debited: anyDebited,
     unfinished_count: agg.unfinished,
@@ -1640,4 +1783,101 @@ async function handleWeeklyPayoutOccurrence(req: Request): Promise<Response> {
       ? "Orchestrator in progress â later ticks will reconcile unfinished items"
       : `Orchestrator finished â ${agg.status}`,
   });
+}
+
+const REVERSAL_POLL_MAX_ITEMS = 5;
+const REVERSAL_POLL_LOOKBACK_DAYS = 14;
+const REVERSAL_POLL_RECHECK_HOURS = 6;
+
+/**
+ * Read-only: re-reads recently completed payouts at the provider and flags any
+ * that came back failed / reversed. Never touches ledgers, reservations or items —
+ * a flagged payout needs manual review before any money correction.
+ */
+async function pollCompletedPayoutReversals(
+  supabase: AnySupabase,
+): Promise<Array<Record<string, unknown>>> {
+  const results: Array<Record<string, unknown>> = [];
+  try {
+    const since = new Date(Date.now() - REVERSAL_POLL_LOOKBACK_DAYS * 86_400_000).toISOString();
+    const recheckBefore = Date.now() - REVERSAL_POLL_RECHECK_HOURS * 3_600_000;
+    const { data: candidates } = await supabase
+      .from("payout_items")
+      .select("id, driver_id, amount_pence, provider_reference, completed_at")
+      .eq("status", "COMPLETED")
+      .not("provider_reference", "is", null)
+      .gte("completed_at", since)
+      .order("completed_at", { ascending: false })
+      .limit(REVERSAL_POLL_MAX_ITEMS * 5);
+    const rows = (candidates ?? []) as Array<Record<string, unknown>>;
+    if (rows.length === 0) return results;
+
+    const { data: checks } = await supabase
+      .from("payout_provider_reversal_checks")
+      .select("payout_item_id, last_checked_at, reversal_state, check_count")
+      .in("payout_item_id", rows.map((r) => String(r.id)));
+    const checkByItem = new Map(
+      ((checks ?? []) as Array<Record<string, unknown>>).map((c) => [String(c.payout_item_id), c]),
+    );
+    const due = rows.filter((r) => {
+      const prior = checkByItem.get(String(r.id));
+      if (!prior) return true;
+      if (prior.reversal_state) return false;
+      const last = Date.parse(String(prior.last_checked_at ?? ""));
+      return !Number.isFinite(last) || last < recheckBefore;
+    }).slice(0, REVERSAL_POLL_MAX_ITEMS);
+    if (due.length === 0 || !isRevolutBusinessRelayConfigured()) return results;
+
+    const { accessToken } = await ensureFreshRevolutBusinessAccessToken(supabase);
+    for (const row of due) {
+      const itemId = String(row.id);
+      const providerPaymentId = String(row.provider_reference);
+      const status = await relayApprovedDriverPayoutPaymentStatus({
+        providerPaymentId,
+        accessToken,
+        payoutItemId: itemId,
+      });
+      if (!status.provider_state) {
+        results.push({ payout_item_id: itemId, checked: false, error: status.error ?? "no_provider_state" });
+        continue;
+      }
+      const reversal = classifyPayoutReversalProviderState(status.provider_state);
+      const prior = checkByItem.get(itemId);
+      const nowIso = new Date().toISOString();
+      await supabase.from("payout_provider_reversal_checks").upsert({
+        payout_item_id: itemId,
+        driver_id: row.driver_id ?? null,
+        provider_payment_id: providerPaymentId,
+        last_checked_at: nowIso,
+        last_provider_state: status.provider_state,
+        check_count: Number(prior?.check_count ?? 0) + 1,
+        ...(reversal ? { reversal_state: reversal, reversal_detected_at: nowIso } : {}),
+      }, { onConflict: "payout_item_id" });
+      if (reversal) {
+        await supabase.from("payout_audit_log").insert({
+          driver_id: row.driver_id ?? null,
+          payout_type: "weekly",
+          event_type: "PROVIDER_REVERSAL_DETECTED",
+          requested_amount_pence: Number(row.amount_pence ?? 0),
+          provider_error_code: reversal,
+          metadata: {
+            payout_item_id: itemId,
+            provider_payment_id: providerPaymentId,
+            provider_state: status.provider_state,
+            completed_at: row.completed_at ?? null,
+            action_required: "MANUAL_REVIEW_NO_AUTO_CORRECTION",
+          },
+        });
+      }
+      results.push({
+        payout_item_id: itemId,
+        checked: true,
+        provider_state: status.provider_state,
+        reversal_state: reversal,
+      });
+    }
+  } catch (err) {
+    results.push({ error: "REVERSAL_POLL_FAILED", message: err instanceof Error ? err.message : String(err) });
+  }
+  return results;
 }

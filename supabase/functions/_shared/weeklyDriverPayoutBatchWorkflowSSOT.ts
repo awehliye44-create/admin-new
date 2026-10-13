@@ -101,6 +101,8 @@ export type DriverBatchEligibilityInput = {
    */
   payouts_enabled?: boolean;
   driver_held_or_blocked: boolean;
+  /** Soft-deleted driver (deleted_at or driver_status 'deleted'): never paid, balance held for review. */
+  driver_deleted?: boolean;
   currency: string;
   expected_currency: string;
   destination: {
@@ -449,6 +451,33 @@ export function resolveMostRecentDueOccurrence(args: {
   };
 }
 
+/** Same statuses `driver_effective_payout_allowed` refuses at reserve. */
+export const PAYOUT_HELD_DRIVER_STATUSES: ReadonlySet<string> = new Set([
+  "disabled",
+  "deleted",
+  "suspended",
+  "banned",
+  "blocked",
+  "inactive",
+  "held",
+]);
+
+export function isPayoutDriverDeleted(driver: {
+  driver_status?: string | null;
+  deleted_at?: string | null;
+}): boolean {
+  return Boolean(driver.deleted_at)
+    || String(driver.driver_status ?? "").trim().toLowerCase() === "deleted";
+}
+
+export function isPayoutDriverHeldOrBlocked(driver: {
+  driver_status?: string | null;
+  deleted_at?: string | null;
+}): boolean {
+  return isPayoutDriverDeleted(driver)
+    || PAYOUT_HELD_DRIVER_STATUSES.has(String(driver.driver_status ?? "").trim().toLowerCase());
+}
+
 export function evaluateDriverBatchEligibility(
   input: DriverBatchEligibilityInput,
 ): DriverBatchEligibilityResult {
@@ -461,6 +490,7 @@ export function evaluateDriverBatchEligibility(
   // Stage C2: operational pause is the per-driver hold. Legacy payouts_enabled ignored.
   void input.payouts_enabled;
   if (input.payout_operational_paused === true) reasons.push("ADMIN_HOLD");
+  if (input.driver_deleted === true) reasons.push("DRIVER_DELETED");
   if (input.driver_held_or_blocked) reasons.push("DRIVER_HELD_OR_BLOCKED");
   if (available <= 0) reasons.push("AVAILABLE_PAYOUT_ZERO");
   if (currency !== expected) reasons.push("CURRENCY_MISMATCH");
@@ -487,6 +517,7 @@ export function evaluateDriverBatchEligibility(
     payout_operational_paused: input.payout_operational_paused === true,
     legacy_payouts_enabled: input.payouts_enabled ?? null,
     driver_held_or_blocked: input.driver_held_or_blocked,
+    driver_deleted: input.driver_deleted === true,
     has_conflicting_active_item: input.has_conflicting_active_item,
     destination_id: dest?.id ?? null,
     provider_link_status: dest?.provider_link_status ?? null,

@@ -1156,6 +1156,8 @@ Deno.serve(async (req) => {
     provider_payment_id: providerPaymentId,
     provider_state: providerState,
     hard_reject: hardReject || relayResult.error === "PROVIDER_HARD_REJECT",
+    http_status: relayResult.status,
+    pay_call_explicitly_not_made: relayResult.json?.revolut_pay_called === false,
   });
 
   const evidence = redactProviderEvidence({
