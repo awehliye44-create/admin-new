@@ -48,7 +48,10 @@ import { preloadMarkerImage, createCarMarkerElement, type DriverMarkerStatus } f
 import { mapboxgl } from '@/lib/mapbox';
 import { createMapboxMap } from '@/lib/mapboxMap';
 import { attachAdminMapControls } from '@/lib/mapControls';
-import { DEFAULT_MAP_CENTER, fitMapToLngLatBounds, recenterMap } from '@/lib/mapBounds';
+import { fitMapToLngLatBounds } from '@/lib/mapBounds';
+
+const WORLD_CENTER: [number, number] = [20, 20];
+const WORLD_ZOOM = 1.5;
 import { useMapboxToken } from '@/hooks/useMapboxToken';
 import { getCurrencySymbol } from '@/lib/regionSettings';
 import {
@@ -226,6 +229,8 @@ export default function Dashboard() {
   const userAdjustedViewRef = useRef(false);
   const detachControlsRef = useRef<(() => void) | null>(null);
   const liveDriversRef = useRef<LiveFleetDriver[]>([]);
+  const serviceAreasRef = useRef<Array<{ id: string; center_lat: number | null; center_lng: number | null }>>([]);
+  const selectedServiceAreaRef = useRef<string>('all');
 
   const fitFleet = useCallback(() => {
     const map = mapboxMapRef.current;
@@ -239,16 +244,20 @@ export default function Dashboard() {
       bounds.extend([d.current_lng, d.current_lat]);
     }
     if (!fitMapToLngLatBounds(map, bounds, { maxZoom: 13, padding: 64 })) {
-      recenterMap(map, DEFAULT_MAP_CENTER, 13);
+      const area = serviceAreasRef.current.find((a) => a.id === selectedServiceAreaRef.current);
+      if (area?.center_lat != null && area?.center_lng != null) {
+        map.flyTo({ center: [area.center_lng, area.center_lat], zoom: 11, duration: 600 });
+      } else {
+        map.flyTo({ center: WORLD_CENTER, zoom: WORLD_ZOOM, duration: 600 });
+      }
     }
   }, []);
 
   const recenterFleet = useCallback(() => {
     const map = mapboxMapRef.current;
     if (!map) return;
-    userAdjustedViewRef.current = false;
-    recenterMap(map, DEFAULT_MAP_CENTER, 13);
-  }, []);
+    fitFleet();
+  }, [fitFleet]);
   const fleetStatusRef = useRef<globalThis.Map<string, DriverMarkerStatus>>(new globalThis.Map());
 
 
@@ -268,8 +277,8 @@ export default function Dashboard() {
       try {
         const { map, detachResize: detach } = await createMapboxMap({
           container: mapRef.current!,
-          center: DEFAULT_MAP_CENTER,
-          zoom: 13,
+          center: WORLD_CENTER,
+          zoom: WORLD_ZOOM,
           onLoad: () => {
             if (!cancelled) setIsMapLoaded(true);
           },
@@ -442,6 +451,10 @@ export default function Dashboard() {
   });
 
   useEffect(() => { liveDriversRef.current = liveDrivers; }, [liveDrivers]);
+  useEffect(() => {
+    serviceAreasRef.current = serviceAreas;
+    selectedServiceAreaRef.current = selectedServiceArea;
+  }, [serviceAreas, selectedServiceArea]);
 
   useEffect(() => { hasFittedFleetRef.current = false; userAdjustedViewRef.current = false; }, [selectedServiceArea]);
 
