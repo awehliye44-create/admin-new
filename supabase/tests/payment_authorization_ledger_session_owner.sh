@@ -32,7 +32,7 @@ reset() {
   "${P[@]}" -f "$HERE/finalize_paid_booking_session_race.schema.sql" >/dev/null 2>&1 || { echo "fixture load failed"; exit 2; }
   "${P[@]}" -f "$HERE/payment_authorization_ledger_session_owner.overlay.sql" >/dev/null || { echo "overlay load failed"; exit 2; }
   "${P[@]}" -f "$FINALIZE_FILE" >/dev/null 2>&1 || { echo "finalize load failed"; exit 2; }
-  PGOPTIONS='-c client_min_messages=warning' "${P[@]}" -f "$LEDGER_FILE" >/dev/null || { echo "ledger migration failed"; exit 2; }
+  "${P[@]}" -f "$LEDGER_FILE" >/dev/null || { echo "ledger migration failed"; exit 2; }
 }
 
 S=11111111-1111-1111-1111-111111111111
