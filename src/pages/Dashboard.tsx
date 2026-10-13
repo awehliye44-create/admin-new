@@ -47,6 +47,8 @@ import { preloadMarkerImage, createCarMarkerElement, type DriverMarkerStatus } f
 
 import { mapboxgl } from '@/lib/mapbox';
 import { createMapboxMap } from '@/lib/mapboxMap';
+import { attachAdminMapControls } from '@/lib/mapControls';
+import { DEFAULT_MAP_CENTER, fitMapToLngLatBounds, recenterMap } from '@/lib/mapBounds';
 import { useMapboxToken } from '@/hooks/useMapboxToken';
 import { getCurrencySymbol } from '@/lib/regionSettings';
 import {
@@ -221,6 +223,32 @@ export default function Dashboard() {
   const mapboxMapRef = useRef<mapboxgl.Map | null>(null);
   const fleetMarkersRef = useRef<globalThis.Map<string, mapboxgl.Marker>>(new globalThis.Map());
   const hasFittedFleetRef = useRef(false);
+  const userAdjustedViewRef = useRef(false);
+  const detachControlsRef = useRef<(() => void) | null>(null);
+  const liveDriversRef = useRef<LiveFleetDriver[]>([]);
+
+  const fitFleet = useCallback(() => {
+    const map = mapboxMapRef.current;
+    if (!map) return;
+    userAdjustedViewRef.current = false;
+    const bounds = new mapboxgl.LngLatBounds();
+    for (const d of liveDriversRef.current) {
+      if (d.current_lat == null || d.current_lng == null) continue;
+      if (!Number.isFinite(d.current_lat) || !Number.isFinite(d.current_lng)) continue;
+      if (d.current_lat === 0 && d.current_lng === 0) continue;
+      bounds.extend([d.current_lng, d.current_lat]);
+    }
+    if (!fitMapToLngLatBounds(map, bounds, { maxZoom: 13, padding: 64 })) {
+      recenterMap(map, DEFAULT_MAP_CENTER, 13);
+    }
+  }, []);
+
+  const recenterFleet = useCallback(() => {
+    const map = mapboxMapRef.current;
+    if (!map) return;
+    userAdjustedViewRef.current = false;
+    recenterMap(map, DEFAULT_MAP_CENTER, 13);
+  }, []);
   const fleetStatusRef = useRef<globalThis.Map<string, DriverMarkerStatus>>(new globalThis.Map());
 
 
@@ -240,8 +268,8 @@ export default function Dashboard() {
       try {
         const { map, detachResize: detach } = await createMapboxMap({
           container: mapRef.current!,
-          center: [-0.7594, 52.0406],
-          zoom: 12,
+          center: DEFAULT_MAP_CENTER,
+          zoom: 13,
           onLoad: () => {
             if (!cancelled) setIsMapLoaded(true);
           },
@@ -258,6 +286,16 @@ export default function Dashboard() {
           return;
         }
         detachResize = detach;
+        map.on('dragstart', () => { userAdjustedViewRef.current = true; });
+        map.on('zoomstart', (event) => {
+          if ((event as { originalEvent?: Event }).originalEvent) userAdjustedViewRef.current = true;
+        });
+        detachControlsRef.current = attachAdminMapControls(map, {
+          onFit: fitFleet,
+          onRecenter: recenterFleet,
+          fitTitle: 'Fit all drivers',
+          recenterTitle: 'Recenter map',
+        });
         mapboxMapRef.current = map;
       } catch (err) {
         if (cancelled) return;
@@ -270,6 +308,8 @@ export default function Dashboard() {
 
     return () => {
       cancelled = true;
+      detachControlsRef.current?.();
+      detachControlsRef.current = null;
       detachResize?.();
       fleetMarkersRef.current.forEach((m) => m.remove());
       fleetMarkersRef.current.clear();
@@ -401,7 +441,9 @@ export default function Dashboard() {
     refetchIntervalInBackground: false,
   });
 
-  useEffect(() => { hasFittedFleetRef.current = false; }, [selectedServiceArea]);
+  useEffect(() => { liveDriversRef.current = liveDrivers; }, [liveDrivers]);
+
+  useEffect(() => { hasFittedFleetRef.current = false; userAdjustedViewRef.current = false; }, [selectedServiceArea]);
 
   // Render / update driver markers on the live fleet map
   useEffect(() => {
@@ -462,9 +504,9 @@ export default function Dashboard() {
       }
     });
 
-    if (hasPoint && !hasFittedFleetRef.current) {
+    if (hasPoint && !hasFittedFleetRef.current && !userAdjustedViewRef.current) {
       hasFittedFleetRef.current = true;
-      map.fitBounds(bounds, { padding: 64, maxZoom: 14, duration: 600 });
+      fitMapToLngLatBounds(map, bounds, { maxZoom: 13, padding: 64 });
     }
   }, [liveDrivers, isMapLoaded]);
 
@@ -811,9 +853,11 @@ export default function Dashboard() {
             <CardTitle>Live Fleet Map</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="mb-4 flex items-center justify-between">
+            <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
               <span className="text-sm text-muted-foreground">{onlineDriversCount} drivers online</span>
-              <div className="flex items-center gap-4 text-xs">
+              <div className="flex flex-wrap items-center gap-2 text-xs">
+                <Button variant="outline" size="sm" onClick={fitFleet} title="Fit all drivers">Fit drivers</Button>
+                <Button variant="outline" size="sm" onClick={recenterFleet} title="Recenter map">Recenter</Button>
                 <span className="flex items-center gap-1">
                   <Navigation className="h-3 w-3 text-green-500" /> Available
                 </span>
@@ -827,7 +871,7 @@ export default function Dashboard() {
             </div>
             <div
               ref={mapRef}
-              className="h-[300px] bg-muted rounded-lg overflow-hidden relative"
+              className="h-[420px] bg-muted rounded-lg border border-border overflow-hidden relative"
             >
               {mapInitError && (
                 <div className="absolute inset-0 flex items-center justify-center p-4 text-center text-sm text-muted-foreground">
