@@ -89,7 +89,7 @@ serve(async (req) => {
     const { data: trip, error: tripErr } = await supabase
       .from("trips")
       .select(
-        "id, status, driver_id, confirmed_driver_id, passenger_id, service_area_id, vehicle_type_id, assigned_at, arrived_at, cancellation_grace_expires_at, free_wait_expires_at, payment_method, waiting_minutes, waiting_charge_pence, scheduled_at, started_at, is_scheduled, scheduled_status"
+        "id, status, driver_id, confirmed_driver_id, passenger_id, service_area_id, vehicle_type_id, assigned_at, arrived_at, cancellation_grace_expires_at, free_wait_expires_at, payment_method, waiting_minutes, waiting_charge_pence, scheduled_at, started_at, is_scheduled, scheduled_status, completed_at"
       )
       .eq("id", trip_id)
       .maybeSingle();
@@ -142,6 +142,11 @@ serve(async (req) => {
     const terminalStatuses = ["completed", "cancelled", "no_show"];
     if (terminalStatuses.includes(trip.status)) {
       return errorResponse(`Trip already in terminal status: ${trip.status}`, 400);
+    }
+    // The journey ended; status may still be settling payment. Cancelling now would
+    // strand the captured fare and the posted driver earning (MK-260923-017).
+    if (trip.completed_at) {
+      return errorResponse("Trip journey already completed — it cannot be cancelled", 409);
     }
 
     // Fetch fare pricing settings — Admin Panel is the single source of truth.
@@ -418,14 +423,20 @@ serve(async (req) => {
     // must not stay eligible for urgent conversion (MK-260916-030).
     Object.assign(tripUpdate, buildCancelledScheduledStatePatch(trip));
 
-    const { error: updateErr } = await supabase
+    const { data: cancelledRows, error: updateErr } = await supabase
       .from("trips")
       .update(tripUpdate)
-      .eq("id", trip_id);
+      .eq("id", trip_id)
+      .is("completed_at", null)
+      .not("status", "in", `(${terminalStatuses.join(",")})`)
+      .select("id");
 
     if (updateErr) {
       console.error("[cancel-trip] update error:", updateErr);
       return errorResponse("Failed to cancel trip", 500);
+    }
+    if (!cancelledRows || cancelledRows.length === 0) {
+      return errorResponse("Trip completed or reached a terminal status before it could be cancelled", 409);
     }
 
     // Close the open pickup segment at cancelled_at. The fee decision above is

@@ -372,15 +372,12 @@ export async function fetchDriverPayoutEligibilityContext(
   const driverSuspended = ["disabled", "deleted", "suspended", "banned", "blocked", "inactive"]
     .includes(status);
 
+  // Same source and parse as public.driver_early_cashout_fee_pence(): an explicit 0 is honoured.
   const feeRaw = settingsMap.get("early_cashout_fee_pence");
-  const feePence = Math.max(
-    0,
-    Math.round(
-      typeof feeRaw === "number"
-        ? feeRaw
-        : Number(String(feeRaw ?? "50").replace(/^"+|"+$/g, "")) || 50,
-    ),
-  );
+  const feeParsed = typeof feeRaw === "number"
+    ? feeRaw
+    : Number(String(feeRaw ?? "").replace(/^"+|"+$/g, "").trim() || NaN);
+  const feePence = Number.isFinite(feeParsed) ? Math.max(0, Math.round(feeParsed)) : 0;
 
   const eligibility = aggregateDriverPayoutEligibility({
     live_balance_pence: live,

@@ -21,6 +21,7 @@ import { loadPayoutControlCentreSettings } from "../_shared/payoutControlCentreS
 import { fetchDriverPayoutEligibility } from "../_shared/fetchDriverPayoutEligibility.ts";
 import { planPayoutItemFromEligibleEntries, type PlannedLedgerAllocation } from "../_shared/payoutLedgerHandoffSSOT.ts";
 import { persistPayoutItemLedgerAllocations } from "../_shared/payoutItemLedgerAllocationWrite.ts";
+import { resolveWeeklyPayableAmountPence } from "../_shared/weeklyPayoutPeriodSSOT.ts";
 import {
   ADMIN_EXECUTION_DISABLED_LABEL,
   isConflictingActivePayoutItem,
@@ -423,11 +424,20 @@ serve(async (req) => {
       const driverStatus = String(driver.driver_status ?? "").toLowerCase();
       const held = ["suspended", "blocked", "banned", "held"].includes(driverStatus);
       const eligibility = await fetchDriverPayoutEligibility(supabase, { driver_id: driverId });
+      const payable = resolveWeeklyPayableAmountPence({
+        scoped_amount_pence: eligibility.available_balance_pence,
+        wallet_available_pence: eligibility.available_balance_pence,
+        minimum_payout_pence: controlCentre.payout_min_pence,
+      });
+      if (payable.blocked_reason === "BELOW_MIN_PAYOUT") {
+        ineligible.push({ driver_id: driverId, reasons: ["BELOW_MIN_PAYOUT"] });
+        continue;
+      }
       let lineage: ReturnType<typeof planPayoutItemFromEligibleEntries> = null;
       try {
         lineage = planPayoutItemFromEligibleEntries({
           eligible_entries: eligibility.eligible_entries,
-          available_balance_pence: eligibility.available_balance_pence,
+          available_balance_pence: payable.amount_pence,
         });
       } catch {
         lineage = null;

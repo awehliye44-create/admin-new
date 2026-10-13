@@ -1119,7 +1119,24 @@ serve(async (req) => {
     }
 
     if (profitSsotOnly) {
-      const net = finance_reconciliation_summary.onecab_money.onecab_net_commission_pence;
+      const netCommission = finance_reconciliation_summary.onecab_money.onecab_net_commission_pence;
+      // Early cash-out fee: ONECAB revenue recognised once, from CASHOUT_FEE ledger rows only.
+      let early_cashout_fee_revenue_pence: number | null = 0;
+      if (platformDriverIds.length > 0) {
+        const { data: feeRows, error: feeErr } = await supabase
+          .from("driver_wallet_ledger")
+          .select("amount_pence")
+          .eq("type", "CASHOUT_FEE")
+          .in("driver_id", platformDriverIds)
+          .gte("created_at", periodFrom)
+          .lte("created_at", periodTo);
+        early_cashout_fee_revenue_pence = feeErr
+          ? null
+          : (feeRows ?? []).reduce((s, row) => s + Math.abs(Number(row.amount_pence ?? 0)), 0);
+      }
+      const net = netCommission == null || early_cashout_fee_revenue_pence == null
+        ? null
+        : netCommission + early_cashout_fee_revenue_pence;
       const fromDate = periodFrom.slice(0, 10);
       const toDate = periodTo.slice(0, 10);
       let expQuery = supabase
@@ -1185,6 +1202,7 @@ serve(async (req) => {
             ?? om.onecab_gross_commission_pence
             ?? null,
           net_commission_pence: om.onecab_net_commission_pence ?? null,
+          early_cashout_fee_revenue_pence,
           provider_fees_pence: om.provider_processing_fee_pence ?? null,
           refunds_pence: cr.refunded_amount_pence ?? null,
           chargebacks_pence,
