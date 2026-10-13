@@ -98,6 +98,16 @@ BEGIN
   IF v_n <> 1 THEN
     RAISE EXCEPTION 'restore_aborted: payment session drifted from audited state';
   END IF;
+
+  -- The driver-assign trigger overwrites customers.active_trip_id unconditionally;
+  -- step 3 can only reset it safely when the customer has no live trip.
+  IF EXISTS (
+    SELECT 1 FROM public.customers
+    WHERE id = '6818f4c3-2645-4bef-897a-30d0abe199bd'
+      AND active_trip_id IS NOT NULL
+  ) THEN
+    RAISE EXCEPTION 'restore_aborted: customer has an active trip; retry when it ends';
+  END IF;
 END $$;
 
 -- ---------------------------------------------------------------------------
