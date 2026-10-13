@@ -74,6 +74,7 @@ export async function createMapboxMap(options: CreateMapboxMapOptions): Promise<
     style: options.style ?? MAPBOX_STYLE,
     center: options.center ?? [-0.7594, 52.0406],
     zoom: options.zoom ?? 13,
+    projection: 'mercator',
   });
 
   let loadSettled = false;
