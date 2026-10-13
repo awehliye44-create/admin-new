@@ -1,20 +1,25 @@
 /**
  * Dispatch settings SSOT helpers — mirrors public.dispatch_settings column defaults
- * and progressive radius / wave / scoring logic shared with SQL functions.
+ * and wave / scoring logic shared with SQL functions.
  *
- * Radius keys in dispatch_settings are stored in kilometres; runtime uses metres.
+ * Booking wave radii come only from global_dispatch_settings (Admin → Auto-Dispatch
+ * Rules) in metres; see shared/bookingDispatchRadiusSSOT.ts.
  */
 
 import type { SupabaseClient } from "npm:@supabase/supabase-js@2.57.2";
+import {
+  bookingDispatchRadiusForWave,
+  bookingDispatchWaveRadiiFromRow,
+  type BookingDispatchWaveRadiiMeters,
+} from "../../../shared/bookingDispatchRadiusSSOT.ts";
 
-/** Mirrors Postgres NOT NULL DEFAULT values on public.dispatch_settings (20260601100000). */
+/**
+ * Mirrors Postgres NOT NULL DEFAULT values on public.dispatch_settings (20260601100000).
+ * Booking wave radii are deliberately absent: dispatch fails closed without the Admin row.
+ */
 export const DISPATCH_SETTINGS_SCHEMA_DEFAULTS: Record<string, unknown> = {
   max_driver_find_time_minutes: 3,
   global_timeout_minutes: 15,
-  search_radius_meters: 3000,
-  search_radius_start_km: 3,
-  search_radius_expand_km: 5,
-  search_radius_max_km: 8,
   offer_expiry_seconds: 20,
   max_offers_per_request: 5,
   wave1_size: 3,
@@ -139,38 +144,39 @@ export function maxBroadcastRounds(
   return maxBroadcastSequences(settings, tripMaxRounds);
 }
 
-/** Progressive radius within a 3-wave cycle (wave index, not absolute sequence). */
+export class BookingDispatchRadiusConfigError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "BookingDispatchRadiusConfigError";
+  }
+}
+
+/** Admin Wave 1/2/3 radii (m). Throws when the global row lacks them — parity with SQL RAISE. */
+export function bookingDispatchWaveRadiiMeters(
+  settings: Record<string, unknown>,
+): BookingDispatchWaveRadiiMeters {
+  const radii = bookingDispatchWaveRadiiFromRow(settings);
+  if (!radii) {
+    throw new BookingDispatchRadiusConfigError(
+      "global_dispatch_settings missing booking wave radius configuration",
+    );
+  }
+  return radii;
+}
+
+/**
+ * Radius for an absolute broadcast sequence: Wave 1/2/3 use the Admin
+ * start/expand/max radius respectively (absolute, capped at Wave 3);
+ * Round 2 Wave 1 restarts at the Wave 1 radius.
+ */
 export function effectiveRadiusMeters(
   settings: Record<string, unknown>,
   sequenceOrWave: number,
 ): number {
-  const startKm = coerceNonNegativeNumber(
-    settings.search_radius_start_km,
-    coerceNonNegativeNumber(settings.search_radius_meters, 3000) / 1000,
+  return bookingDispatchRadiusForWave(
+    bookingDispatchWaveRadiiMeters(settings),
+    waveIndexFromSequence(sequenceOrWave),
   );
-  const expandKm = coerceNonNegativeNumber(settings.search_radius_expand_km, 5);
-  const maxKm = coerceNonNegativeNumber(
-    settings.search_radius_max_km,
-    Math.max(startKm, startKm + expandKm),
-  );
-  const startM = Math.round(startKm * 1000);
-  const expandM = Math.round(expandKm * 1000);
-  const maxM = Math.round(maxKm * 1000);
-  // Treat values > 3 as absolute sequences so Round 2 Wave 1 restarts at start radius.
-  const wave = sequenceOrWave >= 1 && sequenceOrWave <= 3
-    ? Math.floor(sequenceOrWave)
-    : waveIndexFromSequence(sequenceOrWave);
-  return Math.min(startM + (wave - 1) * expandM, maxM);
-}
-
-/** Rounds (waves within a cycle) needed to reach max radius, at least 1. */
-export function roundsNeededForMaxRadius(settings: Record<string, unknown>): number {
-  const startM = effectiveRadiusMeters(settings, 1);
-  const maxM = effectiveRadiusMeters(settings, 3);
-  const expandKm = coerceNonNegativeNumber(settings.search_radius_expand_km, 5);
-  const expandM = Math.round(expandKm * 1000);
-  if (expandM <= 0 || maxM <= startM) return 1;
-  return Math.min(3, Math.ceil((maxM - startM) / expandM) + 1);
 }
 
 export function waveDriverCapForRound(settings: Record<string, unknown>, sequence: number): number {
@@ -247,8 +253,22 @@ export function acceptOfferTimeoutSeconds(settings: Record<string, unknown>): nu
   return coercePositiveInt(settings.accept_timeout_seconds) ?? 12;
 }
 
-/** Towards-destination dropoff match radius — reuses progressive start radius (km→m SSOT). */
+let warnedTowardsDestinationRadiusMissing = false;
+
+/**
+ * Towards-destination dropoff match radius — its own Admin column, never a booking
+ * wave radius. Before 20261204140000 is applied the column is absent and the
+ * previous shared Wave 1 value is used so a deploy-order slip cannot halt dispatch.
+ */
 export function destinationMatchRadiusMeters(settings: Record<string, unknown>): number {
+  const own = coercePositiveInt(settings.towards_destination_match_radius_meters);
+  if (own != null) return own;
+  if (!warnedTowardsDestinationRadiusMissing) {
+    warnedTowardsDestinationRadiusMissing = true;
+    console.warn(
+      "[dispatch-settings] towards_destination_match_radius_meters missing; apply 20261204140000",
+    );
+  }
   return effectiveRadiusMeters(settings, 1);
 }
 
@@ -483,32 +503,23 @@ const GLOBAL_DISPATCH_DIRECT_OVERLAY_FIELDS = [
   "max_stacked_rides",
   "stacked_search_radius_meters",
   "driver_fare_display",
+  "towards_destination_match_radius_meters",
 ] as const;
 
-/** Map global_dispatch_settings radius columns → dispatch_settings km/m SSOT keys. */
-function overlayGlobalRadiusFields(
-  merged: ResolvedDispatchSettings,
-  globalRow: Record<string, unknown>,
-): void {
-  const startM = coercePositiveInt(globalRow.start_radius_meters);
-  if (startM != null) {
-    merged.search_radius_meters = startM;
-    merged.search_radius_start_km = startM / 1000;
-  }
-  const expandM = coercePositiveInt(globalRow.expand_radius_meters);
-  if (expandM != null) {
-    merged.search_radius_expand_km = expandM / 1000;
-  }
-  const maxM = coercePositiveInt(globalRow.max_radius_meters);
-  if (maxM != null) {
-    merged.search_radius_max_km = maxM / 1000;
-  }
-}
+/** Booking wave radii: global row only. Per-area dispatch_settings km columns are never read. */
+const GLOBAL_BOOKING_RADIUS_FIELDS = [
+  "start_radius_meters",
+  "expand_radius_meters",
+  "max_radius_meters",
+] as const;
 
 export function overlayGlobalDispatchSettings(
   merged: ResolvedDispatchSettings,
   globalRow: Record<string, unknown> | null,
 ): ResolvedDispatchSettings {
+  for (const key of GLOBAL_BOOKING_RADIUS_FIELDS) {
+    delete merged[key];
+  }
   if (!globalRow) return merged;
   for (const key of GLOBAL_DISPATCH_DIRECT_OVERLAY_FIELDS) {
     const value = globalRow[key];
@@ -516,7 +527,12 @@ export function overlayGlobalDispatchSettings(
       merged[key] = value;
     }
   }
-  overlayGlobalRadiusFields(merged, globalRow);
+  for (const key of GLOBAL_BOOKING_RADIUS_FIELDS) {
+    const value = globalRow[key];
+    if (value !== null && value !== undefined) {
+      merged[key] = value;
+    }
+  }
   return merged;
 }
 
@@ -566,9 +582,4 @@ export async function loadDispatchSettings(
   const merged = overlayGlobalDispatchSettings(mergeDispatchRow(settingsRow), globalRow);
   merged._source = source;
   return merged;
-}
-
-/** Home-map supply dots: use admin max search radius (metres). */
-export function homeMapSupplyRadiusMeters(settings: Record<string, unknown>): number {
-  return effectiveRadiusMeters(settings, 9999);
 }
