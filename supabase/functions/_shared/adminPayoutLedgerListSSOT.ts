@@ -188,6 +188,8 @@ async function loadCompletedDriverPayoutMonthPence(
   const executions: Array<{
     driver_id: string;
     amount_pence: number;
+    payout_item_id?: string | null;
+    is_payout_item_row?: boolean;
     provider_state?: string | null;
     item_status?: string | null;
     execution_status?: string | null;
@@ -201,7 +203,7 @@ async function loadCompletedDriverPayoutMonthPence(
     const { data: intents } = await supabase
       .from("driver_payout_payment_intents")
       .select(
-        "driver_id, amount_pence, provider_state, execution_status, financially_applied_at, provider_completed_at",
+        "driver_id, payout_item_id, amount_pence, provider_state, execution_status, financially_applied_at, provider_completed_at",
       )
       .eq("provider_state", "completed")
       .not("financially_applied_at", "is", null)
@@ -210,6 +212,7 @@ async function loadCompletedDriverPayoutMonthPence(
       executions.push({
         driver_id: String(row.driver_id ?? ""),
         amount_pence: Number(row.amount_pence ?? 0),
+        payout_item_id: row.payout_item_id == null ? null : String(row.payout_item_id),
         provider_state: row.provider_state as string | null,
         execution_status: row.execution_status as string | null,
         financially_applied: true,
@@ -224,13 +227,15 @@ async function loadCompletedDriverPayoutMonthPence(
   try {
     const { data: items } = await supabase
       .from("payout_items")
-      .select("driver_id, amount_pence, net_driver_payout_pence, status, execution_status, completed_at")
+      .select("id, driver_id, amount_pence, net_driver_payout_pence, status, execution_status, completed_at")
       .in("status", ["COMPLETED", "completed", "paid", "succeeded"])
       .limit(2000);
     for (const row of items ?? []) {
       executions.push({
         driver_id: String(row.driver_id ?? ""),
         amount_pence: Number(row.net_driver_payout_pence ?? row.amount_pence ?? 0),
+        payout_item_id: row.id == null ? null : String(row.id),
+        is_payout_item_row: true,
         item_status: row.status as string | null,
         execution_status: row.execution_status as string | null,
         completed_at: row.completed_at as string | null,

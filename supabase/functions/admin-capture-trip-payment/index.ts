@@ -1,7 +1,7 @@
 // Admin: capture trip payment (Revolut) — canonical Payment Session ownership.
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { z } from "https://esm.sh/zod@3.23.8";
-import { corsHeaders, jsonResponse, requireAdmin } from "../_shared/adminPaymentGate.ts";
+import { auditAdminUserId, corsHeaders, jsonResponse, requireAdmin } from "../_shared/adminPaymentGate.ts";
 import { executeAdminCaptureTripPayment } from "../_shared/adminCaptureTripPaymentSSOT.ts";
 import { ADMIN_CAPTURE_PRECONDITION } from "../_shared/adminCaptureTripPaymentPreconditions.ts";
 // Capture composition SSOT — admin capture funnels through finalize → revolutCompletionCapture.
@@ -52,7 +52,7 @@ serve(async (req) => {
     if (result.success && result.capture_amount_pence != null) {
       await gate.supabase.from("admin_payment_audit").insert({
         trip_id,
-        admin_user_id: gate.userId,
+        admin_user_id: auditAdminUserId(gate.userId),
         action: "capture",
         reason,
         amount_pence_before: before,

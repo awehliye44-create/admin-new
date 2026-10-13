@@ -12,6 +12,7 @@
  * (not blanket trip-history access).
  */
 import {
+  auditAdminUserId,
   corsHeaders,
   jsonResponse,
   requireAdminOrStaff,
@@ -295,7 +296,7 @@ Deno.serve(async (req) => {
 
     await gate.supabase.from("admin_payment_audit").insert({
       trip_id: trip.id,
-      admin_user_id: gate.userId,
+      admin_user_id: auditAdminUserId(gate.userId),
       action: "extra_payment",
       reason: "trip_history_shortfall_recapture",
       amount_pence_before: evidence.verified_net_captured_pence,

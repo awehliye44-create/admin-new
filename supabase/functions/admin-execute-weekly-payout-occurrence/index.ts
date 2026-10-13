@@ -61,6 +61,9 @@ import {
   evaluateBatchFundingGate,
   orchestratorBlockerLabel,
   resolveOrchestratorRunFinish,
+  resolveEarlierOccurrenceRunClose,
+  countBlockingIntentsForEarlierRun,
+  countActiveReservationsForEarlierRun,
   isOrchestratorReconcileOnlyItemStatus,
   shouldReleaseReservationOnSubmitClaimFailure,
   isOrchestratorInFlightItemStatus,
@@ -527,6 +530,8 @@ async function handleWeeklyPayoutOccurrence(req: Request): Promise<Response> {
       conflictDrivers.add(String(intent.driver_id));
     }
   }
+
+  const earlierRunsClosed = dryRun ? [] : await closeSettledEarlierOccurrenceRuns(supabase, runId);
 
   type Planned = {
     driver_id: string;
@@ -1752,6 +1757,7 @@ async function handleWeeklyPayoutOccurrence(req: Request): Promise<Response> {
     funding: fundingGate,
     items: itemOutcomes,
     stale_items: staleItemOutcomes,
+    earlier_runs_closed: earlierRunsClosed,
     deleted_drivers_held_for_review: deletedDriversHeldForReview,
     running_funding: runningFunding,
     reversal_checks: reversalChecks,
@@ -1793,6 +1799,116 @@ async function handleWeeklyPayoutOccurrence(req: Request): Promise<Response> {
       ? "Orchestrator in progress â later ticks will reconcile unfinished items"
       : `Orchestrator finished â ${agg.status}`,
   });
+}
+
+const EARLIER_RUN_SWEEP_MAX = 10;
+
+/**
+ * Closes earlier occurrence runs left RUNNING whose items have all settled. Touches only
+ * the run row (compare-and-set on RUNNING); never items, reservations, intents or ledgers.
+ */
+async function closeSettledEarlierOccurrenceRuns(
+  supabase: AnySupabase,
+  currentRunId: string,
+): Promise<Array<Record<string, unknown>>> {
+  const outcomes: Array<Record<string, unknown>> = [];
+  const { data: runs, error: runsErr } = await supabase
+    .from("weekly_payout_occurrence_runs")
+    .select("id, batch_id, schedule_occurrence_key, result_json")
+    .eq("status", ORCHESTRATOR_RUN_STATUS.RUNNING)
+    .eq("dry_run", false)
+    .neq("id", currentRunId)
+    .not("batch_id", "is", null)
+    .order("created_at", { ascending: true })
+    .limit(EARLIER_RUN_SWEEP_MAX);
+  if (runsErr) return [{ error: "earlier_run_lookup_failed", message: runsErr.message }];
+
+  for (const run of runs ?? []) {
+    const runId = String(run.id);
+    const batchId = String(run.batch_id);
+    const { data: items, error: itemsErr } = await supabase
+      .from("payout_items")
+      .select("id, status, execution_status")
+      .eq("batch_id", batchId);
+    if (itemsErr) {
+      outcomes.push({ run_id: runId, closed: false, error: itemsErr.message });
+      continue;
+    }
+    const itemRows = (items ?? []) as Array<{ id: string; status: string | null; execution_status: string | null }>;
+    const itemIds = itemRows.map((i) => String(i.id));
+    const intentsByItem = new Map<string, string[]>();
+    const reservationsByItem = new Map<string, string[]>();
+    if (itemIds.length > 0) {
+      const [intentsRes, reservationsRes] = await Promise.all([
+        supabase.from("driver_payout_payment_intents").select("payout_item_id, execution_status").in(
+          "payout_item_id",
+          itemIds,
+        ),
+        supabase.from("driver_payout_reservations").select("payout_item_id, status").in("payout_item_id", itemIds),
+      ]);
+      if (intentsRes.error || reservationsRes.error) {
+        outcomes.push({
+          run_id: runId,
+          closed: false,
+          error: intentsRes.error?.message ?? reservationsRes.error?.message,
+        });
+        continue;
+      }
+      for (const row of intentsRes.data ?? []) {
+        const key = String(row.payout_item_id);
+        intentsByItem.set(key, [...(intentsByItem.get(key) ?? []), String(row.execution_status ?? "")]);
+      }
+      for (const row of reservationsRes.data ?? []) {
+        const key = String(row.payout_item_id);
+        reservationsByItem.set(key, [...(reservationsByItem.get(key) ?? []), String(row.status ?? "")]);
+      }
+    }
+
+    const decision = resolveEarlierOccurrenceRunClose(itemRows.map((i) => ({
+      status: i.status,
+      execution_status: i.execution_status,
+      open_intent_count: countBlockingIntentsForEarlierRun(i.status, intentsByItem.get(String(i.id)) ?? []),
+      active_reservation_count: countActiveReservationsForEarlierRun(reservationsByItem.get(String(i.id)) ?? []),
+    })));
+    if (!decision.close) {
+      outcomes.push({ run_id: runId, closed: false, reason: decision.reason });
+      continue;
+    }
+
+    const now = new Date().toISOString();
+    const priorResult = run.result_json && typeof run.result_json === "object"
+      ? run.result_json as Record<string, unknown>
+      : {};
+    const { data: updated, error: updateErr } = await supabase
+      .from("weekly_payout_occurrence_runs")
+      .update({
+        status: decision.run_status,
+        money_path_executed: decision.money_path_executed,
+        finished_at: now,
+        updated_at: now,
+        result_json: {
+          ...priorResult,
+          earlier_run_close: {
+            closed_by_run_id: currentRunId,
+            closed_at: now,
+            reason: decision.reason,
+            completed_items: decision.completed,
+            cancelled_items: decision.cancelled,
+          },
+        },
+      })
+      .eq("id", runId)
+      .eq("status", ORCHESTRATOR_RUN_STATUS.RUNNING)
+      .select("id");
+    outcomes.push({
+      run_id: runId,
+      schedule_occurrence_key: run.schedule_occurrence_key ?? null,
+      closed: !updateErr && (updated ?? []).length === 1,
+      status: decision.run_status,
+      error: updateErr?.message ?? null,
+    });
+  }
+  return outcomes;
 }
 
 const REVERSAL_POLL_MAX_ITEMS = 5;

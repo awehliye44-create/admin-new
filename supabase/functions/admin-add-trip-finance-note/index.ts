@@ -1,6 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { z } from "https://esm.sh/zod@3.23.8";
-import { corsHeaders, jsonResponse, requireAdmin } from "../_shared/adminPaymentGate.ts";
+import { auditAdminUserId, corsHeaders, jsonResponse, requireAdmin } from "../_shared/adminPaymentGate.ts";
 
 const InputSchema = z.object({
   trip_id: z.string().uuid(),
@@ -46,7 +46,7 @@ serve(async (req) => {
 
     const { error: auditErr } = await gate.supabase.from("admin_payment_audit").insert({
       trip_id,
-      admin_user_id: gate.userId,
+      admin_user_id: auditAdminUserId(gate.userId),
       action: "finance_note",
       reason,
       amount_pence_before: beforeSnapshot.capture_amount_pence,

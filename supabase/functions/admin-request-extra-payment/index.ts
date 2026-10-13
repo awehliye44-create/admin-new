@@ -2,7 +2,7 @@
 // Creates a fresh Revolut order (auto-capture) and returns a checkout token/URL for the customer app.
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { z } from "https://esm.sh/zod@3.23.8";
-import { corsHeaders, jsonResponse, requireAdmin } from "../_shared/adminPaymentGate.ts";
+import { auditAdminUserId, corsHeaders, jsonResponse, requireAdmin } from "../_shared/adminPaymentGate.ts";
 import {
   createRevolutOrder,
   getRevolutMerchantConfig,
@@ -114,7 +114,7 @@ serve(async (req) => {
 
     await gate.supabase.from("admin_payment_audit").insert({
       trip_id,
-      admin_user_id: gate.userId,
+      admin_user_id: auditAdminUserId(gate.userId),
       action: "extra_payment",
       reason,
       amount_pence_before: priorCaptured,

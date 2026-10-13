@@ -217,6 +217,11 @@ export async function requireOwnerTierAuth(
   };
 }
 
+/** admin_payment_audit.admin_user_id is a uuid; a server-key caller has no human actor. */
+export function auditAdminUserId(userId: string): string | null {
+  return userId === "service-role" ? null : userId;
+}
+
 export function buildFinanceActorAuditContext(
   gate: GateResult & { actor_role?: string | null; auth_source?: string },
 ): {

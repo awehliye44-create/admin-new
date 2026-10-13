@@ -177,6 +177,10 @@ export function sumActiveReservedDriverPayoutsPence(
 export type CanonicalDriverPayoutExecutionRow = {
   driver_id: string;
   amount_pence: number;
+  /** Intent and its payout item are one execution; an early cash-out intent carries gross, the item net. */
+  payout_item_id?: string | null;
+  /** True for the payout_items row (amount = net sent to the driver). */
+  is_payout_item_row?: boolean;
   /** Revolut Business provider state (canonical complete = "completed"). */
   provider_state?: string | null;
   /** payout_items.status / execution_status when intent state absent. */
@@ -236,7 +240,8 @@ function completionTimestampIso(row: CanonicalDriverPayoutExecutionRow): string 
 
 /**
  * completed_this_month_pence — London calendar month of completion timestamps.
- * Counts each driver+amount once per month (intent + payout_item are the same execution).
+ * Counts each execution once per month: keyed by payout_item_id (the payout_items row's
+ * net amount wins over the intent's), falling back to driver+amount for rows without one.
  */
 export function sumCompletedDriverPayoutsThisMonthPence(args: {
   executions: ReadonlyArray<CanonicalDriverPayoutExecutionRow>;
@@ -245,8 +250,7 @@ export function sumCompletedDriverPayoutsThisMonthPence(args: {
 }): number {
   const start = String(args.month_start_iso);
   const end = args.month_end_iso_exclusive ? String(args.month_end_iso_exclusive) : null;
-  const seen = new Set<string>();
-  let total = 0;
+  const byKey = new Map<string, { amt: number; fromItem: boolean }>();
   for (const row of args.executions) {
     if (!isCanonicalCompletedDriverPayoutExecution(row)) continue;
     const at = completionTimestampIso(row);
@@ -254,11 +258,14 @@ export function sumCompletedDriverPayoutsThisMonthPence(args: {
     if (end && at >= end) continue;
     const amt = Math.max(0, Math.round(Number(row.amount_pence ?? 0)));
     if (amt <= 0) continue;
-    // One provider completion ≡ one intent + one item — dedupe by driver+amount in-month.
-    const key = `${row.driver_id}|${amt}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    total += amt;
+    const itemId = String(row.payout_item_id ?? "").trim();
+    const key = itemId ? `item:${itemId}` : `${row.driver_id}|${amt}`;
+    const fromItem = row.is_payout_item_row === true;
+    const prior = byKey.get(key);
+    if (prior && (prior.fromItem || !fromItem)) continue;
+    byKey.set(key, { amt, fromItem });
   }
+  let total = 0;
+  for (const { amt } of byKey.values()) total += amt;
   return total;
 }
