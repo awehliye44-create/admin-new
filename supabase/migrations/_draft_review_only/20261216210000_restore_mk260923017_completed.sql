@@ -1,5 +1,6 @@
 -- ============================================================
--- DRAFT / REVIEW ONLY — DO NOT APPLY WITHOUT WRITTEN APPROVAL
+-- APPLIED TO PRODUCTION 2026-10-13 (owner approved). Do not re-run: the
+-- preconditions abort because the trip is no longer cancelled.
 -- Restore MK-260923-017 to Completed (owner confirmed it was a real ride).
 --
 -- Evidence (audited 2026-10-13):
