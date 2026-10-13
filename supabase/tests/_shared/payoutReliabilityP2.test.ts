@@ -291,6 +291,29 @@ Deno.test("executor: reversal poll is read-only (flags + audit, no money writes)
   }
 });
 
+Deno.test("executor: reversal poll also runs on idle, already-paid and blocked ticks", async () => {
+  const src = await read("admin-execute-weekly-payout-occurrence/index.ts");
+  const handler = src.slice(0, src.indexOf("async function pollCompletedPayoutReversals("));
+  const exits: Array<[string, string]> = [
+    ["idle scheduled tick", "if (scheduledRun && !force) {"],
+    ["already-paid occurrence", "&& claim.money_path_executed === true"],
+    ["blocked run", "if (!moneyPath) {"],
+  ];
+  for (const [label, anchor] of exits) {
+    const at = handler.indexOf(anchor);
+    assert(at > 0, `${label}: anchor missing`);
+    const returnAt = handler.indexOf("return json({", at);
+    assert(handler.slice(at, returnAt).includes("pollCompletedPayoutReversals(supabase)"), `${label}: poll before return`);
+  }
+  assert(handler.includes("reversal_checks: blockedReversalChecks"));
+  assert(handler.includes("dryRun ? [] : await pollCompletedPayoutReversals(supabase)"), "dry runs never call the provider");
+  assertEquals(
+    (handler.match(/pollCompletedPayoutReversals\(supabase\)/g) ?? []).length,
+    4,
+    "idle + already-paid + blocked + money path",
+  );
+});
+
 Deno.test("migration: snapshot table append-only, reversal flag immutable, service-role only", async () => {
   const sql = await Deno.readTextFile(
     new URL("../../migrations/20261216220000_payout_reliability_p2.sql", import.meta.url),

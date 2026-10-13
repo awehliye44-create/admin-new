@@ -290,9 +290,13 @@ async function handleWeeklyPayoutOccurrence(req: Request): Promise<Response> {
 
   if ("not_due" in occurrence && occurrence.not_due) {
     if (scheduledRun && !force) {
+      // Idle ticks are the only regular cadence between weekly occurrences, so
+      // completed payouts are re-checked for provider reversals here as well.
+      const reversalChecks = await pollCompletedPayoutReversals(supabase);
       return json({
         success: true,
         skipped: true,
+        reversal_checks: reversalChecks,
         error_code: occurrence.reason,
         blocker_code: occurrence.reason,
         blocker_label: orchestratorBlockerLabel(occurrence.reason),
@@ -360,9 +364,11 @@ async function handleWeeklyPayoutOccurrence(req: Request): Promise<Response> {
     && String(claim.status) === ORCHESTRATOR_RUN_STATUS.COMPLETED
     && claim.money_path_executed === true
   ) {
+    const reversalChecks = await pollCompletedPayoutReversals(supabase);
     return json({
       success: true,
       reused: true,
+      reversal_checks: reversalChecks,
       schedule_occurrence_key: occurrenceKey,
       run_id: runId,
       batch_id: claim.batch_id ?? null,
@@ -1000,6 +1006,8 @@ async function handleWeeklyPayoutOccurrence(req: Request): Promise<Response> {
       }).eq("batch_id", batchId).in("status", ["CREATED", "VALIDATED", "BLOCKED_EXECUTION_DISABLED"]);
     }
 
+    const blockedReversalChecks = dryRun ? [] : await pollCompletedPayoutReversals(supabase);
+
     const resultJson = {
       dry_run: dryRun,
       schedule_occurrence_key: occurrenceKey,
@@ -1026,6 +1034,7 @@ async function handleWeeklyPayoutOccurrence(req: Request): Promise<Response> {
       stale_items: staleItemOutcomes,
       deleted_drivers_held_for_review: deletedDriversHeldForReview,
       running_funding: runningFunding,
+      reversal_checks: blockedReversalChecks,
       provider_request_payloads: providerPayloads,
       revolut_pay_called: false,
       wallet_debited: false,
@@ -1064,6 +1073,7 @@ async function handleWeeklyPayoutOccurrence(req: Request): Promise<Response> {
       stale_items: staleItemOutcomes,
       deleted_drivers_held_for_review: deletedDriversHeldForReview,
       running_funding: runningFunding,
+      reversal_checks: blockedReversalChecks,
       provider_request_payloads: providerPayloads,
       revolut_pay_called: false,
       wallet_debited: false,
