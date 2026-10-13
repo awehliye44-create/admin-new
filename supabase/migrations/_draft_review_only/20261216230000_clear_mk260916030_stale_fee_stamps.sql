@@ -1,5 +1,6 @@
 -- ============================================================
--- DRAFT / REVIEW ONLY — DO NOT APPLY WITHOUT WRITTEN APPROVAL
+-- APPLIED TO PRODUCTION 2026-10-13 (owner approved). Do not re-run: the
+-- preconditions abort because the stamps are already cleared.
 -- MK-260916-030: clear the stale late-cancel stamps on a completed ride.
 --
 -- Evidence (audited 2026-10-13):
