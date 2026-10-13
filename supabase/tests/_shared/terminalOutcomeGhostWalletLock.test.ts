@@ -163,8 +163,7 @@ for (const outcome of OUTCOMES) {
       driver_net_pence: 425,
       commission_pence: 75,
       final_fare_pence: 500,
-      fare_trip_earning_net_count: 1,
-      fare_trip_earning_net_pence: 425,
+      settlement_formula_version: "2",
     });
     assertEquals(c.class, FR_FINANCIAL_OUTCOME_CLASS.TERMINAL_FEE);
   });
@@ -264,8 +263,7 @@ Deno.test("completed normal trip keeps the ordinary fare formula", () => {
     captured_amount_pence: 2000,
     provider_processing_fee_pence: 24,
     provider_fee_status: "ACTUAL",
-    fare_trip_earning_net_count: 1,
-    fare_trip_earning_net_pence: 1700,
+    settlement_formula_version: "2",
     tip_pence: 0,
   });
   assertEquals(r.expected_stamp_status, FR_EXPECTED_STAMP_STATUS.OK);
