@@ -12,6 +12,7 @@ import {
   revolutProviderAuthorisedTotalPence,
   type RevolutOrder,
 } from "./revolutOrders.ts";
+import { findBankDeclineReason } from "./revolutCustomerError.ts";
 
 export type ModificationPaymentPhase =
   | "MODIFICATION_REQUESTED"
@@ -153,6 +154,50 @@ export function decideModificationIncrementCoverage(args: {
   };
 }
 
+/**
+ * Definitive provider decline / below-target coverage.
+ * Must be checked BEFORE reconciliation-pending so HTTP 409 decline bodies
+ * never become payment_unknown / payment_pending (MK-260923-002).
+ */
+export function isDefinitivePreauthDecline(args: {
+  paymentCoverageStatus?: string | null;
+  errorCode?: string | null;
+  warning?: string | null;
+}): boolean {
+  const coverage = String(args.paymentCoverageStatus ?? "").toLowerCase();
+  const code = String(args.errorCode ?? "").toUpperCase();
+  const warning = String(args.warning ?? "").toLowerCase();
+
+  if (
+    code === "AUTHORISED_TOTAL_BELOW_TARGET"
+    || code.includes("AUTHORISED_TOTAL_BELOW")
+    || code.includes("BELOW_TARGET")
+    || code === "ADDITIONAL_AUTHORISATION_DECLINED"
+    || code.includes("PAYMENT_DECLINED")
+    || code.endsWith("_DECLINED")
+    || code === "DECLINED"
+  ) {
+    return true;
+  }
+  if (
+    coverage === "authorization_insufficient"
+    || coverage.includes("authorisation_declined")
+    || coverage.includes("authorization_declined")
+    || coverage.includes("under_authorised")
+    || coverage.includes("under_authorized")
+  ) {
+    return true;
+  }
+  if (
+    warning.includes("authorised total remains below")
+    || warning.includes("authorized total remains below")
+    || warning.includes("declined")
+  ) {
+    return true;
+  }
+  return false;
+}
+
 /** Map update-preauth / executeSameOrderIncrement outcomes onto the gate. */
 export function decideFromPreauthInvokeResult(args: {
   success: boolean;
@@ -188,6 +233,48 @@ export function decideFromPreauthInvokeResult(args: {
       requestStatus: "payment_failed",
       authorisedTotalPence: authorised,
       reason: "amount_mismatch",
+    };
+  }
+
+  // Revolut increment state `failed` is a technical/provider failure, not a decline.
+  // Persist failures are internal (revolut-incremental-auth lock) — never a decline.
+  if (
+    code === "PROVIDER_INCREMENT_FAILED"
+    || coverage === "authorization_provider_failed"
+    || code === "INCREMENT_CONFIRM_PERSIST_FAILED"
+    || code === "PERSIST_FAILED"
+    || coverage === "authorization_persist_failed"
+  ) {
+    return {
+      phase: "PAYMENT_FAILED",
+      mayApply: false,
+      paymentStatus: "failed",
+      requestStatus: "payment_failed",
+      authorisedTotalPence: authorised,
+      reason: "failed",
+    };
+  }
+
+  // DECLINED ≠ UNKNOWN. Definitive decline/below-target always fails closed.
+  if (
+    isDefinitivePreauthDecline({
+      paymentCoverageStatus: args.paymentCoverageStatus,
+      errorCode: args.errorCode,
+      warning: args.warning,
+    })
+  ) {
+    const insufficientFunds =
+      code === "INSUFFICIENT_FUNDS"
+      || code.endsWith("_INSUFFICIENT_FUNDS")
+      || warning.includes("insufficient funds");
+    return {
+      phase: "PAYMENT_FAILED",
+      mayApply: false,
+      paymentStatus: "failed",
+      requestStatus: "payment_failed",
+      authorisedTotalPence: authorised,
+      // Definitive issuer/provider decline → payment_declined (not amount_mismatch).
+      reason: insufficientFunds ? "insufficient" : "declined",
     };
   }
 
@@ -231,6 +318,21 @@ export function decideFromPreauthInvokeResult(args: {
     };
   }
 
+  if (
+    code.includes("INSUFFICIENT")
+    || warning.includes("insufficient")
+    || coverage.includes("insufficient")
+  ) {
+    return {
+      phase: "PAYMENT_FAILED",
+      mayApply: false,
+      paymentStatus: "failed",
+      requestStatus: "payment_failed",
+      authorisedTotalPence: authorised,
+      reason: "insufficient",
+    };
+  }
+
   if (authorised > 0 && authorised < required) {
     return {
       phase: "PAYMENT_FAILED",
@@ -250,6 +352,27 @@ export function decideFromPreauthInvokeResult(args: {
     authorisedTotalPence: authorised,
     reason: "declined",
   };
+}
+
+export type ModificationPaymentFailureKind = "bank_declined" | "not_authorised" | "technical";
+
+/**
+ * Customer-facing class of a failed fare-increase authorisation.
+ * Bank decline only with an issuer/card reason from Revolut (or an explicit
+ * issuer code); technical/internal failures and bare "declined"/below-target
+ * outcomes never get bank wording (unified-bank-decline-copy lock).
+ */
+export function classifyModificationPaymentFailure(args: {
+  gate: ModificationPaymentGateDecision;
+  declineReason?: string | null;
+  errorCode?: string | null;
+}): { kind: ModificationPaymentFailureKind; bankDeclineReason: string | null } {
+  if (args.gate.phase !== "PAYMENT_FAILED" || args.gate.reason === "failed") {
+    return { kind: "technical", bankDeclineReason: null };
+  }
+  const bankDeclineReason = findBankDeclineReason(args.declineReason, args.errorCode);
+  if (bankDeclineReason) return { kind: "bank_declined", bankDeclineReason };
+  return { kind: "not_authorised", bankDeclineReason: null };
 }
 
 /**

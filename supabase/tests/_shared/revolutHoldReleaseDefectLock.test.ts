@@ -7,12 +7,12 @@ import {
   assertStringIncludes,
   assert,
 } from "https://deno.land/std@0.224.0/assert/mod.ts";
-import { classifyTerminalHoldDisposition } from "./terminalTripPaymentDisposition.ts";
+import { classifyTerminalHoldDisposition } from "../../functions/_shared/terminalTripPaymentDisposition.ts";
 
-const disposePath = new URL("./terminalTripPaymentDisposition.ts", import.meta.url);
-const cancelPath = new URL("../cancel-trip/index.ts", import.meta.url);
-const sweepPath = new URL("../sweep-revolut-stale-holds/index.ts", import.meta.url);
-const expirePath = new URL("../expire-trip/index.ts", import.meta.url);
+const disposePath = new URL("../../functions/_shared/terminalTripPaymentDisposition.ts", import.meta.url);
+const cancelPath = new URL("../../functions/cancel-trip/index.ts", import.meta.url);
+const sweepPath = new URL("../../functions/sweep-revolut-stale-holds/index.ts", import.meta.url);
+const expirePath = new URL("../../functions/expire-trip/index.ts", import.meta.url);
 
 Deno.test("H: disposeTerminalTripPayment must not SELECT stripe_payment_intent_id", async () => {
   const src = await Deno.readTextFile(disposePath);
