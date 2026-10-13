@@ -92,6 +92,8 @@ interface DashboardServiceArea {
   id: string;
   name: string;
   region_id: string;
+  center_lat?: number | null;
+  center_lng?: number | null;
   region?: { currency_code: string; distance_unit: string } | null;
 }
 
@@ -229,7 +231,7 @@ export default function Dashboard() {
   const userAdjustedViewRef = useRef(false);
   const detachControlsRef = useRef<(() => void) | null>(null);
   const liveDriversRef = useRef<LiveFleetDriver[]>([]);
-  const serviceAreasRef = useRef<Array<{ id: string; center_lat: number | null; center_lng: number | null }>>([]);
+  const serviceAreasRef = useRef<DashboardServiceArea[]>([]);
   const selectedServiceAreaRef = useRef<string>('all');
 
   const fitFleet = useCallback(() => {
