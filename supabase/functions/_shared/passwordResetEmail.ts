@@ -60,8 +60,6 @@ We received a request to reset the password for your ONECAB ${appLabel} account.
 
 ${continueHint}
 
-Reset password: ${recoveryUrl}
-
 If you did not request a password reset, you can safely ignore this email. Your current password will remain unchanged.
 
 ONECAB will never ask you to send your password by email, text message or phone.
