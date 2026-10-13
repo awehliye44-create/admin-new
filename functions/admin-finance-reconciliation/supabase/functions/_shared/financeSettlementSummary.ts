@@ -1115,6 +1115,7 @@ export function mapTripToFinancialAuditRow(
     settlement_amount_pence: (row as { settlement_amount_pence?: number | null }).settlement_amount_pence ?? null,
     captured_amount_pence: captured,
     provider_processing_fee_pence: feeClass.confirmed_provider_fee_pence ?? session?.provider_processing_fee_pence ?? null,
+    provider_fee_status: session?.fee_status == null ? null : String(session.fee_status),
     payment_hold_status: (row as { payment_hold_status?: string | null }).payment_hold_status ?? null,
     captured_at: provider_verified_at ?? row.completed_at ?? null,
     completed_at: row.completed_at ?? null,

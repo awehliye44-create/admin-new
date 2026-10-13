@@ -27,10 +27,10 @@ admin-driver-wallet-detail	v436	ACTIVE	verify_jwt=false	updated_at=2026-09-16T22
 admin-driver-wallet-ssot	v279	ACTIVE	verify_jwt=false	updated_at=2026-10-02T14:03:19Z	entrypoint=index.ts
 admin-dry-run-driver-payout-payment	v108	ACTIVE	verify_jwt=false	updated_at=2026-09-16T22:38:49Z	entrypoint=index.ts
 admin-emergency-dispatch	v294	ACTIVE	verify_jwt=false	updated_at=2026-09-16T22:38:49Z	entrypoint=index.ts
-admin-execute-weekly-payout-occurrence	v126	ACTIVE	verify_jwt=false	updated_at=2026-10-02T14:02:19Z	entrypoint=index.ts
+admin-execute-weekly-payout-occurrence	v127	ACTIVE	verify_jwt=false	updated_at=2026-10-13T13:51:45Z	entrypoint=index.ts
 admin-finalize-company-transfer-completion	v184	ACTIVE	verify_jwt=false	updated_at=2026-09-16T22:38:49Z	entrypoint=index.ts
 admin-finalize-driver-payout-completion	v185	ACTIVE	verify_jwt=false	updated_at=2026-09-16T22:38:49Z	entrypoint=index.ts
-admin-finance-reconciliation	v290	ACTIVE	verify_jwt=false	updated_at=2026-10-02T14:03:46Z	entrypoint=index.ts
+admin-finance-reconciliation	v292	ACTIVE	verify_jwt=false	updated_at=2026-10-13T13:51:52Z	entrypoint=index.ts
 admin-finance-settlement-summary	v198	ACTIVE	verify_jwt=false	updated_at=2026-09-25T13:30:25Z	entrypoint=index.ts
 admin-finance-summary	v264	ACTIVE	verify_jwt=false	updated_at=2026-09-25T13:30:37Z	entrypoint=index.ts
 admin-get-trip-payment-state	v248	ACTIVE	verify_jwt=false	updated_at=2026-10-02T14:02:48Z	entrypoint=index.ts
@@ -79,7 +79,7 @@ admin-trip-actions	v195	ACTIVE	verify_jwt=false	updated_at=2026-10-02T13:58:01Z	
 admin-update-driver-contact	v276	ACTIVE	verify_jwt=false	updated_at=2026-09-16T22:38:49Z	entrypoint=index.ts
 admin-verify-driver-payout-destination	v197	ACTIVE	verify_jwt=false	updated_at=2026-09-16T22:38:49Z	entrypoint=index.ts
 admin-weekly-monday-settlement	v317	ACTIVE	verify_jwt=false	updated_at=2026-09-16T22:38:49Z	entrypoint=index.ts
-admin-weekly-payout-scheduler	v218	ACTIVE	verify_jwt=false	updated_at=2026-10-02T14:01:28Z	entrypoint=index.ts
+admin-weekly-payout-scheduler	v219	ACTIVE	verify_jwt=false	updated_at=2026-10-13T13:51:48Z	entrypoint=index.ts
 apply-customer-email-change	v189	ACTIVE	verify_jwt=false	updated_at=2026-09-16T22:38:49Z	entrypoint=index.ts
 apply-offer	v301	ACTIVE	verify_jwt=false	updated_at=2026-09-16T22:38:49Z	entrypoint=index.ts
 apply-trip-change	v394	ACTIVE	verify_jwt=false	updated_at=2026-09-16T22:38:49Z	entrypoint=index.ts
@@ -93,7 +93,7 @@ calculate-route	v514	ACTIVE	verify_jwt=false	updated_at=2026-10-02T09:44:25Z	ent
 call-masking	v465	ACTIVE	verify_jwt=false	updated_at=2026-09-16T22:38:49Z	entrypoint=index.ts
 cancel-corporate-trip	v269	ACTIVE	verify_jwt=false	updated_at=2026-09-16T22:38:49Z	entrypoint=index.ts
 cancel-payment-session	v238	ACTIVE	verify_jwt=false	updated_at=2026-09-24T10:46:38Z	entrypoint=index.ts
-cancel-trip	v712	ACTIVE	verify_jwt=false	updated_at=2026-10-02T13:56:58Z	entrypoint=index.ts
+cancel-trip	v714	ACTIVE	verify_jwt=false	updated_at=2026-10-13T13:51:41Z	entrypoint=index.ts
 cancel-trip-modification	v485	ACTIVE	verify_jwt=false	updated_at=2026-09-16T22:38:49Z	entrypoint=index.ts
 capture-expired-tip-windows	v174	ACTIVE	verify_jwt=false	updated_at=2026-09-25T11:35:01Z	entrypoint=index.ts
 capture-trip-payment	v573	ACTIVE	verify_jwt=false	updated_at=2026-09-16T22:38:49Z	entrypoint=index.ts
@@ -161,7 +161,7 @@ driver-special-offers	v227	ACTIVE	verify_jwt=false	updated_at=2026-09-16T22:38:4
 driver-statement-pdf	v293	ACTIVE	verify_jwt=false	updated_at=2026-09-16T22:38:49Z	entrypoint=index.ts
 driver-trip-passenger-details	v188	ACTIVE	verify_jwt=false	updated_at=2026-09-16T22:38:49Z	entrypoint=index.ts
 driver-wallet-transactions	v490	ACTIVE	verify_jwt=false	updated_at=2026-09-16T22:38:49Z	entrypoint=index.ts
-driver-withdraw	v108	ACTIVE	verify_jwt=false	updated_at=2026-10-02T14:00:36Z	entrypoint=index.ts
+driver-withdraw	v109	ACTIVE	verify_jwt=false	updated_at=2026-10-13T13:51:25Z	entrypoint=index.ts
 driving-directions	v369	ACTIVE	verify_jwt=false	updated_at=2026-09-16T22:38:49Z	entrypoint=index.ts
 estimate-fare	v535	ACTIVE	verify_jwt=false	updated_at=2026-09-16T22:38:49Z	entrypoint=index.ts
 expire-offers	v644	ACTIVE	verify_jwt=false	updated_at=2026-09-16T22:38:49Z	entrypoint=index.ts
@@ -223,7 +223,7 @@ public-content	v401	ACTIVE	verify_jwt=false	updated_at=2026-09-16T22:38:49Z	entr
 qr-booking-config	v373	ACTIVE	verify_jwt=false	updated_at=2026-09-16T22:38:49Z	entrypoint=index.ts
 query-performance	v351	ACTIVE	verify_jwt=false	updated_at=2026-09-16T22:38:49Z	entrypoint=index.ts
 reconcile-payment-session	v70	ACTIVE	verify_jwt=false	updated_at=2026-09-18T19:47:34Z	entrypoint=index.ts
-reconcile-submitted-driver-withdrawals	v78	ACTIVE	verify_jwt=false	updated_at=2026-09-16T22:38:49Z	entrypoint=index.ts
+reconcile-submitted-driver-withdrawals	v79	ACTIVE	verify_jwt=false	updated_at=2026-10-13T13:51:02Z	entrypoint=index.ts
 record-financial-outcome	v360	ACTIVE	verify_jwt=false	updated_at=2026-10-02T05:05:45Z	entrypoint=index.ts
 redeem-promo-code	v426	ACTIVE	verify_jwt=false	updated_at=2026-09-16T22:38:49Z	entrypoint=index.ts
 release-terminal-trip-hold	v183	ACTIVE	verify_jwt=false	updated_at=2026-10-02T13:57:30Z	entrypoint=index.ts

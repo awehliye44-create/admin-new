@@ -128,8 +128,17 @@ export async function claimPaymentSessionFinancialLock(
     updated_at: now,
   };
 
-  const claimFilter: { sessionId: string; expectFinancialOperationOwner?: string } = {
+  // Compare-and-set on the started_at this caller observed: two concurrent
+  // claimers that both read IDLE cannot both win.
+  const observedStartedAt = (session as { financial_operation_started_at?: string | null })
+    .financial_operation_started_at ?? null;
+  const claimFilter: {
+    sessionId: string;
+    expectFinancialOperationOwner?: string;
+    expectFinancialOperationStartedAt: string | null;
+  } = {
     sessionId,
+    expectFinancialOperationStartedAt: observedStartedAt,
   };
   if (current.state !== "IDLE" && !lockExpired(current.startedAtMs) && current.owner === owner) {
     claimFilter.expectFinancialOperationOwner = owner;

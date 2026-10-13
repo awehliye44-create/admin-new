@@ -25,6 +25,11 @@ export type PaymentSessionMutationFilter = {
   expectStatus?: string | null;
   expectFinancialOperationState?: string | null;
   expectFinancialOperationOwner?: string | null;
+  /**
+   * Optimistic-concurrency token for the financial lock. When the key is present
+   * (null included) the update only matches the started_at the caller observed.
+   */
+  expectFinancialOperationStartedAt?: string | null;
 };
 
 export async function mutatePaymentSession(
@@ -98,6 +103,12 @@ export async function mutatePaymentSessionReturningId(
   const ownerEq = String(filter.expectFinancialOperationOwner ?? "").trim();
   if (ownerEq) {
     query = query.eq("financial_operation_owner", ownerEq);
+  }
+  if ("expectFinancialOperationStartedAt" in filter) {
+    const startedAt = filter.expectFinancialOperationStartedAt;
+    query = startedAt == null
+      ? query.is("financial_operation_started_at", null)
+      : query.eq("financial_operation_started_at", startedAt);
   }
 
   const { data, error } = await query.select("id").maybeSingle();

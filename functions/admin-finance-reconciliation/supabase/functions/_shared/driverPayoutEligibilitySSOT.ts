@@ -3,6 +3,11 @@
  */
 import { FINANCIAL_MODEL, resolveFinancialModelStamp } from "./financialModelScopeSSOT.ts";
 import { resolveStablePayoutClearingOriginMs } from "./paymentSessionCaptureTimestampSSOT.ts";
+import {
+  resolveTerminalEntitledDriverId,
+  resolveTerminalOutcomeKind,
+  type TerminalOutcomeKind,
+} from "./terminalOutcomeKindSSOT.ts";
 
 export const PAYOUT_ELIGIBILITY_STATUS = {
   ELIGIBLE: "ELIGIBLE",
@@ -56,12 +61,6 @@ export type PayoutClearingPolicy = {
   clearing_delay_hours?: number;
 };
 
-function parseTimeMs(iso: string | null | undefined): number | null {
-  if (!iso) return null;
-  const ms = Date.parse(String(iso));
-  return Number.isFinite(ms) ? ms : null;
-}
-
 /**
  * Settlement-pending applies only where ONECAB collects the customer payment.
  * DRIVER_COLLECTED_COMMISSION_WALLET never uses Driver Wallet payout clearing.
@@ -81,38 +80,15 @@ export function requiresPlatformCollectedClearing(args: {
   return true;
 }
 
-/**
- * Revolut Merchant COMPLETED/CAPTURED is capture, not clearing.
- * Only treat explicit settlement/available-on states as cleared.
- */
-export function isProviderFundsClearedState(state: string | null | undefined): boolean {
-  const s = String(state ?? "").trim().toUpperCase().replace(/[\s-]+/g, "_");
-  if (!s) return false;
-  if (
-    s === "COMPLETED"
-    || s === "CAPTURED"
-    || s === "AUTHORISED"
-    || s === "AUTHORIZED"
-    || s === "PROCESSING"
-    || s === "PENDING"
-  ) {
-    return false;
-  }
-  return s.includes("SETTLE")
-    || s === "AVAILABLE"
-    || s.includes("BALANCE_AVAILABLE")
-    || s === "PAID_OUT"
-    || s === "FUNDS_AVAILABLE";
-}
-
 export type PayoutClearingEvidence = {
   payment_collection_model?: string | null;
   financial_model?: string | null;
   payment_method?: string | null;
-  /** DES / payments column — strongest when present and reached. */
+  /** Audit evidence only — provider availability never shortens the clearing delay. */
   provider_available_on?: string | null;
   settled_at?: string | null;
   des_settlement_status?: string | null;
+  /** Audit evidence only — provider settlement states never shorten the clearing delay. */
   provider_state?: string | null;
   /** Payment Sessions capture confirmation time — delay origin, not SSOT alone. */
   captured_at?: string | null;
@@ -127,9 +103,11 @@ export type PayoutClearingEvidence = {
 };
 
 /**
- * Payout-cleared for PLATFORM_COLLECTED card earnings.
- * Prefer real provider/financial settlement evidence; otherwise apply backend delay policy.
- * Never uses trip.completed_at or client clocks.
+ * Payout-cleared for PLATFORM_COLLECTED card earnings: stable clearing origin +
+ * the configured delay (27h), with no exception. Provider availability or
+ * settlement state (available_on, SETTLE, AVAILABLE, PAID_OUT, ...) never makes
+ * an earning Available sooner, and a pending provider state never delays it.
+ * Mirrors SQL driver_wallet_eligibility_balances.
  */
 export function isPayoutClearedForPlatformCollected(
   evidence: PayoutClearingEvidence,
@@ -141,14 +119,6 @@ export function isPayoutClearedForPlatformCollected(
   const hours = typeof delayHours === "number" && Number.isFinite(delayHours)
     ? Math.max(0, delayHours)
     : DEFAULT_PAYOUT_CLEARING_DELAY_HOURS;
-
-  const availableOn = parseTimeMs(evidence.provider_available_on);
-  if (availableOn != null && availableOn <= nowMs) return true;
-
-  // DES settlement_status / settled_at are capture-companion fields in this
-  // codebase, not Revolut merchant-clearing. Do not treat them as Available.
-
-  if (isProviderFundsClearedState(evidence.provider_state)) return true;
 
   const origin = resolveStablePayoutClearingOriginMs({
     captured_at: evidence.captured_at,
@@ -208,6 +178,18 @@ export type LedgerEligibilityEvidence = {
   fee_status?: string | null;
   /** Admin manual wallet credit — metadata.payout_eligible when ledger_type is ADMIN_WALLET_CREDIT. */
   admin_wallet_payout_eligible?: boolean | null;
+  /** driver_wallet_ledger.driver_id of this entry. */
+  ledger_driver_id?: string | null;
+  trip_financial_outcome?: string | null;
+  trip_payment_status?: string | null;
+  trip_no_show_charge_pence?: number | null;
+  trip_driver_id?: string | null;
+  trip_confirmed_driver_id?: string | null;
+  trip_previous_driver_id?: string | null;
+  /** Same driver has a non-zero PLATFORM_COMMISSION row for this trip. */
+  trip_commission_ledger_present?: boolean | null;
+  /** Same driver has a LEDGER_REVERSAL / REFUND_DEBIT row for this trip. */
+  trip_reversal_ledger_present?: boolean | null;
 };
 
 export type EligiblePayoutEntry = {
@@ -358,6 +340,117 @@ export function isCancelledOrUncompletedEarning(entry: {
 }
 
 /**
+ * Chargeable terminal earning (Arrival Cancellation / No-Show / Late Passenger
+ * Cancellation). The trip stays cancelled / no_show by design, so the
+ * completed-trip gate and the trips.driver_net_pence stamp do not apply.
+ * Mirrors SQL driver_wallet_eligibility_balances.
+ */
+export function resolveChargeableTerminalEarningKind(
+  entry: LedgerEligibilityEvidence,
+): TerminalOutcomeKind | null {
+  if (String(entry.ledger_type ?? "").toUpperCase() !== "TRIP_EARNING_NET") return null;
+  if (!entry.trip_id) return null;
+  return resolveTerminalOutcomeKind({
+    financial_outcome: entry.trip_financial_outcome,
+    status: entry.trip_status,
+    payment_status: entry.trip_payment_status,
+    no_show_charge_pence: entry.trip_no_show_charge_pence,
+  });
+}
+
+/** captured − ACTUAL provider fee, commission 0. Null until both are confirmed. */
+export function terminalEarningCanonicalPence(entry: {
+  captured_amount_pence?: number | null;
+  provider_processing_fee_pence?: number | null;
+  fee_status?: string | null;
+}): number | null {
+  const captured = entry.captured_amount_pence == null
+    ? null
+    : Math.round(Number(entry.captured_amount_pence));
+  if (captured == null || !Number.isFinite(captured) || captured <= 0) return null;
+  if (String(entry.fee_status ?? "").trim().toUpperCase() !== "ACTUAL") return null;
+  if (entry.provider_processing_fee_pence == null) return null;
+  const fee = Math.round(Number(entry.provider_processing_fee_pence));
+  if (!Number.isFinite(fee) || fee < 0) return null;
+  return captured - fee;
+}
+
+function terminalSessionVoided(entry: LedgerEligibilityEvidence): boolean {
+  const session = String(entry.session_status ?? "").trim().toLowerCase();
+  const state = String(entry.provider_state ?? "").trim().toLowerCase();
+  if (
+    session.includes("cancel")
+    || session.includes("void")
+    || session.includes("fail")
+    || session === "released"
+  ) {
+    return true;
+  }
+  return ["cancelled", "canceled", "failed", "void"].includes(state);
+}
+
+function evaluateTerminalEarningEligibility(
+  entry: LedgerEligibilityEvidence,
+  amount: number,
+  policy?: PayoutClearingPolicy,
+): { status: PayoutEligibilityStatus; payable_pence: number } {
+  const allocated = Math.max(0, Math.round(Number(entry.allocated_amount_pence ?? 0)));
+  const payable = remainingPayable(amount, allocated, false);
+  if (payable <= 0) {
+    return { status: PAYOUT_ELIGIBILITY_STATUS.PAYOUT_ALLOCATED, payable_pence: 0 };
+  }
+  if (entry.payout_processing === true) {
+    return { status: PAYOUT_ELIGIBILITY_STATUS.PAYOUT_PROCESSING, payable_pence: payable };
+  }
+
+  const owner = resolveTerminalEntitledDriverId({
+    driver_id: entry.trip_driver_id,
+    confirmed_driver_id: entry.trip_confirmed_driver_id,
+    previous_driver_id: entry.trip_previous_driver_id,
+  });
+  const ledgerOwner = String(entry.ledger_driver_id ?? "").trim();
+  if (!owner || !ledgerOwner || ledgerOwner !== owner) {
+    return { status: PAYOUT_ELIGIBILITY_STATUS.UNKNOWN_ELIGIBILITY_ERROR, payable_pence: 0 };
+  }
+  if (entry.trip_commission_ledger_present === true) {
+    return { status: PAYOUT_ELIGIBILITY_STATUS.SETTLEMENT_MISMATCH, payable_pence: payable };
+  }
+  if (entry.trip_reversal_ledger_present === true) {
+    return { status: PAYOUT_ELIGIBILITY_STATUS.REFUND_HOLD, payable_pence: payable };
+  }
+  if (terminalSessionVoided(entry)) {
+    return { status: PAYOUT_ELIGIBILITY_STATUS.UNKNOWN_ELIGIBILITY_ERROR, payable_pence: 0 };
+  }
+  if (entry.chargeback_hold === true) {
+    return { status: PAYOUT_ELIGIBILITY_STATUS.CHARGEBACK_HOLD, payable_pence: payable };
+  }
+  const refunded = Math.max(0, Math.round(Number(entry.refunded_amount_pence ?? 0)));
+  if (refunded > 0) {
+    return { status: PAYOUT_ELIGIBILITY_STATUS.REFUND_HOLD, payable_pence: payable };
+  }
+  if (!entry.trip_exists || !entry.payment_session_id) {
+    return { status: PAYOUT_ELIGIBILITY_STATUS.CAPTURE_PENDING, payable_pence: payable };
+  }
+  const captured = entry.captured_amount_pence == null
+    ? null
+    : Math.round(Number(entry.captured_amount_pence));
+  if (captured == null || !Number.isFinite(captured) || captured <= 0) {
+    return { status: PAYOUT_ELIGIBILITY_STATUS.CAPTURE_PENDING, payable_pence: payable };
+  }
+  const canonical = terminalEarningCanonicalPence(entry);
+  if (canonical == null || canonical <= 0) {
+    return { status: PAYOUT_ELIGIBILITY_STATUS.SETTLEMENT_MISMATCH, payable_pence: payable };
+  }
+  if (amount !== canonical) {
+    return { status: PAYOUT_ELIGIBILITY_STATUS.WALLET_CREDIT_MISMATCH, payable_pence: payable };
+  }
+  if (!isPayoutClearedForPlatformCollected(entry, policy)) {
+    return { status: PAYOUT_ELIGIBILITY_STATUS.SETTLEMENT_PENDING, payable_pence: payable };
+  }
+  return { status: PAYOUT_ELIGIBILITY_STATUS.ELIGIBLE, payable_pence: payable };
+}
+
+/**
  * Evaluate one balance-affecting earning credit.
  * Capture is necessary but not sufficient for PLATFORM_COLLECTED Available.
  * Does not require DES. Does not require Connect settlement fields.
@@ -411,6 +504,10 @@ export function evaluateLedgerEntryEligibility(
 
   if (entry.paid_in_batch_id || entry.allocated_to_payout === true || entry.paid_in_payout_item_id) {
     return { status: PAYOUT_ELIGIBILITY_STATUS.PAYOUT_ALLOCATED, payable_pence: 0 };
+  }
+
+  if (resolveChargeableTerminalEarningKind(entry)) {
+    return evaluateTerminalEarningEligibility(entry, amount, policy);
   }
 
   if (isCancelledOrUncompletedEarning(entry)) {
