@@ -1815,11 +1815,29 @@ async function pollCompletedPayoutReversals(
       .from("payout_items")
       .select("id, driver_id, amount_pence, provider_reference, completed_at")
       .eq("status", "COMPLETED")
-      .not("provider_reference", "is", null)
       .gte("completed_at", since)
       .order("completed_at", { ascending: false })
       .limit(REVERSAL_POLL_MAX_ITEMS * 5);
-    const rows = (candidates ?? []) as Array<Record<string, unknown>>;
+    const completedRows = (candidates ?? []) as Array<Record<string, unknown>>;
+    if (completedRows.length === 0) return results;
+
+    // payout_items.provider_reference is not written on completion; the Revolut
+    // payment id lives on the item's payment intent.
+    const { data: intents } = await supabase
+      .from("driver_payout_payment_intents")
+      .select("payout_item_id, provider_payment_id")
+      .in("payout_item_id", completedRows.map((r) => String(r.id)))
+      .not("provider_payment_id", "is", null);
+    const paymentIdByItem = new Map(
+      ((intents ?? []) as Array<Record<string, unknown>>).map((i) => [String(i.payout_item_id), String(i.provider_payment_id)]),
+    );
+    const rows: Array<Record<string, unknown>> = completedRows
+      .map((r): Record<string, unknown> => ({
+        ...r,
+        provider_payment_id: paymentIdByItem.get(String(r.id))
+          ?? (r.provider_reference ? String(r.provider_reference) : null),
+      }))
+      .filter((r) => r.provider_payment_id);
     if (rows.length === 0) return results;
 
     const { data: checks } = await supabase
@@ -1841,7 +1859,7 @@ async function pollCompletedPayoutReversals(
     const { accessToken } = await ensureFreshRevolutBusinessAccessToken(supabase);
     for (const row of due) {
       const itemId = String(row.id);
-      const providerPaymentId = String(row.provider_reference);
+      const providerPaymentId = String(row.provider_payment_id);
       const status = await relayApprovedDriverPayoutPaymentStatus({
         providerPaymentId,
         accessToken,

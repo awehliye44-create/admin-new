@@ -291,6 +291,15 @@ Deno.test("executor: reversal poll is read-only (flags + audit, no money writes)
   }
 });
 
+Deno.test("executor: reversal poll takes the Revolut payment id from the payment intent", async () => {
+  const src = await read("admin-execute-weekly-payout-occurrence/index.ts");
+  const body = src.slice(src.indexOf("async function pollCompletedPayoutReversals("));
+  assert(body.includes('.from("driver_payout_payment_intents")'));
+  assert(body.includes('.select("payout_item_id, provider_payment_id")'));
+  assert(body.includes("const providerPaymentId = String(row.provider_payment_id);"));
+  assertEquals(body.includes('.not("provider_reference", "is", null)'), false, "provider_reference is never written on completion");
+});
+
 Deno.test("executor: reversal poll also runs on idle, already-paid and blocked ticks", async () => {
   const src = await read("admin-execute-weekly-payout-occurrence/index.ts");
   const handler = src.slice(0, src.indexOf("async function pollCompletedPayoutReversals("));
