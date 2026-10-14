@@ -780,7 +780,7 @@ export function computeExpectedStampForRepair(evidence: DriverFinancialRepairEvi
   }
 
   const proven = resolveProvenCommissionPercentForRepair(evidence);
-  if (!proven.ok) {
+  if (proven.ok === false) {
     return {
       ok: false,
       block_code: proven.block_code,
@@ -1278,7 +1278,7 @@ export function buildDriverFinancialRepairPreview(args: {
 
   const stampMissing = evidence.existing_driver_net_pence == null;
   const stampCompute = computeExpectedStampForRepair(evidence);
-  if (!stampCompute.ok) {
+  if (stampCompute.ok === false) {
     const insufficient =
       stampCompute.block_code === DRIVER_FINANCIAL_REPAIR_BLOCK.INSUFFICIENT_EVIDENCE
       || stampCompute.block_code === DRIVER_FINANCIAL_REPAIR_BLOCK.AMBIGUOUS_ENTITLEMENT;

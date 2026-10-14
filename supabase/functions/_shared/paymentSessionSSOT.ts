@@ -579,7 +579,7 @@ export async function markPaymentSessionCaptured(
         },
         current_trip_fare_pence: tripFareComponent,
       });
-      if (!settle.ok) {
+      if (settle.ok === false) {
         console.error(
           "[paymentSessionSSOT] receivable settle after capture failed",
           settle.error,
