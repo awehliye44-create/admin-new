@@ -252,7 +252,7 @@ export function planCaptureComposition(args: {
     customer_receivable_component_pence: receivable_component_pence,
     claimed_buffer_pence: explicitBuffer,
   });
-  if (!bufferGate.ok) {
+  if (bufferGate.ok === false) {
     return {
       ok: false,
       reject_reason: bufferGate.reject_reason,

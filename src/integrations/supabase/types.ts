@@ -8433,6 +8433,13 @@ export type Database = {
             foreignKeyName: "driver_earning_settlement_paid_in_payout_item_id_fkey"
             columns: ["paid_in_payout_item_id"]
             isOneToOne: false
+            referencedRelation: "early_cashout_invariant_audit"
+            referencedColumns: ["payout_item_id"]
+          },
+          {
+            foreignKeyName: "driver_earning_settlement_paid_in_payout_item_id_fkey"
+            columns: ["paid_in_payout_item_id"]
+            isOneToOne: false
             referencedRelation: "payout_items"
             referencedColumns: ["id"]
           },
@@ -10434,6 +10441,82 @@ export type Database = {
           },
         ]
       }
+      driver_payout_funding_attempt_snapshots: {
+        Row: {
+          amount_pence: number
+          balance_read_at: string
+          claim_token: string
+          created_at: string
+          driver_id: string
+          id: string
+          intent_id: string
+          payout_item_id: string
+          provider_available_pence: number
+          remaining_after_pence: number
+          remaining_before_pence: number
+          run_id: string | null
+          schedule_occurrence_key: string | null
+          snapshot: Json
+          source_account_id: string
+        }
+        Insert: {
+          amount_pence: number
+          balance_read_at: string
+          claim_token: string
+          created_at?: string
+          driver_id: string
+          id?: string
+          intent_id: string
+          payout_item_id: string
+          provider_available_pence: number
+          remaining_after_pence: number
+          remaining_before_pence: number
+          run_id?: string | null
+          schedule_occurrence_key?: string | null
+          snapshot?: Json
+          source_account_id: string
+        }
+        Update: {
+          amount_pence?: number
+          balance_read_at?: string
+          claim_token?: string
+          created_at?: string
+          driver_id?: string
+          id?: string
+          intent_id?: string
+          payout_item_id?: string
+          provider_available_pence?: number
+          remaining_after_pence?: number
+          remaining_before_pence?: number
+          run_id?: string | null
+          schedule_occurrence_key?: string | null
+          snapshot?: Json
+          source_account_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "driver_payout_funding_attempt_snapshots_intent_id_fkey"
+            columns: ["intent_id"]
+            isOneToOne: false
+            referencedRelation: "driver_payout_payment_intents"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "driver_payout_funding_attempt_snapshots_payout_item_id_fkey"
+            columns: ["payout_item_id"]
+            isOneToOne: false
+            referencedRelation: "early_cashout_invariant_audit"
+            referencedColumns: ["payout_item_id"]
+          },
+          {
+            foreignKeyName: "driver_payout_funding_attempt_snapshots_payout_item_id_fkey"
+            columns: ["payout_item_id"]
+            isOneToOne: false
+            referencedRelation: "payout_items"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       driver_payout_payment_intents: {
         Row: {
           amount_pence: number
@@ -10717,6 +10800,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "payout_batches"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "driver_payout_reservations_payout_item_id_fkey"
+            columns: ["payout_item_id"]
+            isOneToOne: false
+            referencedRelation: "early_cashout_invariant_audit"
+            referencedColumns: ["payout_item_id"]
           },
           {
             foreignKeyName: "driver_payout_reservations_payout_item_id_fkey"
@@ -12003,6 +12093,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "v_finance_era_legacy_cash"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "driver_wallet_admin_adjustments_related_payout_item_id_fkey"
+            columns: ["related_payout_item_id"]
+            isOneToOne: false
+            referencedRelation: "early_cashout_invariant_audit"
+            referencedColumns: ["payout_item_id"]
           },
           {
             foreignKeyName: "driver_wallet_admin_adjustments_related_payout_item_id_fkey"
@@ -17962,6 +18059,7 @@ export type Database = {
           provider_order_id: string | null
           provider_payment_id: string | null
           provider_payout_id: string | null
+          provider_refund_id: string | null
           provider_status: string | null
           provider_transfer_id: string | null
           provider_webhook_event_id: string | null
@@ -17995,6 +18093,7 @@ export type Database = {
           provider_order_id?: string | null
           provider_payment_id?: string | null
           provider_payout_id?: string | null
+          provider_refund_id?: string | null
           provider_status?: string | null
           provider_transfer_id?: string | null
           provider_webhook_event_id?: string | null
@@ -18028,6 +18127,7 @@ export type Database = {
           provider_order_id?: string | null
           provider_payment_id?: string | null
           provider_payout_id?: string | null
+          provider_refund_id?: string | null
           provider_status?: string | null
           provider_transfer_id?: string | null
           provider_webhook_event_id?: string | null
@@ -18409,6 +18509,13 @@ export type Database = {
             foreignKeyName: "payout_authorization_payout_item_id_fkey"
             columns: ["payout_item_id"]
             isOneToOne: false
+            referencedRelation: "early_cashout_invariant_audit"
+            referencedColumns: ["payout_item_id"]
+          },
+          {
+            foreignKeyName: "payout_authorization_payout_item_id_fkey"
+            columns: ["payout_item_id"]
+            isOneToOne: false
             referencedRelation: "payout_items"
             referencedColumns: ["id"]
           },
@@ -18553,6 +18660,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "v_finance_era_legacy_cash"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "payout_item_ledger_allocations_payout_item_id_fkey"
+            columns: ["payout_item_id"]
+            isOneToOne: false
+            referencedRelation: "early_cashout_invariant_audit"
+            referencedColumns: ["payout_item_id"]
           },
           {
             foreignKeyName: "payout_item_ledger_allocations_payout_item_id_fkey"
@@ -18918,6 +19032,60 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "v_payment_lifecycle_audit"
             referencedColumns: ["trip_id"]
+          },
+        ]
+      }
+      payout_provider_reversal_checks: {
+        Row: {
+          check_count: number
+          created_at: string
+          driver_id: string | null
+          last_checked_at: string
+          last_provider_state: string | null
+          payout_item_id: string
+          provider_payment_id: string
+          reversal_detected_at: string | null
+          reversal_state: string | null
+          updated_at: string
+        }
+        Insert: {
+          check_count?: number
+          created_at?: string
+          driver_id?: string | null
+          last_checked_at?: string
+          last_provider_state?: string | null
+          payout_item_id: string
+          provider_payment_id: string
+          reversal_detected_at?: string | null
+          reversal_state?: string | null
+          updated_at?: string
+        }
+        Update: {
+          check_count?: number
+          created_at?: string
+          driver_id?: string | null
+          last_checked_at?: string
+          last_provider_state?: string | null
+          payout_item_id?: string
+          provider_payment_id?: string
+          reversal_detected_at?: string | null
+          reversal_state?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "payout_provider_reversal_checks_payout_item_id_fkey"
+            columns: ["payout_item_id"]
+            isOneToOne: true
+            referencedRelation: "early_cashout_invariant_audit"
+            referencedColumns: ["payout_item_id"]
+          },
+          {
+            foreignKeyName: "payout_provider_reversal_checks_payout_item_id_fkey"
+            columns: ["payout_item_id"]
+            isOneToOne: true
+            referencedRelation: "payout_items"
+            referencedColumns: ["id"]
           },
         ]
       }
@@ -28472,6 +28640,100 @@ export type Database = {
           },
         ]
       }
+      early_cashout_invariant_audit: {
+        Row: {
+          completed_at: string | null
+          driver_id: string | null
+          fee_pence: number | null
+          gross_wallet_consumed_pence: number | null
+          invariant_holds: boolean | null
+          ledger_debit_pence: number | null
+          ledger_fee_pence: number | null
+          ledger_fee_rows: number | null
+          net_transfer_pence: number | null
+          payout_item_id: string | null
+          provider_payment_id: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "payout_items_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "admin_driver_fleet_status"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "payout_items_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "admin_driver_online_snapshot"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "payout_items_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "commission_wallet_driver_financial_summary"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "payout_items_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "dispatchable_drivers"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "payout_items_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "driver_document_compliance_ssot"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "payout_items_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "driver_document_status"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "payout_items_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "driver_financial_summary"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "payout_items_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "driver_passenger_profile"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "payout_items_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "drivers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "payout_items_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "drivers_public_safe"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "payout_items_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "platform_collected_driver_financial_summary"
+            referencedColumns: ["driver_id"]
+          },
+        ]
+      }
       merchants_public: {
         Row: {
           address: string | null
@@ -30064,6 +30326,8 @@ export type Database = {
         Args: { p_locator: string }
         Returns: string
       }
+      driver_early_cashout_fee_pence: { Args: never; Returns: number }
+      driver_early_cashout_minimum_pence: { Args: never; Returns: number }
       driver_effective_online_reason: {
         Args: {
           p_driver_id: string
@@ -30244,6 +30508,7 @@ export type Database = {
         }
         Returns: boolean
       }
+      driver_payout_minimum_pence: { Args: never; Returns: number }
       driver_presence_last_signal_at: {
         Args: { p_driver_id: string }
         Returns: string
@@ -30444,6 +30709,15 @@ export type Database = {
           p_environment?: string
           p_error_code: string
           p_provider?: string
+        }
+        Returns: Json
+      }
+      fail_submitted_early_cashout: {
+        Args: {
+          p_evidence_redacted?: Json
+          p_payout_item_id: string
+          p_provider_payment_id: string
+          p_provider_state: string
         }
         Returns: Json
       }
@@ -30662,6 +30936,7 @@ export type Database = {
         }
         Returns: Json
       }
+      finished_trip_locked_money_columns: { Args: never; Returns: string[] }
       force_driver_offline: {
         Args: { p_driver_id: string; p_reason?: string }
         Returns: undefined
@@ -31748,6 +32023,10 @@ export type Database = {
         Args: { p_kind: string }
         Returns: string
       }
+      payout_item_early_cashout_fee_pence: {
+        Args: { p_snapshot: Json }
+        Returns: number
+      }
       payout_item_status_releases_ledger_allocation: {
         Args: { p_execution_status: string; p_status: string }
         Returns: boolean
@@ -32251,6 +32530,15 @@ export type Database = {
         }
         Returns: Json
       }
+      retire_unsubmitted_payout_item: {
+        Args: {
+          p_actor?: string
+          p_dry_run?: boolean
+          p_payout_item_id: string
+          p_reason: string
+        }
+        Returns: Json
+      }
       return_failed_payout_to_wallet: {
         Args: { p_payout_item_id: string }
         Returns: Json
@@ -32597,6 +32885,18 @@ export type Database = {
           p_confirmed_driver_id: string
           p_driver_id: string
           p_previous_driver_id: string
+        }
+        Returns: string
+      }
+      trip_terminal_state_override_reason: { Args: never; Returns: string }
+      trip_terminal_transition_violation: {
+        Args: {
+          p_new_completed_at: string
+          p_new_status: string
+          p_old_cancel_reason: string
+          p_old_cancelled_by: string
+          p_old_completed_at: string
+          p_old_status: string
         }
         Returns: string
       }

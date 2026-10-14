@@ -269,13 +269,15 @@ export default function Dashboard() {
         && Number.isFinite(d.current_lat) && Number.isFinite(d.current_lng)
         && !(d.current_lat === 0 && d.current_lng === 0),
     );
-    if (online.length === 0) {
+    const target = online[0]
+      ?? liveDriversRef.current.find((d) => d.current_lat != null && d.current_lng != null
+        && Number.isFinite(d.current_lat) && Number.isFinite(d.current_lng)
+        && !(d.current_lat === 0 && d.current_lng === 0));
+    if (!target) {
       fitFleet();
       return;
     }
-    const bounds = new mapboxgl.LngLatBounds();
-    online.forEach((d) => bounds.extend([d.current_lng as number, d.current_lat as number]));
-    fitMapToLngLatBounds(map, bounds, { maxZoom: 13, padding: 64 });
+    map.flyTo({ center: [target.current_lng as number, target.current_lat as number], zoom: 12, duration: 600 });
   }, [fitFleet]);
   const fleetStatusRef = useRef<globalThis.Map<string, DriverMarkerStatus>>(new globalThis.Map());
 
@@ -538,7 +540,14 @@ export default function Dashboard() {
 
     if (hasPoint && !hasFittedFleetRef.current && !userAdjustedViewRef.current) {
       hasFittedFleetRef.current = true;
-      fitMapToLngLatBounds(map, bounds, { maxZoom: 13, padding: 64 });
+      const located = liveDrivers.filter((d) => d.current_lat != null && d.current_lng != null
+        && Number.isFinite(d.current_lat) && Number.isFinite(d.current_lng)
+        && !(d.current_lat === 0 && d.current_lng === 0));
+      const focus = located.find((d) => d.is_online) ?? located[0];
+      if (focus) {
+        // Open close-in on one driver; never auto-zoom out to the whole world.
+        map.jumpTo({ center: [focus.current_lng as number, focus.current_lat as number], zoom: 12 });
+      }
     }
   }, [liveDrivers, isMapLoaded]);
 
