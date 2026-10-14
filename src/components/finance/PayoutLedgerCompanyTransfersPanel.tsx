@@ -2,9 +2,9 @@
  * Company Transfers panel — Payout Ledger SSOT only.
  * Money source: COMPANY_BALANCE / APPROVED_COMPANY_PAYABLE. Never driver wallet.
  */
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useMemo, useState, type ReactNode } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Download, Loader2, Plus, Printer, RefreshCw, Copy, AlertTriangle } from 'lucide-react';
+import { Download, Loader2, Plus, Printer, Copy, AlertTriangle } from 'lucide-react';
 import { toast } from 'sonner';
 import { FunctionsHttpError } from '@supabase/supabase-js';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
@@ -71,7 +71,6 @@ import {
   COMPANY_TRANSFER_KINDS,
   COMPANY_TRANSFER_MONEY_SOURCES,
   COMPANY_TRANSFER_RECIPIENT_TYPES,
-  COMPANY_TRANSFER_RECONCILE_STATUSES,
   COMPANY_TRANSFER_START_MODE_LABELS,
   COMPANY_TRANSFER_START_MODES,
   resolveCompanyTransferCreateOptions,
@@ -100,11 +99,9 @@ import {
 } from '../../../shared/companyTransferCreatePrecheckSSOT';
 import { parseLiveCompanyTransferExecutionEnabled } from '../../../shared/companyTransferLifecycleSSOT';
 import { adminCompanyTransferSubmissionDisplay } from '../../../shared/companyTransferSubmissionSSOT';
-import {
-  ADMIN_FINALIZE_COMPANY_TRANSFER_FN,
-  ADMIN_SUBMIT_COMPANY_TRANSFER_FN,
-  ADMIN_SYNC_COMPANY_TRANSFER_STATUS_FN,
-} from '../../../shared/adminPayoutLedgerSSOT';
+
+/** Company transfers are paid by hand in Revolut Business; ONECAB never submits them. */
+const MANUAL_COMPANY_TRANSFER_NOTE = 'Pay manually in Revolut Business';
 
 /** Slice 11: live company transfer execution stays off (client mirror; edge enforces). */
 const LIVE_COMPANY_TRANSFER_EXECUTION_ENABLED = parseLiveCompanyTransferExecutionEnabled(
@@ -574,139 +571,6 @@ export function PayoutLedgerCompanyTransfersPanel({
     actionMutation.mutate({ action: 'approve', transfer_id: t.id });
   };
 
-  const submitProviderMutation = useMutation({
-    mutationFn: async (transferId: string) => {
-      const { data, error } = await supabase.functions.invoke(ADMIN_SUBMIT_COMPANY_TRANSFER_FN, {
-        body: { transfer_id: transferId, confirm_submit: true },
-      });
-      if (data && (data.ok === false || data.success === false)) {
-        const protection = data?.funds_protection as { message?: string } | null | undefined;
-        if (protection?.message) throw new Error(protection.message);
-        const codes = (data?.blocked_reason_codes ?? [data?.error_code ?? data?.error]).filter(Boolean);
-        if (gateHasInsufficientCompanyFunds(codes.map(String))) {
-          throw new Error(
-            typeof data?.message === 'string' && data.message.includes('Available Company Funds')
-              ? data.message
-              : 'Insufficient ONECAB Available Company Funds. This transfer has been blocked to protect driver funds and reserved driver payouts.',
-          );
-        }
-        throw new Error(
-          await companyTransferInvokeErrorMessage(data, error, 'Transfer submission blocked'),
-        );
-      }
-      if (data?.ok || data?.success) return data;
-      if (error) {
-        throw new Error(
-          await companyTransferInvokeErrorMessage(data, error, 'Transfer submission blocked'),
-        );
-      }
-      throw new Error('Transfer submission blocked');
-    },
-    onSuccess: () => {
-      toast.success('Submitted to provider — awaiting confirmation');
-      void queryClient.invalidateQueries({ queryKey: ['admin-payout-ledger'] });
-    },
-    onError: (err: Error) => toast.error(err.message, { duration: 12_000 }),
-  });
-
-  const syncProviderMutation = useMutation({
-    mutationFn: async (transferId: string) => {
-      const { data, error } = await supabase.functions.invoke(ADMIN_SYNC_COMPANY_TRANSFER_STATUS_FN, {
-        body: { transfer_id: transferId },
-      });
-      // Expected while LIVE is off / before submit — no provider payment yet.
-      const missingProviderCode = (payload: Record<string, unknown> | null | undefined) => {
-        const code = String(payload?.error_code ?? payload?.error ?? '');
-        return code === 'MISSING_PROVIDER_PAYMENT_ID';
-      };
-      if (data && missingProviderCode(data)) {
-        return { ok: true, no_provider_payment_id: true };
-      }
-      if (data && (data.ok === false || data.success === false)) {
-        throw new Error(
-          await companyTransferInvokeErrorMessage(data, error, 'Provider status sync failed'),
-        );
-      }
-      if (data?.ok || data?.success) return data;
-      if (error) {
-        const ctx = (error as { context?: Response }).context;
-        if (ctx && typeof ctx.json === 'function') {
-          try {
-            const body = await ctx.clone().json() as Record<string, unknown>;
-            if (missingProviderCode(body)) {
-              return { ok: true, no_provider_payment_id: true };
-            }
-          } catch {
-            /* fall through */
-          }
-        }
-        throw new Error(
-          await companyTransferInvokeErrorMessage(data, error, 'Provider status sync failed'),
-        );
-      }
-      throw new Error('Provider status sync failed');
-    },
-    onSuccess: (data) => {
-      if ((data as { no_provider_payment_id?: boolean })?.no_provider_payment_id) {
-        toast.info('Not yet sent to provider — nothing to sync');
-        return;
-      }
-      toast.success(
-        `Provider status: ${companyTransferStatusLabel(data?.provider_state ?? data?.status ?? 'synced')}`,
-      );
-      void queryClient.invalidateQueries({ queryKey: ['admin-payout-ledger'] });
-    },
-    onError: (err: Error) => toast.error(err.message, { duration: 12_000 }),
-  });
-
-  const finalizeMutation = useMutation({
-    mutationFn: async (transferId: string) => {
-      const { data, error } = await supabase.functions.invoke(ADMIN_FINALIZE_COMPANY_TRANSFER_FN, {
-        body: { transfer_id: transferId, confirm_finalize: true },
-      });
-      if (data && (data.ok === false || data.success === false)) {
-        throw new Error(await companyTransferInvokeErrorMessage(data, error, 'Finalize blocked'));
-      }
-      if (data?.ok || data?.success) return data;
-      if (error) {
-        throw new Error(await companyTransferInvokeErrorMessage(data, error, 'Finalize blocked'));
-      }
-      throw new Error('Finalize blocked');
-    },
-    onSuccess: () => {
-      toast.success('Company transfer finalized — ledger + balance updated');
-      void queryClient.invalidateQueries({ queryKey: ['admin-payout-ledger'] });
-    },
-    onError: (err: Error) => toast.error(err.message, { duration: 12_000 }),
-  });
-
-  const inFlightTransfers = useMemo(
-    () => transfers.filter((t) =>
-      COMPANY_TRANSFER_RECONCILE_STATUSES.has(String(t.status).toUpperCase())
-      && Boolean(t.provider_payment_id_masked),
-    ),
-    [transfers],
-  );
-
-  // Auto-reconcile: poll provider status for in-flight transfers (no manual refresh required).
-  useEffect(() => {
-    if (inFlightTransfers.length === 0) return;
-    const tick = () => {
-      for (const t of inFlightTransfers.slice(0, 10)) {
-        void supabase.functions.invoke(ADMIN_SYNC_COMPANY_TRANSFER_STATUS_FN, {
-          body: { transfer_id: t.id },
-        }).then(({ data }) => {
-          if (data?.ok || data?.success) {
-            void queryClient.invalidateQueries({ queryKey: ['admin-payout-ledger'] });
-          }
-        }).catch(() => undefined);
-      }
-    };
-    tick();
-    const id = window.setInterval(tick, 30_000);
-    return () => window.clearInterval(id);
-  }, [inFlightTransfers, queryClient]);
-
   const exportRows = useMemo(
     () =>
       transfers.map((t) => ({
@@ -1121,10 +985,9 @@ export function PayoutLedgerCompanyTransfersPanel({
           Revolut source-account cash is provider cash and is not wholly ONECAB-owned.
           Driver Wallet and Payment Sessions are never consumed here.
           Saved payees store encrypted bank details; UI shows masked accounts only.
-          Live Revolut execution stays gated (Slice 12: submit/finalize blocked while
-          LIVE_COMPANY_TRANSFER_EXECUTION_ENABLED=false). While LIVE is off you can still
-          edit, return to draft, cancel, duplicate, and review evidence — only money movement
-          stays blocked.
+          ONECAB does not send company transfers to Revolut. Record and approve them here,
+          then pay them manually in Revolut Business. You can still edit, return to draft,
+          cancel, duplicate, and review evidence.
         </AlertDescription>
       </Alert>
 
@@ -1298,15 +1161,13 @@ export function PayoutLedgerCompanyTransfersPanel({
         </TabsContent>
 
         <TabsContent value="approved" className="space-y-4">
-          {!LIVE_COMPANY_TRANSFER_EXECUTION_ENABLED ? (
-            <Alert>
-              <AlertTitle>Live company transfer execution is disabled</AlertTitle>
-              <AlertDescription>
-                You can edit, cancel or return transfers to draft.
-                Submit and Execute will become available only after company LIVE is enabled.
-              </AlertDescription>
-            </Alert>
-          ) : null}
+          <Alert>
+            <AlertTitle>Pay approved transfers in Revolut Business</AlertTitle>
+            <AlertDescription>
+              ONECAB does not send company transfers. Pay approved transfers manually in Revolut Business.
+              You can still edit, cancel or return transfers to draft.
+            </AlertDescription>
+          </Alert>
           {approvedTransfers.length === 0 ? (
             <p className="text-sm text-muted-foreground">No approved / ready transfers.</p>
           ) : (
@@ -1415,50 +1276,7 @@ export function PayoutLedgerCompanyTransfersPanel({
                           Duplicate
                         </Button>
                       ) : null}
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        disabled={
-                          !LIVE_COMPANY_TRANSFER_EXECUTION_ENABLED || actionMutation.isPending
-                        }
-                        title={
-                          LIVE_COMPANY_TRANSFER_EXECUTION_ENABLED
-                            ? 'Execute company transfer'
-                            : 'LIVE disabled — money movement blocked'
-                        }
-                        onClick={() => {
-                          if (!LIVE_COMPANY_TRANSFER_EXECUTION_ENABLED) return;
-                          actionMutation.mutate({
-                            action: 'execute',
-                            transfer_id: t.id,
-                            execute_live: true,
-                          });
-                        }}
-                      >
-                        {LIVE_COMPANY_TRANSFER_EXECUTION_ENABLED
-                          ? 'Execute'
-                          : 'Execute — LIVE disabled'}
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        disabled={
-                          !LIVE_COMPANY_TRANSFER_EXECUTION_ENABLED || submitProviderMutation.isPending
-                        }
-                        title={
-                          LIVE_COMPANY_TRANSFER_EXECUTION_ENABLED
-                            ? 'Submit to Revolut provider'
-                            : 'LIVE disabled — money movement blocked'
-                        }
-                        onClick={() => {
-                          if (!LIVE_COMPANY_TRANSFER_EXECUTION_ENABLED) return;
-                          submitProviderMutation.mutate(t.id);
-                        }}
-                      >
-                        {LIVE_COMPANY_TRANSFER_EXECUTION_ENABLED
-                          ? 'Submit Transfer'
-                          : 'Submit — LIVE disabled'}
-                      </Button>
+                      <span className="text-xs text-muted-foreground">{MANUAL_COMPANY_TRANSFER_NOTE}</span>
                       <Button size="sm" variant="ghost" onClick={() => void viewEvidence(t.id)}>
                         Evidence
                       </Button>
@@ -2471,11 +2289,9 @@ export function PayoutLedgerCompanyTransfersPanel({
                 ))}
               </dl>
               <p className="text-xs text-muted-foreground">{draftSummary.execution_note}</p>
-              {!LIVE_COMPANY_TRANSFER_EXECUTION_ENABLED ? (
-                <p className="text-xs text-amber-700">
-                  Submit / Execute stay disabled while company LIVE is off. Draft creation remains available.
-                </p>
-              ) : null}
+              <p className="text-xs text-amber-700">
+                ONECAB does not send company transfers. Pay them manually in Revolut Business once approved.
+              </p>
               {createPrecheck.first_visible_error ? (
                 <p role="alert" className="text-sm text-destructive font-medium">
                   {createPrecheck.first_visible_error}
@@ -2664,70 +2480,8 @@ export function PayoutLedgerCompanyTransfersPanel({
                         </Button>
                       </>
                     )}
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      disabled={
-                        !LIVE_COMPANY_TRANSFER_EXECUTION_ENABLED || actionMutation.isPending
-                      }
-                      title={
-                        LIVE_COMPANY_TRANSFER_EXECUTION_ENABLED
-                          ? 'Execute company transfer'
-                          : 'LIVE_COMPANY_TRANSFER_EXECUTION_ENABLED=false'
-                      }
-                      onClick={() => {
-                        if (!LIVE_COMPANY_TRANSFER_EXECUTION_ENABLED) return;
-                        actionMutation.mutate({
-                          action: 'execute',
-                          transfer_id: t.id,
-                          execute_live: true,
-                        });
-                      }}
-                    >
-                      {LIVE_COMPANY_TRANSFER_EXECUTION_ENABLED
-                        ? 'Execute'
-                        : 'Execute (disabled)'}
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      disabled={
-                        !LIVE_COMPANY_TRANSFER_EXECUTION_ENABLED || submitProviderMutation.isPending
-                      }
-                      title={
-                        LIVE_COMPANY_TRANSFER_EXECUTION_ENABLED
-                          ? 'Submit to Revolut provider'
-                          : 'LIVE_COMPANY_TRANSFER_EXECUTION_ENABLED=false'
-                      }
-                      onClick={() => {
-                        if (!LIVE_COMPANY_TRANSFER_EXECUTION_ENABLED) return;
-                        submitProviderMutation.mutate(t.id);
-                      }}
-                    >
-                      {LIVE_COMPANY_TRANSFER_EXECUTION_ENABLED
-                        ? 'Submit Transfer'
-                        : 'Submit (disabled)'}
-                    </Button>
-                    {COMPANY_TRANSFER_RECONCILE_STATUSES.has(String(t.status).toUpperCase())
-                      || ['SUBMITTED', 'PROCESSING', 'SUBMITTING'].includes(String(t.status).toUpperCase()) ? (
-                      <>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          disabled={syncProviderMutation.isPending}
-                          onClick={() => syncProviderMutation.mutate(t.id)}
-                        >
-                          <RefreshCw className="h-3.5 w-3.5 mr-1" /> Sync status
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          disabled={finalizeMutation.isPending}
-                          onClick={() => finalizeMutation.mutate(t.id)}
-                        >
-                          Finalize
-                        </Button>
-                      </>
+                    {['APPROVED', 'SCHEDULED', 'READY_FOR_EXECUTION'].includes(String(t.status).toUpperCase()) ? (
+                      <span className="text-xs text-muted-foreground">{MANUAL_COMPANY_TRANSFER_NOTE}</span>
                     ) : null}
                     {!['PAID', 'COMPLETED', 'CANCELLED', 'REVERTED'].includes(String(t.status)) && (
                       <Button
