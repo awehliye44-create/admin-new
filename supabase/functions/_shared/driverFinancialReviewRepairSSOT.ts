@@ -1506,7 +1506,7 @@ export function enforceWalletCorrectionPreviewCertification(
   preview: DriverFinancialRepairPreview,
 ): DriverFinancialRepairPreview {
   const gate = assertWalletCorrectionApplyCertified({ classification: preview.classification });
-  if (gate.ok) return preview;
+  if (gate.ok === true) return preview;
   return {
     ...preview,
     apply_allowed: false,
