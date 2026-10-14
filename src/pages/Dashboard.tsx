@@ -255,7 +255,7 @@ export default function Dashboard() {
     }
   }, []);
 
-  const recenterFleet = useCallback(() => {
+  const recenterToFleet = useCallback(() => {
     const map = mapboxMapRef.current;
     if (!map) return;
     userAdjustedViewRef.current = false;
@@ -279,6 +279,23 @@ export default function Dashboard() {
     }
     map.flyTo({ center: [target.current_lng as number, target.current_lat as number], zoom: 12, duration: 600 });
   }, [fitFleet]);
+
+  const recenterFleet = useCallback(() => {
+    const map = mapboxMapRef.current;
+    if (!map) return;
+    if (!navigator.geolocation) {
+      recenterToFleet();
+      return;
+    }
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        userAdjustedViewRef.current = true;
+        map.flyTo({ center: [pos.coords.longitude, pos.coords.latitude], zoom: 13, duration: 600 });
+      },
+      () => recenterToFleet(),
+      { enableHighAccuracy: true, timeout: 8000, maximumAge: 60000 },
+    );
+  }, [recenterToFleet]);
   const fleetStatusRef = useRef<globalThis.Map<string, DriverMarkerStatus>>(new globalThis.Map());
 
 
