@@ -33,9 +33,11 @@ import { DriverCreditExceptionsBanner } from '@/components/finance/DriverCreditE
 import {
   buildFrUnifiedIssues,
   countFrIssuesByFilter,
+  isMissingReleaseTrip,
   parseFrIssueFilter,
   parseFrTripFilter,
   resolveFrDriverCreditBanner,
+  resolveFrHeadlineStatuses,
   resolveFrTabBadgeCounts,
   resolveLegacyFrTabIssueFilter,
   financialReconciliationLegacyTabRedirect,
@@ -57,9 +59,9 @@ function parseFrTab(value: string | null): FrTab {
 
 function statusChipVariant(label: string | null | undefined): 'default' | 'secondary' | 'destructive' | 'outline' {
   const l = String(label ?? '').toLowerCase();
+  if (l.includes('unverified') || l.includes('unavailable') || l.includes('awaiting') || l.includes('partial')) return 'secondary';
   if (l.includes('balanced') || l.includes('settled') || l.includes('paid')) return 'default';
   if (l.includes('error') || l.includes('failed') || l.includes('failing')) return 'destructive';
-  if (l.includes('awaiting') || l.includes('partial')) return 'secondary';
   return 'outline';
 }
 
@@ -309,9 +311,10 @@ function FinancialReconciliationPage() {
     frPerfRef.current = null;
   }, [financeScopeReady, isLoading, error]);
 
-  const reconciliationChip = useMemo(() => {
+  const reconciliationHeadline = useMemo(() => {
     if (!summary) return null;
     const auditKpis = data?.audit_overview_kpis;
+    let earningsStatus: string;
     // Prefer period audit settlement identity (includes tip allocation) over summary rollup.
     if (
       auditKpis
@@ -319,20 +322,51 @@ function FinancialReconciliationPage() {
       && auditKpis.settlement_identity_variance_pence != null
     ) {
       if (ssot.readOnly) {
-        return auditKpis.settlement_identity_balanced ? 'DEGRADED_SNAPSHOT' : 'RECONCILIATION_MISMATCH';
+        earningsStatus = auditKpis.settlement_identity_balanced ? 'DEGRADED_SNAPSHOT' : 'RECONCILIATION_MISMATCH';
+      } else {
+        earningsStatus = auditKpis.settlement_identity_balanced ? 'BALANCED' : 'RECONCILIATION_MISMATCH';
       }
-      return auditKpis.settlement_identity_balanced ? 'BALANCED' : 'RECONCILIATION_MISMATCH';
+    } else {
+      const reconciliationStatus = safeReconciliationStatus(summary);
+      if (ssot.readOnly) {
+        earningsStatus = reconciliationStatus === 'BALANCED' ? 'DEGRADED_SNAPSHOT' : reconciliationStatus;
+      } else if (reconciliationStatus === 'RECONCILIATION_MISMATCH' || reconciliationStatus === 'reconciliation_error') {
+        earningsStatus = 'RECONCILIATION_MISMATCH';
+      } else {
+        earningsStatus = reconciliationStatus;
+      }
     }
-    const reconciliationStatus = safeReconciliationStatus(summary);
-    if (ssot.readOnly) {
-      return reconciliationStatus === 'BALANCED' ? 'DEGRADED_SNAPSHOT' : reconciliationStatus;
-    }
-    if (reconciliationStatus === 'RECONCILIATION_MISMATCH' || reconciliationStatus === 'reconciliation_error') {
-      return 'RECONCILIATION_MISMATCH';
-    }
-    if (reconciliationStatus === 'BALANCED') return 'BALANCED';
-    return reconciliationStatus;
-  }, [summary, ssot.readOnly, data?.audit_overview_kpis]);
+    const fullAuditSettled = auditMode === 'full'
+      && !isAuditLoading
+      && !isAuditScopeTransition
+      && !auditError;
+    // Summary responses omit the trip audit. Rows already on screen are loaded
+    // evidence; an empty summary is not a clean release result.
+    const releaseAuditLoaded = !auditError && !isAuditLoading && !isAuditScopeTransition
+      && (fullAuditSettled || tripAuditRows.length > 0);
+    const releaseExceptionCount = releaseAuditLoaded
+      ? tripAuditRows.filter(isMissingReleaseTrip).length
+      : 0;
+    const releaseEvidence = auditError
+      ? 'failed' as const
+      : releaseAuditLoaded
+        ? 'loaded' as const
+        : 'not_loaded' as const;
+    return resolveFrHeadlineStatuses({
+      earningsStatus,
+      releaseExceptionCount,
+      releaseEvidence,
+    });
+  }, [
+    summary,
+    ssot.readOnly,
+    data?.audit_overview_kpis,
+    tripAuditRows,
+    auditMode,
+    isAuditLoading,
+    isAuditScopeTransition,
+    auditError,
+  ]);
 
   if (searchParams.get('tab') === 'connect-balance') {
     return <Navigate to="/financial-reconciliation?tab=overview" replace />;
@@ -472,9 +506,20 @@ function FinancialReconciliationPage() {
           <div>
             <div className="flex flex-wrap items-center gap-2">
               <FinanceSSOTBadge badge={summary ? ssotBadge : 'REFRESHING'} />
-              {reconciliationChip && !isSummaryScopeTransition && (
-                <Badge variant={statusChipVariant(reconciliationChip)}>
-                  {reconciliationChip}
+              {reconciliationHeadline?.earnings && !isSummaryScopeTransition && (
+                <Badge
+                  variant={statusChipVariant(reconciliationHeadline.earnings)}
+                  title="Earnings and settlement identity for the selected period"
+                >
+                  {reconciliationHeadline.earnings}
+                </Badge>
+              )}
+              {reconciliationHeadline?.release && !isSummaryScopeTransition && (
+                <Badge
+                  variant={statusChipVariant(reconciliationHeadline.release)}
+                  title="Provider authorisation release is separate from earnings reconciliation"
+                >
+                  {reconciliationHeadline.release}
                 </Badge>
               )}
               {lastSyncedLabel && (ssotStatus === 'LIVE' || ssotBadge === 'REFRESHING') && (

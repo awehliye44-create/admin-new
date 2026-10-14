@@ -23,6 +23,8 @@ export type FrIssueTripRow = {
   expected_driver_credit_pence?: number | null;
   actual_driver_credit_pence?: number | null;
   ps_expected_capture_pence?: number | null;
+  authorised_pence?: number | null;
+  released_pence?: number | null;
   driver_credit_health?: string | null;
   expected_stamp_status?: string | null;
   payment_session_id?: string | null;
@@ -151,7 +153,7 @@ export function resolveFrTabBadgeCounts(args: {
         ? args.tripAuditRows.length
         : (kpiTrips ?? args.metaTripCount ?? 0),
     openIssueCount:
-      args.unifiedOpenIssueCount > 0
+      args.tripAuditRows.length > 0
         ? args.unifiedOpenIssueCount
         : (kpiOpen ?? 0),
   };
@@ -183,7 +185,41 @@ export function parseFrTripFilter(value: string | null | undefined): 'driver_cre
   return value === 'driver_credit' ? 'driver_credit' : null;
 }
 
+/**
+ * Release statuses that are not a confirmed match.
+ * RELEASE_MATCHED and RELEASE_NOT_REQUIRED are the only non-exceptions.
+ * MISSING_RELEASE and RELEASE_AMOUNT_UNCONFIRMED are the two statuses that
+ * increment the server Issues count. The others are still listed so a counted
+ * or material hold exception cannot be absent from the Issues tab.
+ */
+export const FR_RELEASE_EXCEPTION_STATUSES = [
+  'MISSING_RELEASE',
+  'RELEASE_PENDING',
+  'RELEASE_SHORTFALL',
+  'RELEASE_AMOUNT_UNKNOWN',
+  'RELEASE_AMOUNT_UNCONFIRMED',
+  'OVERRELEASE',
+] as const;
+
+export const FR_COUNTED_RELEASE_EXCEPTION_STATUSES = [
+  'MISSING_RELEASE',
+  'RELEASE_AMOUNT_UNCONFIRMED',
+] as const;
+
+export type FrReleaseEvidenceState = 'loaded' | 'not_loaded' | 'failed';
+
+export type FrHeadlineStatuses = {
+  /**
+   * Earnings / settlement identity. Null when a bare BALANCED would be shown
+   * before release evidence has loaded or after that load failed.
+   */
+  earnings: string | null;
+  /** Provider authorisation release, kept separate from earnings. */
+  release: 'RELEASE_UNVERIFIED' | 'RELEASE_EVIDENCE_UNAVAILABLE' | null;
+};
+
 function isResolvedTrip(row: FrIssueTripRow): boolean {
+  if (isMissingReleaseTrip(row)) return false;
   if (row.resolved_by_receivable_recovery === true) return true;
   return !row.capture_mismatch
     && String(row.reconciliation_status?.label ?? '').toLowerCase().includes('balanced');
@@ -209,9 +245,30 @@ export function isMissingCaptureTrip(row: FrIssueTripRow): boolean {
 }
 
 export function isMissingReleaseTrip(row: FrIssueTripRow): boolean {
-  return row.release_reconciliation_status === 'RELEASE_PENDING'
-    || row.release_reconciliation_status === 'RELEASE_SHORTFALL'
-    || row.release_reconciliation_status === 'RELEASE_AMOUNT_UNKNOWN';
+  const status = String(row.release_reconciliation_status ?? '');
+  return (FR_RELEASE_EXCEPTION_STATUSES as readonly string[]).includes(status);
+}
+
+/**
+ * A bare BALANCED chip is allowed only after release evidence has loaded and
+ * contains no release exception. Earnings stay a separate chip.
+ */
+export function resolveFrHeadlineStatuses(args: {
+  earningsStatus: string;
+  releaseExceptionCount: number;
+  releaseEvidence: FrReleaseEvidenceState;
+}): FrHeadlineStatuses {
+  if (args.releaseEvidence === 'not_loaded' || args.releaseEvidence === 'failed') {
+    return {
+      earnings: args.earningsStatus === 'BALANCED' ? null : args.earningsStatus,
+      release: 'RELEASE_EVIDENCE_UNAVAILABLE',
+    };
+  }
+  const release = args.releaseExceptionCount > 0 ? 'RELEASE_UNVERIFIED' as const : null;
+  const earnings = args.earningsStatus === 'BALANCED' && release
+    ? 'EARNINGS_BALANCED'
+    : args.earningsStatus;
+  return { earnings, release };
 }
 
 export function isDriverCreditIssueTrip(row: FrIssueTripRow): boolean {
@@ -289,12 +346,19 @@ function expectedActualForIssue(type: FrIssueType, row: FrIssueTripRow): {
         actual: row.captured_pence ?? null,
         difference: row.capture_variance_pence ?? null,
       };
-    case 'missing_release':
+    case 'missing_release': {
+      const authorised = row.authorised_pence;
+      const captured = row.captured_pence;
+      const expected = authorised != null && captured != null
+        ? Math.max(0, Math.round(authorised) - Math.round(captured))
+        : null;
+      const actual = row.released_pence ?? null;
       return {
-        expected: row.ps_expected_capture_pence ?? null,
-        actual: row.captured_pence ?? null,
-        difference: row.capture_variance_pence ?? null,
+        expected,
+        actual,
+        difference: expected != null && actual != null ? actual - expected : null,
       };
+    }
     case 'driver_credit':
       return {
         expected: row.expected_driver_credit_pence ?? null,
@@ -435,7 +499,9 @@ export function buildFrUnifiedIssues(rows: FrIssueTripRow[]): FrUnifiedIssue[] {
         expected_pence: expected,
         actual_pence: actual,
         difference_pence: difference,
-        status: type === 'driver_credit' || type === 'wallet_mismatch'
+        status: type === 'missing_release'
+          ? (row.release_reconciliation_status ?? 'MISSING_RELEASE')
+          : type === 'driver_credit' || type === 'wallet_mismatch'
           ? (row.driver_credit_health ?? row.reconciliation_status?.label ?? row.capture_reconciliation_status ?? 'Open')
           : (row.reconciliation_status?.label
             ?? row.capture_reconciliation_status

@@ -465,6 +465,7 @@ export interface FinanceReconciliationResponse {
     overcapture_pence: number;
     missing_captures_count?: number;
     missing_releases_count?: number;
+    release_amount_unconfirmed_count?: number;
     missing_wallet_credits_count: number;
     payout_mismatches_count: number;
     wallet_mismatches_count?: number;

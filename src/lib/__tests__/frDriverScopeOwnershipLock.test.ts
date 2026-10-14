@@ -20,10 +20,12 @@ describe('FR driver scope ownership UI', () => {
   const ssot = read('supabase/functions/_shared/frDriverReconciliationSSOT.ts');
 
   it('labels period driver columns separately from live available balance', () => {
-    expect(panel).toContain('Expected earnings');
-    expect(panel).toContain('Wallet credited');
-    expect(panel).toContain('Paid out');
-    expect(panel).toContain('Available');
+    expect(panel).toContain('Selected period:');
+    expect(panel).toContain('Expected earnings (selected period)');
+    expect(panel).toContain('Wallet credited (selected period)');
+    expect(panel).toContain('Paid out (execution date within period)');
+    expect(panel).toContain('Available (current live balance)');
+    expect(panel).toContain('Difference (period credits minus expected earnings)');
     expect(panel).toContain('Live payout eligibility (not period-scoped)');
     expect(panel).toContain('expected_payable_pence');
     expect(panel).toContain('actual_wallet_trip_credits_pence');
@@ -61,7 +63,7 @@ describe('FR driver scope ownership UI', () => {
   });
 
   it('overview uses period summary cards without live wallet balance KPIs', () => {
-    expect(overview).toContain('Driver earnings');
+    expect(overview).toContain('Driver fare earnings');
     expect(overview).toContain('Period trip stamps');
     expect(overview).not.toContain('Ledger wallet balance (live)');
     expect(overview).not.toContain('Live Available for Payout');

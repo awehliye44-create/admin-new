@@ -411,11 +411,11 @@ export function FinancialReconciliationDriverDrawer({
                   />
                   <OverviewMetric label="Reconciliation variance" value={fmt(variance)} />
                   <OverviewMetric label="Pending settlement" value={fmt(pendingBatch)} hint="In payout batch" />
-                  <OverviewMetric label="Available for payout" value={fmt(eligiblePayout)} hint="Live payout eligibility" />
+                  <OverviewMetric label="Available (current live balance)" value={fmt(eligiblePayout)} hint="Live payout eligibility (not period-scoped)" />
                   <OverviewMetric
-                    label="Paid out"
+                    label="Paid out (execution date within period)"
                     value={fmt(driver?.payout_ledger_completed_pence ?? paidOut)}
-                    hint="Completed Payout Ledger (period)"
+                    hint="Completed Payout Ledger items executed in the selected period"
                   />
                   <OverviewMetric label="Wallet balance" value={fmt(walletBalance)} hint="Live ledger SSOT" />
                   <OverviewMetric label="Remaining liability" value={fmt(remainingLiability)} />
@@ -444,19 +444,19 @@ export function FinancialReconciliationDriverDrawer({
                     </div>
                     <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
                       <OverviewMetric
-                        label={missingStampCount > 0 ? 'Verified expected earnings' : 'Expected earnings'}
+                        label={missingStampCount > 0 ? 'Verified expected earnings' : 'Expected earnings (selected period)'}
                         value={fmt(verifiedExpected)}
-                        hint={missingStampCount > 0 ? 'Evaluable trips in selected period' : undefined}
+                        hint={missingStampCount > 0 ? 'Evaluable trips in selected period' : 'Selected period'}
                       />
                       <OverviewMetric
-                        label={missingStampCount > 0 ? 'Verified wallet credits' : 'Wallet credited'}
+                        label={missingStampCount > 0 ? 'Verified wallet credits' : 'Wallet credited (selected period)'}
                         value={fmt(verifiedWallet)}
-                        hint={missingStampCount > 0 ? 'Evaluable trips in selected period' : undefined}
+                        hint={missingStampCount > 0 ? 'Evaluable trips in selected period' : 'Selected period'}
                       />
                       <OverviewMetric
-                        label="Difference"
+                        label="Difference (period credits minus expected earnings)"
                         value={fmt(walletVariance)}
-                        hint={missingStampCount > 0 ? 'On evaluable trips' : undefined}
+                        hint={missingStampCount > 0 ? 'On evaluable trips' : 'Selected period'}
                       />
                       {missingStampCount > 0 ? (
                         <OverviewMetric

@@ -52,6 +52,17 @@ function hasMissingEntitlementStamps(row: DriverWalletSsotRow): boolean {
   return (row.missing_stamp_trip_count ?? 0) > 0;
 }
 
+const PERIOD_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+/** Calendar date from the period picker. Not an instant, so it is not shifted by timezone. */
+function formatSelectedPeriodDate(value: string): string {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value.trim());
+  if (!match) return value;
+  const month = PERIOD_MONTHS[Number(match[2]) - 1];
+  if (!month) return value;
+  return `${Number(match[3])} ${month} ${match[1]}`;
+}
+
 
 export function DriverWalletSsotPanel({
   currencyCode,
@@ -129,11 +140,13 @@ export function DriverWalletSsotPanel({
         <CardHeader className="flex flex-row items-center justify-between gap-4">
           <div>
             <CardTitle className="text-base">Drivers</CardTitle>
+            <p className="text-sm font-medium mt-1">
+              Selected period: {pageFrom && pageTo ? `${formatSelectedPeriodDate(pageFrom)} – ${formatSelectedPeriodDate(pageTo)}` : 'all dates'}
+            </p>
             <p className="text-sm text-muted-foreground mt-1">
-              Period-scoped expected earnings and wallet credits
-              {pageFrom && pageTo ? ` (${pageFrom} – ${pageTo})` : ''}.
-              Paid out uses completed Payout Ledger items in the same period.
-              Available is live payout eligibility — open a row for full evidence.
+              Expected earnings and wallet credited use this period.
+              Paid out uses the payout execution date within the period.
+              Available is the current live balance. Open a row for full evidence.
             </p>
           </div>
           <Button variant="outline" size="sm" onClick={() => refetch()} disabled={isFetching}>
@@ -175,15 +188,17 @@ export function DriverWalletSsotPanel({
               <TableHeader>
                 <TableRow>
                   <TableHead>Driver</TableHead>
-                  <TableHead className="text-right">Expected earnings</TableHead>
-                  <TableHead className="text-right">Wallet credited</TableHead>
-                  <TableHead className="text-right" title="Completed Payout Ledger items in selected period">
-                    Paid out
+                  <TableHead className="text-right">Expected earnings (selected period)</TableHead>
+                  <TableHead className="text-right">Wallet credited (selected period)</TableHead>
+                  <TableHead className="text-right" title="Completed Payout Ledger items whose execution date is inside the selected period">
+                    Paid out (execution date within period)
                   </TableHead>
                   <TableHead className="text-right" title="Live payout eligibility (not period-scoped)">
-                    Available
+                    Available (current live balance)
                   </TableHead>
-                  <TableHead className="text-right">Difference</TableHead>
+                  <TableHead className="text-right" title="Period credits minus expected earnings">
+                    Difference (period credits minus expected earnings)
+                  </TableHead>
                   <TableHead>Credit / Payout</TableHead>
                 </TableRow>
               </TableHeader>
