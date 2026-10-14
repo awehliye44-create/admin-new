@@ -12,9 +12,6 @@ import type { CompanyFundingClassifiedSource } from "./payoutLedgerCompanyFundin
 export const ADMIN_PAYOUT_LEDGER_FN = "admin-payout-ledger";
 export const ADMIN_COMPANY_TRANSFER_FN = "admin-company-outgoing-transfer";
 export const ADMIN_COMPANY_PAYEES_FN = "admin-company-payees";
-export const ADMIN_SUBMIT_COMPANY_TRANSFER_FN = "admin-submit-company-transfer-payment";
-export const ADMIN_FINALIZE_COMPANY_TRANSFER_FN = "admin-finalize-company-transfer-completion";
-export const ADMIN_SYNC_COMPANY_TRANSFER_STATUS_FN = "admin-sync-company-transfer-provider-status";
 
 /** Top-level Payout Ledger page tabs (no new route). */
 export type AdminPayoutLedgerTopTab =

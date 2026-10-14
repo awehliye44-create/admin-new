@@ -16,16 +16,8 @@ import { formatPenceSigned, formatPenceWithCurrency } from "../../functions/_sha
 
 const FUNCTIONS_ROOT = fromFileUrl(new URL("../../functions", import.meta.url));
 
-/**
- * Pre-existing: the Revolut Business relay client never shipped these exports.
- * Money-moving code — must be implemented deliberately, not stubbed. This list
- * may only shrink.
- */
-const KNOWN_MISSING_EXPORTS = new Set([
-  "admin-sync-company-transfer-provider-status/index.ts -> ../_shared/revolutBusinessRelayClient.ts lacks relayCompanyTransferPaymentStatus",
-  "admin-submit-company-transfer-payment/index.ts -> ../_shared/revolutBusinessRelayClient.ts lacks relayApprovedCompanyTransferPayment",
-  "admin-finalize-company-transfer-completion/index.ts -> ../_shared/revolutBusinessRelayClient.ts lacks relayCompanyTransferPaymentStatus",
-]);
+/** Known boot failures. Empty since the company transfer execution functions were retired; keep it empty. */
+const KNOWN_MISSING_EXPORTS = new Set<string>();
 
 function isExported(mod: string, name: string): boolean {
   return new RegExp(
