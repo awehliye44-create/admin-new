@@ -59,7 +59,9 @@ import {
 import type { OpenReceivableRow } from "../_shared/customerReceivableSSOT.ts";
 import {
   buildCustomerReceivablePosition,
+  unresolvedShortfallBlocksBalanced,
   type CustomerReceivablePosition,
+  type ReceivablePositionAlertRow,
   type ReceivablePositionExceptionRow,
   type ReceivablePositionReceivableRow,
   type ReceivablePositionShortfallSessionRow,
@@ -1293,7 +1295,7 @@ serve(async (req) => {
     let customer_receivable_position: CustomerReceivablePosition | null = null;
     if (receivablesLedgerAvailable) {
       try {
-        const [allRecv, exceptionsRes, markerRes] = await Promise.all([
+        const [allRecv, exceptionsRes, markerRes, alertRes] = await Promise.all([
           supabase
             .from("customer_receivables")
             .select("id, source_trip_id, status, original_amount_pence, outstanding_amount_pence")
@@ -1307,11 +1309,23 @@ serve(async (req) => {
             .select("trip_id, status, provider_state, created_at, metadata")
             .not("metadata->shortfall_pence", "is", null)
             .limit(5000),
+          supabase
+            .from("ops_alerts")
+            .select("fingerprint, status, related_trip_id, metadata")
+            .eq("status", "open")
+            .like("fingerprint", "finance:shortfall_unrecorded:%")
+            .limit(500),
         ]);
         if (exceptionsRes.error) {
           console.warn(
             "[admin-finance-reconciliation] finance_shortfall_exceptions read skipped",
             exceptionsRes.error.message,
+          );
+        }
+        if (alertRes.error) {
+          console.warn(
+            "[admin-finance-reconciliation] shortfall ops_alerts read skipped",
+            alertRes.error.message,
           );
         }
         if (!allRecv.error && !markerRes.error) {
@@ -1321,6 +1335,9 @@ serve(async (req) => {
               ? null
               : (exceptionsRes.data ?? []) as ReceivablePositionExceptionRow[],
             shortfallSessions: (markerRes.data ?? []) as ReceivablePositionShortfallSessionRow[],
+            alerts: alertRes.error
+              ? []
+              : (alertRes.data ?? []) as ReceivablePositionAlertRow[],
           });
         }
       } catch (posCatch) {
@@ -1385,8 +1402,12 @@ serve(async (req) => {
       const check = finance_reconciliation_summary.reconciliation_check;
       const card = check.card_reconciliation;
       const variance = identity.fail_closed ? (identity.variance_pence ?? 0) : (identity.variance_pence ?? 0);
-      const balanced = identity.balanced && !identity.fail_closed;
-      const status = balanced ? "BALANCED" as const : "RECONCILIATION_MISMATCH" as const;
+      const identityBalanced = identity.balanced && !identity.fail_closed;
+      const shortfallBlocksBalanced = unresolvedShortfallBlocksBalanced(customer_receivable_position);
+      const balanced = identityBalanced && !shortfallBlocksBalanced;
+      const status = shortfallBlocksBalanced
+        ? "UNRESOLVED_SHORTFALL" as const
+        : balanced ? "BALANCED" as const : "RECONCILIATION_MISMATCH" as const;
       check.variance_pence = Math.abs(variance);
       check.delta_pence = Math.abs(variance);
       check.balanced = balanced;
@@ -1397,6 +1418,16 @@ serve(async (req) => {
       card.status = status;
       (card as { identity_applied?: boolean }).identity_applied = true;
       (card as { identity_fail_closed?: boolean }).identity_fail_closed = identity.fail_closed;
+    }
+
+    const unresolvedShortfallTrips = new Set(
+      customer_receivable_position?.unresolved_shortfall_trip_ids ?? [],
+    );
+    for (const row of trip_financial_audit) {
+      if (!unresolvedShortfallTrips.has(String(row.trip_id ?? ""))) continue;
+      row.reconciliation_status = { label: "UNRESOLVED_SHORTFALL", tone: "error" };
+      row.capture_mismatch = true;
+      row.resolved_by_receivable_recovery = false;
     }
 
     const fr_per_trip_audit = trip_financial_audit.map((row) =>

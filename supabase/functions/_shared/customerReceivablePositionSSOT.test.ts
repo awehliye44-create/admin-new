@@ -3,7 +3,10 @@
  * approved write-offs; pre-ledger shortfalls kept separate.
  */
 import { assertEquals } from "https://deno.land/std@0.224.0/assert/mod.ts";
-import { buildCustomerReceivablePosition } from "./customerReceivablePositionSSOT.ts";
+import {
+  buildCustomerReceivablePosition,
+  unresolvedShortfallBlocksBalanced,
+} from "./customerReceivablePositionSSOT.ts";
 
 Deno.test("production shape: 36p recovered, 587p pre-ledger, nothing unresolved", () => {
   const pos = buildCustomerReceivablePosition({
@@ -93,6 +96,48 @@ Deno.test("approved write-offs: written-off exceptions and waived receivables", 
   assertEquals(doubled.written_off_count, 1);
   assertEquals(pos.unresolved_shortfall_pence, 0);
   assertEquals(pos.recovered_pence, 0);
+});
+
+Deno.test("settled recovery is counted once and does not stay unresolved", () => {
+  const pos = buildCustomerReceivablePosition({
+    receivables: [
+      { id: "r", source_trip_id: "mk012", status: "SETTLED", original_amount_pence: 36, outstanding_amount_pence: 0 },
+    ],
+    exceptions: [],
+    shortfallSessions: [
+      { trip_id: "mk012", created_at: "2026-09-23T10:00:00Z", metadata: { shortfall_pence: 36 } },
+    ],
+    alerts: [{
+      fingerprint: "finance:shortfall_unrecorded:mk012",
+      status: "open",
+      related_trip_id: "mk012",
+      metadata: { shortfall_pence: 36 },
+    }],
+  });
+  assertEquals(pos.recovered_pence, 36);
+  assertEquals(pos.outstanding_pence, 0);
+  assertEquals(pos.unresolved_shortfall_pence, 0);
+  assertEquals(pos.recovered_pence + pos.outstanding_pence + pos.unresolved_shortfall_pence, 36);
+});
+
+Deno.test("marker-only and alert-only shortfalls stay unresolved and block balanced", () => {
+  const pos = buildCustomerReceivablePosition({
+    receivables: [],
+    exceptions: null,
+    shortfallSessions: [
+      { trip_id: "t-marker", created_at: "2026-10-14T10:00:00Z", metadata: { shortfall_pence: 40 } },
+    ],
+    alerts: [{
+      fingerprint: "finance:shortfall_unrecorded:t-alert",
+      status: "open",
+      related_trip_id: "t-alert",
+      metadata: { shortfall_pence: 9 },
+    }],
+  });
+  assertEquals(pos.unresolved_shortfall_pence, 49);
+  assertEquals(pos.unresolved_shortfall_trip_ids, ["t-alert", "t-marker"]);
+  assertEquals(unresolvedShortfallBlocksBalanced(pos), true);
+  assertEquals(unresolvedShortfallBlocksBalanced({ unresolved_shortfall_count: 0 }), false);
 });
 
 Deno.test("exceptions table unavailable: flagged, markers still detected", () => {

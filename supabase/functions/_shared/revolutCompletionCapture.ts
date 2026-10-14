@@ -51,7 +51,6 @@ import {
   markPaymentSessionCaptured,
   markPaymentSessionCaptureResidualRelease,
   markPaymentSessionCompletedPendingCapture,
-  markPaymentSessionPaymentShortfall,
   markPaymentSessionProviderFee,
 } from "./paymentSessionSSOT.ts";
 import { extractConfirmedCaptureAmountPence, extractProviderCaptureId } from "../../../shared/paymentHoldProviderTerminalPure.ts";
@@ -60,6 +59,7 @@ import { extractProviderFeePence } from "../../../shared/paymentCaptureEvidenceS
 import {
   ensureShortfallReceivableOrException,
   isWithinReceivablesLedger,
+  recordShortfallAfterConfirmedMarker,
   shortfallPenceFromSessionMarker,
   type ShortfallSafetyOutcome,
 } from "./shortfallReceivableSafety.ts";
@@ -775,13 +775,7 @@ export async function executeRevolutTripCompletionCapture(args: {
         providerConfirmedAuthorisedTotalPence: incrementResult.providerConfirmedTotalPence,
       });
       if (safe.capturePence <= 0) {
-        await markPaymentSessionPaymentShortfall(args.supabase, {
-          clientActionId,
-          tripId,
-          shortfallPence: safe.shortfallPence,
-          reason: `Increment ${incrementResult.kind}: ${incrementResult.message}`,
-        });
-        const recv = await ensureShortfallReceivableOrException(args.supabase, {
+        const recv = await recordShortfallAfterConfirmedMarker(args.supabase, {
           trip_id: tripId,
           trip_code: args.trip.trip_code ? String(args.trip.trip_code) : null,
           payment_session_id: paymentSession?.id ? String(paymentSession.id) : null,
@@ -795,6 +789,10 @@ export async function executeRevolutTripCompletionCapture(args: {
             args.trip.pickup_waiting_charge_pence ?? 0,
           ) || null,
           source: "zero_capture",
+        }, {
+          sessionId: paymentSession?.id ? String(paymentSession.id) : null,
+          providerOrderId: orderId,
+          reason: `Increment ${incrementResult.kind}: ${incrementResult.message}`,
         });
         return {
           success: false,
@@ -966,19 +964,7 @@ export async function executeRevolutTripCompletionCapture(args: {
         }
         let shortfallSafety: ShortfallSafetyOutcome | null = null;
         if (safe.shortfallPence > 0) {
-          // Provider already captured: a failed marker write must not skip the receivable.
-          try {
-            await markPaymentSessionPaymentShortfall(args.supabase, {
-              clientActionId,
-              tripId,
-              shortfallPence: safe.shortfallPence,
-              reason:
-                `Increment ${incrementResult.kind}; captured safe ${safe.capturePence}p; shortfall ${safe.shortfallPence}p only`,
-            });
-          } catch (markErr) {
-            console.error("[revolutCompletionCapture] shortfall marker persist failed", markErr);
-          }
-          shortfallSafety = await ensureShortfallReceivableOrException(args.supabase, {
+          shortfallSafety = await recordShortfallAfterConfirmedMarker(args.supabase, {
             trip_id: tripId,
             trip_code: args.trip.trip_code ? String(args.trip.trip_code) : null,
             payment_session_id: paymentSession?.id ? String(paymentSession.id) : null,
@@ -993,6 +979,11 @@ export async function executeRevolutTripCompletionCapture(args: {
             ) || null,
             provider_state: "COMPLETED",
             source: "partial_capture",
+          }, {
+            sessionId: paymentSession?.id ? String(paymentSession.id) : null,
+            providerOrderId: orderId,
+            reason:
+              `Increment ${incrementResult.kind}; captured safe ${safe.capturePence}p; shortfall ${safe.shortfallPence}p only`,
           });
         }
         const coveredSafe = tipCollectedFromConfirmedCapture({

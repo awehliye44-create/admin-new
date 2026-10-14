@@ -7,8 +7,11 @@ import type { SupabaseClient } from "npm:@supabase/supabase-js@2.57.2";
 import {
   buildShortfallEscalationFingerprint,
   buildShortfallExceptionIdempotencyKey,
+  commitShortfallSessionMarker,
   ensureShortfallReceivableOrException,
   isWithinReceivablesLedger,
+  recordShortfallAfterConfirmedMarker,
+  selectShortfallRecoveryCandidates,
   SHORTFALL_ESCALATION_LOG_TAG,
   SHORTFALL_SAFETY_STATE,
   shortfallPenceFromSessionMarker,
@@ -283,6 +286,114 @@ Deno.test("ledger guard: pre-ledger shortfalls never become new customer debt", 
   assertEquals(isWithinReceivablesLedger("2026-09-23T00:00:00Z"), true);
   assertEquals(isWithinReceivablesLedger(null), false);
   assertEquals(isWithinReceivablesLedger("garbage"), false);
+});
+
+function markerClient(opts: { updateError?: string; readback: number | null }) {
+  let selects = 0;
+  const calls: string[] = [];
+  const client = {
+    from(table: string) {
+      return {
+        select() {
+          selects += 1;
+          calls.push(`select:${table}`);
+          const chain = {
+            eq() { return chain; },
+            limit() { return chain; },
+            maybeSingle() {
+              if (selects === 1) {
+                return Promise.resolve({ data: { id: "ps-1", trip_id: TRIP, metadata: {} }, error: null });
+              }
+              return Promise.resolve({
+                data: { id: "ps-1", metadata: opts.readback == null ? {} : { shortfall_pence: opts.readback } },
+                error: null,
+              });
+            },
+          };
+          return chain;
+        },
+        update() {
+          calls.push(`update:${table}`);
+          const chain = {
+            eq() { return chain; },
+            then(resolve: (value: unknown) => void) {
+              resolve({ error: opts.updateError ? { message: opts.updateError } : null });
+            },
+          };
+          return chain;
+        },
+        insert(row: Record<string, unknown>) {
+          calls.push(`insert:${table}`);
+          return Promise.resolve({ error: null, row });
+        },
+      };
+    },
+    rpc(name: string) {
+      calls.push(`rpc:${name}`);
+      return Promise.resolve({ data: { ok: true, receivable_id: "recv-1", created: true }, error: null });
+    },
+  };
+  return { client: client as unknown as SupabaseClient, calls };
+}
+
+Deno.test("marker update that affects no confirmed row is not committed", async () => {
+  const db = markerClient({ updateError: "down" });
+  const out = await commitShortfallSessionMarker(db.client, {
+    sessionId: "ps-1",
+    tripId: TRIP,
+    shortfallPence: 40,
+    reason: "partial",
+  });
+  assertEquals(out.committed, false);
+  assert(db.calls.includes("update:payment_sessions"));
+  assertEquals(db.calls.filter((c) => c.startsWith("select")).length, 1);
+});
+
+Deno.test("marker is committed only when read-back matches, and only then is the receivable attempted", async () => {
+  const db = markerClient({ readback: 40 });
+  const out = await recordShortfallAfterConfirmedMarker(db.client, input(), {
+    sessionId: "ps-1",
+    reason: "partial",
+  }, { log: silent });
+  assertEquals(out.marker_committed, true);
+  assertEquals(out.state, SHORTFALL_SAFETY_STATE.RECEIVABLE_RECORDED);
+  const updateAt = db.calls.indexOf("update:payment_sessions");
+  const rpcAt = db.calls.indexOf("rpc:customer_receivable_record_declined_increment");
+  assert(updateAt >= 0 && rpcAt > updateAt);
+  assert(db.calls.filter((c) => c.startsWith("select")).length >= 2);
+});
+
+Deno.test("unconfirmed marker does not start a receivable write", async () => {
+  const db = markerClient({ readback: null });
+  const out = await recordShortfallAfterConfirmedMarker(db.client, input(), {
+    sessionId: "ps-1",
+    reason: "partial",
+  }, { log: silent });
+  assertEquals(out.marker_committed, false);
+  assertEquals(out.state, SHORTFALL_SAFETY_STATE.ESCALATED_UNRECORDED);
+  assert(!db.calls.some((c) => c.startsWith("rpc:")));
+  assert(db.calls.includes("insert:ops_alerts"));
+});
+
+Deno.test("recovery skips trips that already have a receivable and cancelled sessions", () => {
+  const rows = selectShortfallRecoveryCandidates({
+    sessions: [
+      { id: "ps-open", trip_id: "t-open", created_at: "2026-10-14T10:00:00Z", captured_amount_pence: 1200, metadata: { shortfall_pence: 40, shortfall_expected_fare_pence: 1240 } },
+      { id: "ps-done", trip_id: "t-done", created_at: "2026-10-14T10:00:00Z", metadata: { shortfall_pence: 36 } },
+      { id: "ps-old", trip_id: "t-old", created_at: "2026-08-08T10:00:00Z", metadata: { shortfall_pence: 50 } },
+      { id: "ps-cancel", trip_id: "t-cancel", status: "cancelled", created_at: "2026-10-14T10:00:00Z", metadata: { shortfall_pence: 10 } },
+    ],
+    alerts: [{
+      fingerprint: "finance:shortfall_unrecorded:t-alert",
+      status: "open",
+      related_trip_id: "t-alert",
+      metadata: { shortfall_pence: 9, captured_pence: 500, expected_fare_pence: 509, payment_session_id: "ps-a" },
+    }],
+    receivableTripIds: ["t-done"],
+  });
+  assertEquals(rows.map((r) => r.tripId).sort(), ["t-alert", "t-open"]);
+  assertEquals(rows.find((r) => r.tripId === "t-open")?.expectedFarePence, 1240);
+  assertEquals(rows.find((r) => r.tripId === "t-open")?.capturedPence, 1200);
 });
 
 Deno.test("session marker parsing", () => {

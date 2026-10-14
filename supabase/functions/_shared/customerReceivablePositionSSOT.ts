@@ -36,6 +36,13 @@ export type ReceivablePositionShortfallSessionRow = {
   metadata?: Record<string, unknown> | null;
 };
 
+export type ReceivablePositionAlertRow = {
+  fingerprint?: string | null;
+  status?: string | null;
+  related_trip_id?: string | null;
+  metadata?: Record<string, unknown> | null;
+};
+
 export type CustomerReceivablePosition = {
   outstanding_pence: number;
   outstanding_count: number;
@@ -68,10 +75,18 @@ function isCancelledSession(row: ReceivablePositionShortfallSessionRow): boolean
   return st === "CANCELLED" || ps === "CANCELLED";
 }
 
+/** An unresolved shortfall must not be presented as a balanced reconciliation. */
+export function unresolvedShortfallBlocksBalanced(
+  position: { unresolved_shortfall_count: number } | null | undefined,
+): boolean {
+  return (position?.unresolved_shortfall_count ?? 0) > 0;
+}
+
 export function buildCustomerReceivablePosition(args: {
   receivables: ReceivablePositionReceivableRow[];
   exceptions: ReceivablePositionExceptionRow[] | null;
   shortfallSessions: ReceivablePositionShortfallSessionRow[];
+  alerts?: ReceivablePositionAlertRow[] | null;
 }): CustomerReceivablePosition {
   const pos: CustomerReceivablePosition = {
     outstanding_pence: 0,
@@ -151,6 +166,19 @@ export function buildCustomerReceivablePosition(args: {
       pos.legacy_pre_ledger_shortfall_pence += marker;
       pos.legacy_pre_ledger_shortfall_count += 1;
     }
+  }
+
+  for (const alert of args.alerts ?? []) {
+    const tripId = String(alert.related_trip_id ?? "");
+    const fingerprint = String(alert.fingerprint ?? "");
+    const status = String(alert.status ?? "").toLowerCase();
+    if (!tripId || status !== "open" || !fingerprint.startsWith("finance:shortfall_unrecorded:")) continue;
+    if (receivableTrips.has(tripId) || exceptionTrips.has(tripId) || unresolvedTrips.has(tripId)) continue;
+    const marker = pence(alert.metadata?.shortfall_pence);
+    if (marker <= 0) continue;
+    pos.unresolved_shortfall_pence += marker;
+    pos.unresolved_shortfall_count += 1;
+    unresolvedTrips.add(tripId);
   }
 
   pos.unresolved_shortfall_trip_ids = [...unresolvedTrips].sort();
