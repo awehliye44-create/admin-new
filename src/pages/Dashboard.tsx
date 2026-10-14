@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef, useCallback, useMemo } from 'react';
 import { usePageLoadTelemetry } from '@/hooks/useAdminTelemetry';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { AdminLayout } from '@/components/layout/AdminLayout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -226,6 +226,7 @@ export default function Dashboard() {
   const mapInitError = mapboxError ?? mapError;
   const mapRef = useRef<HTMLDivElement>(null);
   const mapboxMapRef = useRef<mapboxgl.Map | null>(null);
+  const queryClient = useQueryClient();
   const fleetMarkersRef = useRef<globalThis.Map<string, mapboxgl.Marker>>(new globalThis.Map());
   const hasFittedFleetRef = useRef(false);
   const userAdjustedViewRef = useRef(false);
