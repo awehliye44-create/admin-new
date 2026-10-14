@@ -197,6 +197,8 @@ const PAYOUT_IN_FLIGHT_STATUSES = new Set([
 export type DriverFinancialRepairVisibilityInput = {
   wallet_status?: string | null;
   driver_credit_status?: string | null;
+  /** NO_TRIPS_IN_PERIOD = nothing to evaluate in the period, not a repair defect. */
+  driver_credit_unknown_reason?: string | null;
   reconciliation_status?: string | null;
   expected_stamp_status?: string | null;
   missing_stamp_trip_count?: number | null;
@@ -222,9 +224,11 @@ export function shouldShowDriverFinancialReviewRepair(
   if (wallet === "FROZEN") return true;
 
   const credit = String(input.driver_credit_status ?? "").toUpperCase();
+  const emptyPeriod = credit === "DRIVER_CREDIT_UNKNOWN"
+    && String(input.driver_credit_unknown_reason ?? "").toUpperCase() === "NO_TRIPS_IN_PERIOD";
   if (
     credit === "EXPECTED_STAMP_MISSING"
-    || credit === "DRIVER_CREDIT_UNKNOWN"
+    || (credit === "DRIVER_CREDIT_UNKNOWN" && !emptyPeriod)
     || credit === "DRIVER_UNDER_CREDITED"
     || credit === "DRIVER_OVER_CREDITED"
     || credit === "DRIVER_WALLET_MISMATCH"

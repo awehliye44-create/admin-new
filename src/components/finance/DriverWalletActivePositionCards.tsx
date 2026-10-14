@@ -2,7 +2,11 @@ import { Card, CardContent } from '@/components/ui/card';
 import { formatNullablePence } from '@/lib/formatNullablePence';
 import type { DriverWalletSsotRow } from '@/hooks/useDriverWalletSsot';
 import { displayDriverWalletSsotBalances } from '@/lib/driverWalletSsotBalances';
-import { resolveDriverWalletPayoutStatusDisplay } from '@/lib/driverWalletPayoutStatusDisplay';
+import {
+  driverCreditStatusLabel,
+  resolveDriverWalletPayoutStatusDisplay,
+  unbackedWalletReasonLabel,
+} from '@/lib/driverWalletPayoutStatusDisplay';
 import { Badge } from '@/components/ui/badge';
 import { Loader2 } from 'lucide-react';
 
@@ -72,7 +76,7 @@ export function DriverWalletActivePositionCards({
         </Badge>
         {driver.driver_credit_status ? (
           <Badge variant={status.creditOk && !status.creditFrozen ? 'default' : 'secondary'}>
-            Credit: {driver.driver_credit_status}
+            Credit: {driverCreditStatusLabel(driver.driver_credit_status, driver.driver_credit_unknown_reason)}
           </Badge>
         ) : null}
         {status.showPayoutFrozenBadge ? (
@@ -90,10 +94,18 @@ export function DriverWalletActivePositionCards({
         </p>
       ) : null}
       <div className="grid gap-3 grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
+        <Metric label="Live wallet" value={fmt(balances.livePence)} hint="Available + Pending + Reserved + Held + Unbacked" />
         <Metric label="Pending" value={fmt(balances.pendingPence)} hint="Not yet payout-cleared" />
         <Metric label="Available" value={fmt(balances.availablePence)} hint="Eligible for payout" />
         <Metric label="Reserved" value={fmt(reservedPence(driver))} hint="Withdrawal / batch reservation" />
-        <Metric label="Open difference" value={fmt(openDifferencePence(driver))} hint="FR wallet variance" />
+        {(driver.unbacked_wallet_pence ?? 0) > 0 ? (
+          <Metric
+            label="Unbacked"
+            value={fmt(driver.unbacked_wallet_pence ?? 0)}
+            hint={`${unbackedWalletReasonLabel(driver.unbacked_wallet_reason) ?? 'Review'} — never paid out`}
+          />
+        ) : null}
+        <Metric label="Credit variance (period)" value={fmt(openDifferencePence(driver))} hint="Trip credits − expected, selected period" />
         {processingException > 0 ? (
           <Metric label="Processing exception" value={fmt(processingException)} hint="Stuck in-flight payout" />
         ) : null}

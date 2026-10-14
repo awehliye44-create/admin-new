@@ -246,6 +246,7 @@ export default function DriverWalletLedger() {
   const showReviewRepair = shouldShowDriverFinancialReviewRepair({
     wallet_status: driver?.wallet_status,
     driver_credit_status: driver?.driver_credit_status,
+    driver_credit_unknown_reason: driver?.driver_credit_unknown_reason,
     reconciliation_status: driver?.reconciliation_status,
     missing_stamp_trip_count: driver?.missing_stamp_trip_count,
     settlement_history: driver?.settlement_history,

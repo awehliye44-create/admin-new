@@ -55,6 +55,22 @@ export const FR_DRIVER_CREDIT_STATUSES = [
 
 export type FrDriverCreditStatus = (typeof FR_DRIVER_CREDIT_STATUSES)[number];
 
+/**
+ * Why driver_credit_status is DRIVER_CREDIT_UNKNOWN. The status itself never
+ * changes (UNKNOWN is never OK); the reason says whether it is a genuine
+ * evidence gap or simply an empty period.
+ */
+export const FR_DRIVER_CREDIT_UNKNOWN_REASONS = [
+  "NO_TRIPS_IN_PERIOD",
+  "CREDITS_WITHOUT_EVALUABLE_TRIP",
+  "EXPECTED_NOT_AVAILABLE",
+  "IDENTITY_MAPPING_MISSING",
+  "WALLET_EVIDENCE_UNAVAILABLE",
+  "SETTLEMENT_EVIDENCE_UNAVAILABLE",
+] as const;
+
+export type FrDriverCreditUnknownReason = (typeof FR_DRIVER_CREDIT_UNKNOWN_REASONS)[number];
+
 /** FR Drivers tab — payout ledger vs wallet transfer debits (fees excluded). */
 export const FR_PAYOUT_RECONCILIATION_STATUSES = [
   "PAYOUT_OK",
@@ -234,6 +250,8 @@ export type FrDriverReconciliationRow = {
   payout_variance_pence: number | null;
   reconciliation_status: FrDriverReconciliationStatus;
   driver_credit_status: FrDriverCreditStatus;
+  /** Set only when driver_credit_status is DRIVER_CREDIT_UNKNOWN. */
+  driver_credit_unknown_reason?: FrDriverCreditUnknownReason | null;
   payout_status: FrPayoutReconciliationStatus;
   query_scope_status: FrQueryScopeStatus;
   reconciliation_reasons: string[];
@@ -451,6 +469,28 @@ export function classifyFrDriverCreditStatus(args: {
   return "DRIVER_OVER_CREDITED";
 }
 
+export function resolveFrDriverCreditUnknownReason(args: {
+  driver_credit_status: FrDriverCreditStatus;
+  expected_payable_pence: number | null;
+  wallet_variance_pence: number | null;
+  evaluable_trip_count?: number;
+  missing_stamp_trip_count?: number;
+}): FrDriverCreditUnknownReason | null {
+  if (args.driver_credit_status !== "DRIVER_CREDIT_UNKNOWN") return null;
+  if (args.expected_payable_pence == null || args.wallet_variance_pence == null) {
+    return "EXPECTED_NOT_AVAILABLE";
+  }
+  if (
+    (args.evaluable_trip_count ?? 0) === 0
+    && (args.missing_stamp_trip_count ?? 0) === 0
+    && args.expected_payable_pence === 0
+    && args.wallet_variance_pence === 0
+  ) {
+    return "NO_TRIPS_IN_PERIOD";
+  }
+  return "CREDITS_WITHOUT_EVALUABLE_TRIP";
+}
+
 export function classifyFrPayoutStatus(payout_variance_pence: number, payoutActivity: boolean): FrPayoutReconciliationStatus {
   if (!payoutActivity || payout_variance_pence === 0) return "PAYOUT_OK";
   return "PAYOUT_MISMATCH";
@@ -514,6 +554,7 @@ export function computeFrDriverReconciliation(
       payout_variance_pence: null,
       reconciliation_status: "MISSING_SETTLEMENT_EVIDENCE",
       driver_credit_status: "DRIVER_CREDIT_UNKNOWN",
+      driver_credit_unknown_reason: "IDENTITY_MAPPING_MISSING",
       payout_status: "PAYOUT_OK",
       query_scope_status: input.query_scope_status ?? "LIFETIME",
       reconciliation_reasons: ["Driver identity mapping missing"],
@@ -539,6 +580,7 @@ export function computeFrDriverReconciliation(
       payout_variance_pence: null,
       reconciliation_status: "MISSING_WALLET_EVIDENCE",
       driver_credit_status: "DRIVER_CREDIT_UNKNOWN",
+      driver_credit_unknown_reason: "WALLET_EVIDENCE_UNAVAILABLE",
       payout_status: "PAYOUT_OK",
       query_scope_status: input.query_scope_status ?? "LIFETIME",
       reconciliation_reasons: ["Driver wallet ledger evidence unavailable"],
@@ -564,6 +606,7 @@ export function computeFrDriverReconciliation(
       payout_variance_pence: null,
       reconciliation_status: "MISSING_SETTLEMENT_EVIDENCE",
       driver_credit_status: "DRIVER_CREDIT_UNKNOWN",
+      driver_credit_unknown_reason: "SETTLEMENT_EVIDENCE_UNAVAILABLE",
       payout_status: "PAYOUT_OK",
       query_scope_status: input.query_scope_status ?? "LIFETIME",
       reconciliation_reasons: ["Settlement evidence unavailable"],
@@ -723,6 +766,7 @@ export function computeFrDriverReconciliation(
       payout_variance_pence: payoutVariance,
       reconciliation_status: "PENDING_SYNC",
       driver_credit_status: "DRIVER_CREDIT_UNKNOWN",
+      driver_credit_unknown_reason: "EXPECTED_NOT_AVAILABLE",
       payout_status: classifyFrPayoutStatus(payoutVariance, payoutActivity),
       query_scope_status: queryScopeStatus,
       reconciliation_reasons: ["Expected driver payable not yet available"],
@@ -813,6 +857,13 @@ export function computeFrDriverReconciliation(
     payout_variance_pence: payoutVariance,
     reconciliation_status: status,
     driver_credit_status: driverCreditStatus,
+    driver_credit_unknown_reason: resolveFrDriverCreditUnknownReason({
+      driver_credit_status: driverCreditStatus,
+      expected_payable_pence: expected,
+      wallet_variance_pence: walletVariance,
+      evaluable_trip_count: entitlementSummary.evaluable_trip_count,
+      missing_stamp_trip_count: entitlementSummary.missing_stamp_trip_count,
+    }),
     payout_status: payoutStatus,
     query_scope_status: queryScopeStatus,
     reconciliation_reasons: reasons,

@@ -27,7 +27,12 @@ import {
   buildDriverWalletPeriodKpis,
   type DriverWalletPeriodKpis,
 } from "./driverWalletPeriodKpisSSOT.ts";
-import { fetchDriverPayoutEligibility } from "./fetchDriverPayoutEligibility.ts";
+import { fetchDriverPayoutEligibilityContext } from "./fetchDriverPayoutEligibility.ts";
+import {
+  computeUnbackedWalletBalance,
+  loadUnrecordedCashoutFeePenceByDriver,
+  type UnbackedWalletReason,
+} from "./payoutAccountCompositionSSOT.ts";
 import { mergeBackendEconomicFields } from "./economicEarnedAtSSOT.ts";
 import { economicFieldsByLedgerOrTrip, loadDriverWalletEconomicFields } from "./loadDriverWalletEconomicFields.ts";
 import { buildDriverWalletSettlementHistory, buildDriverWalletSettlementHistoryRow } from "./driverWalletSettlementHistorySSOT.ts";
@@ -68,6 +73,12 @@ export type DriverWalletPayoutDetail = Omit<
   last_payout_amount_pence: number | null;
   /** Reserved/in-flight withdrawal amount from payout eligibility. */
   withdrawal_in_progress_pence: number;
+  /** Live balance no unallocated credit explains — never payable (same SSOT as Payout Ledger). */
+  unbacked_wallet_pence?: number;
+  unbacked_wallet_reason?: UnbackedWalletReason | null;
+  /** Active driver_payout_destinations row is PROVIDER_VERIFIED with counterparty + account. */
+  payout_destination_verified?: boolean;
+  payout_destination_last4?: string | null;
   /** Wallet account identity — owned by Driver Wallet Ledger. */
   driver_tier_name: string | null;
   commission_percent: number | null;
@@ -149,7 +160,7 @@ export async function fetchDriverWalletPayoutSnapshot(
     payoutItemsRes,
     earlyCashoutsRes,
     driverServiceAreaRes,
-    payoutEligibility,
+    payoutEligibilityCtx,
   ] = await Promise.all([
     supabase.from("driver_wallet_ledger").select("id, type, amount_pence, provider_payout_id, created_at, related_trip_id")
       .eq("driver_id", args.driverId),
@@ -180,8 +191,9 @@ export async function fetchDriverWalletPayoutSnapshot(
       .eq("driver_id", args.driverId)
       .limit(1)
       .maybeSingle(),
-    fetchDriverPayoutEligibility(supabase, { driver_id: args.driverId }),
+    fetchDriverPayoutEligibilityContext(supabase, { driver_id: args.driverId }),
   ]);
+  const payoutEligibility = payoutEligibilityCtx.eligibility;
 
   const rawLedger = fullLedgerRes.data ?? [];
   const rawRecentLedger = recentLedgerRes.data ?? [];
@@ -686,7 +698,16 @@ export async function fetchDriverWalletPayoutSnapshot(
     query_scope_status: periodScoped ? "PERIOD_SCOPED" : "LIFETIME",
   });
 
-  const economicFields = await loadDriverWalletEconomicFields(supabase, args.driverId);
+  const [economicFields, unrecordedFeeByDriver] = await Promise.all([
+    loadDriverWalletEconomicFields(supabase, args.driverId),
+    loadUnrecordedCashoutFeePenceByDriver(supabase, [args.driverId]),
+  ]);
+  const unbacked = computeUnbackedWalletBalance({
+    live_pence: frRow.current_wallet_balance_pence ?? walletBalance,
+    eligibility: payoutEligibility,
+    withdrawal_in_progress_pence: withdrawalInProgress,
+    unrecorded_cashout_fee_pence: unrecordedFeeByDriver.get(args.driverId) ?? 0,
+  });
   const attributedLedger = ledger.map((r) => {
     const id = String((r as { id?: string | null }).id ?? "");
     const tripId = (r as { related_trip_id?: string | null }).related_trip_id ?? null;
@@ -1172,6 +1193,10 @@ export async function fetchDriverWalletPayoutSnapshot(
     cashout_limit_pence: canonicalAvailable,
     pending_balance_pence: canonicalPending,
     withdrawal_in_progress_pence: withdrawalInProgress,
+    unbacked_wallet_pence: unbacked.unbacked_pence,
+    unbacked_wallet_reason: unbacked.unbacked_reason,
+    payout_destination_verified: payoutEligibilityCtx.provider_verified_active_destination,
+    payout_destination_last4: payoutEligibilityCtx.active_destination_last4,
     wallet_balance_pence: frRow.current_wallet_balance_pence ?? snapshot.wallet_balance_pence,
     driver_id: args.driverId,
     user_id: (driver?.user_id as string) ?? null,

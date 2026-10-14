@@ -18,7 +18,11 @@ import {
   type DriverWalletSsotRow,
 } from '@/hooks/useDriverWalletSsot';
 import { displayDriverWalletSsotBalances } from '@/lib/driverWalletSsotBalances';
-import { resolveDriverWalletPayoutStatusDisplay } from '@/lib/driverWalletPayoutStatusDisplay';
+import {
+  driverCreditStatusLabel,
+  resolveDriverWalletPayoutStatusDisplay,
+  unbackedWalletReasonLabel,
+} from '@/lib/driverWalletPayoutStatusDisplay';
 import { DriverOperationalPauseMenuItem } from '@/components/finance/DriverOperationalPauseMenuItem';
 import {
   driverFinancialReviewRepairButtonLabel,
@@ -65,7 +69,7 @@ function driverStatusBadges(row: DriverWalletSsotRow): {
   const status = resolveDriverWalletPayoutStatusDisplay(row);
   return {
     walletLabel: row.wallet_status ?? '—',
-    creditLabel: row.driver_credit_status ?? null,
+    creditLabel: driverCreditStatusLabel(row.driver_credit_status, row.driver_credit_unknown_reason),
     holdLabel: status.showPayoutHoldBadge ? status.payoutBlockReason : null,
     frozen: status.showPayoutFrozenBadge,
   };
@@ -121,7 +125,8 @@ export function DriverWalletDriverList({
       <CardHeader>
         <CardTitle className="text-base">Active driver wallets</CardTitle>
         <p className="text-sm text-muted-foreground mt-1">
-          Pending, available, reserved, and open differences only. Lifetime paid-out totals are on the driver history view.
+          Live, Pending, Available, Reserved and Unbacked are live balances (Live = Available + Pending + Reserved + Held + Unbacked).
+          Credit variance and the credit status cover the selected period only. Lifetime paid-out totals are on the driver history view.
         </p>
       </CardHeader>
       <CardContent>
@@ -138,10 +143,14 @@ export function DriverWalletDriverList({
             <TableHeader>
               <TableRow>
                 <TableHead>Driver</TableHead>
-                <TableHead className="text-right">Pending</TableHead>
-                <TableHead className="text-right">Available</TableHead>
-                <TableHead className="text-right">Reserved</TableHead>
-                <TableHead className="text-right">Open difference</TableHead>
+                <TableHead className="text-right" title="Live wallet balance">Live wallet</TableHead>
+                <TableHead className="text-right" title="Captured, not yet cleared (live)">Pending</TableHead>
+                <TableHead className="text-right" title="Payable now — same formula as payout reservation">Available</TableHead>
+                <TableHead className="text-right" title="Active payout reservations and in-flight cash-outs">Reserved</TableHead>
+                <TableHead className="text-right" title="Live balance no earning credit explains — never paid out">Unbacked</TableHead>
+                <TableHead className="text-right" title="Trip credits minus expected earnings, selected period only">
+                  Credit variance (period)
+                </TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead className="w-[52px]">Actions</TableHead>
               </TableRow>
@@ -149,7 +158,7 @@ export function DriverWalletDriverList({
             <TableBody>
               {rows.length === 0 && !isLoading ? (
                 <TableRow>
-                  <TableCell colSpan={7} className="text-center text-muted-foreground py-8">
+                  <TableCell colSpan={9} className="text-center text-muted-foreground py-8">
                     No drivers with connected payout accounts in this region.
                   </TableCell>
                 </TableRow>
@@ -172,6 +181,9 @@ export function DriverWalletDriverList({
                     ) : null}
                   </TableCell>
                   <TableCell className="text-right tabular-nums">
+                    {formatNullablePence(balances.livePence, currencyCode)}
+                  </TableCell>
+                  <TableCell className="text-right tabular-nums">
                     {formatNullablePence(balances.pendingPence, currencyCode)}
                   </TableCell>
                   <TableCell className="text-right tabular-nums">
@@ -179,6 +191,12 @@ export function DriverWalletDriverList({
                   </TableCell>
                   <TableCell className="text-right tabular-nums">
                     {formatNullablePence(reservedPence(row), currencyCode)}
+                  </TableCell>
+                  <TableCell className="text-right tabular-nums">
+                    <div>{formatNullablePence(Math.max(0, Number(row.unbacked_wallet_pence ?? 0)), currencyCode)}</div>
+                    {(row.unbacked_wallet_pence ?? 0) > 0 ? (
+                      <div className="text-xs text-amber-700">{unbackedWalletReasonLabel(row.unbacked_wallet_reason)}</div>
+                    ) : null}
                   </TableCell>
                   <TableCell className="text-right tabular-nums">
                     {formatNullablePence(openDifferencePence(row), currencyCode)}
@@ -211,6 +229,7 @@ export function DriverWalletDriverList({
                           visibility: {
                             wallet_status: row.wallet_status,
                             driver_credit_status: row.driver_credit_status,
+                            driver_credit_unknown_reason: row.driver_credit_unknown_reason,
                             reconciliation_status: row.reconciliation_status,
                             missing_stamp_trip_count: row.missing_stamp_trip_count,
                             settlement_history: row.settlement_history,

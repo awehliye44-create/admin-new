@@ -143,18 +143,34 @@ export type DriverPayoutAccountRow = {
   verification: string | null;
   /** DWL live wallet balance — liability, not always payable. */
   live_balance_pence?: number;
+  /** Payable now — reservation formula; zero for deleted / held drivers. */
   available_balance_pence: number;
+  /** Settlement pending only (captured, not yet cleared). */
   pending_balance_pence: number;
+  /** ACTIVE payout reservations + in-flight cash-outs. */
+  reserved_pence?: number;
+  /** Backed by a credit but not payable now — see unavailable_reason. */
+  held_pence?: number;
+  /** Live balance no unallocated credit explains — never payable. */
+  unbacked_pence?: number;
+  unbacked_reason?: string | null;
   debt_pence: number;
-  /** Machine-readable hold when live > 0 and available = 0. */
+  /** Why the held / unbacked part of live is not payable. */
   unavailable_reason?: string | null;
-  /** Count of eligibility-proven ledger credits included in available. */
+  /** Payable ledger credits included in Available (0 when the driver is not in the next run). */
   eligible_entry_count?: number;
-  /** Display label for payout destination (manual bank / provider account). */
+  held_entry_count?: number;
+  /** Display label for the active payout destination, or "Not set". */
   payout_destination?: string | null;
+  /** True only when the next scheduled run would pay this driver. */
+  payout_included?: boolean;
+  /** Next run, only when payout_included — a calendar slot is not an approval. */
   next_scheduled_at: string | null;
   /** Backend-formatted local next run (Europe/London wall clock) — never browser-local. */
   next_scheduled_local?: string | null;
+  /** Why the driver is not in the next run (when payout_included is false). */
+  next_scheduled_note?: string | null;
+  driver_deleted?: boolean;
   last_payout_at: string | null;
   last_payout_amount_pence: number | null;
   schedule_label: string | null;
@@ -175,6 +191,10 @@ export type AdminPayoutLedgerFleetSummary = {
   /** Σ ACTIVE driver_payout_reservations (not permanent debits). */
   total_reserved_pence?: number;
   total_pending_pence?: number;
+  /** Σ held (backed, not payable now) — deleted / paused / held drivers included. */
+  total_held_pence?: number;
+  /** Σ unbacked live balance — never payable. */
+  total_unbacked_pence?: number;
   total_outstanding_debt_pence?: number;
   total_scheduled_pence: number;
   total_processing_pence: number;

@@ -60,6 +60,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { driverWalletLedgerUrl } from '@/lib/driverWalletLedgerRoutes';
 import { downloadCsv, downloadRecordsAsExcel, printFinanceReport, printFinanceRecords } from '@/lib/financeExport';
 import { formatNullablePence } from '@/lib/formatNullablePence';
+import { unbackedWalletReasonLabel } from '@/lib/driverWalletPayoutStatusDisplay';
 import { DriverOperationalPauseMenuItem } from '@/components/finance/DriverOperationalPauseMenuItem';
 import { paymentSessionsUrl } from '../../shared/adminPaymentSessionsSSOT';
 import { payoutLedgerUrl } from '../../shared/adminPayoutLedgerSSOT';
@@ -769,10 +770,24 @@ export default function PayoutLedger() {
                   </CardContent>
                 </Card>
                 <Card>
-                  <CardHeader className="pb-2"><CardTitle className="text-sm">Other Pending / Held</CardTitle></CardHeader>
+                  <CardHeader className="pb-2"><CardTitle className="text-sm">Pending (settlement)</CardTitle></CardHeader>
                   <CardContent className="space-y-1">
                     <div className="text-xl font-semibold tabular-nums">{formatNullablePence(fleet.total_pending_pence ?? null)}</div>
-                    <div className="text-[11px] text-muted-foreground">Source: Driver Wallet Ledger SSOT (excludes ACTIVE reservations)</div>
+                    <div className="text-[11px] text-muted-foreground">Captured, not yet cleared. Excludes reservations and holds.</div>
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardHeader className="pb-2"><CardTitle className="text-sm">Held (not payable now)</CardTitle></CardHeader>
+                  <CardContent className="space-y-1">
+                    <div className="text-xl font-semibold tabular-nums">{formatNullablePence(fleet.total_held_pence ?? null)}</div>
+                    <div className="text-[11px] text-muted-foreground">Deleted, paused or held drivers and held credits. See Hold Reason.</div>
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardHeader className="pb-2"><CardTitle className="text-sm">Unbacked Balance</CardTitle></CardHeader>
+                  <CardContent className="space-y-1">
+                    <div className="text-xl font-semibold tabular-nums">{formatNullablePence(fleet.total_unbacked_pence ?? null)}</div>
+                    <div className="text-[11px] text-muted-foreground">Live balance no earning credit explains. Never paid out.</div>
                   </CardContent>
                 </Card>
                 <Card><CardHeader className="pb-2"><CardTitle className="text-sm">Total Outstanding Debt</CardTitle></CardHeader><CardContent className="text-xl font-semibold tabular-nums">{formatNullablePence(fleet.total_outstanding_debt_pence ?? null)}</CardContent></Card>
@@ -882,13 +897,15 @@ export default function PayoutLedger() {
                       <TableHead>Provider</TableHead>
                       <TableHead>Payout Destination</TableHead>
                       <TableHead>Verification</TableHead>
-                      <TableHead>Live Wallet</TableHead>
-                      <TableHead>Available</TableHead>
-                      <TableHead>Pending/Held</TableHead>
+                      <TableHead title="Live wallet = Available + Pending + Reserved + Held + Unbacked">Live Wallet</TableHead>
+                      <TableHead title="Payable now — same formula as payout reservation">Available</TableHead>
+                      <TableHead title="Captured, not yet cleared">Pending</TableHead>
+                      <TableHead title="Active payout reservations and in-flight cash-outs">Reserved</TableHead>
+                      <TableHead title="Held: backed but not payable now. Unbacked: never paid out.">Held / Unbacked</TableHead>
                       <TableHead>Debt</TableHead>
                       <TableHead>Hold Reason</TableHead>
-                      <TableHead>Eligible Entries</TableHead>
-                      <TableHead>Next Scheduled</TableHead>
+                      <TableHead title="Payable credits in Available; held credits in brackets">Eligible Entries</TableHead>
+                      <TableHead title="Only when the next run would pay this driver — a calendar slot is not an approval">Next Scheduled</TableHead>
                       <TableHead>Last Payout</TableHead>
                       <TableHead>Schedule</TableHead>
                       <TableHead>Status</TableHead>
@@ -905,6 +922,9 @@ export default function PayoutLedger() {
                         <TableCell className="text-xs">
                           <div className="font-medium">{row.name ?? row.driver_id.slice(0, 8)}</div>
                           <div className="text-muted-foreground">{row.code ?? '—'}</div>
+                          {row.driver_deleted ? (
+                            <Badge variant="outline" className="mt-1 text-[10px]">Deleted — review required</Badge>
+                          ) : null}
                         </TableCell>
                         <TableCell className="text-xs">{row.service_area ?? '—'}</TableCell>
                         <TableCell className="text-xs">{row.tier ?? '—'}</TableCell>
@@ -916,12 +936,30 @@ export default function PayoutLedger() {
                         <TableCell className="text-xs">{formatNullablePence(row.live_balance_pence ?? null)}</TableCell>
                         <TableCell className="text-xs font-semibold">{formatNullablePence(row.available_balance_pence)}</TableCell>
                         <TableCell className="text-xs">{formatNullablePence(row.pending_balance_pence)}</TableCell>
+                        <TableCell className="text-xs">{formatNullablePence(row.reserved_pence ?? 0)}</TableCell>
+                        <TableCell className="text-xs">
+                          <div>{formatNullablePence(row.held_pence ?? 0)}</div>
+                          {(row.unbacked_pence ?? 0) > 0 ? (
+                            <div className="text-[10px] text-amber-700">
+                              + {formatNullablePence(row.unbacked_pence ?? 0)} unbacked · {unbackedWalletReasonLabel(row.unbacked_reason)}
+                            </div>
+                          ) : null}
+                        </TableCell>
                         <TableCell className="text-xs">{formatNullablePence(row.debt_pence)}</TableCell>
                         <TableCell className="text-[10px] text-muted-foreground max-w-[140px]">
                           {row.unavailable_reason ?? '—'}
                         </TableCell>
-                        <TableCell className="text-xs tabular-nums">{row.eligible_entry_count ?? 0}</TableCell>
-                        <TableCell className="text-xs">{row.next_scheduled_local ?? '—'}</TableCell>
+                        <TableCell className="text-xs tabular-nums">
+                          {row.eligible_entry_count ?? 0}
+                          {(row.held_entry_count ?? 0) > 0 ? (
+                            <span className="text-muted-foreground"> ({row.held_entry_count} held)</span>
+                          ) : null}
+                        </TableCell>
+                        <TableCell className="text-xs">
+                          {row.next_scheduled_local ?? (
+                            <span className="text-muted-foreground">{row.next_scheduled_note ?? '—'}</span>
+                          )}
+                        </TableCell>
                         <TableCell className="text-xs">{shortDate(row.last_payout_at)}</TableCell>
                         <TableCell className="text-xs">{row.schedule_label ?? '—'}</TableCell>
                         <TableCell className="text-xs"><Badge variant={row.paused ? 'destructive' : 'outline'}>{row.payout_status}</Badge></TableCell>
@@ -987,17 +1025,32 @@ export default function PayoutLedger() {
                     <div>Payout Provider: {account?.provider ?? '—'}</div>
                     <div>Payout Destination: <span className="font-mono text-foreground">{account?.payout_destination ?? account?.connected_account ?? '—'}</span></div>
                     <div>Account Verification: {account?.verification ?? '—'}</div>
-                    <div>Bank Account Status: {account?.verification === 'manual_bank' || account?.verification === 'connected' ? 'Ready' : 'Not set'}</div>
+                    <div>
+                      Bank Account Status: {account?.verification === 'verified'
+                        ? 'Verified'
+                        : account?.verification === 'pending_verification'
+                          ? 'Pending verification'
+                          : 'Not set'}
+                    </div>
                     <div>Payout Status: {account?.payout_status ?? '—'}</div>
-                    <div>Eligible Entries: {account?.eligible_entry_count ?? 0}</div>
+                    <div>
+                      Eligible Entries: {account?.eligible_entry_count ?? 0}
+                      {(account?.held_entry_count ?? 0) > 0 ? ` (${account?.held_entry_count} held)` : ''}
+                    </div>
                     <div>Live Wallet: {formatNullablePence(account?.live_balance_pence ?? null)}</div>
                     <div>Wallet Available: {formatNullablePence(account?.available_balance_pence ?? null)}</div>
-                    <div>Wallet Pending/Held: {formatNullablePence(account?.pending_balance_pence ?? null)}</div>
+                    <div>Wallet Pending (settlement): {formatNullablePence(account?.pending_balance_pence ?? null)}</div>
+                    <div>Reserved: {formatNullablePence(account?.reserved_pence ?? null)}</div>
+                    <div>Held (not payable now): {formatNullablePence(account?.held_pence ?? null)}</div>
+                    <div>
+                      Unbacked: {formatNullablePence(account?.unbacked_pence ?? null)}
+                      {(account?.unbacked_pence ?? 0) > 0 ? ` · ${unbackedWalletReasonLabel(account?.unbacked_reason)}` : ''}
+                    </div>
                     <div>Outstanding Debt: {formatNullablePence(account?.debt_pence ?? null)}</div>
                     {account?.unavailable_reason ? (
                       <div className="text-amber-700">Hold reason: {account.unavailable_reason}</div>
                     ) : null}
-                    <div>Next Scheduled: {account?.next_scheduled_local ?? '—'}</div>
+                    <div>Next Scheduled: {account?.next_scheduled_local ?? account?.next_scheduled_note ?? '—'}</div>
                     <div>Last Successful: {shortDate(account?.last_payout_at)} ({formatNullablePence(account?.last_payout_amount_pence ?? null)})</div>
                     <div>Schedule: {account?.schedule_label ?? '—'}</div>
                   </div>
