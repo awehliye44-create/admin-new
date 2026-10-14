@@ -7,7 +7,7 @@ import { displayDriverWalletSsotBalances } from '@/lib/driverWalletSsotBalances'
 import { Link } from 'react-router-dom';
 import { format } from 'date-fns';
 import { payoutLedgerUrl } from '../../../shared/adminPayoutLedgerSSOT';
-import { resolveDriverWalletPayoutStatusDisplay } from '@/lib/driverWalletPayoutStatusDisplay';
+import { driverCreditStatusLabel, resolveDriverWalletPayoutStatusDisplay } from '@/lib/driverWalletPayoutStatusDisplay';
 
 function Metric({
   label,
@@ -92,7 +92,7 @@ export function DriverWalletOverviewCards({
         </Badge>
         {driver.driver_credit_status ? (
           <Badge variant={creditOk && !creditFrozen ? 'default' : 'secondary'}>
-            Credit: {driver.driver_credit_status}
+            Credit: {driverCreditStatusLabel(driver.driver_credit_status, driver.driver_credit_unknown_reason)}
           </Badge>
         ) : null}
         {showPayoutFrozenBadge ? (

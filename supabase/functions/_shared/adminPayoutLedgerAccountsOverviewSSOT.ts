@@ -1,5 +1,8 @@
 /**
- * Payout Ledger accounts overview — consumes canonical fetchDriverPayoutEligibility.
+ * Payout Ledger accounts overview.
+ * Available / Pending / Reserved / Live come from the reservation formula
+ * (SQL driver_wallet_eligibility_balances) — the same source the Driver Wallet
+ * Ledger overlays. TS eligibility only explains entries and hold reasons.
  * Never recalculates earnings / debt / available independently in the UI.
  */
 // deno-lint-ignore no-explicit-any
@@ -10,8 +13,14 @@ import type {
   AdminPayoutLedgerListResponse,
   DriverPayoutAccountRow,
 } from "./adminPayoutLedgerSSOT.ts";
-import { payoutDestinationLabel } from "./payoutLedgerHandoffSSOT.ts";
-import { fetchDriverPayoutEligibility } from "./fetchDriverPayoutEligibility.ts";
+import { fetchDriverPayoutEligibilityContext } from "./fetchDriverPayoutEligibility.ts";
+import { fetchDriverWalletEligibilityBalancesRpc } from "./driverWalletEligibilityBalancesRpc.ts";
+import {
+  londonPaidPeriodStarts,
+  loadUnrecordedCashoutFeePenceByDriver,
+  payoutAccountNotScheduledNote,
+  resolvePayoutAccountComposition,
+} from "./payoutAccountCompositionSSOT.ts";
 import { shouldBlockZeroValuePayoutBatch } from "./driverPayoutEligibilitySSOT.ts";
 import { loadPayoutControlCentreSettings } from "./payoutControlCentreSettingsSSOT.ts";
 import { buildPayoutScheduleDto } from "./payoutScheduleSSOT.ts";
@@ -109,13 +118,12 @@ async function loadPayoutItemStatusTotals(
   const COMPLETED = new Set(["completed", "paid", "succeeded"]);
   const FAILED = new Set(["failed", "error", "ledger_sync_failed", "failed_duplicate"]);
 
-  const now = new Date();
-  const dayStart = new Date(now);
-  dayStart.setUTCHours(0, 0, 0, 0);
-  const weekStart = new Date(dayStart);
-  weekStart.setUTCDate(weekStart.getUTCDate() - ((weekStart.getUTCDay() + 6) % 7));
-  const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
-  const yearStart = new Date(Date.UTC(now.getUTCFullYear(), 0, 1));
+  const {
+    day: dayStart,
+    week: weekStart,
+    month: monthStart,
+    year: yearStart,
+  } = londonPaidPeriodStarts(new Date());
 
   let scheduled_pence = 0;
   let processing_pence = 0;
@@ -192,7 +200,7 @@ export async function buildPayoutLedgerAccountsOverview(
 
   let driverQuery = supabase
     .from("drivers")
-    .select("id, first_name, last_name, driver_code, payouts_enabled, payout_operational_paused, category_id, driver_categories(name)")
+    .select("id, first_name, last_name, driver_code, payouts_enabled, payout_operational_paused, driver_status, deleted_at, category_id, driver_categories(name)")
     .eq("approval_status", "approved")
     .in("id", platformDriverIds)
     .limit(Math.min(200, Math.max(1, args?.limit ?? 100)));
@@ -308,24 +316,20 @@ export async function buildPayoutLedgerAccountsOverview(
       });
   }
 
-  const reservedByDriver = new Map<string, number>();
-  {
-    const driverIds = (drivers ?? []).map((d: { id: string }) => String(d.id)).filter(Boolean);
-    if (driverIds.length > 0) {
-      const { data: resRows } = await supabase
-        .from("driver_payout_reservations")
-        .select("driver_id, amount_pence")
-        .eq("status", "ACTIVE")
-        .in("driver_id", driverIds);
-      for (const row of resRows ?? []) {
-        const id = String(row.driver_id ?? "");
-        if (!id) continue;
-        reservedByDriver.set(
-          id,
-          (reservedByDriver.get(id) ?? 0) + Math.max(0, Number(row.amount_pence ?? 0)),
-        );
-      }
-    }
+  const allDriverIds = (drivers ?? []).map((d: { id: string }) => String(d.id)).filter(Boolean);
+  const adminCreditLedgerIds = new Set<string>();
+  let unrecordedFeeByDriver = new Map<string, number>();
+  if (allDriverIds.length > 0) {
+    const [adminCreditRes, feeMap] = await Promise.all([
+      supabase
+        .from("driver_wallet_ledger")
+        .select("id")
+        .eq("type", "ADMIN_WALLET_CREDIT")
+        .in("driver_id", allDriverIds),
+      loadUnrecordedCashoutFeePenceByDriver(supabase, allDriverIds),
+    ]);
+    for (const row of adminCreditRes.data ?? []) adminCreditLedgerIds.add(String(row.id));
+    unrecordedFeeByDriver = feeMap;
   }
 
   const accounts: DriverPayoutAccountRow[] = [];
@@ -333,6 +337,8 @@ export async function buildPayoutLedgerAccountsOverview(
   let totalAvailable = 0;
   let totalReserved = 0;
   let totalPending = 0;
+  let totalHeld = 0;
+  let totalUnbacked = 0;
   let totalDebt = 0;
   let nextBatchAmount = 0;
   let nextBatchDrivers = 0;
@@ -347,12 +353,21 @@ export async function buildPayoutLedgerAccountsOverview(
     const batch = (drivers ?? []).slice(i, i + ELIGIBILITY_BATCH);
     // deno-lint-ignore no-explicit-any
     await Promise.all(batch.map(async (d: Record<string, any>) => {
-      let eligibility;
+      let ctx;
+      let sql;
+      let gateAllowed = false;
       try {
-        eligibility = await fetchDriverPayoutEligibility(supabase, {
-          driver_id: d.id,
-          service_area_id: args?.service_area_id ?? null,
-        });
+        const [ctxRes, sqlRes, gateRes] = await Promise.all([
+          fetchDriverPayoutEligibilityContext(supabase, {
+            driver_id: d.id,
+            service_area_id: args?.service_area_id ?? null,
+          }),
+          fetchDriverWalletEligibilityBalancesRpc(supabase, String(d.id)),
+          supabase.rpc("driver_effective_payout_allowed", { p_driver_id: d.id }),
+        ]);
+        ctx = ctxRes;
+        sql = sqlRes;
+        gateAllowed = !gateRes.error && gateRes.data === true;
       } catch (eligErr) {
         console.warn("[admin-payout-ledger] eligibility failed", {
           driver_id: d.id,
@@ -360,41 +375,53 @@ export async function buildPayoutLedgerAccountsOverview(
         });
         return;
       }
-      const available = Math.max(0, eligibility.available_balance_pence);
-      const live = Math.round(eligibility.live_balance_pence);
-      const pending = Math.max(0, eligibility.pending_balance_pence);
-      const reserved = Math.max(0, reservedByDriver.get(String(d.id)) ?? 0);
-      const debt = Math.max(0, eligibility.outstanding_debt_pence);
-      const name = `${d.first_name ?? ""} ${d.last_name ?? ""}`.trim() || null;
       const pausedAccount = d.payout_operational_paused === true;
+      const composition = resolvePayoutAccountComposition({
+        sql,
+        eligibility: ctx.eligibility,
+        driver: {
+          deleted: Boolean(d.deleted_at),
+          driver_status: (d.driver_status as string | null) ?? null,
+          approved: ctx.driver_approved,
+          operational_paused: pausedAccount,
+          global_payouts_enabled: ctx.global_payouts_enabled,
+          verified_destination: ctx.provider_verified_active_destination,
+          gate_allowed: gateAllowed,
+        },
+        admin_credit_ledger_ids: adminCreditLedgerIds,
+        unrecorded_cashout_fee_pence: unrecordedFeeByDriver.get(String(d.id)) ?? 0,
+      });
+      const live = composition.live_pence;
+      const available = composition.available_pence;
+      const debt = Math.max(0, sql.outstanding_debt_pence);
+      const name = `${d.first_name ?? ""} ${d.last_name ?? ""}`.trim() || null;
       if (pausedAccount) paused += 1;
 
-      if (available <= 0 && live <= 0 && debt <= 0) {
+      if (live === 0 && available <= 0 && debt <= 0) {
         return;
       }
 
       totalLive += Math.max(0, live);
       totalAvailable += available;
-      totalReserved += reserved;
-      totalPending += pending;
+      totalReserved += composition.reserved_pence;
+      totalPending += composition.pending_pence;
+      totalHeld += composition.held_pence;
+      totalUnbacked += composition.unbacked_pence;
       totalDebt += debt;
 
-      if (available > 0 && !pausedAccount) {
+      if (composition.payout_included) {
         nextBatchAmount += available;
         nextBatchDrivers += 1;
         eligibleDrivers += 1;
-      } else if (live > 0 && available <= 0) {
+      } else if (live > 0) {
         heldDrivers += 1;
       }
 
       const saMeta = serviceAreaByDriver.get(String(d.id));
-      const provider = saMeta?.provider ?? null;
-      const normalizedProvider = String(provider ?? "").toLowerCase();
-      const isRevolut = !normalizedProvider || normalizedProvider === "revolut";
-      const manualBank = true;
-      // Connect account id retired from drivers — Revolut/manual bank has no Connect id.
-      const connected: string | null = null;
-      if (!manualBank) unverified += 1;
+      const normalizedProvider = String(saMeta?.provider ?? "").toLowerCase();
+      const verified = ctx.provider_verified_active_destination;
+      const last4 = ctx.active_destination_last4;
+      if (!verified) unverified += 1;
       const tierJoin = d.driver_categories as { name?: string } | { name?: string }[] | null;
       const tierName = Array.isArray(tierJoin)
         ? (tierJoin[0]?.name ?? null)
@@ -408,36 +435,34 @@ export async function buildPayoutLedgerAccountsOverview(
         service_area_id: saMeta?.service_area_id ?? null,
         service_area: saMeta?.service_area ?? null,
         tier: tierName,
-        provider: isRevolut ? "revolut" : (normalizedProvider || "revolut"),
-        connected_account: connected,
-        payout_destination: payoutDestinationLabel({
-          provider: isRevolut ? "revolut" : provider,
-          connected_account_id: isRevolut ? null : connected,
-          manual_bank: manualBank,
-        }),
-        verification: manualBank ? "manual_bank" : (connected ? "legacy_connect" : "not_set"),
+        provider: saMeta ? (normalizedProvider || "revolut") : null,
+        connected_account: null,
+        payout_destination: last4
+          ? `Revolut · ••${last4}${verified ? "" : " (unverified)"}`
+          : "Not set",
+        verification: verified ? "verified" : (last4 ? "pending_verification" : "not_set"),
         live_balance_pence: live,
         available_balance_pence: available,
-        pending_balance_pence: pending,
+        pending_balance_pence: composition.pending_pence,
+        reserved_pence: composition.reserved_pence,
+        held_pence: composition.held_pence,
+        unbacked_pence: composition.unbacked_pence,
+        unbacked_reason: composition.unbacked_reason,
         debt_pence: debt,
-        eligible_entry_count: eligibility.eligible_entries.length,
-        unavailable_reason: available <= 0 && live > 0
-          ? (pausedAccount
-            ? "ADMIN_HOLD"
-            : (eligibility.primary_hold_reason ?? eligibility.held_entries[0]?.hold_reason ?? "UNKNOWN_ELIGIBILITY_ERROR"))
-          : null,
-        next_scheduled_at: schedule.next_run_at_utc,
-        next_scheduled_local: schedule.next_run_at_local,
+        eligible_entry_count: composition.eligible_entry_count,
+        held_entry_count: composition.held_entry_count,
+        unavailable_reason: composition.hold_reason,
+        payout_included: composition.payout_included,
+        next_scheduled_at: composition.payout_included ? schedule.next_run_at_utc : null,
+        next_scheduled_local: composition.payout_included ? schedule.next_run_at_local : null,
+        next_scheduled_note: composition.payout_included
+          ? null
+          : payoutAccountNotScheduledNote(composition.hold_reason),
         last_payout_at: lastPaid?.at ?? null,
         last_payout_amount_pence: lastPaid?.amount_pence ?? null,
         schedule_label: schedule.schedule_label,
-        payout_status: pausedAccount
-          ? "PAUSED"
-          : available > 0
-          ? "ELIGIBLE"
-          : live > 0
-          ? "HELD"
-          : "ZERO",
+        payout_status: composition.status,
+        driver_deleted: Boolean(d.deleted_at) || String(d.driver_status ?? "").toLowerCase() === "deleted",
         paused: pausedAccount,
         payout_operational_paused: pausedAccount,
       });
@@ -458,8 +483,10 @@ export async function buildPayoutLedgerAccountsOverview(
     total_live_wallet_pence: totalLive,
     total_available_pence: totalAvailable,
     total_reserved_pence: totalReserved,
-    // Other holds only — ACTIVE reservations live under total_reserved_pence.
+    // Settlement pending only — reservations, holds and unbacked balance are separate.
     total_pending_pence: Math.max(0, totalPending),
+    total_held_pence: totalHeld,
+    total_unbacked_pence: totalUnbacked,
     total_outstanding_debt_pence: totalDebt,
     total_scheduled_pence: itemTotals.scheduled_pence,
     total_processing_pence: itemTotals.processing_pence,

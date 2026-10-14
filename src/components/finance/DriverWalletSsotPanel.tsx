@@ -18,6 +18,7 @@ import {
   useDriverWalletSsot,
   type DriverWalletSsotRow,
 } from '@/hooks/useDriverWalletSsot';
+import { driverCreditStatusLabel } from '@/lib/driverWalletPayoutStatusDisplay';
 
 const DEFAULT_PAGE_SIZE = 25;
 
@@ -255,10 +256,13 @@ export function DriverWalletSsotPanel({
                     <TableCell>
                       <div className="flex flex-col gap-1 items-start">
                         <Badge
-                          variant={statusVariant(row.driver_credit_status ?? row.reconciliation_status)}
+                          variant={row.driver_credit_unknown_reason === 'NO_TRIPS_IN_PERIOD'
+                            ? 'outline'
+                            : statusVariant(row.driver_credit_status ?? row.reconciliation_status)}
                           title={(row.reconciliation_reasons ?? []).join(' · ')}
                         >
-                          {row.driver_credit_status ?? row.reconciliation_status}
+                          {driverCreditStatusLabel(row.driver_credit_status, row.driver_credit_unknown_reason)
+                            ?? row.reconciliation_status}
                         </Badge>
                         {row.payout_status ? (
                           <Badge variant={statusVariant(row.payout_status)} title="Payout ledger vs wallet transfers">

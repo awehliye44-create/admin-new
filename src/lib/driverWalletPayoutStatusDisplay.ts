@@ -68,3 +68,39 @@ export function resolveDriverWalletPayoutStatusDisplay(
     legacyPayoutsEnabled: driver.payouts_enabled ?? null,
   };
 }
+
+/**
+ * Credit chip label. DRIVER_CREDIT_UNKNOWN keeps its status (never OK); the
+ * reason tells an empty period apart from a genuine evidence gap.
+ */
+export function driverCreditStatusLabel(
+  status: string | null | undefined,
+  unknownReason?: string | null,
+): string | null {
+  if (!status) return null;
+  if (status === 'DRIVER_CREDIT_UNKNOWN') {
+    switch (unknownReason) {
+      case 'NO_TRIPS_IN_PERIOD':
+        return 'No trips in period';
+      case 'CREDITS_WITHOUT_EVALUABLE_TRIP':
+        return 'Credit unknown — credits without an evaluable trip';
+      case 'EXPECTED_NOT_AVAILABLE':
+        return 'Credit unknown — expected earnings not available';
+      case 'IDENTITY_MAPPING_MISSING':
+        return 'Credit unknown — driver identity missing';
+      case 'WALLET_EVIDENCE_UNAVAILABLE':
+        return 'Credit unknown — wallet evidence unavailable';
+      case 'SETTLEMENT_EVIDENCE_UNAVAILABLE':
+        return 'Credit unknown — settlement evidence unavailable';
+      default:
+        return status;
+    }
+  }
+  return status;
+}
+
+export function unbackedWalletReasonLabel(reason: string | null | undefined): string | null {
+  if (reason === 'CASHOUT_FEE_NOT_RECORDED') return 'Cash-out fee not recorded';
+  if (reason === 'UNBACKED_WALLET_BALANCE') return 'Unexplained balance — review';
+  return reason ?? null;
+}

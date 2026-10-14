@@ -4,7 +4,7 @@ import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
 import type { DriverWalletSsotRow } from '@/hooks/useDriverWalletSsot';
 import { formatNullablePence } from '@/lib/formatNullablePence';
-import { resolveDriverWalletPayoutStatusDisplay } from '@/lib/driverWalletPayoutStatusDisplay';
+import { driverCreditStatusLabel, resolveDriverWalletPayoutStatusDisplay } from '@/lib/driverWalletPayoutStatusDisplay';
 import { DriverOperationalPauseInlineButton } from '@/components/finance/DriverOperationalPauseInlineButton';
 
 function fmtDate(iso: string | null | undefined): string {
@@ -89,7 +89,7 @@ export function DriverWalletAccountHeader({
             </Badge>
             {driver.driver_credit_status ? (
               <Badge variant={status.creditOk && !status.creditFrozen ? 'default' : 'secondary'}>
-                Credit: {driver.driver_credit_status}
+                Credit: {driverCreditStatusLabel(driver.driver_credit_status, driver.driver_credit_unknown_reason)}
               </Badge>
             ) : null}
             {status.showPayoutFrozenBadge ? (
@@ -120,7 +120,11 @@ export function DriverWalletAccountHeader({
           <Field label="Payout Provider" value={driver.payout_provider ?? '—'} />
           <Field
             label="Payout Destination Status"
-            value={driver.verification_status ?? (driver.connected_account_id ? 'legacy_connect' : 'manual_bank')}
+            value={driver.payout_destination_verified
+              ? `Verified · ••${driver.payout_destination_last4 ?? ''}`
+              : driver.payout_destination_last4
+                ? `Pending verification · ••${driver.payout_destination_last4}`
+                : 'Not set'}
           />
           <Field label="Bank / Revolut Account" value={bankLabel} />
           <Field label="Next Scheduled Payout" value={nextPayout} />

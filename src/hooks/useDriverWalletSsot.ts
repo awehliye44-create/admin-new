@@ -112,6 +112,13 @@ export type DriverWalletSsotRow = {
   payout_variance_pence?: number | null;
   payout_ledger_completed_pence?: number | null;
   driver_credit_status?: string | null;
+  /** Set only for DRIVER_CREDIT_UNKNOWN — NO_TRIPS_IN_PERIOD is an empty period, not an exception. */
+  driver_credit_unknown_reason?: string | null;
+  /** Live balance no unallocated credit explains — never payable. */
+  unbacked_wallet_pence?: number | null;
+  unbacked_wallet_reason?: string | null;
+  payout_destination_verified?: boolean | null;
+  payout_destination_last4?: string | null;
   payout_status?: string | null;
   query_scope_status?: string | null;
   verified_expected_payable_pence?: number | null;
