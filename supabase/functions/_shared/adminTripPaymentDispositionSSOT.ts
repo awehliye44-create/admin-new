@@ -27,7 +27,8 @@ export type AdminPaymentSessionDispositionInput = {
 
 export type AdminTripPaymentDispositionTrip = AdminTripClassificationRow & {
   financial_model?: string | null;
-  cancellation_fee_pence?: number | null;
+  financial_model?: string | null;
+  arrival_cancellation_applied?: boolean | null;
   payment_status?: string | null;
   payment_disposition?: AdminTripPaymentDispositionRead | null;
 };
