@@ -79,12 +79,16 @@ Deno.test("trip-row recompute paths exclude recovered debt", () => {
 
 Deno.test("shortfall recovery does not call Revolut or write driver earnings", () => {
   const sweep = read("functions/reconcile-waiting-shortfall-markers/index.ts");
+  const job = read("functions/reconcile-waiting-shortfall-markers/recoveryJob.ts");
   for (const forbidden of ["revolut", "increment-authorisation", "captureRevolutOrder", "driver_wallet_ledger", "TRIP_EARNING_NET"]) {
     assert(!sweep.includes(forbidden), forbidden);
+    assert(!job.includes(forbidden), forbidden);
   }
-  assert(sweep.includes("selectShortfallRecoveryCandidates"));
-  assert(sweep.includes("money_moved: false"));
-  assert(sweep.includes("finance:shortfall_recovery_job_unhealthy"));
+  assert(sweep.includes("runWaitingShortfallRecovery"));
+  assert(job.includes("selectShortfallRecoveryCandidates"));
+  assert(job.includes("money_moved: false"));
+  assert(job.includes("finance:shortfall_recovery_job_unhealthy"));
+  assert(job.includes("fingerprint_count"));
   const health = read("migrations/20261217120000_shortfall_recovery_job_health.sql");
   assert(health.includes("finance:shortfall_recovery_job_unhealthy"));
   assert(!health.includes("customer_receivables"));

@@ -41,7 +41,11 @@ BEGIN
         AND created >= now() - interval '12 minutes'
         AND coalesce(content::jsonb->>'ok', '') = 'true'
     )
-    ON CONFLICT DO NOTHING;
+    ON CONFLICT (fingerprint) WHERE status = ANY (ARRAY['open'::text, 'acknowledged'::text])
+    DO UPDATE SET
+      fingerprint_count = public.ops_alerts.fingerprint_count + 1,
+      last_detected_at = now(),
+      description = EXCLUDED.description;
     $cron_cmd$
   );
 END;
