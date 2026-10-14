@@ -1,0 +1,121 @@
+--- finalize-trip-and-capture-v544/revolutCompletionCapture.ts
++++ finalize-trip-and-capture-v544/revolutCompletionCapture.ts
+@@ -44,13 +44,12 @@
+   markPaymentSessionCaptured,
+   markPaymentSessionCaptureResidualRelease,
+   markPaymentSessionCompletedPendingCapture,
+-  markPaymentSessionPaymentShortfall,
+   markPaymentSessionProviderFee,
+ } from "./paymentSessionSSOT.ts";
+ import { extractConfirmedCaptureAmountPence, extractProviderCaptureId } from "../../../shared/paymentHoldProviderTerminalPure.ts";
+ import { tipCollectedFromConfirmedCapture } from "../../../shared/tripPaymentFinalised.ts";
+ import { extractProviderFeePence } from "../../../shared/paymentCaptureEvidenceSSOT.ts";
+-import { recordReceivableAfterDeclinedIncrement } from "./customerReceivableLifecycle.ts";
++import { recordReceivableAfterConfirmedMarker } from "./finalizeV544MarkerReadBack.ts";
+ import { RECEIVABLE_PERSISTENCE_UNAVAILABLE } from "./customerReceivableSSOT.ts";
+ import {
+   RELEASE_EVIDENCE_SOURCE,
+@@ -643,25 +642,30 @@
+         providerConfirmedAuthorisedTotalPence: incrementResult.providerConfirmedTotalPence,
+       });
+       if (safe.capturePence <= 0) {
+-        await markPaymentSessionPaymentShortfall(args.supabase, {
+-          clientActionId,
+-          tripId,
+-          shortfallPence: safe.shortfallPence,
+-          reason: `Increment ${incrementResult.kind}: ${incrementResult.message}`,
+-        });
+-        const recv = await recordReceivableAfterDeclinedIncrement(args.supabase, {
+-          customer_id: (args.trip.passenger_id as string | null | undefined) ?? null,
+-          source_trip_id: tripId,
+-          source_payment_session_id: paymentSession?.id
+-            ? String(paymentSession.id)
+-            : null,
+-          final_fare_pence: finalFarePence,
+-          captured_pence: 0,
+-          shortfall_pence: safe.shortfallPence,
+-          currency: String(args.trip.currency_code ?? "gbp"),
+-          pickup_waiting_charge_pence: Number(
+-            args.trip.pickup_waiting_charge_pence ?? 0,
+-          ) || null,
++        const recv = await recordReceivableAfterConfirmedMarker(args.supabase, {
++          marker: {
++            sessionId: paymentSession?.id ? String(paymentSession.id) : null,
++            providerOrderId: orderId,
++            tripId,
++            shortfallPence: safe.shortfallPence,
++            expectedFarePence: finalFarePence,
++            capturedPence: 0,
++            reason: `Increment ${incrementResult.kind}: ${incrementResult.message}`,
++          },
++          receivable: {
++            customer_id: (args.trip.passenger_id as string | null | undefined) ?? null,
++            source_trip_id: tripId,
++            source_payment_session_id: paymentSession?.id
++              ? String(paymentSession.id)
++              : null,
++            final_fare_pence: finalFarePence,
++            captured_pence: 0,
++            shortfall_pence: safe.shortfallPence,
++            currency: String(args.trip.currency_code ?? "gbp"),
++            pickup_waiting_charge_pence: Number(
++              args.trip.pickup_waiting_charge_pence ?? 0,
++            ) || null,
++          },
+         });
+         return {
+           success: false,
+@@ -793,27 +797,32 @@
+           });
+         }
+         if (safe.shortfallPence > 0) {
+-          await markPaymentSessionPaymentShortfall(args.supabase, {
+-            clientActionId,
+-            tripId,
+-            shortfallPence: safe.shortfallPence,
+-            reason:
+-              `Increment ${incrementResult.kind}; captured safe ${safe.capturePence}p; shortfall ${safe.shortfallPence}p only`,
+-          });
+-          const recv = await recordReceivableAfterDeclinedIncrement(args.supabase, {
+-            customer_id: (args.trip.passenger_id as string | null | undefined) ?? null,
+-            source_trip_id: tripId,
+-            source_payment_session_id: paymentSession?.id
+-              ? String(paymentSession.id)
+-              : null,
+-            final_fare_pence: finalFarePence,
+-            captured_pence: safe.capturePence,
+-            shortfall_pence: safe.shortfallPence,
+-            currency: String(args.trip.currency_code ?? "gbp"),
+-            pickup_waiting_charge_pence: Number(
+-              args.trip.pickup_waiting_charge_pence ?? 0,
+-            ) || null,
+-            provider_state: "COMPLETED",
++          const recv = await recordReceivableAfterConfirmedMarker(args.supabase, {
++            marker: {
++              sessionId: paymentSession?.id ? String(paymentSession.id) : null,
++              providerOrderId: orderId,
++              tripId,
++              shortfallPence: safe.shortfallPence,
++              expectedFarePence: finalFarePence,
++              capturedPence: safe.capturePence,
++              reason:
++                `Increment ${incrementResult.kind}; captured safe ${safe.capturePence}p; shortfall ${safe.shortfallPence}p only`,
++            },
++            receivable: {
++              customer_id: (args.trip.passenger_id as string | null | undefined) ?? null,
++              source_trip_id: tripId,
++              source_payment_session_id: paymentSession?.id
++                ? String(paymentSession.id)
++                : null,
++              final_fare_pence: finalFarePence,
++              captured_pence: safe.capturePence,
++              shortfall_pence: safe.shortfallPence,
++              currency: String(args.trip.currency_code ?? "gbp"),
++              pickup_waiting_charge_pence: Number(
++                args.trip.pickup_waiting_charge_pence ?? 0,
++              ) || null,
++              provider_state: "COMPLETED",
++            },
+           });
+           if (!recv.ok) {
+             console.error(
