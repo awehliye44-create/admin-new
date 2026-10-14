@@ -71,6 +71,16 @@ export function FinancialReconciliationOverviewTab({
       trip_code: string | null;
       outstanding_pence: number;
     }>;
+    position?: {
+      outstanding_pence: number;
+      manual_review_pence: number;
+      recovered_pence: number;
+      unresolved_shortfall_pence: number;
+      unresolved_shortfall_count: number;
+      written_off_pence: number;
+      legacy_pre_ledger_shortfall_pence: number;
+      legacy_pre_ledger_shortfall_count: number;
+    } | null;
   } | null;
   money: FinanceMoneyFormat;
   currencyGroups?: Array<{
@@ -92,6 +102,7 @@ export function FinancialReconciliationOverviewTab({
 }) {
   const fmt = money.fmt;
   const o = auditOverviewKpis;
+  const receivablePosition = customerOutstandingOverview?.position ?? null;
   const summary = ssot.summary;
   const useAuditKpis = hasFrPeriodAuditKpis(o);
 
@@ -219,6 +230,28 @@ export function FinancialReconciliationOverviewTab({
                   {t.trip_code ?? 'trip'}: {fmt(t.outstanding_pence)}
                 </span>
               ))}
+              {receivablePosition ? (
+                <>
+                  <span className="block">
+                    Outstanding (all time): {fmt(receivablePosition.outstanding_pence + receivablePosition.manual_review_pence)}
+                  </span>
+                  <span className="block">Recovered: {fmt(receivablePosition.recovered_pence)}</span>
+                  <span
+                    className={`block ${receivablePosition.unresolved_shortfall_count > 0 ? 'font-semibold text-destructive' : ''}`}
+                  >
+                    Unresolved shortfalls: {fmt(receivablePosition.unresolved_shortfall_pence)}
+                    {receivablePosition.unresolved_shortfall_count > 0
+                      ? ` (${receivablePosition.unresolved_shortfall_count})`
+                      : ''}
+                  </span>
+                  <span className="block">Approved write-offs: {fmt(receivablePosition.written_off_pence)}</span>
+                  {receivablePosition.legacy_pre_ledger_shortfall_count > 0 ? (
+                    <span className="block">
+                      Pre-ledger shortfalls (not customer debt): {fmt(receivablePosition.legacy_pre_ledger_shortfall_pence)}
+                    </span>
+                  ) : null}
+                </>
+              ) : null}
               <Link to="/customer-receivables" className="underline">
                 Open Customer Receivables
               </Link>

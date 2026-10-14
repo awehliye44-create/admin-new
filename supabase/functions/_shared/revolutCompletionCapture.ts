@@ -47,6 +47,7 @@ import {
 } from "./executeFareIncreaseModificationPayment.ts";
 import { recordPaymentSessionPersistFailureMetadata } from "./walletPostingMismatchSSOT.ts";
 import {
+  loadPaymentSession,
   markPaymentSessionCaptured,
   markPaymentSessionCaptureResidualRelease,
   markPaymentSessionCompletedPendingCapture,
@@ -56,7 +57,12 @@ import {
 import { extractConfirmedCaptureAmountPence, extractProviderCaptureId } from "../../../shared/paymentHoldProviderTerminalPure.ts";
 import { tipCollectedFromConfirmedCapture } from "../../../shared/tripPaymentFinalised.ts";
 import { extractProviderFeePence } from "../../../shared/paymentCaptureEvidenceSSOT.ts";
-import { recordReceivableAfterDeclinedIncrement } from "./customerReceivableLifecycle.ts";
+import {
+  ensureShortfallReceivableOrException,
+  isWithinReceivablesLedger,
+  shortfallPenceFromSessionMarker,
+  type ShortfallSafetyOutcome,
+} from "./shortfallReceivableSafety.ts";
 import { RECEIVABLE_PERSISTENCE_UNAVAILABLE } from "./customerReceivableSSOT.ts";
 import {
   RELEASE_EVIDENCE_SOURCE,
@@ -566,6 +572,36 @@ export async function executeRevolutTripCompletionCapture(args: {
         });
       }
     }
+    // Retry / duplicate callback after a partial capture: the receivable write may have failed first time.
+    try {
+      const shortfallSession = await loadPaymentSession(args.supabase, {
+        clientActionId,
+        providerOrderId: orderId,
+      });
+      const markerShortfall = shortfallPenceFromSessionMarker(shortfallSession);
+      if (markerShortfall > 0 && isWithinReceivablesLedger(shortfallSession?.created_at)) {
+        await ensureShortfallReceivableOrException(args.supabase, {
+          trip_id: tripId,
+          trip_code: args.trip.trip_code ? String(args.trip.trip_code) : null,
+          payment_session_id: shortfallSession?.id ? String(shortfallSession.id) : null,
+          provider_order_id: orderId,
+          customer_id: (args.trip.passenger_id as string | null | undefined) ?? null,
+          expected_fare_pence: finalFarePence > 0
+            ? finalFarePence
+            : captureAmountPence + markerShortfall,
+          captured_pence: captureAmountPence,
+          shortfall_pence: markerShortfall,
+          currency: String(args.trip.currency_code ?? "gbp"),
+          pickup_waiting_charge_pence: Number(
+            args.trip.pickup_waiting_charge_pence ?? 0,
+          ) || null,
+          provider_state: "COMPLETED",
+          source: "already_captured_retry",
+        });
+      }
+    } catch (shortfallErr) {
+      console.error("[revolutCompletionCapture] already_captured shortfall check failed", shortfallErr);
+    }
     if (paymentSessionPersisted) {
       try {
         const { data: tripFresh } = await args.supabase
@@ -745,19 +781,20 @@ export async function executeRevolutTripCompletionCapture(args: {
           shortfallPence: safe.shortfallPence,
           reason: `Increment ${incrementResult.kind}: ${incrementResult.message}`,
         });
-        const recv = await recordReceivableAfterDeclinedIncrement(args.supabase, {
+        const recv = await ensureShortfallReceivableOrException(args.supabase, {
+          trip_id: tripId,
+          trip_code: args.trip.trip_code ? String(args.trip.trip_code) : null,
+          payment_session_id: paymentSession?.id ? String(paymentSession.id) : null,
+          provider_order_id: orderId,
           customer_id: (args.trip.passenger_id as string | null | undefined) ?? null,
-          source_trip_id: tripId,
-          source_payment_session_id: paymentSession?.id
-            ? String(paymentSession.id)
-            : null,
-          final_fare_pence: finalFarePence,
+          expected_fare_pence: finalFarePence,
           captured_pence: 0,
           shortfall_pence: safe.shortfallPence,
           currency: String(args.trip.currency_code ?? "gbp"),
           pickup_waiting_charge_pence: Number(
             args.trip.pickup_waiting_charge_pence ?? 0,
           ) || null,
+          source: "zero_capture",
         });
         return {
           success: false,
@@ -765,14 +802,15 @@ export async function executeRevolutTripCompletionCapture(args: {
           capture_amount_pence: 0,
           provider_order_id: orderId,
           error: incrementResult.message,
-          ...(recv.ok
-            ? {}
-            : {
+          ...(recv.manual_review
+            ? {
               error_code: RECEIVABLE_PERSISTENCE_UNAVAILABLE,
-              receivable_persistence: recv.error,
+              shortfall_pence: safe.shortfallPence,
               manual_review: true,
+              shortfall_safety_state: recv.state,
               decline_evidence_retained: true,
-            }),
+            }
+            : {}),
         };
       }
       const safeLock = compositionLockClaimedHere
@@ -926,21 +964,27 @@ export async function executeRevolutTripCompletionCapture(args: {
             postedPence: 0,
           });
         }
+        let shortfallSafety: ShortfallSafetyOutcome | null = null;
         if (safe.shortfallPence > 0) {
-          await markPaymentSessionPaymentShortfall(args.supabase, {
-            clientActionId,
-            tripId,
-            shortfallPence: safe.shortfallPence,
-            reason:
-              `Increment ${incrementResult.kind}; captured safe ${safe.capturePence}p; shortfall ${safe.shortfallPence}p only`,
-          });
-          const recv = await recordReceivableAfterDeclinedIncrement(args.supabase, {
+          // Provider already captured: a failed marker write must not skip the receivable.
+          try {
+            await markPaymentSessionPaymentShortfall(args.supabase, {
+              clientActionId,
+              tripId,
+              shortfallPence: safe.shortfallPence,
+              reason:
+                `Increment ${incrementResult.kind}; captured safe ${safe.capturePence}p; shortfall ${safe.shortfallPence}p only`,
+            });
+          } catch (markErr) {
+            console.error("[revolutCompletionCapture] shortfall marker persist failed", markErr);
+          }
+          shortfallSafety = await ensureShortfallReceivableOrException(args.supabase, {
+            trip_id: tripId,
+            trip_code: args.trip.trip_code ? String(args.trip.trip_code) : null,
+            payment_session_id: paymentSession?.id ? String(paymentSession.id) : null,
+            provider_order_id: orderId,
             customer_id: (args.trip.passenger_id as string | null | undefined) ?? null,
-            source_trip_id: tripId,
-            source_payment_session_id: paymentSession?.id
-              ? String(paymentSession.id)
-              : null,
-            final_fare_pence: finalFarePence,
+            expected_fare_pence: finalFarePence,
             captured_pence: safe.capturePence,
             shortfall_pence: safe.shortfallPence,
             currency: String(args.trip.currency_code ?? "gbp"),
@@ -948,13 +992,8 @@ export async function executeRevolutTripCompletionCapture(args: {
               args.trip.pickup_waiting_charge_pence ?? 0,
             ) || null,
             provider_state: "COMPLETED",
+            source: "partial_capture",
           });
-          if (!recv.ok) {
-            console.error(
-              "[revolutCompletionCapture] RECEIVABLE_PERSISTENCE_UNAVAILABLE after partial capture",
-              recv.error,
-            );
-          }
         }
         const coveredSafe = tipCollectedFromConfirmedCapture({
           captureAmountPence: safe.capturePence,
@@ -971,6 +1010,14 @@ export async function executeRevolutTripCompletionCapture(args: {
           message: safe.shortfallPence > 0
             ? `Captured ${safe.capturePence}p; remaining shortfall ${safe.shortfallPence}p only`
             : undefined,
+          ...(shortfallSafety?.manual_review
+            ? {
+              error_code: RECEIVABLE_PERSISTENCE_UNAVAILABLE,
+              shortfall_pence: safe.shortfallPence,
+              manual_review: true,
+              shortfall_safety_state: shortfallSafety.state,
+            }
+            : {}),
         }, posting);
       } catch (capErr) {
         return {

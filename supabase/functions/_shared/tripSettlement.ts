@@ -243,6 +243,20 @@ export function resolveSettlementFinalFarePence(trip: TripSettlementTripRow): nu
 }
 
 /**
+ * A capture that also collected older customer debt settles on the frozen trip
+ * fare component, never the capture total. Returns null when no debt was folded
+ * in; NaN when debt was folded in but the fare component is missing (ambiguous).
+ */
+export function recoveredDebtTripFareComponentPence(session: {
+  trip_fare_component_pence?: number | null;
+  receivable_component_pence?: number | null;
+} | null | undefined): number | null {
+  if (nonNegInt(session?.receivable_component_pence) <= 0) return null;
+  const fare = nonNegInt(session?.trip_fare_component_pence);
+  return fare > 0 ? fare : Number.NaN;
+}
+
+/**
  * Canonical settlement formula owner (v2).
  * Waiting must already be inside final_fare_pence (or resolved via resolveSettlementFinalFarePence)
  * unless pre_promotion_commissionable_fare_pence is supplied (global_offer path — no waiting).

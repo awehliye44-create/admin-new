@@ -17,6 +17,10 @@
 import type { SupabaseClient } from "npm:@supabase/supabase-js@2.57.2";
 import { classifyFrPromotionApplication } from "./frPerTripAuditSSOT.ts";
 import {
+  loadRecoveredDebtFareComponents,
+  withRecoveredDebtFareComponent,
+} from "./recoveredDebtFareComponents.ts";
+import {
   calculateTripSettlementFromTripRow,
   tripSettlementDbColumns,
   tripSettlementSnapshotJson,
@@ -133,7 +137,30 @@ export async function buildHistoricalSettlementCorrectionPlan(
   const promo = classifyFrPromotionApplication(
     trip as Parameters<typeof classifyFrPromotionApplication>[0],
   );
-  const corrected = calculateTripSettlementFromTripRow(trip as TripSettlementTripRow);
+  let debtFare;
+  try {
+    debtFare = await loadRecoveredDebtFareComponents(supabase, [tripId]);
+  } catch (err) {
+    return {
+      status: "PENDING_EVIDENCE",
+      tripId,
+      tripCode,
+      dryRun,
+      reason: err instanceof Error ? err.message : String(err),
+    };
+  }
+  if (debtFare.ambiguousTripIds.has(tripId)) {
+    return {
+      status: "PENDING_EVIDENCE",
+      tripId,
+      tripCode,
+      dryRun,
+      reason: "capture included customer debt but the trip fare component is missing",
+    };
+  }
+  const corrected = calculateTripSettlementFromTripRow(
+    withRecoveredDebtFareComponent(trip as Record<string, unknown>, debtFare) as TripSettlementTripRow,
+  );
   if (!corrected) {
     return {
       status: "PENDING_EVIDENCE",

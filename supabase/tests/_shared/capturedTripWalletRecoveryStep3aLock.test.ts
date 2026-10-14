@@ -97,6 +97,8 @@ function buildMock(options: {
         const list = Promise.resolve({ data: psRows, error: null });
         return {
           select: () => ({
+            // loadRecoveredDebtFareComponents: no capture in these fixtures recovered customer debt.
+            in: () => ({ gt: () => Promise.resolve({ data: [], error: null }) }),
             eq: () => ({
               neq: () => ({
                 then: list.then.bind(list),

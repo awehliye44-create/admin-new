@@ -257,7 +257,7 @@ async function loadTripEvidence(
     .from("payment_sessions")
     .select(
       // Live schema: payment_sessions.provider_state (not provider_status).
-      "id, trip_id, provider_order_id, provider_payment_id, provider_state, status, captured_amount_pence, provider_processing_fee_pence, fee_status, currency, metadata",
+      "id, trip_id, provider_order_id, provider_payment_id, provider_state, status, captured_amount_pence, provider_processing_fee_pence, fee_status, currency, metadata, trip_fare_component_pence, receivable_component_pence",
     )
     .eq("trip_id", args.tripId)
     .order("created_at", { ascending: false })
@@ -559,6 +559,12 @@ async function loadTripEvidence(
     provider_payment_id: primary?.provider_payment_id ? String(primary.provider_payment_id) : null,
     provider_state: providerState,
     captured_amount_pence: captured,
+    trip_fare_component_pence: primary?.trip_fare_component_pence != null
+      ? Math.round(Number(primary.trip_fare_component_pence))
+      : null,
+    receivable_component_pence: primary?.receivable_component_pence != null
+      ? Math.round(Number(primary.receivable_component_pence))
+      : null,
     final_fare_pence: terminalOutcome
       ? captured
       : trip.final_fare_pence != null ? Math.round(Number(trip.final_fare_pence)) : null,

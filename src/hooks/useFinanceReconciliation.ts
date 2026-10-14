@@ -483,6 +483,23 @@ export interface FinanceReconciliationResponse {
     not_wallet_variance?: true;
     not_payout_variance?: true;
     receivables_ledger_available?: boolean;
+    /** All-time receivable position — recovered debt is never driver earnings or commissionable fare. */
+    position?: {
+      outstanding_pence: number;
+      outstanding_count: number;
+      manual_review_pence: number;
+      manual_review_count: number;
+      recovered_pence: number;
+      recovered_count: number;
+      unresolved_shortfall_pence: number;
+      unresolved_shortfall_count: number;
+      unresolved_shortfall_trip_ids: string[];
+      written_off_pence: number;
+      written_off_count: number;
+      legacy_pre_ledger_shortfall_pence: number;
+      legacy_pre_ledger_shortfall_count: number;
+      exceptions_ledger_available: boolean;
+    } | null;
     trips?: Array<{
       trip_code: string | null;
       trip_id: string | null;

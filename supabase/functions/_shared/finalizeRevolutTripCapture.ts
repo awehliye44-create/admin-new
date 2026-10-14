@@ -22,6 +22,9 @@ export type FinalizeRevolutCaptureResult = {
   wallet_posting_status?: "SUCCEEDED" | "FAILED";
   reconciliation_status?: "BALANCED" | "WALLET_MISMATCH";
   retry_provider_capture?: false;
+  /** Shortfall has no customer receivable — finance exception or escalation only. */
+  manual_review?: boolean;
+  shortfall_safety_state?: string;
 };
 
 export async function finalizeRevolutTripCapture(args: {

@@ -6,6 +6,11 @@ import { createClient } from "npm:@supabase/supabase-js@2.57.2";
 import { serveWithEdgeTiming } from "../_shared/edgeFunctionTiming.ts";
 import { resolveTripDisplayFare } from "../_shared/tripDisplayFareSSOT.ts";
 import { calculateTripSettlementFromTripRow } from "../_shared/tripSettlement.ts";
+import {
+  loadRecoveredDebtFareComponents,
+  type RecoveredDebtFareComponents,
+  withRecoveredDebtFareComponent,
+} from "../_shared/recoveredDebtFareComponents.ts";
 import { assertCronOrServiceRoleAuth } from "../_shared/cronEdgeAuth.ts";
 
 const corsHeaders = {
@@ -77,6 +82,16 @@ serveWithEdgeTiming("financial-ssot-monitor", async (req) => {
 
   const mismatches: Array<Record<string, unknown>> = [];
 
+  let debtFare: RecoveredDebtFareComponents = { fareByTrip: new Map(), ambiguousTripIds: new Set() };
+  try {
+    debtFare = await loadRecoveredDebtFareComponents(
+      admin,
+      ((trips ?? []) as unknown as TripRow[]).map((t) => String(t.id ?? "")),
+    );
+  } catch (err) {
+    console.error("[financial-ssot-monitor] recovered debt fare components unavailable:", err);
+  }
+
   for (const trip of (trips ?? []) as TripRow[]) {
     const ssot = resolveTripDisplayFare(trip);
     const expected = penceField(trip, "final_customer_fare_pence") || ssot.payable_pence;
@@ -94,7 +109,24 @@ serveWithEdgeTiming("financial-ssot-monitor", async (req) => {
       checkMismatch(trip, "gross_leak", "fare_equals_gross_with_discount", gross, expected, mismatches);
     }
 
-    const settlement = calculateTripSettlementFromTripRow(trip);
+    if (debtFare.ambiguousTripIds.has(String(trip.id ?? ""))) {
+      mismatches.push({
+        trip_id: trip.id,
+        trip_code: trip.trip_code ?? null,
+        stage: "recovered_debt",
+        field_name: "trip_fare_component_pence",
+        expected_pence: 1,
+        actual_pence: Math.max(2, penceField(trip, "capture_amount_pence")),
+        details: {
+          trip_status: trip.status,
+          reason: "Capture included customer debt but the trip fare component is missing",
+        },
+      });
+      continue;
+    }
+    const settlement = calculateTripSettlementFromTripRow(
+      withRecoveredDebtFareComponent(trip as Record<string, unknown>, debtFare) as TripRow,
+    );
     const expectedCommission = settlement?.commission_pence ?? 0;
     const storedCommission = penceField(trip, "commission_pence");
     if (storedCommission > 0 && Math.abs(storedCommission - expectedCommission) > 1) {

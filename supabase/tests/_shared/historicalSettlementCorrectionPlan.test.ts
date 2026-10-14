@@ -5,6 +5,8 @@ function mockSupabase(tripData: Record<string, unknown> | null) {
   return {
     from: (_table: string) => ({
       select: () => ({
+        // loadRecoveredDebtFareComponents: no capture in these fixtures recovered customer debt.
+        in: () => ({ gt: () => Promise.resolve({ data: [], error: null }) }),
         eq: () => ({
           maybeSingle: () => Promise.resolve({ data: tripData }),
         }),

@@ -11,6 +11,7 @@
 
 import {
   calculateTripSettlementFromTripRow,
+  recoveredDebtTripFareComponentPence,
   resolveCapturedTripEarningNetPence,
   tripSettlementDbColumns,
   type TripSettlementResult,
@@ -326,6 +327,9 @@ export type DriverFinancialRepairEvidence = {
   provider_processing_fee_pence?: number | null;
   /** payment_sessions.fee_status — terminal entitlement requires "ACTUAL". */
   provider_fee_status?: string | null;
+  /** payment_sessions capture composition — set when the capture also collected older customer debt. */
+  trip_fare_component_pence?: number | null;
+  receivable_component_pence?: number | null;
   tip_pence?: number | null;
   airport_charge_pence?: number | null;
   existing_driver_net_pence?: number | null;
@@ -779,6 +783,15 @@ export function computeExpectedStampForRepair(evidence: DriverFinancialRepairEvi
     };
   }
 
+  const debtFare = recoveredDebtTripFareComponentPence(evidence);
+  if (debtFare != null && (Number.isNaN(debtFare) || isCanonicalTerminalFinancialOutcome(evidence))) {
+    return {
+      ok: false,
+      block_code: DRIVER_FINANCIAL_REPAIR_BLOCK.AMBIGUOUS_ENTITLEMENT,
+      reason: "Capture included customer debt recovery; trip fare component cannot be isolated",
+    };
+  }
+
   if (isCanonicalTerminalFinancialOutcome(evidence)) {
     return computeTerminalOutcomeStampForRepair(evidence, captured);
   }
@@ -804,12 +817,14 @@ export function computeExpectedStampForRepair(evidence: DriverFinancialRepairEvi
     commission_pct: proven.percent,
     driver_tier_commission_percent: proven.percent,
     provider_fee_pence: evidence.provider_fee_pence ?? 0,
+    ...(debtFare != null ? { trip_fare_component_pence: debtFare } : {}),
   };
 
   const resolved = resolveCapturedTripEarningNetPence({
     trip: tripRow,
     captureAmountPence: captured,
     tipPence: nonNegInt(evidence.tip_pence),
+    tripFareComponentPence: debtFare,
   });
 
   if (!resolved.settlement) {

@@ -24,6 +24,10 @@
 
 import type { SupabaseClient } from "npm:@supabase/supabase-js@2.57.2";
 import {
+  loadRecoveredDebtFareComponents,
+  withRecoveredDebtFareComponent,
+} from "./recoveredDebtFareComponents.ts";
+import {
   finalizePaymentSessionLifecycleMismatch,
   checkPsLifecycleFinalizerPreconditions,
 } from "./paymentSessionLifecycleFinalizer.ts";
@@ -311,8 +315,30 @@ export async function recoverCapturedTripWallet(
     return { tripId, tripCode, dryRun, status: "NO_DRIVER_ID" };
   }
 
+  let debtFare;
+  try {
+    debtFare = await loadRecoveredDebtFareComponents(supabase, [tripId]);
+  } catch (err) {
+    return {
+      tripId,
+      tripCode,
+      dryRun,
+      status: "PAYMENT_SESSION_BLOCKED",
+      reason: err instanceof Error ? err.message : String(err),
+    };
+  }
+  if (debtFare.ambiguousTripIds.has(tripId)) {
+    return {
+      tripId,
+      tripCode,
+      dryRun,
+      status: "PAYMENT_SESSION_BLOCKED",
+      reason: "Capture included customer debt but the trip fare component is missing",
+    };
+  }
+
   const correctionRequired = assessHistoricalRecoverySettlementSafety(
-    trip as Record<string, unknown>,
+    withRecoveredDebtFareComponent(trip, debtFare),
   );
   if (correctionRequired) {
     return { tripId, tripCode, dryRun, ...correctionRequired };

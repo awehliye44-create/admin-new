@@ -87,6 +87,8 @@ function buildMockSupabase(options: {
         const identityLookup = Promise.resolve({ data: [{ id: "ps-007" }], error: null });
         return {
           select: () => ({
+            // loadRecoveredDebtFareComponents: no capture in these fixtures recovered customer debt.
+            in: () => ({ gt: () => Promise.resolve({ data: [], error: null }) }),
             eq: (_col?: string, _val?: unknown) => ({
               neq: (_col2?: string, _val2?: unknown) => ({
                 order: () => ({

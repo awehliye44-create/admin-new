@@ -57,6 +57,13 @@ import {
   FR_CUSTOMER_OUTSTANDING_CLASS,
 } from "../_shared/frCustomerOutstandingSSOT.ts";
 import type { OpenReceivableRow } from "../_shared/customerReceivableSSOT.ts";
+import {
+  buildCustomerReceivablePosition,
+  type CustomerReceivablePosition,
+  type ReceivablePositionExceptionRow,
+  type ReceivablePositionReceivableRow,
+  type ReceivablePositionShortfallSessionRow,
+} from "../_shared/customerReceivablePositionSSOT.ts";
 import { isDriverCreditExceptionHealth } from "../_shared/driverCreditMonitoringSSOT.ts";
 import { excludeTripFromPlatformCollectedFinance } from "../_shared/commissionWalletSSOT.ts";
 import {
@@ -1283,6 +1290,44 @@ serve(async (req) => {
       );
     }
 
+    let customer_receivable_position: CustomerReceivablePosition | null = null;
+    if (receivablesLedgerAvailable) {
+      try {
+        const [allRecv, exceptionsRes, markerRes] = await Promise.all([
+          supabase
+            .from("customer_receivables")
+            .select("id, source_trip_id, status, original_amount_pence, outstanding_amount_pence")
+            .limit(5000),
+          supabase
+            .from("finance_shortfall_exceptions")
+            .select("id, trip_id, status, shortfall_pence, receivable_id")
+            .limit(5000),
+          supabase
+            .from("payment_sessions")
+            .select("trip_id, status, provider_state, created_at, metadata")
+            .not("metadata->shortfall_pence", "is", null)
+            .limit(5000),
+        ]);
+        if (exceptionsRes.error) {
+          console.warn(
+            "[admin-finance-reconciliation] finance_shortfall_exceptions read skipped",
+            exceptionsRes.error.message,
+          );
+        }
+        if (!allRecv.error && !markerRes.error) {
+          customer_receivable_position = buildCustomerReceivablePosition({
+            receivables: (allRecv.data ?? []) as ReceivablePositionReceivableRow[],
+            exceptions: exceptionsRes.error
+              ? null
+              : (exceptionsRes.data ?? []) as ReceivablePositionExceptionRow[],
+            shortfallSessions: (markerRes.data ?? []) as ReceivablePositionShortfallSessionRow[],
+          });
+        }
+      } catch (posCatch) {
+        console.warn("[admin-finance-reconciliation] receivable position skipped", posCatch);
+      }
+    }
+
     for (const row of trip_financial_audit) {
       const tripId = String(row.trip_id ?? "");
       const recovery = classifySourceTripReceivableRecovery(recoveryReceivables, tripId);
@@ -1403,6 +1448,7 @@ serve(async (req) => {
         label: "Customer outstanding",
         fr_class: FR_CUSTOMER_OUTSTANDING_CLASS.CUSTOMER_OUTSTANDING,
         receivables_ledger_available: receivablesLedgerAvailable,
+        position: customer_receivable_position,
         not_wallet_variance: true,
         not_payout_variance: true,
       },
