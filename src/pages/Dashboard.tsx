@@ -52,6 +52,7 @@ import { fitMapToLngLatBounds } from '@/lib/mapBounds';
 
 const WORLD_CENTER: [number, number] = [20, 20];
 const WORLD_ZOOM = 1.5;
+const FLEET_ZOOM = 13;
 import { useMapboxToken } from '@/hooks/useMapboxToken';
 import { getCurrencySymbol } from '@/lib/regionSettings';
 import {
@@ -246,10 +247,10 @@ export default function Dashboard() {
       if (d.current_lat === 0 && d.current_lng === 0) continue;
       bounds.extend([d.current_lng, d.current_lat]);
     }
-    if (!fitMapToLngLatBounds(map, bounds, { maxZoom: 13, padding: 64 })) {
+    if (!fitMapToLngLatBounds(map, bounds, { maxZoom: FLEET_ZOOM, padding: 64 })) {
       const area = serviceAreasRef.current.find((a) => a.id === selectedServiceAreaRef.current);
       if (area?.center_lat != null && area?.center_lng != null) {
-        map.flyTo({ center: [area.center_lng, area.center_lat], zoom: 11, duration: 600 });
+        map.flyTo({ center: [area.center_lng, area.center_lat], zoom: FLEET_ZOOM, duration: 600 });
       } else {
         map.flyTo({ center: WORLD_CENTER, zoom: WORLD_ZOOM, duration: 600 });
       }
@@ -262,7 +263,7 @@ export default function Dashboard() {
     userAdjustedViewRef.current = false;
     const area = serviceAreasRef.current.find((x) => x.id === selectedServiceAreaRef.current);
     if (area?.center_lat != null && area?.center_lng != null) {
-      map.flyTo({ center: [area.center_lng, area.center_lat], zoom: 11, duration: 600 });
+      map.flyTo({ center: [area.center_lng, area.center_lat], zoom: FLEET_ZOOM, duration: 600 });
       return;
     }
     const online = liveDriversRef.current.filter(
@@ -278,7 +279,7 @@ export default function Dashboard() {
       fitFleet();
       return;
     }
-    map.flyTo({ center: [target.current_lng as number, target.current_lat as number], zoom: 12, duration: 600 });
+    map.flyTo({ center: [target.current_lng as number, target.current_lat as number], zoom: FLEET_ZOOM, duration: 600 });
   }, [fitFleet]);
 
   const recenterFleet = useCallback(() => {
@@ -291,7 +292,7 @@ export default function Dashboard() {
     navigator.geolocation.getCurrentPosition(
       (pos) => {
         userAdjustedViewRef.current = true;
-        map.flyTo({ center: [pos.coords.longitude, pos.coords.latitude], zoom: 13, duration: 600 });
+        map.flyTo({ center: [pos.coords.longitude, pos.coords.latitude], zoom: FLEET_ZOOM, duration: 600 });
       },
       () => recenterToFleet(),
       { enableHighAccuracy: true, timeout: 8000, maximumAge: 60000 },
@@ -631,7 +632,7 @@ export default function Dashboard() {
       const focus = located.find((d) => d.is_online) ?? located[0];
       if (focus) {
         // Open close-in on one driver; never auto-zoom out to the whole world.
-        map.jumpTo({ center: [focus.current_lng as number, focus.current_lat as number], zoom: 12 });
+        map.jumpTo({ center: [focus.current_lng as number, focus.current_lat as number], zoom: FLEET_ZOOM });
       }
     }
   }, [liveDrivers, isMapLoaded]);
