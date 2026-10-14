@@ -507,6 +507,80 @@ export function resolveOrchestratorRunFinish(args: {
   };
 }
 
+export type EarlierOccurrenceRunItem = {
+  status: string | null | undefined;
+  execution_status: string | null | undefined;
+  open_intent_count: number;
+  active_reservation_count: number;
+};
+
+const FINAL_INTENT_EXECUTION_STATUSES = new Set(["COMPLETED", "FAILED", "DECLINED", "REVERTED", "CANCELLED"]);
+const FINAL_RESERVATION_STATUSES = new Set(["RELEASED", "CANCELLED", "FAILED", "CONSUMED"]);
+
+/** A cancelled item must never have reached the provider: any intent at all blocks closing. */
+export function countBlockingIntentsForEarlierRun(
+  itemStatus: string | null | undefined,
+  intentExecutionStatuses: ReadonlyArray<string | null | undefined>,
+): number {
+  if (String(itemStatus ?? "").toUpperCase() === "CANCELLED") return intentExecutionStatuses.length;
+  return intentExecutionStatuses.filter((s) => !FINAL_INTENT_EXECUTION_STATUSES.has(String(s ?? "").toUpperCase()))
+    .length;
+}
+
+export function countActiveReservationsForEarlierRun(
+  reservationStatuses: ReadonlyArray<string | null | undefined>,
+): number {
+  return reservationStatuses.filter((s) => !FINAL_RESERVATION_STATUSES.has(String(s ?? "").toUpperCase())).length;
+}
+
+/**
+ * An earlier occurrence run is only revisited by its own claim, which later ticks never
+ * repeat. Close it once every item is settled: COMPLETED, or CANCELLED before any
+ * provider intent or live reservation existed. Anything else stays RUNNING for review.
+ */
+export function resolveEarlierOccurrenceRunClose(items: ReadonlyArray<EarlierOccurrenceRunItem>): {
+  close: boolean;
+  run_status: (typeof ORCHESTRATOR_RUN_STATUS)[keyof typeof ORCHESTRATOR_RUN_STATUS];
+  money_path_executed: boolean;
+  completed: number;
+  cancelled: number;
+  reason: string;
+} {
+  let completed = 0;
+  let cancelled = 0;
+  const keepRunning = (reason: string) => ({
+    close: false,
+    run_status: ORCHESTRATOR_RUN_STATUS.RUNNING,
+    money_path_executed: false,
+    completed,
+    cancelled,
+    reason,
+  });
+  if (items.length === 0) return keepRunning("NO_ITEMS");
+  for (const item of items) {
+    const st = String(item.status ?? "").toUpperCase();
+    const ex = String(item.execution_status ?? "").toUpperCase();
+    if (item.open_intent_count > 0 || item.active_reservation_count > 0) {
+      return keepRunning("ITEM_HAS_OPEN_INTENT_OR_RESERVATION");
+    }
+    if (st === "COMPLETED" && (ex === "" || ex === "COMPLETED")) {
+      completed += 1;
+    } else if (st === "CANCELLED" && (ex === "" || ex === "CANCELLED")) {
+      cancelled += 1;
+    } else {
+      return keepRunning(`ITEM_NOT_SETTLED:${st || "UNKNOWN"}`);
+    }
+  }
+  return {
+    close: true,
+    run_status: ORCHESTRATOR_RUN_STATUS.COMPLETED,
+    money_path_executed: completed > 0,
+    completed,
+    cancelled,
+    reason: "ALL_ITEMS_SETTLED",
+  };
+}
+
 export type PlannedOrchestratorItem = {
   driver_id: string;
   driver_name: string | null;

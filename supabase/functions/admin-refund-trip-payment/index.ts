@@ -1,7 +1,7 @@
 // Admin: refund trip payment — routes Revolut vs legacy provider by trip provider.
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { z } from "https://esm.sh/zod@3.23.8";
-import { corsHeaders, jsonResponse, requireAdmin } from "../_shared/adminPaymentGate.ts";
+import { auditAdminUserId, corsHeaders, jsonResponse, requireAdmin } from "../_shared/adminPaymentGate.ts";
 import {
   refundRevolutOrder,
   retrieveRevolutOrder,
@@ -38,6 +38,22 @@ function extractExistingRevolutRefund(
   const id = String((match as Record<string, unknown>).id ?? "").trim();
   if (!id) return null;
   return { id, amount: refundAmountPence };
+}
+
+const NON_SETTLED_REFUND_STATES = new Set(["failed", "declined", "cancelled", "canceled"]);
+
+/** Refunds Revolut already holds for the order; 0 when the order reports none. */
+function revolutOrderRefundedPence(order: Record<string, unknown>): number {
+  const direct = Math.round(Number(order.refunded_amount ?? 0));
+  const refunds = Array.isArray(order.refunds) ? order.refunds : [];
+  let summed = 0;
+  for (const row of refunds) {
+    if (!row || typeof row !== "object") continue;
+    const state = String((row as Record<string, unknown>).state ?? "").toLowerCase();
+    if (NON_SETTLED_REFUND_STATES.has(state)) continue;
+    summed += Math.max(0, Math.round(Number((row as Record<string, unknown>).amount ?? 0)));
+  }
+  return Math.max(Number.isFinite(direct) ? direct : 0, summed);
 }
 
 serve(async (req) => {
@@ -89,6 +105,18 @@ serve(async (req) => {
         ?? sessionRow?.refunded_amount_pence
         ?? 0,
     );
+    // A refund Revolut holds but ONECAB never recorded must be reconciled, never sent again.
+    const providerRefunded = revolutOrderRefundedPence(orderBefore as unknown as Record<string, unknown>);
+    if (providerRefunded > alreadyRefunded) {
+      return jsonResponse({
+        error: "Revolut already shows a refund ONECAB has not recorded. Reconcile it before refunding again.",
+        failure_stage: "refund_reconciliation_required",
+        provider_refunded_pence: providerRefunded,
+        onecab_refunded_pence: alreadyRefunded,
+        retry_provider_refund: false,
+      }, 409);
+    }
+
     const refundable = Math.max(0, captured - alreadyRefunded);
     if (refundable <= 0) return jsonResponse({ error: "Nothing left to refund" }, 400);
 
@@ -150,7 +178,7 @@ serve(async (req) => {
 
       await gate.supabase.from("admin_payment_audit").insert({
         trip_id,
-        admin_user_id: gate.userId,
+        admin_user_id: auditAdminUserId(gate.userId),
         action: "refund",
         reason,
         amount_pence_before: alreadyRefunded,

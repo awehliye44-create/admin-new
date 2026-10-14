@@ -1,6 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { z } from "https://esm.sh/zod@3.23.8";
-import { corsHeaders, jsonResponse, requireAdmin } from "../_shared/adminPaymentGate.ts";
+import { auditAdminUserId, corsHeaders, jsonResponse, requireAdmin } from "../_shared/adminPaymentGate.ts";
 import {
   attemptHoldRecoveryOnce,
   releaseHoldForPaymentSession,
@@ -347,7 +347,7 @@ serve(async (req) => {
       trip_id: tripId,
       provider: "revolut",
       provider_payment_id: providerOrderId,
-      admin_user_id: gate.userId,
+      admin_user_id: auditAdminUserId(gate.userId),
       metadata: {
         payment_session_id: sessionId,
         result,

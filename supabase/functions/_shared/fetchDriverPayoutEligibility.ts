@@ -145,7 +145,7 @@ export async function fetchDriverPayoutEligibilityContext(
         ? supabase
           .from("trips")
           .select(
-            "id, payment_session_id, driver_net_pence, tip_pence, tip_amount_pence, payment_status, payment_method, payment_provider, status, cancelled_at, completed_at, settlement_formula_version, payment_collection_model, financial_model, provider_available_on, financial_outcome, no_show_charge_pence, driver_id, confirmed_driver_id, previous_driver_id",
+            "id, payment_session_id, driver_net_pence, airport_charge_pence, tip_pence, tip_amount_pence, payment_status, payment_method, payment_provider, status, cancelled_at, completed_at, settlement_formula_version, payment_collection_model, financial_model, provider_available_on, financial_outcome, no_show_charge_pence, driver_id, confirmed_driver_id, previous_driver_id",
           )
           .in("id", tripIds)
         : Promise.resolve({ data: [] as Record<string, unknown>[] }),
@@ -262,9 +262,10 @@ export async function fetchDriverPayoutEligibilityContext(
     const capturedPence = captured != null && Number.isFinite(captured) && captured > 0
       ? Math.round(captured)
       : null;
+    // TRIP_EARNING_NET is credited as driver_net + airport (airport is pass-through, never commissioned).
     const canonicalNet = trip?.driver_net_pence == null
       ? null
-      : Math.max(0, Number(trip.driver_net_pence));
+      : Math.max(0, Number(trip.driver_net_pence) + Math.max(0, Number(trip.airport_charge_pence ?? 0)));
 
     const sessionMeta = session?.metadata && typeof session.metadata === "object"
       ? session.metadata as Record<string, unknown>

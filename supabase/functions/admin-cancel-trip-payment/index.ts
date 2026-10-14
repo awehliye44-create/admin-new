@@ -3,7 +3,7 @@
 // PAYMENT_RECOVERY is in flight. Requires abandon_recovery=true to force-release.
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { z } from "https://esm.sh/zod@3.23.8";
-import { corsHeaders, jsonResponse, requireAdmin } from "../_shared/adminPaymentGate.ts";
+import { auditAdminUserId, corsHeaders, jsonResponse, requireAdmin } from "../_shared/adminPaymentGate.ts";
 import {
   cancelRevolutOrder,
   retrieveRevolutOrder,
@@ -81,7 +81,7 @@ serve(async (req) => {
 
     await gate.supabase.from("admin_payment_audit").insert({
       trip_id,
-      admin_user_id: gate.userId,
+      admin_user_id: auditAdminUserId(gate.userId),
       action: abandon_recovery ? "abandon_recovery" : "cancel",
       reason,
       amount_pence_before: before,
