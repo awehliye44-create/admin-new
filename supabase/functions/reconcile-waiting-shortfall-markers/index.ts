@@ -21,6 +21,28 @@ const corsHeaders = {
 };
 
 const BATCH = 25;
+const RECOVERY_JOB_ALERT = "finance:shortfall_recovery_job_unhealthy";
+
+/** One open alert per failure mode. A repeat insert hits the open-fingerprint unique index. */
+async function raiseRecoveryJobAlert(
+  supabase: ReturnType<typeof createServiceRoleClient>,
+  detail: string,
+): Promise<void> {
+  const { error } = await supabase.from("ops_alerts").insert({
+    fingerprint: RECOVERY_JOB_ALERT,
+    category: "payment",
+    severity: "critical",
+    status: "open",
+    source: "system",
+    app: "backend",
+    title: "Waiting shortfall recovery job needs attention",
+    description: detail.slice(0, 500),
+    metadata: { money_moved: false, provider_called: false },
+  });
+  if (error && error.code !== "23505") {
+    console.error("[reconcile-waiting-shortfall-markers] alert insert failed", error.message);
+  }
+}
 
 serveWithEdgeTiming("reconcile-waiting-shortfall-markers", corsHeaders, async (req) => {
   const cronAuth = await assertCronOrServiceRoleAuth(req);
@@ -47,7 +69,8 @@ serveWithEdgeTiming("reconcile-waiting-shortfall-markers", corsHeaders, async (r
   ]);
 
   if (sessionsRes.error) {
-    return new Response(JSON.stringify({ ok: false, error: sessionsRes.error.message }), {
+    await raiseRecoveryJobAlert(supabase, `Recovery could not read payment sessions: ${sessionsRes.error.message}`);
+    return new Response(JSON.stringify({ ok: false, error: sessionsRes.error.message, money_moved: false, provider_called: false }), {
       status: 500,
       headers: corsHeaders,
     });
@@ -103,6 +126,13 @@ serveWithEdgeTiming("reconcile-waiting-shortfall-markers", corsHeaders, async (r
       counts.errors += 1;
       console.error("[reconcile-waiting-shortfall-markers] candidate failed", candidate.tripId, err);
     }
+  }
+
+  if (counts.errors > 0) {
+    await raiseRecoveryJobAlert(
+      supabase,
+      `Recovery examined ${counts.examined} shortfalls and ${counts.errors} failed. No provider call was made.`,
+    );
   }
 
   return new Response(JSON.stringify({

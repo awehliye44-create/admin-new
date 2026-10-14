@@ -84,6 +84,11 @@ Deno.test("shortfall recovery does not call Revolut or write driver earnings", (
   }
   assert(sweep.includes("selectShortfallRecoveryCandidates"));
   assert(sweep.includes("money_moved: false"));
+  assert(sweep.includes("finance:shortfall_recovery_job_unhealthy"));
+  const health = read("migrations/20261217120000_shortfall_recovery_job_health.sql");
+  assert(health.includes("finance:shortfall_recovery_job_unhealthy"));
+  assert(!health.includes("customer_receivables"));
+  assert(!health.includes("driver_wallet_ledger"));
   const cron = read("migrations/20261217110100_waiting_shortfall_reconcile_cron.sql");
   assert(cron.includes("reconcile-waiting-shortfall-markers"));
   assert(!cron.includes("customer_receivable_record_declined_increment"));
