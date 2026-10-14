@@ -53,6 +53,7 @@ import {
   Eye, EyeOff, Send, Clock, Users, Globe, PartyPopper
 } from 'lucide-react';
 import { CampaignHeadsUpSection } from '@/components/notifications/CampaignHeadsUpSection';
+import { AdminNotificationList } from '@/components/notifications/AdminNotificationList';
 import { format } from 'date-fns';
 import { toast } from 'sonner';
 
@@ -544,19 +545,22 @@ export default function Notifications() {
     setIsTemplateDialogOpen(true);
   };
 
-  // Filter notifications
-  const filteredNotifications = notifications.filter(n => {
-    if (n.is_dismissed) return false;
-    
-    const matchesSearch = 
-      n.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      n.message.toLowerCase().includes(searchQuery.toLowerCase());
-    
-    const matchesType = filterType === 'all' || n.type === filterType;
-    const matchesCategory = filterCategory === 'all' || n.category === filterCategory;
-    
+  const matchesNotificationFilters = (notification: Notification) => {
+    const matchesSearch =
+      notification.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      notification.message.toLowerCase().includes(searchQuery.toLowerCase());
+    const matchesType = filterType === 'all' || notification.type === filterType;
+    const matchesCategory = filterCategory === 'all' || notification.category === filterCategory;
     return matchesSearch && matchesType && matchesCategory;
-  });
+  };
+
+  // Open alerts. Dismissed rows stay in resolvedNotifications so a cleared alert is not dropped.
+  const filteredNotifications = notifications.filter(
+    (notification) => !notification.is_dismissed && matchesNotificationFilters(notification),
+  );
+  const resolvedNotifications = notifications.filter(
+    (notification) => notification.is_dismissed && matchesNotificationFilters(notification),
+  );
 
   // Get type icon
   const getTypeIcon = (type: string) => {
@@ -637,6 +641,8 @@ export default function Notifications() {
           </CardContent>
         </Card>
       </div>
+
+      <AdminNotificationList active={filteredNotifications} resolved={resolvedNotifications} />
 
       {/* Tabs */}
       <Tabs value={activeTab} onValueChange={setActiveTab}>
