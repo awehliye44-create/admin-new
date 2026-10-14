@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef, useCallback, useMemo } from 'react';
 import { usePageLoadTelemetry } from '@/hooks/useAdminTelemetry';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { AdminLayout } from '@/components/layout/AdminLayout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -8,7 +8,7 @@ import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Calendar } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { supabase } from '@/integrations/supabase/client';
-import { isAdminPageLiveActive } from '@/lib/adminPageVisibility';
+import { isAdminPageLiveActive, subscribeAdminPageLiveActive } from '@/lib/adminPageVisibility';
 import { useServiceAreas } from '@/hooks/useServiceAreas';
 import { 
   Car, 
@@ -226,6 +226,7 @@ export default function Dashboard() {
   const mapInitError = mapboxError ?? mapError;
   const mapRef = useRef<HTMLDivElement>(null);
   const mapboxMapRef = useRef<mapboxgl.Map | null>(null);
+  const queryClient = useQueryClient();
   const fleetMarkersRef = useRef<globalThis.Map<string, mapboxgl.Marker>>(new globalThis.Map());
   const hasFittedFleetRef = useRef(false);
   const userAdjustedViewRef = useRef(false);
@@ -484,11 +485,78 @@ export default function Dashboard() {
       return (data || []) as LiveFleetDriver[];
     },
     staleTime: 15_000,
-    refetchInterval: () => (isAdminPageLiveActive() ? 20_000 : false),
+    refetchInterval: () => (isAdminPageLiveActive() ? 60_000 : false),
     refetchIntervalInBackground: false,
   });
 
   useEffect(() => { liveDriversRef.current = liveDrivers; }, [liveDrivers]);
+
+  // Glide markers to each new GPS fix instead of jumping.
+  const markerAnimRef = useRef<globalThis.Map<string, number>>(new globalThis.Map());
+  const animateMarkerTo = useCallback((id: string, marker: mapboxgl.Marker, lng: number, lat: number) => {
+    const prev = markerAnimRef.current.get(id);
+    if (prev) cancelAnimationFrame(prev);
+    const from = marker.getLngLat();
+    const dLng = lng - from.lng;
+    const dLat = lat - from.lat;
+    if (Math.abs(dLng) < 1e-7 && Math.abs(dLat) < 1e-7) return;
+    if (Math.abs(dLng) > 0.05 || Math.abs(dLat) > 0.05) {
+      marker.setLngLat([lng, lat]);
+      return;
+    }
+    const duration = 2500;
+    const start = performance.now();
+    const step = (now: number) => {
+      const t = Math.min(1, (now - start) / duration);
+      marker.setLngLat([from.lng + dLng * t, from.lat + dLat * t]);
+      if (t < 1) markerAnimRef.current.set(id, requestAnimationFrame(step));
+      else markerAnimRef.current.delete(id);
+    };
+    markerAnimRef.current.set(id, requestAnimationFrame(step));
+  }, []);
+  useEffect(() => () => {
+    markerAnimRef.current.forEach((raf) => cancelAnimationFrame(raf));
+    markerAnimRef.current.clear();
+  }, []);
+
+  // Realtime GPS pushes: patch the cached driver list as each update arrives.
+  useEffect(() => {
+    let channel: ReturnType<typeof supabase.channel> | null = null;
+    const teardown = () => {
+      if (channel) { supabase.removeChannel(channel); channel = null; }
+    };
+    const setup = () => {
+      teardown();
+      if (!isAdminPageLiveActive()) return;
+      channel = supabase
+        .channel(`dashboard-driver-locations-${Math.random().toString(36).slice(2)}`)
+        .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'drivers' }, (payload) => {
+          const u = payload.new as Partial<LiveFleetDriver> & { id: string };
+          queryClient.setQueriesData<LiveFleetDriver[]>({ queryKey: ['dashboard-live-drivers'] }, (old) => {
+            if (!old) return old;
+            let found = false;
+            const next = old.map((d) => {
+              if (d.id !== u.id) return d;
+              found = true;
+              return {
+                ...d,
+                is_online: u.is_online ?? d.is_online,
+                current_lat: u.current_lat ?? d.current_lat,
+                current_lng: u.current_lng ?? d.current_lng,
+                heading: u.heading ?? d.heading,
+                current_trip_id: u.current_trip_id !== undefined ? u.current_trip_id : d.current_trip_id,
+                last_location_updated_at: u.last_location_updated_at ?? d.last_location_updated_at,
+              };
+            });
+            return found ? next : old;
+          });
+        })
+        .subscribe();
+    };
+    setup();
+    const unsub = subscribeAdminPageLiveActive(setup);
+    return () => { unsub(); teardown(); };
+  }, [queryClient]);
   useEffect(() => {
     serviceAreasRef.current = serviceAreas;
     selectedServiceAreaRef.current = selectedServiceArea;
@@ -527,7 +595,7 @@ export default function Dashboard() {
 
       const existing = fleetMarkersRef.current.get(driver.id);
       if (existing && fleetStatusRef.current.get(driver.id) === status) {
-        existing.setLngLat([lng, lat]);
+        animateMarkerTo(driver.id, existing, lng, lat);
         existing.setRotation(driver.heading || 0);
         continue;
       }
