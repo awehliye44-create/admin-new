@@ -846,7 +846,7 @@ export default function Dashboard() {
         <Card>
           <CardHeader>
             <CardTitle>User Statistics</CardTitle>
-            <Tabs defaultValue="drivers">
+            <Tabs value={userStatsTab} onValueChange={(v) => setUserStatsTab(v as 'drivers' | 'riders')}>
               <TabsList>
                 <TabsTrigger value="drivers">Driver Statistics</TabsTrigger>
                 <TabsTrigger value="riders">Rider Statistics</TabsTrigger>
