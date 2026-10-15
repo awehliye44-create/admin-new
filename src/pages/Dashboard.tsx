@@ -217,6 +217,7 @@ export default function Dashboard() {
   const [period, setPeriod] = useState<'daily' | 'weekly' | 'monthly' | 'custom'>('daily');
   const [selectedServiceArea, setSelectedServiceArea] = useState<string>('all');
   const [userStatsPeriod, setUserStatsPeriod] = useState<'daily' | 'weekly' | 'monthly'>('weekly');
+  const [userStatsTab, setUserStatsTab] = useState<'drivers' | 'riders'>('drivers');
   const [bookingStatType, setBookingStatType] = useState<'completed' | 'ongoing' | 'cancelled'>('completed');
   const [customDateFrom, setCustomDateFrom] = useState<Date | undefined>(undefined);
   const [customDateTo, setCustomDateTo] = useState<Date | undefined>(undefined);
