@@ -13087,6 +13087,120 @@ export type Database = {
           },
         ]
       }
+      finance_shortfall_exceptions: {
+        Row: {
+          captured_pence: number
+          created_at: string
+          currency: string
+          customer_id: string | null
+          expected_fare_pence: number
+          failure_message: string | null
+          failure_phase: string
+          first_detected_at: string
+          id: string
+          idempotency_key: string
+          last_detected_at: string
+          metadata: Json
+          occurrence_count: number
+          payment_session_id: string | null
+          provider_order_id: string | null
+          receivable_id: string | null
+          resolution_note: string | null
+          resolved_at: string | null
+          resolved_by: string | null
+          shortfall_pence: number
+          status: string
+          trip_id: string
+          updated_at: string
+        }
+        Insert: {
+          captured_pence: number
+          created_at?: string
+          currency?: string
+          customer_id?: string | null
+          expected_fare_pence: number
+          failure_message?: string | null
+          failure_phase: string
+          first_detected_at?: string
+          id?: string
+          idempotency_key: string
+          last_detected_at?: string
+          metadata?: Json
+          occurrence_count?: number
+          payment_session_id?: string | null
+          provider_order_id?: string | null
+          receivable_id?: string | null
+          resolution_note?: string | null
+          resolved_at?: string | null
+          resolved_by?: string | null
+          shortfall_pence: number
+          status?: string
+          trip_id: string
+          updated_at?: string
+        }
+        Update: {
+          captured_pence?: number
+          created_at?: string
+          currency?: string
+          customer_id?: string | null
+          expected_fare_pence?: number
+          failure_message?: string | null
+          failure_phase?: string
+          first_detected_at?: string
+          id?: string
+          idempotency_key?: string
+          last_detected_at?: string
+          metadata?: Json
+          occurrence_count?: number
+          payment_session_id?: string | null
+          provider_order_id?: string | null
+          receivable_id?: string | null
+          resolution_note?: string | null
+          resolved_at?: string | null
+          resolved_by?: string | null
+          shortfall_pence?: number
+          status?: string
+          trip_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "finance_shortfall_exceptions_receivable_id_fkey"
+            columns: ["receivable_id"]
+            isOneToOne: false
+            referencedRelation: "customer_receivables"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "finance_shortfall_exceptions_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "admin_trip_lifecycle_fees"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "finance_shortfall_exceptions_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "available_scheduled_jobs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "finance_shortfall_exceptions_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "trips"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "finance_shortfall_exceptions_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "v_payment_lifecycle_audit"
+            referencedColumns: ["trip_id"]
+          },
+        ]
+      }
       financial_ssot_mismatches: {
         Row: {
           actual_pence: number
@@ -30891,6 +31005,31 @@ export type Database = {
         }
         Returns: Json
       }
+      finance_record_shortfall_exception: {
+        Args: {
+          p_captured_pence: number
+          p_currency: string
+          p_customer_id: string
+          p_expected_fare_pence: number
+          p_failure_message: string
+          p_failure_phase: string
+          p_idempotency_key: string
+          p_metadata?: Json
+          p_payment_session_id: string
+          p_provider_order_id: string
+          p_shortfall_pence: number
+          p_trip_id: string
+        }
+        Returns: Json
+      }
+      finance_resolve_shortfall_exception_receivable: {
+        Args: { p_receivable_id: string; p_trip_id: string }
+        Returns: Json
+      }
+      finance_write_off_shortfall_exception: {
+        Args: { p_exception_id: string; p_note: string }
+        Returns: Json
+      }
       find_nearby_drivers: {
         Args: {
           p_lat: number
@@ -31479,6 +31618,10 @@ export type Database = {
           p_provider_transfer_id: string
         }
         Returns: string
+      }
+      invoke_reconcile_waiting_shortfall_markers: {
+        Args: never
+        Returns: undefined
       }
       invoke_release_terminal_trip_hold: {
         Args: { p_reason?: string; p_trip_id: string }
@@ -32622,6 +32765,10 @@ export type Database = {
         }
         Returns: Json
       }
+      shortfall_recovery_response_is_healthy: {
+        Args: { p_content: string; p_status_code: number }
+        Returns: boolean
+      }
       snapshot_accepted_wave_commission: {
         Args: { p_offer_id: string; p_trip_id: string }
         Returns: undefined
@@ -33057,6 +33204,7 @@ export type Database = {
           is_active: boolean
         }[]
       }
+      watch_shortfall_recovery_job_health: { Args: never; Returns: undefined }
       weekly_payout_previous_completed_week: {
         Args: { p_schedule_occurrence_key: string }
         Returns: {
