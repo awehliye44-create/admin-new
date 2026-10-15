@@ -217,6 +217,7 @@ export default function Dashboard() {
   const [period, setPeriod] = useState<'daily' | 'weekly' | 'monthly' | 'custom'>('daily');
   const [selectedServiceArea, setSelectedServiceArea] = useState<string>('all');
   const [userStatsPeriod, setUserStatsPeriod] = useState<'daily' | 'weekly' | 'monthly'>('weekly');
+  const [userStatsTab, setUserStatsTab] = useState<'drivers' | 'riders'>('drivers');
   const [bookingStatType, setBookingStatType] = useState<'completed' | 'ongoing' | 'cancelled'>('completed');
   const [customDateFrom, setCustomDateFrom] = useState<Date | undefined>(undefined);
   const [customDateTo, setCustomDateTo] = useState<Date | undefined>(undefined);
@@ -845,7 +846,7 @@ export default function Dashboard() {
         <Card>
           <CardHeader>
             <CardTitle>User Statistics</CardTitle>
-            <Tabs defaultValue="drivers">
+            <Tabs value={userStatsTab} onValueChange={(v) => setUserStatsTab(v as 'drivers' | 'riders')}>
               <TabsList>
                 <TabsTrigger value="drivers">Driver Statistics</TabsTrigger>
                 <TabsTrigger value="riders">Rider Statistics</TabsTrigger>
@@ -876,48 +877,97 @@ export default function Dashboard() {
                 Monthly
               </Button>
             </div>
-            <div className="h-[200px] flex items-center justify-center">
-              <ResponsiveContainer width="100%" height="100%">
-                <PieChart>
-                  <Pie
-                    data={driverChartData}
-                    cx="50%"
-                    cy="50%"
-                    innerRadius={60}
-                    outerRadius={80}
-                    paddingAngle={5}
-                    dataKey="value"
-                  >
-                    {driverChartData.map((entry, index) => (
-                      <Cell key={`cell-${index}`} fill={entry.color} />
-                    ))}
-                  </Pie>
-                  <Tooltip />
-                </PieChart>
-              </ResponsiveContainer>
-            </div>
-            <div className="grid grid-cols-2 gap-4 mt-4">
-              <div className="flex items-center gap-2">
-                <div className="w-3 h-3 rounded-full bg-blue-500" />
-                <span className="text-sm">Total Drivers</span>
-                <span className="font-semibold ml-auto">{stats.totalDrivers}</span>
+            {userStatsTab === 'drivers' ? (
+              <div className="h-[200px] flex items-center justify-center">
+                <ResponsiveContainer width="100%" height="100%">
+                  <PieChart>
+                    <Pie
+                      data={driverChartData}
+                      cx="50%"
+                      cy="50%"
+                      innerRadius={60}
+                      outerRadius={80}
+                      paddingAngle={5}
+                      dataKey="value"
+                    >
+                      {driverChartData.map((entry, index) => (
+                        <Cell key={`cell-${index}`} fill={entry.color} />
+                      ))}
+                    </Pie>
+                    <Tooltip />
+                  </PieChart>
+                </ResponsiveContainer>
               </div>
-              <div className="flex items-center gap-2">
-                <div className="w-3 h-3 rounded-full bg-green-500" />
-                <span className="text-sm">Active Drivers</span>
-                <span className="font-semibold ml-auto">{stats.onlineDrivers}</span>
+            ) : (
+              <div className="h-[200px] flex items-center justify-center">
+                <ResponsiveContainer width="100%" height="100%">
+                  <PieChart>
+                    <Pie
+                      data={riderChartData}
+                      cx="50%"
+                      cy="50%"
+                      innerRadius={60}
+                      outerRadius={80}
+                      paddingAngle={5}
+                      dataKey="value"
+                    >
+                      {riderChartData.map((entry, index) => (
+                        <Cell key={`rider-cell-${index}`} fill={entry.color} />
+                      ))}
+                    </Pie>
+                    <Tooltip />
+                  </PieChart>
+                </ResponsiveContainer>
               </div>
-              <div className="flex items-center gap-2">
-                <div className="w-3 h-3 rounded-full bg-purple-500" />
-                <span className="text-sm">Pending Drivers</span>
-                <span className="font-semibold ml-auto">{stats.pendingDrivers}</span>
+            )}
+            {userStatsTab === 'drivers' && (
+              <div className="grid grid-cols-2 gap-4 mt-4">
+                <div className="flex items-center gap-2">
+                  <div className="w-3 h-3 rounded-full bg-blue-500" />
+                  <span className="text-sm">Total Drivers</span>
+                  <span className="font-semibold ml-auto">{stats.totalDrivers}</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <div className="w-3 h-3 rounded-full bg-green-500" />
+                  <span className="text-sm">Active Drivers</span>
+                  <span className="font-semibold ml-auto">{stats.onlineDrivers}</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <div className="w-3 h-3 rounded-full bg-purple-500" />
+                  <span className="text-sm">Pending Drivers</span>
+                  <span className="font-semibold ml-auto">{stats.pendingDrivers}</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <div className="w-3 h-3 rounded-full bg-red-500" />
+                  <span className="text-sm">Inactive Drivers</span>
+                  <span className="font-semibold ml-auto">{stats.inactiveDrivers}</span>
+                </div>
               </div>
-              <div className="flex items-center gap-2">
-                <div className="w-3 h-3 rounded-full bg-red-500" />
-                <span className="text-sm">Inactive Drivers</span>
-                <span className="font-semibold ml-auto">{stats.inactiveDrivers}</span>
+            )}
+            {userStatsTab === 'riders' && (
+              <div className="grid grid-cols-2 gap-4 mt-4">
+                <div className="flex items-center gap-2">
+                  <div className="w-3 h-3 rounded-full bg-blue-500" />
+                  <span className="text-sm">Total Riders</span>
+                  <span className="font-semibold ml-auto">{stats.totalRiders}</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <div className="w-3 h-3 rounded-full bg-green-500" />
+                  <span className="text-sm">Active Trips</span>
+                  <span className="font-semibold ml-auto">{stats.activeTrips}</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <div className="w-3 h-3 rounded-full bg-purple-500" />
+                  <span className="text-sm">Completed</span>
+                  <span className="font-semibold ml-auto">{stats.completedTrips}</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <div className="w-3 h-3 rounded-full bg-red-500" />
+                  <span className="text-sm">Cancelled</span>
+                  <span className="font-semibold ml-auto">{stats.cancelledTrips}</span>
+                </div>
               </div>
-            </div>
+            )}
           </CardContent>
         </Card>
 
