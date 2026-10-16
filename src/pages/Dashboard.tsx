@@ -8,6 +8,7 @@ import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Calendar } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { supabase } from '@/integrations/supabase/client';
+import { ACTIVE_TRIP_DB_STATUSES } from '@/lib/activeTripStatuses';
 import { isAdminPageLiveActive, subscribeAdminPageLiveActive } from '@/lib/adminPageVisibility';
 import { useServiceAreas } from '@/hooks/useServiceAreas';
 import { 
@@ -653,23 +654,68 @@ export default function Dashboard() {
     completedTrips: 0,
     cancelledTrips: 0,
   };
+
+  // User Statistics card — its own Days / Weekly / Monthly window
+  const userStatsRange = useMemo(() => {
+    const now = new Date();
+    const start = userStatsPeriod === 'daily' ? startOfDay(now)
+      : userStatsPeriod === 'weekly' ? startOfWeek(now, { weekStartsOn: 1 })
+      : startOfMonth(now);
+    return { startIso: start.toISOString(), endIso: endOfDay(now).toISOString() };
+  }, [userStatsPeriod]);
+
+  const { data: userPeriodStats } = useQuery({
+    queryKey: ['dashboard-user-stats', userStatsPeriod, selectedServiceArea],
+    queryFn: async () => {
+      const { startIso, endIso } = userStatsRange;
+      const driverCount = async (col?: string, val?: string | boolean) => {
+        let q: any = supabase.from('drivers').select('id', { count: 'exact', head: true })
+          .is('deleted_at', null).neq('driver_status', 'deleted')
+          .gte('created_at', startIso).lte('created_at', endIso);
+        if (selectedServiceArea !== 'all') q = q.eq('service_area_id', selectedServiceArea);
+        if (col) q = q.eq(col, val);
+        const { count, error } = await q;
+        if (error) throw error;
+        return count ?? 0;
+      };
+      const tripCount = async (status?: string | string[]) => {
+        let q: any = supabase.from('trips').select('id', { count: 'exact', head: true })
+          .gte('created_at', startIso).lte('created_at', endIso);
+        if (selectedServiceArea !== 'all') q = q.eq('service_area_id', selectedServiceArea);
+        if (typeof status === 'string') q = q.eq('status', status);
+        else if (status) q = q.in('status', status);
+        const { count, error } = await q;
+        if (error) throw error;
+        return count ?? 0;
+      };
+      const [totalDrivers, onlineDrivers, pendingDrivers, inactiveDrivers, totalRiders, totalTrips, completedTrips, cancelledTrips, activeTrips] = await Promise.all([
+        driverCount(), driverCount('is_online', true), driverCount('approval_status', 'pending'), driverCount('approval_status', 'rejected'),
+        supabase.from('customers').select('id', { count: 'exact', head: true }).gte('created_at', startIso).lte('created_at', endIso)
+          .then(r => { if (r.error) throw r.error; return r.count ?? 0; }),
+        tripCount(), tripCount('completed'), tripCount('cancelled'), tripCount([...ACTIVE_TRIP_DB_STATUSES]),
+      ]);
+      return { totalDrivers, onlineDrivers, pendingDrivers, inactiveDrivers, totalRiders, totalTrips, completedTrips, cancelledTrips, activeTrips };
+    },
+    staleTime: 60_000,
+  });
+  const ups = userPeriodStats;
   const recentTrips = dashData?.recentTrips || [];
   const bookingChartData = dashData?.bookingChartData || [];
 
 
 
   const driverChartData = [
-    { name: 'Total Drivers', value: stats.totalDrivers, color: '#3B82F6' },
-    { name: 'Active Drivers', value: stats.onlineDrivers, color: '#10B981' },
-    { name: 'Pending Drivers', value: stats.pendingDrivers, color: '#8B5CF6' },
-    { name: 'Inactive Drivers', value: stats.inactiveDrivers, color: '#EF4444' },
+    { name: 'Total Drivers', value: ups?.totalDrivers ?? 0, color: '#3B82F6' },
+    { name: 'Active Drivers', value: ups?.onlineDrivers ?? 0, color: '#10B981' },
+    { name: 'Pending Drivers', value: ups?.pendingDrivers ?? 0, color: '#8B5CF6' },
+    { name: 'Inactive Drivers', value: ups?.inactiveDrivers ?? 0, color: '#EF4444' },
   ];
 
   const riderChartData = [
-    { name: 'Total Riders', value: stats.totalRiders, color: '#3B82F6' },
-    { name: 'Active Trips', value: stats.activeTrips, color: '#10B981' },
-    { name: 'Completed', value: stats.completedTrips, color: '#8B5CF6' },
-    { name: 'Cancelled', value: stats.cancelledTrips, color: '#EF4444' },
+    { name: 'Total Riders', value: ups?.totalRiders ?? 0, color: '#3B82F6' },
+    { name: 'Active Trips', value: ups?.activeTrips ?? 0, color: '#10B981' },
+    { name: 'Completed', value: ups?.completedTrips ?? 0, color: '#8B5CF6' },
+    { name: 'Cancelled', value: ups?.cancelledTrips ?? 0, color: '#EF4444' },
   ];
 
   // Resolve currency symbol — Region is the single source of truth for currency
@@ -925,22 +971,22 @@ export default function Dashboard() {
                 <div className="flex items-center gap-2">
                   <div className="w-3 h-3 rounded-full bg-blue-500" />
                   <span className="text-sm">Total Drivers</span>
-                  <span className="font-semibold ml-auto">{stats.totalDrivers}</span>
+                  <span className="font-semibold ml-auto">{ups?.totalDrivers ?? 0}</span>
                 </div>
                 <div className="flex items-center gap-2">
                   <div className="w-3 h-3 rounded-full bg-green-500" />
                   <span className="text-sm">Active Drivers</span>
-                  <span className="font-semibold ml-auto">{stats.onlineDrivers}</span>
+                  <span className="font-semibold ml-auto">{ups?.onlineDrivers ?? 0}</span>
                 </div>
                 <div className="flex items-center gap-2">
                   <div className="w-3 h-3 rounded-full bg-purple-500" />
                   <span className="text-sm">Pending Drivers</span>
-                  <span className="font-semibold ml-auto">{stats.pendingDrivers}</span>
+                  <span className="font-semibold ml-auto">{ups?.pendingDrivers ?? 0}</span>
                 </div>
                 <div className="flex items-center gap-2">
                   <div className="w-3 h-3 rounded-full bg-red-500" />
                   <span className="text-sm">Inactive Drivers</span>
-                  <span className="font-semibold ml-auto">{stats.inactiveDrivers}</span>
+                  <span className="font-semibold ml-auto">{ups?.inactiveDrivers ?? 0}</span>
                 </div>
               </div>
             )}
@@ -949,22 +995,22 @@ export default function Dashboard() {
                 <div className="flex items-center gap-2">
                   <div className="w-3 h-3 rounded-full bg-blue-500" />
                   <span className="text-sm">Total Riders</span>
-                  <span className="font-semibold ml-auto">{stats.totalRiders}</span>
+                  <span className="font-semibold ml-auto">{ups?.totalRiders ?? 0}</span>
                 </div>
                 <div className="flex items-center gap-2">
                   <div className="w-3 h-3 rounded-full bg-green-500" />
                   <span className="text-sm">Active Trips</span>
-                  <span className="font-semibold ml-auto">{stats.activeTrips}</span>
+                  <span className="font-semibold ml-auto">{ups?.activeTrips ?? 0}</span>
                 </div>
                 <div className="flex items-center gap-2">
                   <div className="w-3 h-3 rounded-full bg-purple-500" />
                   <span className="text-sm">Completed</span>
-                  <span className="font-semibold ml-auto">{stats.completedTrips}</span>
+                  <span className="font-semibold ml-auto">{ups?.completedTrips ?? 0}</span>
                 </div>
                 <div className="flex items-center gap-2">
                   <div className="w-3 h-3 rounded-full bg-red-500" />
                   <span className="text-sm">Cancelled</span>
-                  <span className="font-semibold ml-auto">{stats.cancelledTrips}</span>
+                  <span className="font-semibold ml-auto">{ups?.cancelledTrips ?? 0}</span>
                 </div>
               </div>
             )}
@@ -1010,12 +1056,12 @@ export default function Dashboard() {
               <div className="flex items-center gap-2">
                 <div className="w-3 h-3 rounded-full bg-primary" />
                 <span>Completed</span>
-                <span className="font-semibold ml-auto">{stats.completedTrips}</span>
+                <span className="font-semibold ml-auto">{ups?.completedTrips ?? 0}</span>
               </div>
               <div className="flex items-center gap-2">
                 <div className="w-3 h-3 rounded-full bg-destructive" />
                 <span>Cancelled</span>
-                <span className="font-semibold ml-auto">{stats.cancelledTrips}</span>
+                <span className="font-semibold ml-auto">{ups?.cancelledTrips ?? 0}</span>
               </div>
             </div>
           </CardContent>
