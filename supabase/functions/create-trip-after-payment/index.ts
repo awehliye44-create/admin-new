@@ -1115,7 +1115,7 @@ serveWithEdgeTiming("create-trip-after-payment", corsHeaders, async (req) => {
       serviceAreaId,
       pickupLat: body.pickup.lat,
       pickupLng: body.pickup.lng,
-      surgeQuote: body.surge_quote ?? null,
+      surgeQuote: (body.surge_quote ?? null) as never,
     });
     if (!surgeCheck.ok) {
       return failBookingAfterAuthorizedPayment(
