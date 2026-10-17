@@ -51,11 +51,34 @@ Deno.serve(async (req) => {
     // 1. Fetch the trip
     const { data: trip, error: tripError } = await supabase
       .from('trips')
-      .select('id, status, driver_id, passenger_id, service_area_id, arrived_at, created_at, scheduled_at, final_fare_pence, estimated_fare')
+      .select('id, status, driver_id, passenger_id, corporate_account_id, service_area_id, arrived_at, created_at, scheduled_at, final_fare_pence, estimated_fare')
       .eq('id', trip_id)
       .single();
 
     if (tripError || !trip) {
+      return new Response(JSON.stringify({ error: 'Trip not found' }), {
+        status: 404,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
+    // 1b. Caller must belong to the trip's corporate account, or be active staff
+    let callerAllowed = false;
+    if (trip.corporate_account_id) {
+      const [{ data: cu }, { data: cua }] = await Promise.all([
+        supabase.from('corporate_users').select('id')
+          .eq('user_id', user.id).eq('corporate_account_id', trip.corporate_account_id).limit(1),
+        supabase.from('corporate_user_accounts').select('id')
+          .eq('user_id', user.id).eq('corporate_account_id', trip.corporate_account_id).limit(1),
+      ]);
+      callerAllowed = (cu?.length ?? 0) > 0 || (cua?.length ?? 0) > 0;
+    }
+    if (!callerAllowed) {
+      const { data: staff } = await supabase.from('staff_profiles').select('id')
+        .eq('user_id', user.id).eq('is_active', true).maybeSingle();
+      callerAllowed = !!staff;
+    }
+    if (!callerAllowed) {
       return new Response(JSON.stringify({ error: 'Trip not found' }), {
         status: 404,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
