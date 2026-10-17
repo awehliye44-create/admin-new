@@ -105,10 +105,8 @@ Deno.serve(async (req) => {
     }
 
     // SECURITY: Verify authenticated user and derive driver_id from JWT
-    const authHeader = req.headers.get('Authorization');
     let driver_id: string;
-    
-    if (authHeader) {
+    {
       const auth = await requireAuthenticatedUser(req, supabaseUrl, supabaseAnonKey);
       if (!auth.ok) {
         return auth.response;
@@ -133,16 +131,6 @@ Deno.serve(async (req) => {
       if (requestedDriverId && requestedDriverId !== driver_id) {
         console.warn("[scheduled-ride-action] SECURITY: Client sent different driver_id. Claimed:", requestedDriverId, "Actual:", driver_id);
       }
-    } else {
-      // No auth header - allow for backwards compatibility but warn
-      if (!requestedDriverId) {
-        return errorResponse("UNAUTHORIZED", "Authentication required", 401);
-      }
-      if (!isValidUUID(requestedDriverId)) {
-        return errorResponse("BAD_REQUEST", "driver_id must be a valid UUID", 400);
-      }
-      driver_id = requestedDriverId;
-      console.warn("[scheduled-ride-action] SECURITY: Unauthenticated request using driver_id from body - this will be deprecated");
     }
 
     console.log("[scheduled-ride-action] Authorized driver:", driver_id);
