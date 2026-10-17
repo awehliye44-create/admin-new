@@ -1,5 +1,5 @@
 import { createClient } from "npm:@supabase/supabase-js@2.57.2";
-import { corsHeaders, requireAdminOrStaff } from "../_shared/adminPaymentGate.ts";
+import { corsHeaders, requireAdminOrStaff, requireAnyPageAccess } from "../_shared/adminPaymentGate.ts";
 import {
   handleDriverInvoiceAction,
   previewDriverInvoiceHtml,

@@ -1,6 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { z } from "https://esm.sh/zod@3.23.8";
-import { corsHeaders, jsonResponse, requireAdminOrStaff, type GateError } from "../_shared/adminPaymentGate.ts";
+import { corsHeaders, jsonResponse, requireAdminOrStaff, requirePageAccess, type GateError } from "../_shared/adminPaymentGate.ts";
 import { listAdminPayoutLedger } from "../_shared/adminPayoutLedgerListSSOT.ts";
 import { buildPayoutLedgerAccountsOverview } from "../_shared/adminPayoutLedgerAccountsOverviewSSOT.ts";
 import { buildPayoutLedgerOverview } from "../_shared/adminPayoutLedgerOverviewSSOT.ts";

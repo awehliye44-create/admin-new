@@ -5,7 +5,7 @@
  */
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { z } from "https://esm.sh/zod@3.23.8";
-import { corsHeaders, jsonResponse, requireAdminOrStaff } from "../_shared/adminPaymentGate.ts";
+import { corsHeaders, jsonResponse, requireAdminOrStaff, requirePageAccess } from "../_shared/adminPaymentGate.ts";
 import {
   COMPANY_PAYEE_TYPES,
   companyPayeeAccountFingerprint,
