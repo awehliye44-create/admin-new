@@ -1,3 +1,4 @@
+import { requireAdminOrStaff, requirePageAccess } from "../_shared/adminPaymentGate.ts";
 /**
  * whatsapp-reply — Admin sends a WhatsApp message to a customer.
  *
@@ -56,6 +57,11 @@ Deno.serve(async (req) => {
   });
   const { data: { user }, error: authErr } = await userClient.auth.getUser();
   if (authErr || !user) return json({ error: "unauthorized" }, 401);
+
+  const staffGate = await requireAdminOrStaff(req);
+  if (!staffGate.ok) return json({ error: "forbidden" }, 403);
+  const pageGate = await requirePageAccess(staffGate, "live-chat");
+  if (!pageGate.ok) return json({ error: "forbidden" }, 403);
 
   // Service-role client for tables with service-role-only RLS (whatsapp_*).
   const svcClient = createClient(supabaseUrl, serviceKey);

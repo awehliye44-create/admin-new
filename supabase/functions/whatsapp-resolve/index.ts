@@ -1,3 +1,4 @@
+import { requireAdminOrStaff, requirePageAccess } from "../_shared/adminPaymentGate.ts";
 /**
  * whatsapp-resolve — Admin closes a WhatsApp support conversation.
  *
@@ -53,6 +54,11 @@ Deno.serve(async (req) => {
   });
   const { data: { user }, error: authErr } = await userClient.auth.getUser();
   if (authErr || !user) return json({ error: "unauthorized" }, 401);
+
+  const staffGate = await requireAdminOrStaff(req);
+  if (!staffGate.ok) return json({ error: "forbidden" }, 403);
+  const pageGate = await requirePageAccess(staffGate, "live-chat");
+  if (!pageGate.ok) return json({ error: "forbidden" }, 403);
 
   const svcClient = createClient(supabaseUrl, serviceKey);
 
