@@ -81,36 +81,6 @@ Deno.serve(async (req) => {
       auth: { persistSession: false },
     });
 
-    if (raw?.diagnose === true) {
-      const { data: recentOffers } = await adminClient.from("ride_offers")
-        .select("id, trip_id, driver_id, status, expires_at, created_at")
-        .order("created_at", { ascending: false })
-        .limit(10);
-
-      const { data: recentTrips } = await adminClient.from("trips")
-        .select("id, status, dispatch_status, driver_id, confirmed_driver_id, created_at")
-        .order("created_at", { ascending: false })
-        .limit(10);
-
-      let validationResult = null;
-      if (recentOffers && recentOffers.length > 0) {
-        const { data: valData } = await adminClient.rpc("validate_driver_offer", {
-          p_offer_id: recentOffers[0].id,
-          p_driver_id: driverRow.id
-        });
-        validationResult = valData;
-      }
-
-      return successResponse({
-        ok: true,
-        diagnose: true,
-        driver_id: driverRow.id,
-        validationResult,
-        recentOffers,
-        recentTrips
-      });
-    }
-
     console.log(
       `[booking-received] booking_id=${booking_id} driver=${driverRow.id}` +
       (telemetry_source ? ` source=${telemetry_source}` : "") +
