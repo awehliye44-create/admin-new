@@ -330,6 +330,16 @@ Deno.serve(async (req) => {
   const rateLimitResult = checkRateLimit(clientIP, RATE_LIMIT_CONFIG);
   if (!rateLimitResult.allowed) return rateLimitResponse(rateLimitResult);
 
+  {
+    const { assertCronOrServiceRoleAuth } = await import("../_shared/cronEdgeAuth.ts");
+    const cronAuth = await assertCronOrServiceRoleAuth(req);
+    if (!cronAuth.ok) {
+      const { requireAdminOrService } = await import("../_shared/callerGate.ts");
+      const adminGate = await requireAdminOrService(req);
+      if (!adminGate.ok) return adminGate.response;
+    }
+  }
+
   try {
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;

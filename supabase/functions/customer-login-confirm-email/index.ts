@@ -121,7 +121,7 @@ Deno.serve(async (req) => {
 
     console.log(
       "CUSTOMER_LOGIN_EMAIL_CONFIRMED",
-      JSON.stringify({ user_id: userId, email }),
+      JSON.stringify({ user_id: userId }),
     );
 
     return jsonResponse({
