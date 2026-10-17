@@ -15,6 +15,7 @@ import {
   isTripCompletedForCustomerInvoice,
 } from "../_shared/tripInvoiceEligibility.ts";
 import { invokeTripInvoiceProcess } from "../_shared/tripInvoiceTrigger.ts";
+import { assertCronOrServiceRoleAuth } from "../_shared/cronEdgeAuth.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -30,6 +31,9 @@ Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
   }
+
+  const callerAuth = await assertCronOrServiceRoleAuth(req);
+  if (!callerAuth.ok) return callerAuth.response;
 
   try {
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;

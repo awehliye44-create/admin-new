@@ -3,6 +3,7 @@ import {
   releaseRevolutPreauthForTrip,
   resolveRevolutOrderIdFromTrip,
 } from "../_shared/revolutPreauthReleaseSSOT.ts";
+import { assertCronOrServiceRoleAuth } from "../_shared/cronEdgeAuth.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -38,6 +39,9 @@ Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
   }
+
+  const callerAuth = await assertCronOrServiceRoleAuth(req);
+  if (!callerAuth.ok) return callerAuth.response;
 
   const supabase = createClient(
     Deno.env.get("SUPABASE_URL")!,

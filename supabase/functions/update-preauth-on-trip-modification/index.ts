@@ -10,6 +10,7 @@ import {
   FINANCIAL_MODEL_VIOLATION,
   SERVICE_AREA_FINANCIAL_MODEL,
 } from "../_shared/commissionWalletSSOT.ts";
+import { assertCronOrServiceRoleAuth } from "../_shared/cronEdgeAuth.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -28,13 +29,8 @@ Deno.serve(async (req) => {
       { auth: { persistSession: false } },
     );
 
-    const authHeader = req.headers.get("Authorization");
-    if (!authHeader) {
-      return new Response(JSON.stringify({ error: "No authorization header provided" }), {
-        status: 401,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
+    const callerAuth = await assertCronOrServiceRoleAuth(req);
+    if (!callerAuth.ok) return callerAuth.response;
 
     const body = await req.json();
     const tripId = body.trip_id ?? body.tripId;

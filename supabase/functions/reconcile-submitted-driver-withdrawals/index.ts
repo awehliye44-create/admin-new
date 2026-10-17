@@ -23,6 +23,7 @@
  */
 import { createClient } from "npm:@supabase/supabase-js@2.57.2";
 import { reconcileSubmittedDriverWithdrawPayout } from "../_shared/driverWithdrawProviderReconcile.ts";
+import { assertCronOrServiceRoleAuth } from "../_shared/cronEdgeAuth.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -297,20 +298,8 @@ Deno.serve(async (req) => {
     return json({ error: "server_misconfigured" }, 500);
   }
 
-  // Require service-role bearer.
-  const authHeader = req.headers.get("Authorization") ?? "";
-  const bearer = authHeader.startsWith("Bearer ") ? authHeader.slice(7).trim() : "";
-  let jwtRole = "";
-  try {
-    const payloadB64 = bearer.split(".")[1] ?? "";
-    const padded = payloadB64 + "=".repeat((4 - (payloadB64.length % 4)) % 4);
-    const payload = JSON.parse(
-      atob(padded.replace(/-/g, "+").replace(/_/g, "/")),
-    );
-    jwtRole = String(payload?.role ?? "");
-  } catch { jwtRole = ""; }
-  const isServiceRole = jwtRole === "service_role" || bearer === serviceKey;
-  if (!isServiceRole) return json({ error: "forbidden" }, 403);
+  const callerAuth = await assertCronOrServiceRoleAuth(req);
+  if (!callerAuth.ok) return json({ error: "forbidden" }, 403);
 
   let body: Record<string, unknown> = {};
   try { body = await req.json(); } catch { body = {}; }

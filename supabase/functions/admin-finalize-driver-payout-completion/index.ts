@@ -31,6 +31,7 @@ import {
   assertPayoutItemLedgerLineage,
   PAYOUT_LINEAGE_MISSING,
 } from "../_shared/payoutItemLedgerAllocationWrite.ts";
+import { requireFinanceExecutionAuth } from "../_shared/adminPaymentGate.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -46,6 +47,9 @@ function json(data: unknown, status = 200): Response {
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
   if (req.method !== "POST") return json({ error: "method_not_allowed" }, 405);
+
+  const financeGate = await requireFinanceExecutionAuth(req, { requireStaffFinanceProfile: true });
+  if (!financeGate.ok) return financeGate.response;
 
   const flagGate = evaluateSlice8FlagGate(Deno.env);
   if (!flagGate.ok) {

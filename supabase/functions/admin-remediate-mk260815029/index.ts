@@ -15,6 +15,7 @@ import {
   getRevolutMerchantConfig,
 } from "../_shared/revolutOrders.ts";
 import { applyProviderRefundToOnecab } from "../_shared/applyProviderRefund.ts";
+import { assertCronOrServiceRoleAuth } from "../_shared/cronEdgeAuth.ts";
 
 const TRIP_ID = "9384ecfc-c450-4290-9385-75195db32fde";
 const TRIP_CODE = "MK-260815-029";
@@ -40,20 +41,10 @@ Deno.serve(async (req) => {
     const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const supabase = createClient(supabaseUrl, serviceKey);
 
-    const auth = req.headers.get("Authorization") ?? "";
-    const bearer = auth.replace(/^Bearer\s+/i, "").trim();
     const internal = req.headers.get("x-onecab-internal-finalize") ?? "";
     const configuredInternal = Deno.env.get("ONECAB_INTERNAL_FINALIZE_SECRET") ?? "";
-    let okAuth =
-      (bearer && bearer === serviceKey) ||
-      (configuredInternal && internal === configuredInternal);
-    // Accept any valid service_role JWT (project may rotate literal env vs gateway key).
-    if (!okAuth && bearer.split(".").length === 3) {
-      try {
-        const payload = JSON.parse(atob(bearer.split(".")[1]!));
-        if (payload?.role === "service_role") okAuth = true;
-      } catch { /* ignore */ }
-    }
+    const okAuth = (configuredInternal.length >= 20 && internal === configuredInternal) ||
+      (await assertCronOrServiceRoleAuth(req)).ok;
     if (!okAuth) {
       return new Response(JSON.stringify({ error: "Unauthorized" }), {
         status: 401,

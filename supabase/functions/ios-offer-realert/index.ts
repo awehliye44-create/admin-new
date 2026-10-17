@@ -5,6 +5,7 @@ import {
   errorResponse,
 } from "../_shared/security.ts";
 import { isTripTerminalForDispatch } from "../_shared/tripTerminalDispatch.ts";
+import { assertCronOrServiceRoleAuth } from "../_shared/cronEdgeAuth.ts";
 
 /**
  * iOS Offer Re-Alert Edge Function
@@ -37,6 +38,9 @@ function sleep(ms: number): Promise<void> {
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return handleCORSPreflight();
+
+  const callerAuth = await assertCronOrServiceRoleAuth(req);
+  if (!callerAuth.ok) return callerAuth.response;
 
   try {
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
