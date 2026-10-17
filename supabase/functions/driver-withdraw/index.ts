@@ -411,8 +411,6 @@ Deno.serve(async (req) => {
   }
 
   // Service-role probes only (no new /pay).
-  const bearer = authHeader.slice("Bearer ".length).trim();
-void bearer;
   const { assertCronOrServiceRoleAuth } = await import("../_shared/cronEdgeAuth.ts");
   const isServiceRole = (await assertCronOrServiceRoleAuth(req)).ok;
 
