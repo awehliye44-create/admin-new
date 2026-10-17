@@ -68,6 +68,9 @@ function queueBackground(promise: Promise<unknown>) {
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
 interface ScheduledTrip {
+  driver_net_pence?: number | null;
+  driver_net_before_tip_pence?: number | null;
+  special_instructions?: string | null;
   id: string;
   scheduled_at: string;
   scheduled_status: string;
@@ -321,6 +324,10 @@ async function releaseAndRebroadcast(
 }
 
 
+function voidBackground(promise: Promise<unknown>): void {
+  promise.catch((err) => console.error("[scheduled-dispatch] background task failed:", err));
+}
+
 // ─── Main handler ─────────────────────────────────────────────────────────────
 
 Deno.serve(async (req) => {
@@ -329,6 +336,16 @@ Deno.serve(async (req) => {
   const clientIP = getClientIP(req);
   const rateLimitResult = checkRateLimit(clientIP, RATE_LIMIT_CONFIG);
   if (!rateLimitResult.allowed) return rateLimitResponse(rateLimitResult);
+
+  {
+    const { assertCronOrServiceRoleAuth } = await import("../_shared/cronEdgeAuth.ts");
+    const cronAuth = await assertCronOrServiceRoleAuth(req);
+    if (!cronAuth.ok) {
+      const { requireAdminOrService } = await import("../_shared/callerGate.ts");
+      const adminGate = await requireAdminOrService(req);
+      if (!adminGate.ok) return adminGate.response;
+    }
+  }
 
   try {
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
@@ -1330,7 +1347,7 @@ Deno.serve(async (req) => {
         }
 
         const { expired: didExpire, rpcError } =
-          await expireTripWhenSearchExhaustedAndNotifyCustomer(supabase, {
+          await expireTripWhenSearchExhaustedAndNotifyCustomer(supabase as never, {
             tripId: trip.id,
             passengerId: trip.passenger_id ?? null,
           });
@@ -1341,7 +1358,7 @@ Deno.serve(async (req) => {
         }
 
         if (didExpire === true) {
-          await revokePendingOffersForTerminalTrip(supabase, trip.id, "trip_expired_no_driver");
+          await revokePendingOffersForTerminalTrip(supabase as never, trip.id, "trip_expired_no_driver");
           await supabase
             .from("trips")
             .update({

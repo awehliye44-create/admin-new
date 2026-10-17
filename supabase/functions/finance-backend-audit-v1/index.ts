@@ -122,7 +122,8 @@ serve(async (req) => {
         .eq("user_id", user.id)
         .eq("is_active", true)
         .maybeSingle();
-      if (!staffRow) {
+      const FINANCE_STAFF_ROLES = new Set(["super_admin", "admin", "finance_manager"]);
+      if (!staffRow || !FINANCE_STAFF_ROLES.has(String(staffRow.role ?? ""))) {
         return json({
           error: "Admin access required",
           finance_backend_audit_v1: null,

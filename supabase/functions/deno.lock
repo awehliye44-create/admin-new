@@ -1,7 +1,9 @@
 {
   "version": "5",
   "specifiers": {
-    "npm:@supabase/supabase-js@2.57.2": "2.57.2"
+    "npm:@supabase/supabase-js@2": "2.57.2",
+    "npm:@supabase/supabase-js@2.57.2": "2.57.2",
+    "npm:zod@3.23.8": "3.23.8"
   },
   "npm": {
     "@supabase/auth-js@2.71.1": {
@@ -94,6 +96,9 @@
     },
     "ws@8.21.0": {
       "integrity": "sha512-Vsp28b7DRcimFQvrqu2Wek3z1iYxDCWqHYB8Qsnk/S4RfaCQzPGPyBNuVjJV3cd6UiKtUtp6sNM77gWvzcCH+g=="
+    },
+    "zod@3.23.8": {
+      "integrity": "sha512-XBx9AXhXktjUqnepgTiE5flcKIYWi/rme0Eaj+5Y0lftuGBq+jyRu/md4WnuxqgP1ubdpNCsYEYPxrzVHD8d6g=="
     }
   },
   "redirects": {

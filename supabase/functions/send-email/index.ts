@@ -1,6 +1,6 @@
 import { corsHeaders } from 'npm:@supabase/supabase-js@2/cors'
 import { z } from 'npm:zod@3.23.8'
-import { requireAdminOrService, escapeHtml } from '../_shared/callerGate.ts'
+import { requireAdminOrService } from '../_shared/callerGate.ts'
 
 const RESEND_API_KEY = Deno.env.get('RESEND_API_KEY')
 const FROM_ADDRESS = 'OneCab <noreply@onecab.net>'
@@ -28,9 +28,15 @@ Deno.serve(async (req) => {
     })
   }
 
-  // Admin staff or internal service callers only.
+  // Internal service callers only (no app UI sends free-form email).
   const callerGate = await requireAdminOrService(req)
   if (!callerGate.ok) return callerGate.response
+  if (!callerGate.isService) {
+    return new Response(JSON.stringify({ error: 'Internal service callers only' }), {
+      status: 403,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    })
+  }
 
   const parsed = BodySchema.safeParse(await req.json().catch(() => null))
   if (!parsed.success) {
@@ -43,7 +49,7 @@ Deno.serve(async (req) => {
   const text = parsed.data.text
   // Raw HTML only from trusted internal service callers; staff-supplied HTML is escaped.
   const html = parsed.data.html
-    ? (callerGate.isService ? parsed.data.html : `<pre style="font-family:inherit;white-space:pre-wrap">${escapeHtml(parsed.data.html)}</pre>`)
+    ? parsed.data.html
     : undefined
 
   const res = await fetch('https://api.resend.com/emails', {

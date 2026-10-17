@@ -411,17 +411,8 @@ Deno.serve(async (req) => {
   }
 
   // Service-role probes only (no new /pay).
-  const bearer = authHeader.slice("Bearer ".length).trim();
-  let jwtRole = "";
-  try {
-    const payloadB64 = bearer.split(".")[1] ?? "";
-    const padded = payloadB64 + "=".repeat((4 - (payloadB64.length % 4)) % 4);
-    const payload = JSON.parse(atob(padded.replace(/-/g, "+").replace(/_/g, "/")));
-    jwtRole = String(payload?.role ?? "");
-  } catch {
-    jwtRole = "";
-  }
-  const isServiceRole = jwtRole === "service_role" || bearer === serviceKey;
+  const { assertCronOrServiceRoleAuth } = await import("../_shared/cronEdgeAuth.ts");
+  const isServiceRole = (await assertCronOrServiceRoleAuth(req)).ok;
 
   if (body.probe_company_balance === true) {
     if (!isServiceRole) {
