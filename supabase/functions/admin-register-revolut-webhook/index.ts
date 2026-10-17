@@ -22,15 +22,7 @@ const corsHeaders = {
 
 function isServiceRoleToken(token: string): boolean {
   const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
-  if (serviceRoleKey && token === serviceRoleKey) return true;
-  try {
-    const parts = token.split(".");
-    if (parts.length < 2) return false;
-    const payload = JSON.parse(atob(parts[1].replace(/-/g, "+").replace(/_/g, "/")));
-    return payload?.role === "service_role";
-  } catch {
-    return false;
-  }
+  return serviceRoleKey.length > 0 && token === serviceRoleKey;
 }
 
 async function requireAdminOrServiceRole(

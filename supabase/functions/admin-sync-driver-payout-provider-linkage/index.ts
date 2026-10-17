@@ -120,15 +120,10 @@ Deno.serve(async (req) => {
     // Allow service_role for automated Slice 2 production runs; otherwise require admin user.
     let actorUserId: string | null = null;
     let actorRole: "admin" | "service_role" = "admin";
-    try {
-      const payloadPart = token.split(".")[1];
-      const json = JSON.parse(atob(payloadPart.replace(/-/g, "+").replace(/_/g, "/")));
-      if (json?.role === "service_role") {
-        actorRole = "service_role";
-        actorUserId = null;
-      }
-    } catch {
-      // fall through to user auth
+    const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+    if (serviceRoleKey.length > 0 && token === serviceRoleKey) {
+      actorRole = "service_role";
+      actorUserId = null;
     }
 
     if (actorRole !== "service_role") {

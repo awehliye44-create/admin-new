@@ -8,15 +8,6 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-function isServiceRoleToken(token: string): boolean {
-  try {
-    const payload = JSON.parse(atob(token.split(".")[1].replace(/-/g, "+").replace(/_/g, "/")));
-    return payload?.role === "service_role";
-  } catch {
-    return false;
-  }
-}
-
 async function verifyAdmin(supabase: AnySupabaseClient, authHeader: string | null) {
   if (!authHeader) return null;
   const token = authHeader.replace("Bearer ", "");
@@ -45,7 +36,7 @@ serve(async (req) => {
 
     const authHeader = req.headers.get("Authorization");
     const token = authHeader?.replace("Bearer ", "") ?? "";
-    const isServiceRole = token === supabaseServiceKey || isServiceRoleToken(token);
+    const isServiceRole = supabaseServiceKey.length > 0 && token === supabaseServiceKey;
     const admin = isServiceRole ? { id: "service_role" } : await verifyAdmin(supabase, authHeader);
     if (!admin) {
       return new Response(JSON.stringify({ error: "Admin access required" }), {
