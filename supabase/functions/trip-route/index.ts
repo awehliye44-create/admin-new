@@ -1,3 +1,4 @@
+import { requireSignedInOrService } from "../_shared/callerGate.ts";
 /**
  * trip-route — Single backend endpoint for all route/ETA operations.
  * 
@@ -47,6 +48,31 @@ serve(async (req) => {
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
+
+    const caller = await requireSignedInOrService(req);
+    if (!caller.ok) return caller.response;
+    if (!caller.isService) {
+      const tripId = typeof body.trip_id === "string" ? body.trip_id : "";
+      if (!tripId) return errorResponse("Missing trip_id", 400);
+      const { data: trip } = await supabase
+        .from("trips")
+        .select("driver_id, confirmed_driver_id, passenger_id")
+        .eq("id", tripId)
+        .maybeSingle();
+      if (!trip) return errorResponse("Trip not found", 404);
+      const [{ data: drv }, { data: cust }, { data: staff }] = await Promise.all([
+        supabase.from("drivers").select("id").eq("user_id", caller.userId!),
+        supabase.from("customers").select("id").eq("user_id", caller.userId!),
+        supabase.from("staff_profiles").select("id").eq("user_id", caller.userId!).eq("is_active", true).maybeSingle(),
+      ]);
+      const driverIds = new Set((drv ?? []).map((d: { id: string }) => d.id));
+      const customerIds = new Set((cust ?? []).map((c: { id: string }) => c.id));
+      const allowed = !!staff ||
+        (trip.driver_id && driverIds.has(trip.driver_id)) ||
+        (trip.confirmed_driver_id && driverIds.has(trip.confirmed_driver_id)) ||
+        (trip.passenger_id && customerIds.has(trip.passenger_id));
+      if (!allowed) return errorResponse("Trip not found", 404);
+    }
 
     switch (action) {
       case "get_route": {
