@@ -1,3 +1,4 @@
+import { resolveAuthoritativeFare } from "../_shared/authoritativeFare.ts";
 import type { AnySupabaseClient } from "../_shared/supabaseClientTypes.ts";
 import { createClient } from "npm:@supabase/supabase-js@2.57.2";
 import {
@@ -989,6 +990,40 @@ serveWithEdgeTiming("create-trip-after-payment", corsHeaders, async (req) => {
         400,
         BOOKING_FAILED_NO_TRIP_MESSAGE,
       );
+    }
+
+    // Driver-collected (commission wallet) bookings have no platform hold to bind
+    // the fare, so price server-side and never accept an understated client fare.
+    if (skipPlatformPreauth) {
+      const invokeHeaders = edgeFunctionInvokeHeaders(req);
+      if (!invokeHeaders || !body.vehicle_type_id
+        || typeof body.pickup?.lat !== "number" || typeof body.pickup?.lng !== "number"
+        || typeof body.dropoff?.lat !== "number" || typeof body.dropoff?.lng !== "number") {
+        return new Response(JSON.stringify({ error: "Fare could not be verified", code: "FARE_REVALIDATION_FAILED" }), {
+          status: 422, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      const priced = await resolveAuthoritativeFare(supabaseUrl, invokeHeaders, {
+        serviceAreaId: body.service_area_id,
+        vehicleTypeId: body.vehicle_type_id,
+        pickupLat: body.pickup.lat,
+        pickupLng: body.pickup.lng,
+        dropoffLat: body.dropoff.lat,
+        dropoffLng: body.dropoff.lng,
+        stops: (body.stops ?? [])
+          .filter((s) => typeof s?.lat === "number" && typeof s?.lng === "number")
+          .map((s) => ({ lat: s.lat as number, lng: s.lng as number })),
+      });
+      if ("error" in priced) {
+        return new Response(JSON.stringify({ error: priced.error, code: "FARE_REVALIDATION_FAILED" }), {
+          status: 422, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      const serverFare = priced.amountPence / 100;
+      if (Math.round(body.estimated_fare * 100) < priced.amountPence) body.estimated_fare = serverFare;
+      if (body.original_estimated_fare != null && Math.round(body.original_estimated_fare * 100) < priced.amountPence) {
+        body.original_estimated_fare = serverFare;
+      }
     }
 
     const loadedPaymentSession = paymentSessionRes.status === "fulfilled"
