@@ -619,6 +619,17 @@ Deno.serve(async (req) => {
     .eq("client_action_id", client_request_id)
     .maybeSingle();
 
+  if (existingSession) {
+    // Bind the idempotent return to the same verified guest identity; never hand
+    // another guest's checkout link to a caller who only knows the request id.
+    const existingWaId = String(
+      ((existingSession.metadata ?? {}) as Record<string, unknown>).wa_id ?? "",
+    );
+    if (!resolvedWaId || !existingWaId || existingWaId !== resolvedWaId) {
+      return json({ error: "This booking request has already been used.", code: "CLIENT_REQUEST_ID_CONFLICT" }, 409);
+    }
+  }
+
   if (existingSession?.provider_order_id) {
     // Retrieve the existing Revolut order to return its checkout_url
     try {
