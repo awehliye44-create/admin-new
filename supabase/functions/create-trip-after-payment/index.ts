@@ -1111,7 +1111,7 @@ serveWithEdgeTiming("create-trip-after-payment", corsHeaders, async (req) => {
       }
     }
 
-    const surgeCheck = await assertBookingSurgeAtPickup(supabase, {
+    const surgeCheck = await assertBookingSurgeAtPickup(supabase as never, {
       serviceAreaId,
       pickupLat: body.pickup.lat,
       pickupLng: body.pickup.lng,

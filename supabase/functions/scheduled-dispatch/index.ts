@@ -68,6 +68,9 @@ function queueBackground(promise: Promise<unknown>) {
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
 interface ScheduledTrip {
+  driver_net_pence?: number | null;
+  driver_net_before_tip_pence?: number | null;
+  special_instructions?: string | null;
   id: string;
   scheduled_at: string;
   scheduled_status: string;
@@ -1344,7 +1347,7 @@ Deno.serve(async (req) => {
         }
 
         const { expired: didExpire, rpcError } =
-          await expireTripWhenSearchExhaustedAndNotifyCustomer(supabase, {
+          await expireTripWhenSearchExhaustedAndNotifyCustomer(supabase as never, {
             tripId: trip.id,
             passengerId: trip.passenger_id ?? null,
           });
@@ -1355,7 +1358,7 @@ Deno.serve(async (req) => {
         }
 
         if (didExpire === true) {
-          await revokePendingOffersForTerminalTrip(supabase, trip.id, "trip_expired_no_driver");
+          await revokePendingOffersForTerminalTrip(supabase as never, trip.id, "trip_expired_no_driver");
           await supabase
             .from("trips")
             .update({
