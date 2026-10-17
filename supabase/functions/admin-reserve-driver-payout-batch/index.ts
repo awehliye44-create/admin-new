@@ -28,6 +28,7 @@ import {
   reservationIdempotencyKey,
   sumReservationAmounts,
 } from "../_shared/driverPayoutReservationSSOT.ts";
+import { requireFinanceExecutionAuth } from "../_shared/adminPaymentGate.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -46,6 +47,9 @@ Deno.serve(async (req) => {
       headers: corsHeaders,
     });
   }
+
+  const financeGate = await requireFinanceExecutionAuth(req, { requireStaffFinanceProfile: true });
+  if (!financeGate.ok) return financeGate.response;
 
   const live = isLivePayoutExecutionEnabled();
   const transport = isRevolutPaymentTransportEnabled();

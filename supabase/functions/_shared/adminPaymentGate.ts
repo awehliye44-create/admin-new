@@ -414,6 +414,26 @@ export async function requirePageAccess(
   return gate;
 }
 
+/** Staff must hold access to at least one of the listed admin pages. */
+export async function requireAnyPageAccess(
+  gate: GateResult,
+  pageSlugs: string[],
+): Promise<GateResult | GateError> {
+  let last: GateError | null = null;
+  for (const slug of pageSlugs) {
+    const res = await requirePageAccess(gate, slug);
+    if (res.ok) return res;
+    last = res;
+  }
+  return last ?? {
+    ok: false,
+    response: new Response(JSON.stringify({ success: false, error: 'Forbidden', code: 'PAGE_FORBIDDEN' }), {
+      status: 403,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    }),
+  };
+}
+
 export function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
     status,

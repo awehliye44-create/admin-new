@@ -154,6 +154,7 @@ Deno.serve(async (req) => {
     .eq("token", pushToken)
     .eq("app_type", "driver")
     .neq("driver_id", driverId)
+    .eq("device_id", installationId)
     .eq("is_active", true);
   if (stealErr) {
     console.warn(

@@ -10,6 +10,7 @@ import {
 } from "../_shared/revolutOrders.ts";
 import { corsHeaders, jsonResponse } from "../_shared/adminPaymentGate.ts";
 import { stampReleaseTrigger } from "../_shared/paymentHoldGuard.ts";
+import { assertCronOrServiceRoleAuth } from "../_shared/cronEdgeAuth.ts";
 
 const ALLOWED_SESSION_IDS = new Set([
   "1a72627b-4fe7-4f05-9cfb-bc52153f9703", // MK-260810-001
@@ -19,29 +20,12 @@ const ALLOWED_SESSION_IDS = new Set([
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
   try {
-    function bearerRole(token: string): string | null {
-      try {
-        const parts = token.split(".");
-        if (parts.length < 2) return null;
-        const payload = JSON.parse(atob(parts[1].replace(/-/g, "+").replace(/_/g, "/")));
-        return typeof payload?.role === "string" ? payload.role : null;
-      } catch {
-        return null;
-      }
-    }
-
-    const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
-    const auth = req.headers.get("Authorization") ?? "";
-    const bearer = auth.startsWith("Bearer ") ? auth.slice(7).trim() : "";
     const internal = Deno.env.get("ONECAB_INTERNAL_FINALIZE_SECRET") ?? "";
     const providedInternal = req.headers.get("x-onecab-internal-secret") ?? "";
-    const role = bearer ? bearerRole(bearer) : null;
-    const ok =
-      (serviceKey && bearer === serviceKey) ||
-      role === "service_role" ||
-      (internal && providedInternal === internal);
-    if (!ok) {
-      return jsonResponse({ error: "Forbidden", role }, 403);
+    const internalOk = internal.length >= 20 && providedInternal === internal;
+    if (!internalOk) {
+      const callerAuth = await assertCronOrServiceRoleAuth(req);
+      if (!callerAuth.ok) return jsonResponse({ error: "Forbidden" }, 403);
     }
 
     const sb = createClient(

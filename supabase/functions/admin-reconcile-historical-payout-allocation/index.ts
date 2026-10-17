@@ -7,6 +7,7 @@ import {
   type AllocationResult,
 } from "../_shared/historicalPayoutAllocation.ts";
 import { writePayoutAllocationLine } from "../_shared/settlementLifecycleSSOT.ts";
+import { assertCronOrServiceRoleAuth } from "../_shared/cronEdgeAuth.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -23,15 +24,6 @@ type RequestBody = {
   allow_production?: boolean;
   allow_ambiguous?: boolean;
 };
-
-function isServiceRoleJwt(token: string, projectRef: string): boolean {
-  try {
-    const payload = JSON.parse(atob(token.split(".")[1]));
-    return payload.role === "service_role" && payload.ref === projectRef;
-  } catch {
-    return false;
-  }
-}
 
 function assertProductionAllowed(projectRef: string, allowProduction?: boolean): void {
   if (projectRef === PRODUCTION_PROJECT_REF && !allowProduction) {
@@ -271,12 +263,11 @@ Deno.serve(async (req) => {
     });
   }
 
-  const token = authHeader.replace("Bearer ", "");
   const envServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
   const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
   const projectRef = supabaseUrl.match(/https:\/\/([^.]+)\./)?.[1] ?? "";
 
-  if (token !== envServiceKey && !isServiceRoleJwt(token, projectRef)) {
+  if (!(await assertCronOrServiceRoleAuth(req)).ok) {
     return new Response(JSON.stringify({ error: "Unauthorized" }), {
       status: 401,
       headers: { ...corsHeaders, "Content-Type": "application/json" },

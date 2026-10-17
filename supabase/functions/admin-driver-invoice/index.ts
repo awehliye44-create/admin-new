@@ -1,5 +1,5 @@
 import { createClient } from "npm:@supabase/supabase-js@2.57.2";
-import { corsHeaders, requireAdminOrStaff } from "../_shared/adminPaymentGate.ts";
+import { corsHeaders, requireAdminOrStaff, requireAnyPageAccess } from "../_shared/adminPaymentGate.ts";
 import {
   handleDriverInvoiceAction,
   previewDriverInvoiceHtml,
@@ -60,7 +60,10 @@ Deno.serve(async (req) => {
       get_urls: body.get_urls ?? false,
     }));
 
-    const gate = await requireAdminOrStaff(req);
+    const staffGate = await requireAdminOrStaff(req);
+    const gate = staffGate.ok
+      ? await requireAnyPageAccess(staffGate, ["invoices", "invoice-templates", "annual-taxi-report"])
+      : staffGate;
     if (!gate.ok) {
       const errBody = await gate.response.json().catch(() => ({ error: "Unauthorized" }));
       return jsonFail(errBody.error ?? "Unauthorized");

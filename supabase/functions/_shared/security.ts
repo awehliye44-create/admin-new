@@ -385,3 +385,12 @@ export async function logAuditEvent(
     console.error("[audit] Failed to log audit event:", eventType, error);
   }
 }
+
+/** Strip PostgREST filter syntax characters so user text can be used inside `.or()` ilike filters. */
+export function sanitizePostgrestFilterValue(value: unknown, maxLength = 100): string {
+  return String(value ?? "")
+    .slice(0, maxLength)
+    .replace(/[,().:*%_\\"'{}]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}

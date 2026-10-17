@@ -6,6 +6,7 @@
  * Production cron now invokes admin-weekly-payout-scheduler directly.
  */
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { assertCronOrServiceRoleAuth } from "../_shared/cronEdgeAuth.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -17,6 +18,9 @@ serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
   }
+
+  const callerAuth = await assertCronOrServiceRoleAuth(req);
+  if (!callerAuth.ok) return callerAuth.response;
 
   // Soft-forward: re-issue the request shape to the canonical scheduler via self-invoke
   // is not available from Deno edge without HTTP. Return explicit redirect payload so
@@ -38,7 +42,7 @@ serve(async (req) => {
   }
 
   const forwardUrl = `${supabaseUrl.replace(/\/$/, "")}/functions/v1/admin-weekly-payout-scheduler`;
-  const auth = req.headers.get("Authorization") ?? `Bearer ${serviceKey}`;
+  const auth = req.headers.get("Authorization") ?? "";
   const cronSecret = req.headers.get("x-onecab-cron-secret");
 
   const forwardBody = {

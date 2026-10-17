@@ -1,3 +1,4 @@
+import { sanitizePostgrestFilterValue } from "../_shared/security.ts";
 /**
  * Admin official boundary search / catalog.
  * Sources: ONECAB official_admin_boundaries catalog + Nominatim (OSM) polygons.
@@ -150,7 +151,7 @@ Deno.serve(async (req) => {
         .from("official_admin_boundaries")
         .select("id, name, display_name, admin_level, country_code, point_count, bbox, osm_type, osm_id, geojson")
         .eq("is_active", true)
-        .or(`name.ilike.%${query}%,display_name.ilike.%${query}%`)
+        .or(`name.ilike.%${sanitizePostgrestFilterValue(query)}%,display_name.ilike.%${sanitizePostgrestFilterValue(query)}%`)
         .limit(8);
       if (countryCode) catalogQ = catalogQ.eq("country_code", countryCode);
       const { data: catalog } = await catalogQ;

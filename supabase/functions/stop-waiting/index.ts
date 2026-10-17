@@ -114,6 +114,16 @@ serve(async (req) => {
           return errorResponse("Missing waiting_id for tick", 400);
         }
 
+        const { data: owned } = await supabase
+          .from("trip_stop_waiting")
+          .select("id")
+          .eq("id", body.waiting_id)
+          .eq("driver_id", driver_id)
+          .maybeSingle();
+        if (!owned) {
+          return errorResponse("Waiting session not found", 404);
+        }
+
         const { data, error } = await supabase.rpc("tick_stop_waiting", {
           p_waiting_id: body.waiting_id,
         });
@@ -129,6 +139,16 @@ serve(async (req) => {
       case "stop": {
         if (!body.waiting_id) {
           return errorResponse("Missing waiting_id for stop", 400);
+        }
+
+        const { data: owned } = await supabase
+          .from("trip_stop_waiting")
+          .select("id")
+          .eq("id", body.waiting_id)
+          .eq("driver_id", driver_id)
+          .maybeSingle();
+        if (!owned) {
+          return errorResponse("Waiting session not found", 404);
         }
 
         const { data, error } = await supabase.rpc("stop_stop_waiting", {

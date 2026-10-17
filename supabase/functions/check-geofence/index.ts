@@ -62,12 +62,24 @@ serve(async (req) => {
       return errorResponse('Validation failed', 400, { validation_errors: validation.errors });
     }
 
-    const { lat, lng, prev_lat, prev_lng, trip_id } = validation.data!;
+    const { lat, lng, prev_lat, prev_lng, trip_id: requestedTripId } = validation.data!;
     const driver_id = authDriverId;
 
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
+
+    // Only link geofence events / auto-arrive to a trip assigned to this driver.
+    let trip_id: string | null = null;
+    if (requestedTripId) {
+      const { data: ownedTrip } = await supabase
+        .from("trips")
+        .select("id")
+        .eq("id", requestedTripId)
+        .or(`driver_id.eq.${driver_id},confirmed_driver_id.eq.${driver_id}`)
+        .maybeSingle();
+      trip_id = ownedTrip?.id ?? null;
+    }
 
     // Get driver's region
     const { data: driver, error: driverError } = await supabase
