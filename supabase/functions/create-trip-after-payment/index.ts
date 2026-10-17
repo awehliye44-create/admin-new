@@ -1,3 +1,4 @@
+import { edgeFunctionInvokeHeaders } from "../_shared/edgeFunctionInvokeHeaders.ts";
 import { resolveAuthoritativeFare } from "../_shared/authoritativeFare.ts";
 import type { AnySupabaseClient } from "../_shared/supabaseClientTypes.ts";
 import { createClient } from "npm:@supabase/supabase-js@2.57.2";
