@@ -393,6 +393,8 @@ export async function invokeBookingCommitAfterPayment(
   error?: string;
   code?: string;
 }> {
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  const payload: Record<string, unknown> = { ...args.body };
   const internalSecret = Deno.env.get("ONECAB_INTERNAL_FINALIZE_SECRET");
   if (args.internalFinalize && internalSecret) {
     headers["x-onecab-internal-finalize"] = internalSecret;

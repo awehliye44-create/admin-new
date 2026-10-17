@@ -321,6 +321,10 @@ async function releaseAndRebroadcast(
 }
 
 
+function voidBackground(promise: Promise<unknown>): void {
+  promise.catch((err) => console.error("[scheduled-dispatch] background task failed:", err));
+}
+
 // ─── Main handler ─────────────────────────────────────────────────────────────
 
 Deno.serve(async (req) => {
