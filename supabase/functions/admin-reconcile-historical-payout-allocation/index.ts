@@ -263,7 +263,6 @@ Deno.serve(async (req) => {
     });
   }
 
-  const token = authHeader.replace("Bearer ", "");
   const envServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
   const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
   const projectRef = supabaseUrl.match(/https:\/\/([^.]+)\./)?.[1] ?? "";
