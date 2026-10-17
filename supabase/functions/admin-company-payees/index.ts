@@ -207,7 +207,9 @@ function revolutAccounts(cp: unknown): Array<{ id?: string }> {
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
   try {
-    const gate = await requireAdminOrStaff(req);
+    const staffGate = await requireAdminOrStaff(req);
+    if (!staffGate.ok) return staffGate.response;
+    const gate = await requirePageAccess(staffGate, "payout-ledger");
     if (!gate.ok) return gate.response;
     const body = await req.json().catch(() => ({}));
     const parsed = InputSchema.safeParse(body);
