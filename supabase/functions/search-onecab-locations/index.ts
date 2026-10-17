@@ -1,3 +1,4 @@
+import { sanitizePostgrestFilterValue } from "../_shared/security.ts";
 /**
  * ONECAB location search (SSOT) — international, proximity-restricted, cost-optimised.
  *
@@ -171,7 +172,7 @@ Deno.serve(async (req) => {
     const searchLng = userLng ?? centreLng;
 
     // ---- 1. Verified ONECAB landmarks (free) -------------------------------
-    const like = `%${query.replace(/[%_]/g, "")}%`;
+    const like = `%${sanitizePostgrestFilterValue(query)}%`;
     const { data: landmarkRows } = await supabase
       .from("onecab_location_landmarks")
       .select("id, canonical_name, alternative_names, category, latitude, longitude, address_description, country_code, region_id, service_area_id, is_verified, search_priority")

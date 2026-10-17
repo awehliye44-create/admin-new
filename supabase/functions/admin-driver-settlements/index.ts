@@ -1,3 +1,4 @@
+import { sanitizePostgrestFilterValue } from "../_shared/security.ts";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "npm:@supabase/supabase-js@2.57.2";
 
@@ -56,7 +57,8 @@ serve(async (req) => {
       .select('*');
 
     if (search) {
-      query = query.or(`first_name.ilike.%${search}%,last_name.ilike.%${search}%,email.ilike.%${search}%`);
+      const safeSearch = sanitizePostgrestFilterValue(search);
+      query = query.or(`first_name.ilike.%${safeSearch}%,last_name.ilike.%${safeSearch}%,email.ilike.%${safeSearch}%`);
     }
 
     const { data: drivers, error: queryError } = await query;
