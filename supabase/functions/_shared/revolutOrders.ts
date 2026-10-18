@@ -393,6 +393,10 @@ export async function payRevolutOrderWithGooglePay(
   const userAgent = typeof p.userAgent === "string" ? p.userAgent.trim() : "";
   if (userAgent) envBody.user_agent = userAgent;
 
+  // Google Pay Pay-for-order billing_address + browser environment require a
+  // modern Merchant API version (docs: 2026-08-17). 2024-09-01 dropped the
+  // postcode and Revolut responded 400 "postcode is empty", which the client
+  // then treated as ambiguous and sat on Booking… for 90s.
   return await revolutMerchantRequest<RevolutOrderPayment>(
     p.environment,
     p.secretKey,
@@ -409,6 +413,7 @@ export async function payRevolutOrderWithGooglePay(
         },
       }),
     },
+    REVOLUT_INCREMENT_API_VERSION,
   );
 }
 

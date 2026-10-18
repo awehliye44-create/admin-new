@@ -125,6 +125,14 @@ Deno.test("P4b: Google Pay Pay-for-order never invents fake postcode or website 
     submit.includes("billing_address with country_code and postcode is required"),
     "submit must reject missing billing before calling Revolut",
   );
+  assert(
+    payFn.includes("REVOLUT_INCREMENT_API_VERSION"),
+    "Google Pay pay-for-order must use a modern Merchant API version so billing_address.postcode is accepted",
+  );
+  assert(
+    submit.includes("providerHttpStatus: revolutStatus"),
+    "submit must pass Revolut HTTP status into failure classification (4xx must not become 502)",
+  );
 });
 
 // ── P5: abandoning a PENDING order with no provider payment succeeds locally ──

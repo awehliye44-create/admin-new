@@ -42,10 +42,14 @@ export type GooglePaySubmitFailure = {
 /**
  * @param providerRejected true when Revolut returned a failed/declined payment;
  *   false when the submit call itself errored (no provider outcome known).
+ * @param providerHttpStatus Revolut/HTTP status from the pay call when known.
+ *   A definitive 4xx must NOT become 502 — clients treat 5xx as ambiguous and
+ *   poll "Booking…" for up to 90s on a hold that never started.
  */
 export function classifyGooglePaySubmitFailure(args: {
   declineReason: string | null | undefined;
   providerRejected: boolean;
+  providerHttpStatus?: number | null;
 }): GooglePaySubmitFailure {
   const declineReason = String(args.declineReason ?? "").trim() || null;
   if (findBankDeclineReason(declineReason)) {
@@ -57,9 +61,23 @@ export function classifyGooglePaySubmitFailure(args: {
       bank_declined: true,
     };
   }
+  const http =
+    typeof args.providerHttpStatus === "number" && Number.isFinite(args.providerHttpStatus)
+      ? Math.trunc(args.providerHttpStatus)
+      : null;
+  // Revolut validation / reject without issuer reason (e.g. "postcode is empty").
+  if (args.providerRejected || declineReason || (http !== null && http >= 400 && http < 500)) {
+    return {
+      status: 402,
+      code: "PAYMENT_NOT_AUTHORISED",
+      message: REVOLUT_PAYMENT_NOT_AUTHORISED_CUSTOMER_MESSAGE,
+      decline_reason: declineReason,
+      bank_declined: false,
+    };
+  }
   return {
-    status: args.providerRejected || declineReason ? 402 : 502,
-    code: args.providerRejected || declineReason ? "PAYMENT_NOT_AUTHORISED" : "GOOGLE_PAY_SUBMIT_FAILED",
+    status: 502,
+    code: "GOOGLE_PAY_SUBMIT_FAILED",
     message: REVOLUT_PAYMENT_NOT_AUTHORISED_CUSTOMER_MESSAGE,
     decline_reason: declineReason,
     bank_declined: false,

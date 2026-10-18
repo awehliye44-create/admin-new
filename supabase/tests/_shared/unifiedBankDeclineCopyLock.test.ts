@@ -188,6 +188,19 @@ Deno.test("Google Pay non-bank / unknown failures stay neutral and never say Goo
     classifyGooglePaySubmitFailure({ declineReason: null, providerRejected: false }).code,
     "GOOGLE_PAY_SUBMIT_FAILED",
   );
+  assertEquals(
+    classifyGooglePaySubmitFailure({ declineReason: null, providerRejected: false }).status,
+    502,
+  );
+  // Revolut 400 "postcode is empty" must be terminal 402 — never 502 (90s Booking… poll).
+  const postcodeEmpty = classifyGooglePaySubmitFailure({
+    declineReason: null,
+    providerRejected: false,
+    providerHttpStatus: 400,
+  });
+  assertEquals(postcodeEmpty.status, 402);
+  assertEquals(postcodeEmpty.code, "PAYMENT_NOT_AUTHORISED");
+  assertFalse(postcodeEmpty.bank_declined);
 });
 
 Deno.test("latest failed payment's decline_reason is used", () => {

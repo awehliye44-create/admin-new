@@ -353,12 +353,16 @@ serve(async (req) => {
       } catch {
         declineReason = null;
       }
-      const failure = classifyGooglePaySubmitFailure({ declineReason, providerRejected: false });
       const revolutMessage = revolutFailureMessage(err);
       const revolutStatus =
         err && typeof err === "object" && typeof (err as { status?: unknown }).status === "number"
           ? (err as { status: number }).status
           : null;
+      const failure = classifyGooglePaySubmitFailure({
+        declineReason,
+        providerRejected: false,
+        providerHttpStatus: revolutStatus,
+      });
       await logAuditEvent(supabase, "GOOGLE_PAY_SUBMIT_FAILED", {
         details: {
           payment_session_id: ps.id,
@@ -368,6 +372,7 @@ serve(async (req) => {
           revolut_http_status: revolutStatus,
           decline_reason: failure.decline_reason,
           failure_code: failure.code,
+          response_status: failure.status,
         },
         ipAddress: clientIP,
         userAgent,
