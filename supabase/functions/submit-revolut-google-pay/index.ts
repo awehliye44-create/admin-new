@@ -22,6 +22,7 @@ import {
   payRevolutOrderWithGooglePay,
   retrieveRevolutOrder,
   type GooglePayBillingAddress,
+  type GooglePayBrowserEnvironment,
 } from "../_shared/revolutOrders.ts";
 import { resolveRevolutMerchantContext } from "../_shared/revolutMerchantContext.ts";
 import {
@@ -40,34 +41,82 @@ async function sha256Hex(value: string): Promise<string> {
     .join("");
 }
 
+/** Revolut client throws plain objects, not Error — never collapse to "pay_failed". */
+function revolutFailureMessage(err: unknown): string {
+  if (err instanceof Error && err.message.trim()) return err.message.trim();
+  if (err && typeof err === "object") {
+    const message = (err as { message?: unknown }).message;
+    if (typeof message === "string" && message.trim()) return message.trim();
+  }
+  return "pay_failed";
+}
+
+const ZERO_WIDTH = /[\u200B-\u200D\uFEFF]/g;
+const UK_POSTCODE = /\b([A-Z]{1,2}\d[A-Z\d]?\s*\d[A-Z]{2})\b/i;
+
+function normalizePostcode(raw: unknown): string {
+  if (typeof raw !== "string") return "";
+  const cleaned = raw
+    .replace(ZERO_WIDTH, "")
+    .replace(/\u00A0/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toUpperCase();
+  if (!cleaned || cleaned === "NULL" || cleaned === "UNDEFINED" || cleaned === "000000") {
+    return "";
+  }
+  return cleaned;
+}
+
+function extractUkPostcodeFromText(raw: unknown): string {
+  if (typeof raw !== "string") return "";
+  const match = raw.replace(ZERO_WIDTH, "").match(UK_POSTCODE);
+  if (!match?.[1]) return "";
+  const compact = match[1].toUpperCase().replace(/\s+/g, "");
+  if (compact.length < 5) return "";
+  return `${compact.slice(0, compact.length - 3)} ${compact.slice(compact.length - 3)}`;
+}
+
 function mapBillingAddress(raw: unknown): GooglePayBillingAddress | null {
   if (!raw || typeof raw !== "object") return null;
   const b = raw as Record<string, unknown>;
   const street1 =
-    (typeof b.street_line_1 === "string" && b.street_line_1) ||
-    (typeof b.address1 === "string" && b.address1) ||
+    (typeof b.street_line_1 === "string" && b.street_line_1.trim()) ||
+    (typeof b.address1 === "string" && b.address1.trim()) ||
     undefined;
   const street2 =
-    (typeof b.street_line_2 === "string" && b.street_line_2) ||
-    (typeof b.address2 === "string" && b.address2) ||
+    (typeof b.street_line_2 === "string" && b.street_line_2.trim()) ||
+    (typeof b.address2 === "string" && b.address2.trim()) ||
     undefined;
   const city =
-    (typeof b.city === "string" && b.city) ||
-    (typeof b.locality === "string" && b.locality) ||
+    (typeof b.city === "string" && b.city.trim()) ||
+    (typeof b.locality === "string" && b.locality.trim()) ||
     undefined;
   const region =
-    (typeof b.region === "string" && b.region) ||
-    (typeof b.administrativeArea === "string" && b.administrativeArea) ||
+    (typeof b.region === "string" && b.region.trim()) ||
+    (typeof b.administrativeArea === "string" && b.administrativeArea.trim()) ||
     undefined;
-  const postcode =
-    (typeof b.postcode === "string" && b.postcode) ||
-    (typeof b.postalCode === "string" && b.postalCode) ||
-    undefined;
-  const country =
-    (typeof b.country_code === "string" && b.country_code) ||
-    (typeof b.countryCode === "string" && b.countryCode) ||
-    undefined;
-  if (!street1 && !city && !postcode && !country) return null;
+  let postcode =
+    normalizePostcode(b.postcode) ||
+    normalizePostcode(b.postalCode) ||
+    normalizePostcode(b.postal_code) ||
+    normalizePostcode(b.sortingCode) ||
+    "";
+  if (!postcode) {
+    for (const part of [street1, street2, city, region, b.address3]) {
+      postcode = extractUkPostcodeFromText(part);
+      if (postcode) break;
+    }
+  }
+  const country = (
+    (typeof b.country_code === "string" && b.country_code.trim()) ||
+    (typeof b.countryCode === "string" && b.countryCode.trim()) ||
+    ""
+  )
+    .replace(ZERO_WIDTH, "")
+    .trim()
+    .toUpperCase();
+  if (!postcode || !country || country.length !== 2) return null;
   return {
     street_line_1: street1,
     street_line_2: street2,
@@ -75,6 +124,43 @@ function mapBillingAddress(raw: unknown): GooglePayBillingAddress | null {
     region,
     postcode,
     country_code: country,
+  };
+}
+
+function mapBrowserEnvironment(raw: unknown): GooglePayBrowserEnvironment | null {
+  if (!raw || typeof raw !== "object") return null;
+  const e = raw as Record<string, unknown>;
+  if (e.type !== "browser") return null;
+  const browserUrl = typeof e.browser_url === "string" ? e.browser_url.trim() : "";
+  if (!browserUrl) return null;
+  const timeZone = Number(e.time_zone_utc_offset);
+  const colorDepth = Number(e.color_depth);
+  const screenWidth = Number(e.screen_width);
+  const screenHeight = Number(e.screen_height);
+  if (
+    !Number.isFinite(timeZone) ||
+    !Number.isFinite(colorDepth) ||
+    !Number.isFinite(screenWidth) ||
+    !Number.isFinite(screenHeight) ||
+    screenWidth <= 0 ||
+    screenHeight <= 0
+  ) {
+    return null;
+  }
+  const challenge = Number(e.challenge_window_width);
+  const locale = typeof e.locale === "string" ? e.locale.trim() : "";
+  return {
+    type: "browser",
+    time_zone_utc_offset: Math.trunc(timeZone),
+    color_depth: Math.trunc(colorDepth),
+    screen_width: Math.trunc(screenWidth),
+    screen_height: Math.trunc(screenHeight),
+    java_enabled: e.java_enabled === true,
+    ...(Number.isFinite(challenge) && challenge > 0
+      ? { challenge_window_width: Math.trunc(challenge) }
+      : {}),
+    browser_url: browserUrl,
+    ...(locale ? { locale } : {}),
   };
 }
 
@@ -114,7 +200,10 @@ serve(async (req) => {
     const googlePayToken =
       typeof body.google_pay_token === "string" ? body.google_pay_token.trim() : "";
     const cardholderName =
-      typeof body.cardholder_name === "string" ? body.cardholder_name.trim() : null;
+      typeof body.cardholder_name === "string" ? body.cardholder_name.trim() : "";
+    const billingAddress = mapBillingAddress(body.billing_address);
+    const browserEnvironment = mapBrowserEnvironment(body.browser_environment);
+    const userAgent = req.headers.get("user-agent") || "unknown";
 
     if (!providerOrderId || !googlePayToken) {
       return errorResponse(
@@ -132,6 +221,28 @@ serve(async (req) => {
         "VALIDATION_MISSING_FIELD",
       );
     }
+    const resolvedCardholderName = cardholderName || "Cardholder";
+    if (!billingAddress) {
+      return errorResponse(
+        "billing_address with country_code and postcode is required",
+        400,
+        undefined,
+        "VALIDATION_MISSING_FIELD",
+      );
+    }
+    // Older app builds omit browser_environment. Prefer the client CIT payload when
+    // present; otherwise use the app ACS URL + request IP/UA (never https://onecab.app).
+    const resolvedBrowserEnvironment: GooglePayBrowserEnvironment = browserEnvironment ?? {
+      type: "browser",
+      time_zone_utc_offset: 0,
+      color_depth: 24,
+      screen_width: 1080,
+      screen_height: 1920,
+      java_enabled: false,
+      challenge_window_width: 360,
+      browser_url: "onecab-customer://payment-acs",
+      locale: "en-GB",
+    };
 
     let query = supabase
       .from("payment_sessions")
@@ -227,8 +338,11 @@ serve(async (req) => {
         secretKey,
         orderId: providerOrderId,
         googlePayToken,
-        cardholderName,
-        billingAddress: mapBillingAddress(body.billing_address),
+        cardholderName: resolvedCardholderName,
+        billingAddress,
+        browserEnvironment: resolvedBrowserEnvironment,
+        clientIp: clientIP,
+        userAgent,
       });
     } catch (err) {
       // Read-only GET of the same order for Revolut's decline_reason. Never re-submits.
@@ -240,17 +354,23 @@ serve(async (req) => {
         declineReason = null;
       }
       const failure = classifyGooglePaySubmitFailure({ declineReason, providerRejected: false });
+      const revolutMessage = revolutFailureMessage(err);
+      const revolutStatus =
+        err && typeof err === "object" && typeof (err as { status?: unknown }).status === "number"
+          ? (err as { status: number }).status
+          : null;
       await logAuditEvent(supabase, "GOOGLE_PAY_SUBMIT_FAILED", {
         details: {
           payment_session_id: ps.id,
           provider_order_id: providerOrderId,
           token_sha256: tokenHash,
-          message: err instanceof Error ? err.message : "pay_failed",
+          message: revolutMessage,
+          revolut_http_status: revolutStatus,
           decline_reason: failure.decline_reason,
-          customer_code: failure.code,
+          failure_code: failure.code,
         },
         ipAddress: clientIP,
-        userAgent: req.headers.get("user-agent") || "unknown",
+        userAgent,
       });
       return errorResponse(
         failure.message,
@@ -282,7 +402,7 @@ serve(async (req) => {
         provider_state: revolutResult.state ?? null,
       },
       ipAddress: clientIP,
-      userAgent: req.headers.get("user-agent") || "unknown",
+      userAgent,
     });
 
     if (isFailedPaymentState(revolutResult.state)) {

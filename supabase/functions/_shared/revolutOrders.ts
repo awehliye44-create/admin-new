@@ -284,30 +284,114 @@ export type GooglePayBillingAddress = {
   postcode?: string;
 };
 
+/** Browser environment for Google Pay Pay-for-order (Revolut only supports type=browser). */
+export type GooglePayBrowserEnvironment = {
+  type: "browser";
+  time_zone_utc_offset: number;
+  color_depth: number;
+  screen_width: number;
+  screen_height: number;
+  java_enabled: boolean;
+  challenge_window_width?: number;
+  browser_url: string;
+  locale?: string;
+};
+
 export type PayGooglePayParams = {
   environment: ProviderEnvironment;
   secretKey: string;
   orderId: string;
   googlePayToken: string;
-  cardholderName?: string | null;
-  billingAddress?: GooglePayBillingAddress | null;
+  cardholderName: string;
+  billingAddress: GooglePayBillingAddress;
+  browserEnvironment: GooglePayBrowserEnvironment;
+  clientIp?: string | null;
+  userAgent?: string | null;
 };
 
 /**
  * Submit encrypted Google Pay token to Revolut Pay-for-order.
  * Official: gateway=revolut, gatewayMerchantId=order token (client-side).
  * Body: payment_method.type=google_pay + token (+ cardholder_name / billing_address).
+ * Never invents billing postcode / cardholder / browser metrics — callers fail closed.
  * Never logs the token.
  */
 export async function payRevolutOrderWithGooglePay(
   p: PayGooglePayParams,
 ): Promise<RevolutOrderPayment> {
-  const billing = p.billingAddress ?? {};
-  const country = (billing.country_code ?? "GB").trim().toUpperCase() || "GB";
-  const postcode = (billing.postcode ?? "").trim() || "000000";
-  const cardholder =
-    (typeof p.cardholderName === "string" && p.cardholderName.trim()) ||
-    "Cardholder";
+  const country = String(p.billingAddress.country_code ?? "")
+    .replace(/[\u200B-\u200D\uFEFF]/g, "")
+    .trim()
+    .toUpperCase();
+  const postcode = String(p.billingAddress.postcode ?? "")
+    .replace(/[\u200B-\u200D\uFEFF]/g, "")
+    .replace(/\u00A0/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toUpperCase();
+  const cardholder = String(p.cardholderName ?? "").trim();
+  if (!country || country.length !== 2) {
+    throw { message: "Google Pay billing country_code is required", status: 400 } satisfies RevolutApiError;
+  }
+  if (!postcode || postcode === "NULL" || postcode === "UNDEFINED" || postcode === "000000") {
+    throw { message: "Google Pay billing postcode is required", status: 400 } satisfies RevolutApiError;
+  }
+  if (!cardholder) {
+    throw { message: "Google Pay cardholder_name is required", status: 400 } satisfies RevolutApiError;
+  }
+  const browser = p.browserEnvironment;
+  if (
+    !browser ||
+    browser.type !== "browser" ||
+    !Number.isFinite(browser.time_zone_utc_offset) ||
+    !Number.isFinite(browser.color_depth) ||
+    !Number.isFinite(browser.screen_width) ||
+    !Number.isFinite(browser.screen_height) ||
+    typeof browser.browser_url !== "string" ||
+    !browser.browser_url.trim()
+  ) {
+    throw {
+      message: "Google Pay browser environment is required",
+      status: 400,
+    } satisfies RevolutApiError;
+  }
+
+  const billingAddress: Record<string, string> = {
+    country_code: country,
+    postcode,
+  };
+  if (p.billingAddress.street_line_1?.trim()) {
+    billingAddress.street_line_1 = p.billingAddress.street_line_1.trim();
+  }
+  if (p.billingAddress.street_line_2?.trim()) {
+    billingAddress.street_line_2 = p.billingAddress.street_line_2.trim();
+  }
+  if (p.billingAddress.region?.trim()) {
+    billingAddress.region = p.billingAddress.region.trim();
+  }
+  if (p.billingAddress.city?.trim()) {
+    billingAddress.city = p.billingAddress.city.trim();
+  }
+
+  const envBody: Record<string, unknown> = {
+    type: "browser",
+    time_zone_utc_offset: Math.trunc(browser.time_zone_utc_offset),
+    color_depth: Math.trunc(browser.color_depth),
+    screen_width: Math.trunc(browser.screen_width),
+    screen_height: Math.trunc(browser.screen_height),
+    java_enabled: browser.java_enabled === true,
+    browser_url: browser.browser_url.trim(),
+  };
+  if (Number.isFinite(browser.challenge_window_width)) {
+    envBody.challenge_window_width = Math.trunc(browser.challenge_window_width!);
+  }
+  if (typeof browser.locale === "string" && browser.locale.trim()) {
+    envBody.locale = browser.locale.trim();
+  }
+  const clientIp = typeof p.clientIp === "string" ? p.clientIp.trim() : "";
+  if (clientIp) envBody.client_ip = clientIp;
+  const userAgent = typeof p.userAgent === "string" ? p.userAgent.trim() : "";
+  if (userAgent) envBody.user_agent = userAgent;
 
   return await revolutMerchantRequest<RevolutOrderPayment>(
     p.environment,
@@ -320,25 +404,8 @@ export async function payRevolutOrderWithGooglePay(
           type: "google_pay",
           token: p.googlePayToken,
           cardholder_name: cardholder,
-          billing_address: {
-            street_line_1: billing.street_line_1,
-            street_line_2: billing.street_line_2,
-            region: billing.region,
-            city: billing.city,
-            country_code: country,
-            postcode,
-          },
-          environment: {
-            type: "browser",
-            time_zone_utc_offset: 0,
-            color_depth: 48,
-            screen_width: 1080,
-            screen_height: 1920,
-            java_enabled: false,
-            challenge_window_width: 360,
-            browser_url: "https://onecab.app",
-            locale: "en-GB",
-          },
+          billing_address: billingAddress,
+          environment: envBody,
         },
       }),
     },

@@ -94,6 +94,39 @@ Deno.test("P4: submit-revolut-google-pay resolves merchant via resolveRevolutMer
   );
 });
 
+Deno.test("P4b: Google Pay Pay-for-order never invents fake postcode or website browser_url", async () => {
+  const orders = await read("supabase/functions/_shared/revolutOrders.ts");
+  const submit = await read("supabase/functions/submit-revolut-google-pay/index.ts");
+  const payStart = orders.indexOf("export async function payRevolutOrderWithGooglePay");
+  assert(payStart > 0, "payRevolutOrderWithGooglePay must exist");
+  const payFn = orders.slice(payStart, payStart + 4500);
+  assertEquals(
+    / \|\| ["']000000["']/.test(payFn),
+    false,
+    "must not invent postcode via || \"000000\" fallback",
+  );
+  assert(
+    payFn.includes('postcode === "000000"'),
+    "must reject invented/placeholder postcode 000000",
+  );
+  assertEquals(payFn.includes("https://onecab.app"), false, "must not use website browser_url");
+  assert(payFn.includes("Google Pay billing postcode is required"), "must fail closed without postcode");
+  assert(payFn.includes("Google Pay browser environment is required"), "must fail closed without browser env");
+  assert(
+    submit.includes('browser_url: "onecab-customer://payment-acs"'),
+    "submit fallback browser_url must be the app ACS scheme",
+  );
+  assertEquals(
+    /browser_url:\s*["']https:\/\/onecab\.app["']/.test(submit),
+    false,
+    "submit must never assign browser_url https://onecab.app",
+  );
+  assert(
+    submit.includes("billing_address with country_code and postcode is required"),
+    "submit must reject missing billing before calling Revolut",
+  );
+});
+
 // ── P5: abandoning a PENDING order with no provider payment succeeds locally ──
 
 Deno.test("P5: pending order with no provider payment is proven hold-free", () => {
