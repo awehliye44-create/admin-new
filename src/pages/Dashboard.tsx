@@ -1056,12 +1056,12 @@ export default function Dashboard() {
               <div className="flex items-center gap-2">
                 <div className="w-3 h-3 rounded-full bg-primary" />
                 <span>Completed</span>
-                <span className="font-semibold ml-auto">{ups?.completedTrips ?? 0}</span>
+                <span className="font-semibold ml-auto">{stats.completedTrips}</span>
               </div>
               <div className="flex items-center gap-2">
                 <div className="w-3 h-3 rounded-full bg-destructive" />
                 <span>Cancelled</span>
-                <span className="font-semibold ml-auto">{ups?.cancelledTrips ?? 0}</span>
+                <span className="font-semibold ml-auto">{stats.cancelledTrips}</span>
               </div>
             </div>
           </CardContent>
