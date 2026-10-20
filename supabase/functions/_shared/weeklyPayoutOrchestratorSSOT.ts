@@ -446,15 +446,22 @@ export function shouldContinueOrchestratorMoneyPath(args: {
   blocker_code: string | null | undefined;
   /** Items the running funding allowance can cover; a batch-wide shortfall must not block them. */
   fundable_item_count?: number;
+  /**
+   * Frozen occurrence items not yet sent (CREATED / VALIDATED / BLOCKED_EXECUTION_DISABLED).
+   * Their ledger credits are already allocated to the item, so the driver no longer
+   * appears freshly eligible — they must still be resumed, never stranded.
+   */
+  resumable_item_count?: number;
 }): { continue: boolean; reconciling_in_flight: boolean; ignore_zero_eligible_blocker: boolean } {
   const reconciling_in_flight = args.in_flight_item_count > 0;
+  const resumable = (args.resumable_item_count ?? 0) > 0;
   const partially_fundable = (args.fundable_item_count ?? 0) > 0
     && args.blocker_code === "INSUFFICIENT_SETTLED_FUNDS";
-  const ignore_zero_eligible_blocker = partially_fundable || (reconciling_in_flight
+  const ignore_zero_eligible_blocker = partially_fundable || ((reconciling_in_flight || resumable)
     && (
       args.blocker_code == null
       || args.blocker_code === "ZERO_ELIGIBLE_DRIVERS"
-      || args.blocker_code === "INSUFFICIENT_SETTLED_FUNDS"
+      || (reconciling_in_flight && args.blocker_code === "INSUFFICIENT_SETTLED_FUNDS")
     ));
   const blockerBlocks = args.blocker_code != null && !ignore_zero_eligible_blocker;
   const continuePath = !args.dry_run
@@ -462,7 +469,7 @@ export function shouldContinueOrchestratorMoneyPath(args: {
     && args.transport_enabled
     && args.has_batch
     && !blockerBlocks
-    && (args.fresh_eligible_count > 0 || args.in_flight_item_count > 0);
+    && (args.fresh_eligible_count > 0 || args.in_flight_item_count > 0 || resumable);
   return {
     continue: continuePath,
     reconciling_in_flight,

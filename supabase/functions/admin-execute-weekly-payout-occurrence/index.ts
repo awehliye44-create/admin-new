@@ -954,6 +954,13 @@ async function handleWeeklyPayoutOccurrence(req: Request): Promise<Response> {
     runningFunding.decisions.map((d) => [d.key, d]),
   );
 
+  const resumableExisting = moneyAmounts.source === "FROZEN_OCCURRENCE_MANIFEST"
+    ? existingBatchItems.filter((it) =>
+      ["CREATED", "VALIDATED", "BLOCKED_EXECUTION_DISABLED"].includes(
+        String(it.status || it.execution_status || "").toUpperCase(),
+      ) && it.amount_pence > 0
+    )
+    : [];
   const moneyGate = shouldContinueOrchestratorMoneyPath({
     dry_run: dryRun,
     live_enabled: live,
@@ -963,6 +970,7 @@ async function handleWeeklyPayoutOccurrence(req: Request): Promise<Response> {
     in_flight_item_count: inFlightExisting.length,
     blocker_code: blocker,
     fundable_item_count: runningFunding.funded_count,
+    resumable_item_count: resumableExisting.length,
   });
   if (
     moneyGate.ignore_zero_eligible_blocker
