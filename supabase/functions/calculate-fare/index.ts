@@ -137,6 +137,9 @@ Deno.serve(async (req) => {
     if (!service_area_id) {
       return respond(200, { success: false, error: "service_area_id is required", vehicleFares: [] });
     }
+    if (typeof service_area_id !== "string" || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(service_area_id)) {
+      return respond(400, { success: false, error: "service_area_id must be a valid UUID", vehicleFares: [] });
+    }
 
     // Client distance/duration are display-only inputs: a valid server route
     // artifact replaces them below and is the only basis for fare artifacts.
