@@ -16,7 +16,7 @@ function readEncryptionSeed(): string {
   } catch {
     /* ignore */
   }
-  return "onecab-company-payee-default-key-v1-do-not-use-in-prod-without-env";
+  throw new Error(`${ENCRYPTION_KEY_ENV} must be configured (min 32 chars) to encrypt company payee details`);
 }
 
 async function deriveKeyBytes(): Promise<Uint8Array> {
