@@ -46,7 +46,7 @@ import {
   sumVerifiedCapturedFromSessions,
   sumVerifiedRefundedFromSessions,
 } from "../_shared/tripHistoryShortfallRecaptureSSOT.ts";
-import { requireAdminOrStaff } from "../_shared/adminPaymentGate.ts";
+import { requireFinanceExecutionAuth } from "../_shared/adminPaymentGate.ts";
 import { readTripFinancialModelStamp } from "../_shared/commissionWalletSSOT.ts";
 import { transitionPaymentSession } from "../_shared/paymentSessionTransitionFacade.ts";
 
@@ -57,7 +57,7 @@ Deno.serve(async (req) => {
   }
 
   try {
-    const gate = await requireAdminOrStaff(req);
+    const gate = await requireFinanceExecutionAuth(req, { pageSlug: "payment-sessions" });
     if (!gate.ok) return gate.response;
     const supabase = gate.supabase;
     const user = { id: gate.userId };
