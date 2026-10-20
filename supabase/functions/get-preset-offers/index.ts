@@ -82,6 +82,32 @@ serve(async (req) => {
     } | null = null;
 
     if (trip_id) {
+      // Trip details are only read for the trip's own rider or admin staff.
+      let allowed = false;
+      const authHeader = req.headers.get("Authorization") ?? "";
+      if (authHeader.startsWith("Bearer ")) {
+        const { data: u } = await supabase.auth.getUser(authHeader.slice(7));
+        const uid = u?.user?.id;
+        if (uid) {
+          const { data: t } = await supabase
+            .from("trips").select("customer_id").eq("id", trip_id).maybeSingle();
+          const { data: own } = t?.customer_id
+            ? await supabase.from("customers").select("id")
+                .eq("id", t.customer_id).eq("user_id", uid).maybeSingle()
+            : { data: null };
+          if (own) {
+            allowed = true;
+          } else {
+            const { data: roles } = await supabase
+              .from("user_roles").select("role").eq("user_id", uid);
+            allowed = (roles ?? []).some((r: { role: string }) => r.role === "admin" || r.role === "super_admin");
+          }
+        }
+      }
+      if (!allowed) trip_id = undefined;
+    }
+
+    if (trip_id) {
       const { data: trip } = await supabase
         .from("trips")
         .select("service_area_id, is_scheduled, dispatch_mode, trip_type, negotiation_disabled, negotiation_status, corporate_account_id, booking_source")
