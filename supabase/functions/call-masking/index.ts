@@ -341,10 +341,7 @@ async function callMsg91(
     callLogId,
     maxCallDurationSec,
   );
-  console.log("[call-masking] MSG91 payload:", JSON.stringify({
-    ...payload,
-    destinationB: payload.destinationB,
-  }));
+  console.log("[call-masking] MSG91 call requested", { callLogId });
 
   const response = await fetch(MSG91_API_URL, {
     method: "POST",

@@ -148,7 +148,7 @@ async function resolveCoordsFromAddress(
 ): Promise<{ lat: number; lng: number } | null> {
   const trimmed = address.trim();
   if (trimmed.length < 3) return null;
-  console.log("MODIFY_TRIP_PREVIEW_GEOCODE", { address: trimmed.substring(0, 80), serviceAreaId: serviceAreaId ?? null });
+  console.log("MODIFY_TRIP_PREVIEW_GEOCODE", { addressLength: trimmed.length, serviceAreaId: serviceAreaId ?? null });
   const response = await fetch(`${supabaseUrl}/functions/v1/place-lookup`, {
     method: "POST",
     headers: {

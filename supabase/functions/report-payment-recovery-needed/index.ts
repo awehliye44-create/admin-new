@@ -67,7 +67,7 @@ serveWithEdgeTiming("report-payment-recovery-needed", corsHeaders, async (req) =
     return json({ success: true, escalated: false, trip_id: tripId });
   }
 
-  const orderId = String(session.provider_order_id ?? providerOrderId ?? "").trim() || null;
+  const orderId = String(session.provider_order_id ?? "").trim() || null;
   if (!orderId) {
     return json({ success: true, escalated: false, reason: "no_provider_order" });
   }
