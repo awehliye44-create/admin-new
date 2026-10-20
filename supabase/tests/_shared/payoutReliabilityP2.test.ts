@@ -336,3 +336,29 @@ Deno.test("migration: snapshot table append-only, reversal flag immutable, servi
   assertEquals((sql.match(/ENABLE ROW LEVEL SECURITY/g) ?? []).length, 2);
   assertEquals((sql.match(/REVOKE ALL ON public\.\w+ FROM anon, authenticated/g) ?? []).length, 2);
 });
+
+Deno.test("frozen BLOCKED_EXECUTION_DISABLED item resumes even when driver no longer freshly eligible", () => {
+  const gate = shouldContinueOrchestratorMoneyPath({
+    dry_run: false, live_enabled: true, transport_enabled: true, has_batch: true,
+    fresh_eligible_count: 0, in_flight_item_count: 0, blocker_code: "ZERO_ELIGIBLE_DRIVERS",
+    fundable_item_count: 1, resumable_item_count: 1,
+  });
+  assertEquals(gate.continue, true);
+});
+
+Deno.test("resumable item still blocked when company funds are insufficient", () => {
+  const gate = shouldContinueOrchestratorMoneyPath({
+    dry_run: false, live_enabled: true, transport_enabled: true, has_batch: true,
+    fresh_eligible_count: 0, in_flight_item_count: 0, blocker_code: "INSUFFICIENT_SETTLED_FUNDS",
+    fundable_item_count: 0, resumable_item_count: 1,
+  });
+  assertEquals(gate.continue, false);
+});
+
+Deno.test("resumable item never sends when live payouts are off", () => {
+  const gate = shouldContinueOrchestratorMoneyPath({
+    dry_run: false, live_enabled: false, transport_enabled: true, has_batch: true,
+    fresh_eligible_count: 0, in_flight_item_count: 0, blocker_code: null, resumable_item_count: 1,
+  });
+  assertEquals(gate.continue, false);
+});
