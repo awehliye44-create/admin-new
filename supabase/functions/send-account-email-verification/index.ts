@@ -121,7 +121,6 @@ Deno.serve(async (req) => {
     if (user.email_confirmed_at) {
       logVerificationAudit(EMAIL_VERIFICATION_AUDIT.ALREADY_VERIFIED, {
         user_id: user.id,
-        email: user.email,
         app_type: appType,
         phase: "send_blocked",
       });
@@ -138,7 +137,6 @@ Deno.serve(async (req) => {
     if (!pendingAccount.ok) {
       logVerificationAudit(EMAIL_VERIFICATION_AUDIT.SENT, {
         user_id: user.id,
-        email: user.email,
         app_type: appType,
         phase: "send_blocked",
         reason: pendingAccount.code,
@@ -195,7 +193,6 @@ Deno.serve(async (req) => {
     if (!sent.ok) {
       logVerificationAudit(isResend ? EMAIL_VERIFICATION_AUDIT.RESENT : EMAIL_VERIFICATION_AUDIT.SENT, {
         user_id: user.id,
-        email: user.email,
         app_type: appType,
         outcome: "failed",
         reason: sent.message,
@@ -210,7 +207,6 @@ Deno.serve(async (req) => {
 
     const { error: insertError } = await service.from("account_email_verifications").insert({
       user_id: user.id,
-      email: user.email,
       app_type: appType,
       token_hash: hash,
       expires_at: expiresAt,
@@ -221,7 +217,6 @@ Deno.serve(async (req) => {
       isResend ? EMAIL_VERIFICATION_AUDIT.RESENT : EMAIL_VERIFICATION_AUDIT.SENT,
       {
         user_id: user.id,
-        email: user.email,
         app_type: appType,
         resend_id: sent.id ?? null,
         expires_at: expiresAt,

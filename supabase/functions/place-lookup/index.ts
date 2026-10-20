@@ -868,7 +868,6 @@ serve(async (req) => {
       if (pinnedPoi) {
         const enrichedAddress = enrichPinnedPoiAddress(pinnedPoi, v6Snapshot);
         console.log("[place-lookup] reverse poi selected:", {
-          name: pinnedPoi.name,
           distanceMeters: pinnedPoi.distanceMeters ?? null,
           featureType: pinnedPoi.featureType ?? null,
           category: pinnedPoi.category ?? null,
