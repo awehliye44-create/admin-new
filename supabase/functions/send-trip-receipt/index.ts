@@ -76,12 +76,19 @@ Deno.serve(async (req) => {
     if (!isAdmin) {
       const { data: customerRow } = await userClient
         .from("customers")
-        .select("id, user_id")
+        .select("id, user_id, email")
         .eq("user_id", userId)
         .maybeSingle();
       const ownsTrip = trip.passenger_id === userId
         || (customerRow?.id && trip.passenger_id === customerRow.id);
       if (!ownsTrip) return errorResponse("Forbidden", 403);
+      // Customers may only send receipts to their own account email.
+      const ownEmails = [authData.user.email, (customerRow as { email?: string | null } | null)?.email]
+        .map((e) => normalizeReceiptEmail(e ?? undefined))
+        .filter((e): e is string => Boolean(e));
+      if (!ownEmails.includes(email)) {
+        return validationErrorResponse({ email: "Receipts can only be sent to your account email address" });
+      }
     } else if (trip.passenger_id) {
       const { data: customer } = await service
         .from("customers")

@@ -5,7 +5,7 @@
  */
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { z } from "https://esm.sh/zod@3.23.8";
-import { corsHeaders, jsonResponse, requireAdminOrStaff } from "../_shared/adminPaymentGate.ts";
+import { corsHeaders, jsonResponse, requireFinanceExecutionAuth } from "../_shared/adminPaymentGate.ts";
 import {
   resolveTripPaymentOutcome,
   TRIP_PAYMENT_OUTCOME,
@@ -37,7 +37,7 @@ serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
   try {
-    const gate = await requireAdminOrStaff(req);
+    const gate = await requireFinanceExecutionAuth(req, { pageSlug: "payment-sessions" });
     if (!gate.ok) return gate.response;
     const { supabase, userId } = gate;
 
