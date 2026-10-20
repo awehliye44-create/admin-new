@@ -89,12 +89,12 @@ serve(async (req) => {
         const { data: u } = await supabase.auth.getUser(authHeader.slice(7));
         const uid = u?.user?.id;
         if (uid) {
-          const { data: own } = await supabase
-            .from("trips")
-            .select("id, customers!inner(user_id)")
-            .eq("id", trip_id)
-            .eq("customers.user_id", uid)
-            .maybeSingle();
+          const { data: t } = await supabase
+            .from("trips").select("customer_id").eq("id", trip_id).maybeSingle();
+          const { data: own } = t?.customer_id
+            ? await supabase.from("customers").select("id")
+                .eq("id", t.customer_id).eq("user_id", uid).maybeSingle()
+            : { data: null };
           if (own) {
             allowed = true;
           } else {
