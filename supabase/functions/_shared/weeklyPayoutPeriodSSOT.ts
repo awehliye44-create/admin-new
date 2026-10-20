@@ -215,10 +215,13 @@ export function selectWeeklyPeriodPayableCredits(args: {
   included_arrears_pence: number;
   already_paid_pence: number;
   unattributed_pence: number;
+  /** Ledger ids that were eligible but failed economic attribution — forensic only. */
+  unattributed_selected: WeeklyPeriodCredit[];
 } {
   const selected: WeeklyPeriodCredit[] = [];
   const previous_week_selected: WeeklyPeriodCredit[] = [];
   const arrears_selected: WeeklyPeriodCredit[] = [];
+  const unattributed_selected: WeeklyPeriodCredit[] = [];
   let previous_week_pence = 0;
   let arrears_pence = 0;
   let excluded_current_week_pence = 0;
@@ -250,6 +253,7 @@ export function selectWeeklyPeriodPayableCredits(args: {
       already_paid_pence += Math.max(0, Math.round(Number(entry.amount_pence ?? 0)));
     } else {
       unattributed_pence += unpaid;
+      unattributed_selected.push(entry);
     }
   }
   return {
@@ -264,6 +268,7 @@ export function selectWeeklyPeriodPayableCredits(args: {
     included_arrears_pence: arrears_pence,
     already_paid_pence,
     unattributed_pence,
+    unattributed_selected,
   };
 }
 

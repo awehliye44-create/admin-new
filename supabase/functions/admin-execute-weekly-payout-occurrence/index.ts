@@ -474,13 +474,22 @@ async function handleWeeklyPayoutOccurrence(req: Request): Promise<Response> {
       period_end: occurrencePeriod.period_end,
       entries: eligibility.eligible_entries.map((entry) => {
         const econ = econById.get(entry.ledger_entry_id);
+        const ledgerType = entry.ledger_type != null
+          ? String(entry.ledger_type)
+          : (econ?.type != null ? String(econ.type) : null);
+        const posting = econ?.posting_created_at != null
+          ? String(econ.posting_created_at)
+          : null;
         return {
           ledger_entry_id: entry.ledger_entry_id,
           trip_id: entry.trip_id,
           amount_pence: entry.amount_pence,
-          type: econ?.type != null ? String(econ.type) : null,
-          economic_earned_at: econ?.economic_earned_at != null ? String(econ.economic_earned_at) : null,
-          posting_created_at: econ?.posting_created_at != null ? String(econ.posting_created_at) : null,
+          type: ledgerType,
+          economic_earned_at: econ?.economic_earned_at != null
+            ? String(econ.economic_earned_at)
+            : null,
+          posting_created_at: posting,
+          created_at: posting,
         };
       }),
     });
@@ -543,8 +552,17 @@ async function handleWeeklyPayoutOccurrence(req: Request): Promise<Response> {
         excluded_older_unpaid_pence: scoped.excluded_older_unpaid_pence,
         included_arrears_pence: scoped.included_arrears_pence,
         previous_week_pence: scoped.previous_week_pence,
+        unattributed_pence: scoped.unattributed_pence,
+        unattributed_ledger_ids: scoped.unattributed_selected.map((a) => a.ledger_entry_id),
         arrears_ledger_allocation_ids: scoped.arrears_selected.map((a) => a.ledger_entry_id),
         previous_week_ledger_allocation_ids: scoped.previous_week_selected.map((a) => a.ledger_entry_id),
+        eligible_entry_count_at_plan: eligibility.eligible_entries.length,
+        held_entry_count_at_plan: eligibility.held_entries.length,
+        held_reasons_at_plan: eligibility.held_entries.map((h) => ({
+          ledger_entry_id: h.ledger_entry_id,
+          hold_reason: h.hold_reason,
+          amount_pence: h.amount_pence,
+        })),
       },
       destination_verified: true,
     });

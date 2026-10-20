@@ -17,6 +17,8 @@ export type SpecPaymentSession = {
   refunded_at?: string | null;
   released_at?: string | null;
   status?: string | null;
+  /** Payment Sessions financial_operation_state — required for narrow PARTIAL_CAPTURE_ONLY. */
+  financial_operation_state?: string | null;
   provider_state?: string | null;
   provider_state_verified_at?: string | null;
   hold_release_state?: string | null;
@@ -52,6 +54,30 @@ function isReleased(s: SpecPaymentSession): boolean {
   if (Math.max(0, Number(s.released_amount_pence ?? 0)) > 0) return true;
   if (upper(s.status) === "RELEASED") return true;
   return upper(s.hold_release_state).includes("RELEASE");
+}
+
+/**
+ * Mirrors SQL capture-evidence exception: CAPTURED residual release, or narrow
+ * PARTIAL_CAPTURE_ONLY that is financially CAPTURED with explicit
+ * released_amount_pence = 0 (NULL does not qualify).
+ */
+function captureEvidenceEligible(s: SpecPaymentSession): boolean {
+  if (!s.captured_at) return false;
+  if (Math.round(Number(s.captured_amount_pence ?? 0)) <= 0) return false;
+  if (isRefunded(s)) return false;
+  const st = upper(s.status);
+  if (st === "REFUNDED" || st === "RELEASED") return false;
+  if (!isVerifiedTerminal(s)) return false;
+  if (st === "CAPTURED") return true;
+  if (
+    st === "PARTIAL_CAPTURE_ONLY"
+    && upper(s.financial_operation_state) === "CAPTURED"
+    && s.released_amount_pence != null
+    && Math.round(Number(s.released_amount_pence)) === 0
+  ) {
+    return true;
+  }
+  return !isReleased(s);
 }
 
 function isVerifiedTerminal(s: SpecPaymentSession): boolean {
@@ -108,13 +134,7 @@ export function specResolveEconomicDate(input: SpecResolveInput): SpecResolveRes
     };
   }
 
-  const live = booking.filter((s) =>
-    Boolean(s.captured_at)
-    && Math.round(Number(s.captured_amount_pence ?? 0)) > 0
-    && !isRefunded(s)
-    && !isReleased(s)
-    && isVerifiedTerminal(s),
-  );
+  const live = booking.filter(captureEvidenceEligible);
   if (live.length === 1) {
     const captured = String(live[0]!.captured_at);
     return {
@@ -155,7 +175,7 @@ export function specResolveEconomicDate(input: SpecResolveInput): SpecResolveRes
     Boolean(s.captured_at)
     && Math.round(Number(s.captured_amount_pence ?? 0)) > 0
     && !isRefunded(s)
-    && !isReleased(s)
+    && !captureEvidenceEligible(s)
     && !isVerifiedTerminal(s),
   );
   return {

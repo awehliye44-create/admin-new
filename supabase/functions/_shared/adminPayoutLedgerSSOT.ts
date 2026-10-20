@@ -92,6 +92,15 @@ export type AdminPayoutLedgerItemRow = {
   currency: string;
   provider: string | null;
   provider_payout_id: string | null;
+  /** Item provider_status, or intent.provider_state when item fields are empty. */
+  provider_status?: string | null;
+  /** Where Admin resolved provider evidence from. */
+  provider_evidence_source?: "payout_item" | "payment_intent" | "none";
+  /** Prep-time snapshot — never treat as current live balance. */
+  wallet_balance_at_preparation_pence?: number | null;
+  wallet_available_at_preparation_pence?: number | null;
+  wallet_preparation_snapshot_label?: string | null;
+  wallet_current_live_label?: string | null;
   bank_reference: string | null;
   verification_status: string | null;
   bank_account_last4: string | null;
@@ -145,6 +154,14 @@ export type DriverPayoutAccountRow = {
   live_balance_pence?: number;
   available_balance_pence: number;
   pending_balance_pence: number;
+  /** ACTIVE payout reservation — mid-payout allocated funds. */
+  reserved_pence?: number;
+  /**
+   * Live not explained by unallocated earning credits or ACTIVE reservation.
+   * Never payable. Mid-payout reserved funds must not appear here.
+   */
+  unbacked_pence?: number;
+  unbacked_reason?: string | null;
   debt_pence: number;
   /** Machine-readable hold when live > 0 and available = 0. */
   unavailable_reason?: string | null;
@@ -175,6 +192,8 @@ export type AdminPayoutLedgerFleetSummary = {
   /** Σ ACTIVE driver_payout_reservations (not permanent debits). */
   total_reserved_pence?: number;
   total_pending_pence?: number;
+  /** Σ unbacked live balance — never payable. */
+  total_unbacked_pence?: number;
   total_outstanding_debt_pence?: number;
   total_scheduled_pence: number;
   total_processing_pence: number;

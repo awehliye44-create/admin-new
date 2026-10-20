@@ -214,6 +214,8 @@ export type EligiblePayoutEntry = {
   ledger_entry_id: string;
   trip_id: string | null;
   amount_pence: number;
+  /** Ledger type — required for weekly period attribution when econ RPC is sparse. */
+  ledger_type?: string | null;
   eligibility_status: typeof PAYOUT_ELIGIBILITY_STATUS.ELIGIBLE;
   des_companion_missing: boolean;
 };
@@ -559,6 +561,7 @@ export function aggregateDriverPayoutEligibility(
         ledger_entry_id: entry.ledger_entry_id,
         trip_id: entry.trip_id,
         amount_pence: payable_pence,
+        ledger_type: String(entry.ledger_type ?? "").toUpperCase() || null,
         eligibility_status: PAYOUT_ELIGIBILITY_STATUS.ELIGIBLE,
         des_companion_missing: entry.des_present !== true,
       });

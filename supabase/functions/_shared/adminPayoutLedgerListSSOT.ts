@@ -22,6 +22,10 @@ import {
   resolveDriverPayoutItemDisplayPresentation,
 } from "./driverPayoutBatchDisplaySSOT.ts";
 import {
+  PAYOUT_WALLET_SNAPSHOT_LABEL,
+  resolvePayoutItemProviderEvidenceForDisplay,
+} from "./payoutItemProviderEvidenceSSOT.ts";
+import {
   itemMatchesPayoutLedgerLifecycleTab,
   itemMatchesPayoutLedgerStatusTab,
 } from "./payoutLedgerNavigationSSOT.ts";
@@ -1006,7 +1010,7 @@ export async function listAdminPayoutLedger(
   let itemsQuery = supabase
     .from("payout_items")
     .select(
-      "id, created_at, driver_id, batch_id, amount_pence, status, execution_status, payout_type, provider_payout_id, provider_transfer_id, provider_reference, provider_status, failure_reason, error_message, ledger_entry_id, completed_at, failed_at, updated_at, gross_amount_pence, net_driver_payout_pence, onecab_fee_pence, provider_fee_pence, trip_id",
+      "id, created_at, driver_id, batch_id, amount_pence, status, execution_status, payout_type, provider_payout_id, provider_transfer_id, provider_reference, provider_status, failure_reason, error_message, ledger_entry_id, completed_at, failed_at, updated_at, gross_amount_pence, net_driver_payout_pence, onecab_fee_pence, provider_fee_pence, trip_id, wallet_snapshot_balance_pence, wallet_snapshot_available_pence",
     )
     .order("created_at", { ascending: false })
     .limit(limit * 2);
@@ -1126,11 +1130,22 @@ export async function listAdminPayoutLedger(
     release_reason: string | null;
     debit_ledger_entry_id: string | null;
   }>();
+  const intentByItem = new Map<string, {
+    provider_payment_id: string | null;
+    provider_state: string | null;
+    execution_status: string | null;
+  }>();
   if (itemIds.length > 0) {
-    const { data: resRows } = await supabase
-      .from("driver_payout_reservations")
-      .select("payout_item_id, status, release_reason, debit_ledger_entry_id")
-      .in("payout_item_id", itemIds);
+    const [{ data: resRows }, { data: intentRows }] = await Promise.all([
+      supabase
+        .from("driver_payout_reservations")
+        .select("payout_item_id, status, release_reason, debit_ledger_entry_id")
+        .in("payout_item_id", itemIds),
+      supabase
+        .from("driver_payout_payment_intents")
+        .select("payout_item_id, provider_payment_id, provider_state, execution_status")
+        .in("payout_item_id", itemIds),
+    ]);
     for (const r of resRows ?? []) {
       const id = String(r.payout_item_id ?? "");
       if (!id || reservationByItem.has(id)) continue;
@@ -1140,6 +1155,19 @@ export async function listAdminPayoutLedger(
         debit_ledger_entry_id: r.debit_ledger_entry_id == null
           ? null
           : String(r.debit_ledger_entry_id),
+      });
+    }
+    for (const intent of intentRows ?? []) {
+      const id = String(intent.payout_item_id ?? "");
+      if (!id || intentByItem.has(id)) continue;
+      intentByItem.set(id, {
+        provider_payment_id: intent.provider_payment_id == null
+          ? null
+          : String(intent.provider_payment_id),
+        provider_state: intent.provider_state == null ? null : String(intent.provider_state),
+        execution_status: intent.execution_status == null
+          ? null
+          : String(intent.execution_status),
       });
     }
   }
@@ -1210,6 +1238,21 @@ export async function listAdminPayoutLedger(
       release_reason: releaseReason,
       failure_reason: failureReason ?? releaseReason,
     });
+    const providerEvidence = resolvePayoutItemProviderEvidenceForDisplay({
+      item: {
+        provider_payout_id: (raw.provider_payout_id as string | null) ?? null,
+        provider_transfer_id: (raw.provider_transfer_id as string | null) ?? null,
+        provider_reference: (raw.provider_reference as string | null) ?? null,
+        provider_status: (raw.provider_status as string | null) ?? null,
+      },
+      intent: intentByItem.get(String(raw.id)) ?? null,
+    });
+    const prepBalance = raw.wallet_snapshot_balance_pence == null
+      ? null
+      : Number(raw.wallet_snapshot_balance_pence);
+    const prepAvailable = raw.wallet_snapshot_available_pence == null
+      ? null
+      : Number(raw.wallet_snapshot_available_pence);
 
     items.push({
       id: String(raw.id),
@@ -1226,11 +1269,14 @@ export async function listAdminPayoutLedger(
       net_bank_transfer_pence: net,
       currency: "GBP",
       provider: "revolut_or_manual",
-      provider_payout_id: (raw.provider_payout_id as string | null)
-        ?? (raw.provider_transfer_id as string | null)
-        ?? (raw.provider_reference as string | null)
-        ?? null,
+      provider_payout_id: providerEvidence.provider_payout_id,
+      provider_status: providerEvidence.provider_status,
+      provider_evidence_source: providerEvidence.provider_evidence_source,
       bank_reference: (raw.provider_reference as string | null) ?? null,
+      wallet_balance_at_preparation_pence: prepBalance,
+      wallet_available_at_preparation_pence: prepAvailable,
+      wallet_preparation_snapshot_label: PAYOUT_WALLET_SNAPSHOT_LABEL.balance_at_preparation,
+      wallet_current_live_label: PAYOUT_WALLET_SNAPSHOT_LABEL.current_live,
       verification_status: meta?.verification_status ?? null,
       bank_account_last4: bankLast4ByDriver.get(String(raw.driver_id)) ?? null,
       connected_account_id: meta?.connected_account_id ?? null,

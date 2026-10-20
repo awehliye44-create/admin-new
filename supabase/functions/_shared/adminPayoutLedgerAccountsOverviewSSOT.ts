@@ -16,6 +16,7 @@ import { shouldBlockZeroValuePayoutBatch } from "./driverPayoutEligibilitySSOT.t
 import { loadPayoutControlCentreSettings } from "./payoutControlCentreSettingsSSOT.ts";
 import { buildPayoutScheduleDto } from "./payoutScheduleSSOT.ts";
 import { resolvePlatformCollectedDriverIds } from "./platformCollectedDriverScope.ts";
+import { resolvePayoutAccountComposition } from "./payoutAccountCompositionSSOT.ts";
 
 function emptySummary(): AdminPayoutLedgerListResponse["summary"] {
   return {
@@ -46,6 +47,7 @@ function emptyFleet(): AdminPayoutLedgerFleetSummary {
     total_available_pence: 0,
     total_reserved_pence: 0,
     total_pending_pence: 0,
+    total_unbacked_pence: 0,
     total_outstanding_debt_pence: 0,
     total_scheduled_pence: 0,
     total_processing_pence: 0,
@@ -333,6 +335,7 @@ export async function buildPayoutLedgerAccountsOverview(
   let totalAvailable = 0;
   let totalReserved = 0;
   let totalPending = 0;
+  let totalUnbacked = 0;
   let totalDebt = 0;
   let nextBatchAmount = 0;
   let nextBatchDrivers = 0;
@@ -363,8 +366,35 @@ export async function buildPayoutLedgerAccountsOverview(
       const available = Math.max(0, eligibility.available_balance_pence);
       const live = Math.round(eligibility.live_balance_pence);
       const pending = Math.max(0, eligibility.pending_balance_pence);
-      const reserved = Math.max(0, reservedByDriver.get(String(d.id)) ?? 0);
+      const reserved = Math.max(
+        0,
+        reservedByDriver.get(String(d.id))
+          ?? eligibility.withdrawal_in_progress_pence
+          ?? 0,
+      );
       const debt = Math.max(0, eligibility.outstanding_debt_pence);
+      const approval = String(d.approval_status ?? "").toLowerCase();
+      const composition = resolvePayoutAccountComposition({
+        sql: {
+          live_balance_pence: live,
+          available_balance_pence: available,
+          pending_balance_pence: pending,
+          withdrawal_in_progress_pence: reserved,
+          outstanding_debt_pence: debt,
+        },
+        eligibility,
+        driver: {
+          deleted: false,
+          driver_status: (d.driver_status as string | null) ?? null,
+          approved: approval === "approved" || approval === "active",
+          operational_paused: d.payout_operational_paused === true,
+          global_payouts_enabled: true,
+          verified_destination: true,
+          gate_allowed: d.payout_operational_paused !== true,
+        },
+        admin_credit_ledger_ids: new Set(),
+        unrecorded_cashout_fee_pence: 0,
+      });
       const name = `${d.first_name ?? ""} ${d.last_name ?? ""}`.trim() || null;
       const pausedAccount = d.payout_operational_paused === true;
       if (pausedAccount) paused += 1;
@@ -377,6 +407,7 @@ export async function buildPayoutLedgerAccountsOverview(
       totalAvailable += available;
       totalReserved += reserved;
       totalPending += pending;
+      totalUnbacked += composition.unbacked_pence;
       totalDebt += debt;
 
       if (available > 0 && !pausedAccount) {
@@ -419,12 +450,18 @@ export async function buildPayoutLedgerAccountsOverview(
         live_balance_pence: live,
         available_balance_pence: available,
         pending_balance_pence: pending,
+        reserved_pence: composition.reserved_pence,
+        unbacked_pence: composition.unbacked_pence,
+        unbacked_reason: composition.unbacked_reason,
         debt_pence: debt,
         eligible_entry_count: eligibility.eligible_entries.length,
         unavailable_reason: available <= 0 && live > 0
           ? (pausedAccount
             ? "ADMIN_HOLD"
-            : (eligibility.primary_hold_reason ?? eligibility.held_entries[0]?.hold_reason ?? "UNKNOWN_ELIGIBILITY_ERROR"))
+            : (composition.hold_reason
+              ?? eligibility.primary_hold_reason
+              ?? eligibility.held_entries[0]?.hold_reason
+              ?? "UNKNOWN_ELIGIBILITY_ERROR"))
           : null,
         next_scheduled_at: schedule.next_run_at_utc,
         next_scheduled_local: schedule.next_run_at_local,
@@ -460,6 +497,7 @@ export async function buildPayoutLedgerAccountsOverview(
     total_reserved_pence: totalReserved,
     // Other holds only — ACTIVE reservations live under total_reserved_pence.
     total_pending_pence: Math.max(0, totalPending),
+    total_unbacked_pence: totalUnbacked,
     total_outstanding_debt_pence: totalDebt,
     total_scheduled_pence: itemTotals.scheduled_pence,
     total_processing_pence: itemTotals.processing_pence,
