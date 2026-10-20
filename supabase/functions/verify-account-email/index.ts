@@ -73,7 +73,6 @@ Deno.serve(async (req) => {
     if (authLookup?.user?.email_confirmed_at) {
       logVerificationAudit(EMAIL_VERIFICATION_AUDIT.ALREADY_VERIFIED, {
         user_id: row.user_id,
-        email: row.email,
         app_type: appType,
       });
       return jsonResponse({ ok: true, already_verified: true });
@@ -82,7 +81,6 @@ Deno.serve(async (req) => {
     if (row.verified_at) {
       logVerificationAudit(EMAIL_VERIFICATION_AUDIT.ALREADY_VERIFIED, {
         user_id: row.user_id,
-        email: row.email,
         app_type: appType,
         source: "token_row",
       });
@@ -92,7 +90,6 @@ Deno.serve(async (req) => {
     if (isVerificationTokenExpired(row.expires_at)) {
       logVerificationAudit(EMAIL_VERIFICATION_AUDIT.EXPIRED, {
         user_id: row.user_id,
-        email: row.email,
         app_type: appType,
         expires_at: row.expires_at,
       });
@@ -106,7 +103,6 @@ Deno.serve(async (req) => {
     if (!(await isLatestUnusedVerificationToken(service, row, appType))) {
       logVerificationAudit(EMAIL_VERIFICATION_AUDIT.INVALID_TOKEN, {
         user_id: row.user_id,
-        email: row.email,
         app_type: appType,
         reason: "superseded_token",
       });
@@ -132,7 +128,6 @@ Deno.serve(async (req) => {
 
     logVerificationAudit(EMAIL_VERIFICATION_AUDIT.SUCCESS, {
       user_id: row.user_id,
-      email: row.email,
       app_type: appType,
     });
 

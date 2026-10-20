@@ -296,7 +296,19 @@ function isFiniteCoord(v: unknown): v is number {
   return typeof v === "number" && Number.isFinite(v);
 }
 
-function logAddressSearch(event: string, detail: Record<string, unknown>): void {
+const ADDRESS_LOG_REDACT_KEYS = new Set(["query", "address", "name", "label", "full_address", "results", "top", "suggestions"]);
+function redactAddressDetail(detail: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(detail)) {
+    if (ADDRESS_LOG_REDACT_KEYS.has(k)) {
+      out[k] = Array.isArray(v) ? `[${v.length} items]` : typeof v === "string" ? `[redacted:${v.length}]` : "[redacted]";
+    } else out[k] = v;
+  }
+  return out;
+}
+
+function logAddressSearch(event: string, rawDetail: Record<string, unknown>): void {
+  const detail = redactAddressDetail(rawDetail);
   console.log(`[OneCabAddressSearch] ${event} ${JSON.stringify(detail)}`);
   if (event === "ADDRESS_QUERY") {
     console.log(`[OneCabAddressSuggestions] ADDRESS_SUGGESTIONS_QUERY ${JSON.stringify(detail)}`);
@@ -822,7 +834,7 @@ serve(async (req) => {
 
     console.log("[place-lookup] request:", {
       placeId,
-      address: address?.substring(0, 50),
+      addressLength: address?.length ?? 0,
       autocomplete,
       hasBias,
       hasServiceAreaBias: !!serviceAreaBias,
@@ -856,7 +868,6 @@ serve(async (req) => {
       if (pinnedPoi) {
         const enrichedAddress = enrichPinnedPoiAddress(pinnedPoi, v6Snapshot);
         console.log("[place-lookup] reverse poi selected:", {
-          name: pinnedPoi.name,
           distanceMeters: pinnedPoi.distanceMeters ?? null,
           featureType: pinnedPoi.featureType ?? null,
           category: pinnedPoi.category ?? null,
@@ -1255,7 +1266,7 @@ serve(async (req) => {
         const center = await geocodePostcodeCenter(address, token, country, biasLat, biasLng);
         if (center) {
           const label = normalizeUkPostcodeForGeocode(address);
-          console.log("[place-lookup] forward postcode resolved:", { address: label, ...center });
+          console.log("[place-lookup] forward postcode resolved");
           return jsonResponse({
             success: true,
             lat: center.lat,
@@ -1265,7 +1276,7 @@ serve(async (req) => {
             placeId: `mapbox_postcode:${center.lat}:${center.lng}:${encodeURIComponent(label)}`,
           });
         }
-        console.log("[place-lookup] forward postcode empty:", { address: address.substring(0, 50) });
+        console.log("[place-lookup] forward postcode empty");
       }
 
       const resolved = await resolveForwardGeocode(

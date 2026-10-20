@@ -60,7 +60,8 @@ serve(async (req) => {
           .from("trips")
           .select("service_area_id")
           .eq("id", body.trip_id)
-          .single();
+          .eq("driver_id", driver_id)
+          .maybeSingle();
 
         if (tripErr || !trip?.service_area_id) {
           return errorResponse("Trip not found or has no service_area_id", 404);

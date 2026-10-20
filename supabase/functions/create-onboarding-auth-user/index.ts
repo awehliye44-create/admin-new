@@ -106,7 +106,6 @@ Deno.serve(async (req) => {
       console.warn("create-onboarding-auth-user reclaim_stale_onboarding_auth_user:", reclaimErr);
     } else if ((reclaimResult as { reclaimed?: boolean } | null)?.reclaimed) {
       logEvent("STALE_ONBOARDING_AUTH_USER_RECLAIMED", {
-        email,
         user_id: (reclaimResult as { user_id?: string }).user_id ?? null,
       });
     }
@@ -151,7 +150,6 @@ Deno.serve(async (req) => {
       const { data: retryReclaim } = await service.rpc("reclaim_stale_onboarding_auth_user", { p_email: email });
       if ((retryReclaim as { reclaimed?: boolean } | null)?.reclaimed) {
         logEvent("STALE_ONBOARDING_AUTH_USER_RECLAIMED_ON_CREATE_RETRY", {
-          email,
           user_id: (retryReclaim as { user_id?: string }).user_id ?? null,
         });
         const retry = await service.auth.admin.createUser({
@@ -261,7 +259,6 @@ Deno.serve(async (req) => {
 
     logEvent(appType === "driver" ? "DRIVER_SIGNUP_AUTH_CREATED" : "CUSTOMER_SIGNUP_AUTH_CREATED", {
       user_id: userId,
-      email,
       email_confirm_on_create: confirmEmailOnCreate,
       email_confirm_reset: !confirmEmailOnCreate,
       method: "create_user_sign_in",

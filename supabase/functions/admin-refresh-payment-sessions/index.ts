@@ -3,7 +3,7 @@
 // to reflect the ground truth. PAYMENT_RECOVERY COMPLETED uses the same SSOT
 // planner as revolut-webhook (never double-credits wallet; never swaps trip order id).
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-import { corsHeaders, jsonResponse, requireAdminOrStaff, type GateError } from "../_shared/adminPaymentGate.ts";
+import { corsHeaders, jsonResponse, requireFinanceExecutionAuth, type GateError } from "../_shared/adminPaymentGate.ts";
 import { getRevolutMerchantConfig, retrieveRevolutOrder } from "../_shared/revolutOrders.ts";
 import { creditCapturedCardTripLedger } from "../_shared/onecabFinanceLedger.ts";
 import { logAuditEvent } from "../_shared/security.ts";
@@ -70,7 +70,7 @@ const TERMINAL_SESSION = new Set([
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
   try {
-    const gate = await requireAdminOrStaff(req);
+    const gate = await requireFinanceExecutionAuth(req, { pageSlug: "payment-sessions" });
     if (!gate.ok) return await gateFailureResponse(gate);
 
     let body: { session_ids?: string[]; service_area_id?: string | null } = {};

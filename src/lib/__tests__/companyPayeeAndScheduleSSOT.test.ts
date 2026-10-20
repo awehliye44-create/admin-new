@@ -99,6 +99,7 @@ describe("company payee SSOT", () => {
 });
 
 describe("company payee encryption", () => {
+  process.env.PAYOUT_DESTINATION_ENCRYPTION_KEY = "test-key-test-key-test-key-test-key-0001";
   it("round-trips secrets and never equals plaintext", async () => {
     const cipher = await encryptCompanyPayeeSecret("20000012345678");
     expect(cipher).not.toContain("200000");
