@@ -198,6 +198,15 @@ Deno.serve(async (req) => {
     if (mode === "apply") {
       // P0 GATE: never persist a redemption against a digital trip whose payment gate is not satisfied.
       if (trip_id) {
+        const { data: ownTrip } = await supabase
+          .from("trips")
+          .select("id")
+          .eq("id", trip_id)
+          .eq("customer_id", authedCustomerId)
+          .maybeSingle();
+        if (!ownTrip) {
+          return json({ ok: false, reason: "TRIP_NOT_OWNED" }, 403);
+        }
         try {
           await assertPaymentGate(supabase, trip_id);
         } catch (e) {

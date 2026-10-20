@@ -560,6 +560,12 @@ export default function RolesPermissions() {
     setShowReassignDialog(true);
   };
 
+  const csvCell = (value: unknown) => {
+    let v = String(value ?? '');
+    if (/^[=+\-@\t\r]/.test(v)) v = `'${v}`;
+    return `"${v.replace(/"/g, '""')}"`;
+  };
+
   const exportStaff = () => {
     const csvContent = [
       ['Staff ID', 'Full Name', 'Username', 'Role', 'Service Areas', 'Created At'].join(','),
@@ -570,7 +576,7 @@ export default function RolesPermissions() {
         ROLE_LABELS[s.role],
         s.service_areas.map(sa => sa.name).join('; '),
         s.created_at,
-      ].join(','))
+      ].map(csvCell).join(','))
     ].join('\n');
 
     const blob = new Blob([csvContent], { type: 'text/csv' });
