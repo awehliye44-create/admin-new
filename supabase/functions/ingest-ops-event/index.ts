@@ -1,4 +1,5 @@
 import { createClient } from "npm:@supabase/supabase-js@2.57.2";
+import { assertServiceRole, requireUser } from "../_shared/internalAuth.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -82,6 +83,11 @@ Deno.serve(async (req) => {
       status,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
+
+  if (assertServiceRole(req) !== null) {
+    const auth = await requireUser(req);
+    if (auth instanceof Response) return json({ success: false, error: "AUTH_REQUIRED" }, 401);
+  }
 
   try {
     const supabase = createClient(
