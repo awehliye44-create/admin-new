@@ -78,7 +78,7 @@ Deno.serve(async (req) => {
     })
   }
 
-  console.log('Email sent', { to, subject, id: result?.id })
+  console.log('Email sent', { id: result?.id })
   return new Response(JSON.stringify({ success: true, id: result?.id }), {
     status: 200,
     headers: { ...corsHeaders, 'Content-Type': 'application/json' },

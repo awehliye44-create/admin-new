@@ -46,7 +46,9 @@ function isFareValidForPresetSend(
   presetOptions: ReturnType<typeof extractPresetOptionsFromOffer>,
   selectedKey: string | null | undefined,
 ): boolean {
-  if (presetOptions.some((o) => o.key === selectedKey && selectedKey)) return true;
+  if (selectedKey) {
+    return presetOptions.some((o) => o.key === selectedKey && faresMatchPence(o.grossFarePence, selectedPence));
+  }
   return presetOptions.some((o) => faresMatchPence(o.grossFarePence, selectedPence));
 }
 

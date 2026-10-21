@@ -508,9 +508,15 @@ serveWithEdgeTiming("create-trip-after-payment", corsHeaders, async (req) => {
         callerCustomerId
         && (idempotentTrip as { customer_id?: string | null }).customer_id === callerCustomerId,
       );
+      if (!tripOwnedByCaller) {
+        return new Response(JSON.stringify({
+          success: false,
+          error_code: "IDEMPOTENCY_CONFLICT",
+          error: "This booking reference is already in use.",
+        }), { status: 409, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
       if (
-        tripOwnedByCaller
-        && !String((idempotentTrip as { special_instructions?: string | null }).special_instructions ?? "").trim()
+        !String((idempotentTrip as { special_instructions?: string | null }).special_instructions ?? "").trim()
       ) {
         let note = String(body.special_instructions ?? "").trim();
         if (!note) {
