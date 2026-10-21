@@ -89,13 +89,26 @@ Deno.serve(async (req) => {
       if (!ownEmails.includes(email)) {
         return validationErrorResponse({ email: "Receipts can only be sent to your account email address" });
       }
-    } else if (trip.passenger_id) {
+    } else {
+      // Staff may only send receipts to the rider's email on file.
+      if (!trip.passenger_id) {
+        return validationErrorResponse({ email: "This trip has no rider email on file" });
+      }
       const { data: customer } = await service
         .from("customers")
-        .select("user_id")
+        .select("user_id, email")
         .or(`id.eq.${trip.passenger_id},user_id.eq.${trip.passenger_id}`)
         .maybeSingle();
       recipientUserId = (customer?.user_id as string | null) ?? (trip.passenger_id as string);
+      const allowed: string[] = [];
+      const custEmail = normalizeReceiptEmail((customer?.email as string | null) ?? undefined);
+      if (custEmail) allowed.push(custEmail);
+      const { data: riderAuth } = await service.auth.admin.getUserById(recipientUserId);
+      const authEmail = normalizeReceiptEmail(riderAuth?.user?.email ?? undefined);
+      if (authEmail) allowed.push(authEmail);
+      if (!allowed.includes(email)) {
+        return validationErrorResponse({ email: "Receipts can only be sent to the rider's email on file" });
+      }
     }
 
     const result = await sendManualTripReceipt(service, {
