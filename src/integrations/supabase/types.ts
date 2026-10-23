@@ -29033,6 +29033,13 @@ export type Database = {
         Args: { p_offer: Json; p_service_area_ids?: string[] }
         Returns: string
       }
+      admin_set_driver_operational_status: {
+        Args: {
+          p_driver_id: string
+          p_status: Database["public"]["Enums"]["driver_status"]
+        }
+        Returns: Json
+      }
       admin_set_driver_payout_operational_pause: {
         Args: { p_driver_id: string; p_paused: boolean; p_reason: string }
         Returns: Json
