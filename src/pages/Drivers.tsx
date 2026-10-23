@@ -443,22 +443,28 @@ export default function Drivers() {
         return;
       }
 
-      const { error } = await supabase
-        .from('drivers')
-        .update({ driver_status: newStatus as any })
-        .eq('id', driverId);
-
-      if (error) {
-        if (error.message?.includes('active trip')) {
-          toast.error('Cannot change status: driver has an active trip');
-        } else {
-          throw error;
-        }
+      if (newStatus !== 'active' && newStatus !== 'disabled') {
+        toast.error('Unsupported driver status');
         return;
       }
 
-      const updates: Partial<Driver> = { driver_status: newStatus };
-      if (newStatus !== 'active') updates.is_online = false;
+      const { adminSetDriverOperationalStatus } = await import(
+        '@/lib/adminSetDriverOperationalStatus'
+      );
+      const result = await adminSetDriverOperationalStatus({
+        driverId,
+        status: newStatus,
+      });
+
+      if (!result.ok) {
+        toast.error('Failed to update driver status', { description: result.message });
+        return;
+      }
+
+      const updates: Partial<Driver> = {
+        driver_status: result.driver_status,
+        is_online: result.is_online,
+      };
       if (newStatus !== 'deleted') updates.deleted_at = null;
 
       setDrivers(prev =>
@@ -473,7 +479,8 @@ export default function Drivers() {
       }
     } catch (err) {
       console.error('Error updating driver operational status:', err);
-      toast.error('Failed to update driver status');
+      const message = err instanceof Error ? err.message : 'Failed to update driver status';
+      toast.error('Failed to update driver status', { description: message });
     } finally {
       setIsUpdating(null);
     }
