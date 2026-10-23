@@ -203,29 +203,50 @@ export function RiderDetailsDialog({ open, onOpenChange, rider, onRiderUpdate }:
   const handleStatusChange = async (newStatus: 'active' | 'disabled' | 'suspended' | 'deleted') => {
     setIsUpdating(true);
     try {
-      const { error } = await supabase
-        .from('customers')
-        .update({ rider_status: newStatus, updated_at: new Date().toISOString() } as any)
-        .eq('id', rider.id);
-
-      if (error) {
-        if (error.message?.includes('active trip')) {
-          toast.error('Cannot change status: rider has an active trip');
-        } else {
-          throw error;
+      if (newStatus === 'deleted') {
+        const { error } = await supabase
+          .from('customers')
+          .update({ rider_status: newStatus, updated_at: new Date().toISOString() } as any)
+          .eq('id', rider.id);
+        if (error) {
+          if (error.message?.includes('active trip')) {
+            toast.error('Cannot change status: rider has an active trip');
+          } else {
+            throw error;
+          }
+          return;
         }
+        toast.success('Rider deleted successfully');
+        if (onRiderUpdate) onRiderUpdate({ ...rider, rider_status: newStatus });
+        return;
+      }
+
+      const { adminSetRiderOperationalStatus } = await import(
+        '@/lib/adminSetRiderOperationalStatus'
+      );
+      const result = await adminSetRiderOperationalStatus({
+        customerId: rider.id,
+        status: newStatus,
+      });
+      if (!result.ok) {
+        toast.error('Failed to update rider status', { description: result.message });
         return;
       }
 
       const actionLabel = newStatus === 'active' ? 'enabled' : newStatus;
-      toast.success(`Rider ${actionLabel} successfully`);
+      toast.success(
+        result.sessions_revoked
+          ? `Rider ${actionLabel} — signed out of Customer app`
+          : `Rider ${actionLabel} successfully`,
+      );
 
       if (onRiderUpdate) {
-        onRiderUpdate({ ...rider, rider_status: newStatus });
+        onRiderUpdate({ ...rider, rider_status: result.rider_status });
       }
     } catch (err) {
       console.error('Error updating rider status:', err);
-      toast.error('Failed to update rider status');
+      const message = err instanceof Error ? err.message : 'Failed to update rider status';
+      toast.error('Failed to update rider status', { description: message });
     } finally {
       setIsUpdating(false);
     }

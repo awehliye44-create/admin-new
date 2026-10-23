@@ -275,42 +275,41 @@ export default function Riders() {
         return;
       }
 
-      // Status changes (disable / suspend / enable) — soft state changes only
-      const statusMap: Record<Exclude<ActionType, 'delete'>, string> = {
+      // Status changes (disable / suspend / enable) — RPC revokes Customer sessions on lock
+      const statusMap: Record<Exclude<ActionType, 'delete'>, 'active' | 'disabled' | 'suspended'> = {
         disable: 'disabled',
         suspend: 'suspended',
         enable: 'active',
       };
       const newStatus = statusMap[actionType];
 
-      const { error } = await supabase
-        .from('customers')
-        .update({ rider_status: newStatus, updated_at: new Date().toISOString() } as any)
-        .eq('id', actionTarget.id);
+      const { adminSetRiderOperationalStatus } = await import(
+        '@/lib/adminSetRiderOperationalStatus'
+      );
+      const result = await adminSetRiderOperationalStatus({
+        customerId: actionTarget.id,
+        status: newStatus,
+        reason: actionReason || null,
+      });
 
-      if (error) {
-        if (error.message?.includes('active trip')) {
-          toast.error('Cannot change status: rider has an active trip');
-        } else {
-          throw error;
-        }
+      if (!result.ok) {
+        toast.error('Failed to update rider status', { description: result.message });
         return;
       }
-
-      await supabase.from('audit_logs').insert({
-        event_type: `rider_${actionType}`,
-        user_id: actionTarget.user_id,
-        details: { rider_id: actionTarget.id, reason: actionReason || null, new_status: newStatus },
-      } as any);
 
       const labels: Record<Exclude<ActionType, 'delete'>, string> = {
         disable: 'disabled', suspend: 'suspended', enable: 'enabled',
       };
-      toast.success(`Rider ${labels[actionType]} successfully`);
+      toast.success(
+        result.sessions_revoked
+          ? `Rider ${labels[actionType]} — signed out of Customer app`
+          : `Rider ${labels[actionType]} successfully`,
+      );
       refreshData();
     } catch (err) {
       console.error('Error updating rider status:', err);
-      toast.error('Failed to update rider status');
+      const message = err instanceof Error ? err.message : 'Failed to update rider status';
+      toast.error('Failed to update rider status', { description: message });
     } finally {
       setIsActing(false);
       setActionDialogOpen(false);

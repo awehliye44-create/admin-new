@@ -29040,6 +29040,14 @@ export type Database = {
         }
         Returns: Json
       }
+      admin_set_rider_operational_status: {
+        Args: {
+          p_customer_id: string
+          p_status: string
+          p_reason?: string | null
+        }
+        Returns: Json
+      }
       admin_set_driver_payout_operational_pause: {
         Args: { p_driver_id: string; p_paused: boolean; p_reason: string }
         Returns: Json
