@@ -367,19 +367,19 @@ export default function Riders() {
   const actionLabels: Record<ActionType, { title: string; description: string; buttonLabel: string; buttonClass: string }> = {
     disable: {
       title: 'Disable Rider',
-      description: `Are you sure you want to disable ${actionTarget ? getFullName(actionTarget) : ''}? They will be blocked from using the app.`,
+      description: `Are you sure you want to disable ${actionTarget ? getFullName(actionTarget) : ''}? They will be locked out of the Customer app until re-enabled.`,
       buttonLabel: 'Disable',
       buttonClass: 'bg-destructive hover:bg-destructive/90',
     },
     suspend: {
       title: 'Suspend Rider',
-      description: `Are you sure you want to suspend ${actionTarget ? getFullName(actionTarget) : ''}? They can still log in but cannot book rides.`,
+      description: `Are you sure you want to suspend ${actionTarget ? getFullName(actionTarget) : ''}? They will be locked out of the Customer app until unsuspended (temporary lock).`,
       buttonLabel: 'Suspend',
       buttonClass: 'bg-amber-600 hover:bg-amber-700 text-white',
     },
     enable: {
       title: 'Enable Rider',
-      description: `Are you sure you want to re-enable ${actionTarget ? getFullName(actionTarget) : ''}? They will regain full access.`,
+      description: `Are you sure you want to re-enable ${actionTarget ? getFullName(actionTarget) : ''}? They will regain full Customer app access.`,
       buttonLabel: 'Enable',
       buttonClass: 'bg-green-600 hover:bg-green-700 text-white',
     },
