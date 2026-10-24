@@ -35,7 +35,7 @@
  * }
  */
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-import { createClient } from "npm:@supabase/supabase-js@2.57.2";
+import { createClient, type SupabaseClient } from "npm:@supabase/supabase-js@2.57.2";
 import { checkOfferSchedule } from "../_shared/offerSchedule.ts";
 import { canReadPresetTrip } from "./tripAccess.ts";
 import { z } from "npm:zod@3.25.76";
@@ -57,14 +57,14 @@ function json(body: unknown, status = 200) {
   });
 }
 
-serve(async (req) => {
+export async function handlePresetOffers(req: Request, client?: SupabaseClient) {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
   try {
     const url = Deno.env.get("SUPABASE_URL");
     const key = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
-    if (!url || !key) throw new Error("Missing Supabase configuration");
-    const supabase = createClient(url, key);
+    if (!client && (!url || !key)) throw new Error("Missing Supabase configuration");
+    const supabase = client ?? createClient(url ?? "", key ?? "");
 
     const parsed = z.object({
       service_area_id: z.string().uuid().optional(),
@@ -205,4 +205,6 @@ serve(async (req) => {
     console.error("[get-preset-offers] error", e);
     return json({ ok: false, reason: "INTERNAL_ERROR", error: String(e) }, 500);
   }
-});
+}
+
+if (import.meta.main) serve((req) => handlePresetOffers(req));
