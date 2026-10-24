@@ -456,7 +456,7 @@ export default function Drivers() {
         status: newStatus,
       });
 
-      if (!result.ok) {
+      if (result.ok === false) {
         toast.error('Failed to update driver status', { description: result.message });
         return;
       }
@@ -465,7 +465,7 @@ export default function Drivers() {
         driver_status: result.driver_status,
         is_online: result.is_online,
       };
-      if (newStatus !== 'deleted') updates.deleted_at = null;
+      updates.deleted_at = null;
 
       setDrivers(prev =>
         prev.map(d => d.id === driverId ? { ...d, ...updates } : d)

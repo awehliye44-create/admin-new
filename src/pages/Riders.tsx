@@ -292,7 +292,7 @@ export default function Riders() {
         reason: actionReason || null,
       });
 
-      if (!result.ok) {
+      if (result.ok === false) {
         toast.error('Failed to update rider status', { description: result.message });
         return;
       }
