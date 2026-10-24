@@ -460,7 +460,7 @@ export function DriverDetailsDialog({
         status: newStatus,
       });
 
-      if (!result.ok) {
+      if (result.ok === false) {
         toast.error('Failed to update driver status', { description: result.message });
         return;
       }
@@ -469,7 +469,7 @@ export function DriverDetailsDialog({
         driver_status: result.driver_status,
         is_online: result.is_online,
       };
-      if (newStatus !== 'deleted') updates.deleted_at = null;
+      updates.deleted_at = null;
 
       onDriverUpdate({ ...driver, ...updates } as Driver);
 

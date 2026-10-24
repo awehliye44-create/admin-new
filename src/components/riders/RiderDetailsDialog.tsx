@@ -228,7 +228,7 @@ export function RiderDetailsDialog({ open, onOpenChange, rider, onRiderUpdate }:
         customerId: rider.id,
         status: newStatus,
       });
-      if (!result.ok) {
+      if (result.ok === false) {
         toast.error('Failed to update rider status', { description: result.message });
         return;
       }

@@ -3,7 +3,8 @@
   "specifiers": {
     "npm:@supabase/supabase-js@2": "2.57.2",
     "npm:@supabase/supabase-js@2.57.2": "2.57.2",
-    "npm:zod@3.23.8": "3.23.8"
+    "npm:zod@3.23.8": "3.23.8",
+    "npm:zod@3.25.76": "3.25.76"
   },
   "npm": {
     "@supabase/auth-js@2.71.1": {
@@ -99,6 +100,9 @@
     },
     "zod@3.23.8": {
       "integrity": "sha512-XBx9AXhXktjUqnepgTiE5flcKIYWi/rme0Eaj+5Y0lftuGBq+jyRu/md4WnuxqgP1ubdpNCsYEYPxrzVHD8d6g=="
+    },
+    "zod@3.25.76": {
+      "integrity": "sha512-gzUt/qt81nXsFGKIFcC3YnfEAx5NkunCfnDlvuBSSFS02bcXu4Lmea0AFIUwbLWxWPx3d9p8S5QoaujKcNQxcQ=="
     }
   },
   "redirects": {
