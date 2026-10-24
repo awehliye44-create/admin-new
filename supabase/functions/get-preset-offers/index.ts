@@ -37,6 +37,8 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "npm:@supabase/supabase-js@2.57.2";
 import { checkOfferSchedule } from "../_shared/offerSchedule.ts";
+import { canReadPresetTrip } from "./tripAccess.ts";
+import { z } from "npm:zod@3.25.76";
 import {
   presetNegotiationSourceIneligibility,
   tripConsumedNegotiationChance,
@@ -59,16 +61,20 @@ serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
   try {
-    const supabase = createClient(
-      Deno.env.get("SUPABASE_URL")!,
-      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
-    );
+    const url = Deno.env.get("SUPABASE_URL");
+    const key = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+    if (!url || !key) throw new Error("Missing Supabase configuration");
+    const supabase = createClient(url, key);
 
-    const body = await req.json().catch(() => ({}));
-    let { service_area_id, trip_id } = body as {
-      service_area_id?: string;
-      trip_id?: string;
-    };
+    const parsed = z.object({
+      service_area_id: z.string().uuid().optional(),
+      trip_id: z.string().uuid().optional(),
+    }).safeParse(await req.json().catch(() => null));
+    if (!parsed.success) {
+      return json({ ok: false, reason: "VALIDATION_ERROR", error_code: "VALIDATION_ERROR" }, 400);
+    }
+    let { service_area_id } = parsed.data;
+    const { trip_id } = parsed.data;
 
     let tripRow: {
       service_area_id?: string | null;
@@ -82,41 +88,26 @@ serve(async (req) => {
     } | null = null;
 
     if (trip_id) {
-      // Trip details are only read for the trip's own rider or admin staff.
-      let allowed = false;
       const authHeader = req.headers.get("Authorization") ?? "";
-      if (authHeader.startsWith("Bearer ")) {
-        const { data: u } = await supabase.auth.getUser(authHeader.slice(7));
-        const uid = u?.user?.id;
-        if (uid) {
-          const { data: t } = await supabase
-            .from("trips").select("customer_id").eq("id", trip_id).maybeSingle();
-          const { data: own } = t?.customer_id
-            ? await supabase.from("customers").select("id")
-                .eq("id", t.customer_id).eq("user_id", uid).maybeSingle()
-            : { data: null };
-          if (own) {
-            allowed = true;
-          } else {
-            const { data: roles } = await supabase
-              .from("user_roles").select("role").eq("user_id", uid);
-            allowed = (roles ?? []).some((r: { role: string }) => r.role === "admin" || r.role === "super_admin");
-          }
-        }
+      if (!authHeader.startsWith("Bearer ")) {
+        return json({ ok: false, reason: "UNAUTHORIZED", error_code: "UNAUTHORIZED" }, 401);
       }
-      if (!allowed) trip_id = undefined;
-    }
-
-    if (trip_id) {
-      const { data: trip } = await supabase
+      const { data: auth, error: authError } = await supabase.auth.getUser(authHeader.slice(7));
+      if (authError || !auth.user) {
+        return json({ ok: false, reason: "UNAUTHORIZED", error_code: "UNAUTHORIZED" }, 401);
+      }
+      const { data: trip, error: tripError } = await supabase
         .from("trips")
-        .select("service_area_id, is_scheduled, dispatch_mode, trip_type, negotiation_disabled, negotiation_status, corporate_account_id, booking_source")
+        .select("customer_id, service_area_id, is_scheduled, dispatch_mode, trip_type, negotiation_disabled, negotiation_status, corporate_account_id, booking_source")
         .eq("id", trip_id)
         .maybeSingle();
-      tripRow = trip;
-      if (!service_area_id) {
-        service_area_id = trip?.service_area_id ?? undefined;
+      if (tripError) throw tripError;
+      if (!trip || !await canReadPresetTrip(supabase, auth.user.id, trip_id, trip.customer_id)) {
+        return json({ ok: false, reason: "FORBIDDEN", error_code: "FORBIDDEN" }, 403);
       }
+      tripRow = trip;
+      // A trip request always uses its stored area and never downgrades to general offers.
+      service_area_id = trip.service_area_id ?? undefined;
     }
 
     if (!service_area_id) {
