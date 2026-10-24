@@ -7,3 +7,8 @@
 - [x] Make browser telemetry non-blocking during Supabase/Cloudflare outages
 - [x] Sanitize telemetry storage failures without exposing upstream HTML
 - [x] Verify focused tests, typecheck, and preview build
+
+## Driver preset offer access
+
+- [ ] Verify and restore trip-specific access for the offered driver without exposing unrelated trips
+- [ ] Test authorization and negotiation gates; resolve the selected monitoring finding
