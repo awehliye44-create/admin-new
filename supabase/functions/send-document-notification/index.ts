@@ -52,7 +52,7 @@ const handler = async (req: Request): Promise<Response> => {
       throw new Error("Driver not found");
     }
 
-    console.log(`Sending email to: ${driver.email}`);
+    console.log(`Sending document notification email for driver: ${driver_id}`);
 
     const isApproved = status === "approved";
     const subject = isApproved 
@@ -160,7 +160,7 @@ const handler = async (req: Request): Promise<Response> => {
       throw new Error(emailData.message || "Failed to send email");
     }
 
-    console.log("Email sent successfully:", emailData);
+    console.log("Email sent successfully, id:", emailData?.id ?? null);
 
     return new Response(
       JSON.stringify({ success: true, data: emailData }),
