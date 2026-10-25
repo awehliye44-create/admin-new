@@ -12,6 +12,10 @@ import { createClient } from "npm:@supabase/supabase-js@2.57.2";
 import { loadPaymentSession } from "../_shared/paymentSessionSSOT.ts";
 import { createRevolutPreauthResponse } from "../_shared/revolutPreauth.ts";
 import {
+  buildChannelPreauthFareSnapshotFields,
+  resolveChannelPreauthAmounts,
+} from "../_shared/channelPreauthAmountsSSOT.ts";
+import {
   findCorporateScheduleOverlap,
   type CorporateOverlapTrip,
 } from "../_shared/corporateScheduleOverlapSSOT.ts";
@@ -360,12 +364,14 @@ Deno.serve(async (req) => {
       ...(specialInstructions ? { special_instructions: specialInstructions } : {}),
     };
 
+    const preauth = await resolveChannelPreauthAmounts(admin, estimatedFarePence, serviceAreaId);
+
     return await createRevolutPreauthResponse({
       supabase: admin,
       environment: (Deno.env.get("REVOLUT_ENVIRONMENT") as "sandbox" | "production") || "sandbox",
-      authorisedAmountPence: estimatedFarePence,
-      estimatedTotalPence: estimatedFarePence,
-      bufferPence: 0,
+      authorisedAmountPence: preauth.authorisedAmountPence,
+      estimatedTotalPence: preauth.farePence,
+      bufferPence: preauth.bufferPence,
       paymentCurrency: currency,
       tripId: null,
       clientActionId,
@@ -383,7 +389,7 @@ Deno.serve(async (req) => {
       userId: user.id,
       bookingSnapshot,
       fareSnapshot: {
-        estimated_fare_pence: estimatedFarePence,
+        ...buildChannelPreauthFareSnapshotFields(preauth),
         currency,
         source: "calculate-fare",
       },
