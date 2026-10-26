@@ -1125,7 +1125,8 @@ Deno.serve(async (req) => {
     //   - idle pool: delivery reachable = fresh realtime socket OR push_tokens row
     //     (no_socket_no_push when online but neither path works)
     // Realtime freshness uses realtimeFresh() with a 90s TTL on socket_connected +
-    // last_socket_pong_at / last_realtime_seen_at.
+    // last_realtime_seen_at only (MK-261026-001: heartbeat pong is not offer-channel proof).
+    // Push remains a valid delivery fallback via hasRegisteredPushToken.
     // Temporary health exclusions (stale heartbeat, degraded presence, etc.) are re-evaluated
     // on every broadcast round until the trip is assigned/cancelled/expired.
     //

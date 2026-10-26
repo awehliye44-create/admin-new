@@ -23,6 +23,18 @@ export function idleRepairCandidate(args: {
   return statusBad || onlineFlagBad;
 }
 
+/**
+ * Offer-channel Realtime health (MK-261026-001).
+ *
+ * socket_connected + heartbeat-driven last_socket_pong_at alone are NOT proof
+ * the ride_offers channel delivers events (zombie SUBSCRIBED). Require a fresh
+ * last_realtime_seen_at — refreshed only by:
+ *   - ack_offer_delivery(..., 'realtime') on a confirmed Realtime offer event
+ *   - touch_driver_offer_realtime_seen after genuine channel subscribe/activity
+ * Push/poll/http delivery ACKs stamp ride_offers.delivered_at / ack_at only and
+ * must NOT make realtimeFresh() true when the Realtime lease is stale.
+ * Push fallback remains via driverOfferReachable / has_push.
+ */
 export function realtimeFresh(
   presence: {
     socket_connected?: boolean | null;
@@ -33,13 +45,10 @@ export function realtimeFresh(
   cutoffIso: string,
 ): boolean {
   if (presence.socket_connected !== true) return false;
-  return timestampFresh(
-    presence.last_socket_pong_at ?? presence.last_realtime_seen_at ?? presence.updated_at ?? null,
-    cutoffIso,
-  );
+  return timestampFresh(presence.last_realtime_seen_at ?? null, cutoffIso);
 }
 
-/** Max age for realtime socket anchor when gating offer delivery (seconds). */
+/** Max age for offer-channel last_realtime_seen_at when gating delivery (seconds). */
 export const REALTIME_FRESH_MAX_AGE_SECONDS = 90;
 
 export type DriverOfferReachability = {
