@@ -347,6 +347,18 @@ export function useSendMessage() {
         .single();
 
       if (error) throw error;
+
+      // Push notify Customer/Driver apps for in_app Live Chat replies.
+      if (channel === "in_app") {
+        try {
+          await supabase.functions.invoke("app-support-notify", {
+            body: { conversation_id: conversationId, kind: "reply" },
+          });
+        } catch {
+          /* reply already persisted — notify is best-effort */
+        }
+      }
+
       return data;
     },
     onSuccess: (_, variables) => {
@@ -392,6 +404,32 @@ export function useResolveWhatsAppConversation() {
       queryClient.invalidateQueries({ queryKey: ["support-conversations"] });
       queryClient.invalidateQueries({ queryKey: ["support-messages"] });
       toast.success("Support conversation closed and customer notified");
+    },
+    onError: (error: Error) => {
+      toast.error(error.message || "Failed to close conversation");
+    },
+  });
+}
+
+/** Close an in_app (Customer/Driver app) Live Chat and push-notify the user. */
+export function useResolveInAppConversation() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (conversationId: string) => {
+      const { data, error } = await supabase.functions.invoke("app-support-notify", {
+        body: { conversation_id: conversationId, kind: "closed" },
+      });
+      if (error) throw error;
+      if (data && typeof data === "object" && "error" in data && (data as { error?: string }).error) {
+        throw new Error(String((data as { error: string }).error));
+      }
+      return data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["support-conversations"] });
+      queryClient.invalidateQueries({ queryKey: ["support-messages"] });
+      toast.success("Support chat closed and user notified");
     },
     onError: (error: Error) => {
       toast.error(error.message || "Failed to close conversation");

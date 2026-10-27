@@ -334,6 +334,14 @@ verify_jwt = false
 [functions.website-support-chat]
 verify_jwt = false
 
+# Authenticated Customer/Driver Live Chat into Admin Live Chat (JWT validated inside).
+[functions.app-support-chat]
+verify_jwt = false
+
+# Admin/service push when in_app Live Chat gets a reply or Close & notify.
+[functions.app-support-notify]
+verify_jwt = false
+
 # Public password recovery (driver / customer / corporate) — Resend, not Supabase mailer.
 [functions.request-password-recovery]
 verify_jwt = false

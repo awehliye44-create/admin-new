@@ -12,6 +12,7 @@ import {
   useMarkMessagesRead,
   useCannedResponses,
   useResolveWhatsAppConversation,
+  useResolveInAppConversation,
 } from "@/hooks/useSupportChat";
 import { useAuth } from "@/hooks/useAuth";
 import { ADMIN_SUPPORT_INBOX_PAGE_SIZE } from "@/lib/adminQueryBounds";
@@ -36,6 +37,7 @@ export function AdminLiveChatWidget() {
   const updateConv = useUpdateConversation();
   const markRead = useMarkMessagesRead();
   const resolveWhatsApp = useResolveWhatsAppConversation();
+  const resolveInApp = useResolveInAppConversation();
 
   const selectedConv = conversations.find((c) => c.id === selectedConvId) || null;
   const totalUnread = conversations.reduce((sum, c) => sum + (c.unread_count || 0), 0);
@@ -90,6 +92,11 @@ export function AdminLiveChatWidget() {
     resolveWhatsApp.mutate(selectedConvId);
   }, [selectedConvId, resolveWhatsApp]);
 
+  const handleInAppResolve = useCallback(() => {
+    if (!selectedConvId) return;
+    resolveInApp.mutate(selectedConvId);
+  }, [selectedConvId, resolveInApp]);
+
   // Only visible when an admin is signed in.
   if (!user || !isAdmin) return null;
 
@@ -138,12 +145,13 @@ export function AdminLiveChatWidget() {
                 messages={messages}
                 isLoading={msgsLoading}
                 isSending={sendMessage.isPending}
-                isResolving={resolveWhatsApp.isPending}
+                isResolving={resolveWhatsApp.isPending || resolveInApp.isPending}
                 cannedResponses={cannedResponses}
                 onSend={handleSend}
                 onStatusChange={handleStatusChange}
                 onPriorityChange={handlePriorityChange}
                 onWhatsAppResolve={selectedConv.channel === "whatsapp" ? handleWhatsAppResolve : undefined}
+                onInAppResolve={selectedConv.channel === "in_app" ? handleInAppResolve : undefined}
               />
             ) : (
               <div className="min-h-0 flex-1 overflow-hidden">

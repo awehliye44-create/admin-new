@@ -37,6 +37,8 @@ interface Props {
   onStatusChange: (status: string) => void;
   onPriorityChange: (priority: string) => void;
   onWhatsAppResolve?: () => void;
+  /** Close & notify for in_app (Customer/Driver) Live Chat. */
+  onInAppResolve?: () => void;
 }
 
 const senderIcons: Record<string, React.ReactNode> = {
@@ -64,6 +66,7 @@ export const ChatMessageArea = memo(function ChatMessageArea({
   onStatusChange,
   onPriorityChange,
   onWhatsAppResolve,
+  onInAppResolve,
 }: Props) {
   const [draft, setDraft] = useState("");
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -147,6 +150,12 @@ export const ChatMessageArea = memo(function ChatMessageArea({
                   Website
                 </Badge>
               )}
+              {conversation.channel === "in_app" && (
+                <Badge variant="outline" className="h-5 px-1.5 text-[10px] gap-1">
+                  <MessageCircle className="h-2.5 w-2.5" />
+                  {conversation.user_type === "driver" ? "Driver app" : "Customer app"}
+                </Badge>
+              )}
             </div>
             <p className="text-xs text-muted-foreground">{conversation.subject}</p>
           </div>
@@ -167,6 +176,21 @@ export const ChatMessageArea = memo(function ChatMessageArea({
                 Close & notify
               </Button>
             )}
+          {conversation.channel === "in_app" &&
+            conversation.status !== "resolved" &&
+            conversation.status !== "closed" &&
+            onInAppResolve && (
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-8 text-xs"
+                onClick={onInAppResolve}
+                disabled={isResolving}
+              >
+                {isResolving ? <Loader2 className="h-3 w-3 mr-1 animate-spin" /> : <MessageCircle className="h-3 w-3 mr-1" />}
+                Close & notify
+              </Button>
+            )}
           <Select value={conversation.priority} onValueChange={onPriorityChange}>
             <SelectTrigger className="w-28 h-8 text-xs">
               <SelectValue />
@@ -178,7 +202,7 @@ export const ChatMessageArea = memo(function ChatMessageArea({
               <SelectItem value="urgent">Urgent</SelectItem>
             </SelectContent>
           </Select>
-          {conversation.channel !== "whatsapp" && (
+          {conversation.channel !== "whatsapp" && conversation.channel !== "in_app" && (
             <Select value={conversation.status} onValueChange={onStatusChange}>
               <SelectTrigger className="w-28 h-8 text-xs">
                 <SelectValue />
@@ -191,8 +215,8 @@ export const ChatMessageArea = memo(function ChatMessageArea({
               </SelectContent>
             </Select>
           )}
-          {conversation.channel === "whatsapp" && (
-            <Badge variant={conversation.status === "resolved" ? "secondary" : "default"} className="h-8 px-3 text-xs">
+          {(conversation.channel === "whatsapp" || conversation.channel === "in_app") && (
+            <Badge variant={conversation.status === "resolved" || conversation.status === "closed" ? "secondary" : "default"} className="h-8 px-3 text-xs">
               {conversation.status}
             </Badge>
           )}

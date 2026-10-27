@@ -99,6 +99,12 @@ export const ConversationList = memo(function ConversationList({ conversations, 
                       Website
                     </Badge>
                   )}
+                  {conv.channel === "in_app" && (
+                    <Badge variant="outline" className="h-5 px-1.5 text-[10px] gap-1">
+                      <MessageCircle className="h-2.5 w-2.5" />
+                      {conv.user_type === "driver" ? "Driver" : "Customer"}
+                    </Badge>
+                  )}
                   {conv.priority !== "normal" && (
                     <span className={cn("text-xs font-medium capitalize", priorityColors[conv.priority])}>
                       {conv.priority}

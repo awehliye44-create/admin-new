@@ -99,7 +99,7 @@ export default function Tickets() {
     user_name: '',
   });
 
-  // Fetch conversations — exclude Live Chat channels (whatsapp / website).
+  // Fetch conversations — exclude Live Chat channels (whatsapp / website / in_app).
   const { data: ticketPage, isLoading, refetch } = useQuery({
     queryKey: ['support-tickets', statusFilter, priorityFilter, listPage],
     queryFn: async () => {
@@ -111,7 +111,7 @@ export default function Tickets() {
           'id, subject, status, priority, channel, user_type, customer_id, driver_id, assigned_admin_id, category, trip_id, created_at, updated_at, last_message_at, resolved_at',
           { count: 'exact' },
         )
-        .not('channel', 'in', '(whatsapp,website)');
+        .not('channel', 'in', '(whatsapp,website,in_app)');
       if (statusFilter !== 'all') query = query.eq('status', statusFilter);
       if (priorityFilter !== 'all') query = query.eq('priority', priorityFilter);
       const { data, error, count } = await query
@@ -153,7 +153,7 @@ export default function Tickets() {
         let q = supabase
           .from('support_conversations')
           .select('id', { count: 'exact', head: true })
-          .not('channel', 'in', '(whatsapp,website)');
+          .not('channel', 'in', '(whatsapp,website,in_app)');
         if (status) q = q.eq('status', status);
         return q;
       };

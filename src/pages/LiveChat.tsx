@@ -16,6 +16,7 @@ import {
   useMarkMessagesRead,
   useCannedResponses,
   useResolveWhatsAppConversation,
+  useResolveInAppConversation,
 } from "@/hooks/useSupportChat";
 import { Plus, Search, MessageSquare, Settings2, RefreshCw } from "lucide-react";
 
@@ -33,6 +34,7 @@ export default function LiveChat() {
   const updateConv = useUpdateConversation();
   const markRead = useMarkMessagesRead();
   const resolveWhatsApp = useResolveWhatsAppConversation();
+  const resolveInApp = useResolveInAppConversation();
 
   const selectedConv = conversations.find((c) => c.id === selectedConvId) || null;
 
@@ -88,6 +90,11 @@ export default function LiveChat() {
     if (!selectedConvId) return;
     resolveWhatsApp.mutate(selectedConvId);
   }, [selectedConvId, resolveWhatsApp]);
+
+  const handleInAppResolve = useCallback(() => {
+    if (!selectedConvId) return;
+    resolveInApp.mutate(selectedConvId);
+  }, [selectedConvId, resolveInApp]);
 
   const handleStatusChange = useCallback(
     (status: string) => {
@@ -226,12 +233,13 @@ export default function LiveChat() {
                 messages={messages}
                 isLoading={msgsLoading}
                 isSending={sendMessage.isPending}
-                isResolving={resolveWhatsApp.isPending}
+                isResolving={resolveWhatsApp.isPending || resolveInApp.isPending}
                 cannedResponses={cannedResponses}
                 onSend={handleSend}
                 onStatusChange={handleStatusChange}
                 onPriorityChange={handlePriorityChange}
                 onWhatsAppResolve={selectedConv?.channel === "whatsapp" ? handleWhatsAppResolve : undefined}
+                onInAppResolve={selectedConv?.channel === "in_app" ? handleInAppResolve : undefined}
               />
             </div>
           </div>
