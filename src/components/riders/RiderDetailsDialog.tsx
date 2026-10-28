@@ -237,7 +237,7 @@ export function RiderDetailsDialog({ open, onOpenChange, rider, onRiderUpdate }:
       toast.success(
         result.sessions_revoked
           ? `Rider ${actionLabel} — signed out of Customer app`
-          : `Rider ${actionLabel} successfully`,
+          : `Rider ${actionLabel} — Customer app shows the restriction banner`,
       );
 
       if (onRiderUpdate) {

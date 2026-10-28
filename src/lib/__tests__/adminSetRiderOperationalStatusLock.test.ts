@@ -9,16 +9,17 @@ function read(rel: string): string {
 }
 
 describe('admin_set_rider_operational_status lock', () => {
-  it('migration defines admin RPC with session revoke on lock', () => {
+  it('latest admin RPC keeps Customer sessions so Home banner can hydrate', () => {
     const sql = read(
-      'supabase/migrations/20261223130000_admin_set_rider_operational_status_lock.sql',
+      'supabase/migrations/20261228193000_admin_rider_status_keep_session_for_banner.sql',
     );
     expect(sql).toMatch(
       /CREATE OR REPLACE FUNCTION public\.admin_set_rider_operational_status\(/,
     );
     expect(sql).toMatch(/has_role\(v_uid, 'admin'::public\.app_role\)/);
-    expect(sql).toMatch(/DELETE FROM auth\.sessions/);
-    expect(sql).toMatch(/DELETE FROM auth\.refresh_tokens/);
+    expect(sql).toMatch(/sessions_revoked', false/);
+    expect(sql).not.toMatch(/DELETE FROM auth\.sessions/);
+    expect(sql).not.toMatch(/DELETE FROM auth\.refresh_tokens/);
     expect(sql).toMatch(
       /GRANT EXECUTE ON FUNCTION public\.admin_set_rider_operational_status\(uuid, text, text\) TO authenticated/,
     );

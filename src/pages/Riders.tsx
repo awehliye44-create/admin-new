@@ -303,7 +303,7 @@ export default function Riders() {
       toast.success(
         result.sessions_revoked
           ? `Rider ${labels[actionType]} — signed out of Customer app`
-          : `Rider ${labels[actionType]} successfully`,
+          : `Rider ${labels[actionType]} — Customer app shows the restriction banner`,
       );
       refreshData();
     } catch (err) {
