@@ -301,8 +301,8 @@ export default function Riders() {
         disable: 'disabled', suspend: 'suspended', enable: 'enabled',
       };
       toast.success(
-        result.sessions_revoked
-          ? `Rider ${labels[actionType]} — signed out of Customer app`
+        actionType === 'enable'
+          ? `Rider ${labels[actionType]} — Customer app clears the restriction banner`
           : `Rider ${labels[actionType]} — Customer app shows the restriction banner`,
       );
       refreshData();

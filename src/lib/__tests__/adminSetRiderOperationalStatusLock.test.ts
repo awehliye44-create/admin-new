@@ -9,7 +9,7 @@ function read(rel: string): string {
 }
 
 describe('admin_set_rider_operational_status lock', () => {
-  it('latest admin RPC keeps Customer sessions so Home banner can hydrate', () => {
+  it('latest admin RPC never revokes Customer sessions (banner workflow)', () => {
     const sql = read(
       'supabase/migrations/20261228193000_admin_rider_status_keep_session_for_banner.sql',
     );
@@ -25,7 +25,7 @@ describe('admin_set_rider_operational_status lock', () => {
     );
   });
 
-  it('Admin Riders UI uses RPC helper for suspend/disable/enable', () => {
+  it('Admin Riders UI uses RPC helper and never promises a Customer sign-out', () => {
     const client = read('src/lib/adminSetRiderOperationalStatus.ts');
     expect(client).toMatch(/admin_set_rider_operational_status/);
 
@@ -34,8 +34,12 @@ describe('admin_set_rider_operational_status lock', () => {
     expect(page).not.toMatch(
       /\.from\(['"]customers['"]\)[\s\S]{0,80}\.update\(\{\s*rider_status:/,
     );
+    expect(page).not.toMatch(/signed out of Customer app/);
+    expect(page).toMatch(/restriction banner/);
 
     const dialog = read('src/components/riders/RiderDetailsDialog.tsx');
     expect(dialog).toMatch(/adminSetRiderOperationalStatus/);
+    expect(dialog).not.toMatch(/signed out of Customer app/);
+    expect(dialog).toMatch(/restriction banner/);
   });
 });
