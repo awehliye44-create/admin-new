@@ -30648,6 +30648,14 @@ export type Database = {
         }
         Returns: Json
       }
+      driver_realtime_delivery_fresh: {
+        Args: {
+          p_last_realtime_seen_at: string
+          p_max_age_seconds?: number
+          p_socket_connected: boolean
+        }
+        Returns: boolean
+      }
       driver_request_go_offline: { Args: { p_reason?: string }; Returns: Json }
       driver_request_go_online: {
         Args: {
@@ -32931,6 +32939,7 @@ export type Database = {
         Args: { p_driver_id: string; p_trip_id: string }
         Returns: Json
       }
+      touch_driver_offer_realtime_seen: { Args: never; Returns: Json }
       towards_destination_business_date: {
         Args: { p_driver_id: string }
         Returns: string
