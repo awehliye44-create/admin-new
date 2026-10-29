@@ -200,8 +200,9 @@ export function StaffProfileProvider({ children }: { children: ReactNode }) {
 
   const canAccessPage = useCallback(
     (pageSlug: string) => {
-      // While loading, allow access to prevent flashing
-      if (isStaffLoading) return true;
+      // While loading, allow access to prevent flashing — except the
+      // owner-only Roles & Permissions page, which must never render early.
+      if (isStaffLoading) return pageSlug !== 'roles';
       // Owner has unrestricted access to every admin page
       if (staffProfile?.is_owner === true) return true;
       // Roles & Permissions is reserved for the single ONECAB Owner
