@@ -32,6 +32,7 @@ export function useRoleCapabilities(): RoleCapabilities {
 
   const userId = user?.id;
   const role = (staffProfile?.role ?? null) as StaffRoleKey | null;
+  const roleId = staffProfile?.role_id ?? null;
 
   const load = useCallback(async () => {
     if (!userId) {
@@ -42,11 +43,11 @@ export function useRoleCapabilities(): RoleCapabilities {
       const [superRes, countRes, actionsRes] = await Promise.all([
         supabase.rpc('is_super_admin', { _user_id: userId }),
         supabase.rpc('active_super_admin_count'),
-        role
+        roleId
           ? supabase
               .from('role_action_permissions')
               .select('action_key, is_allowed')
-              .eq('role', role)
+              .eq('role_id', roleId)
               .eq('is_allowed', true)
           : Promise.resolve({ data: [] as { action_key: string }[] } as never),
       ]);
@@ -63,7 +64,7 @@ export function useRoleCapabilities(): RoleCapabilities {
     } finally {
       setIsLoading(false);
     }
-  }, [userId, role]);
+  }, [userId, roleId]);
 
   useEffect(() => {
     if (!isStaffLoading) void load();

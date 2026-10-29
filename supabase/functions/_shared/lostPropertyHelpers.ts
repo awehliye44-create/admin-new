@@ -86,13 +86,13 @@ export async function staffHasPageAccessForUser(
 
   const { data: staffRow, error: staffErr } = await sb
     .from("staff_profiles")
-    .select("role, is_active")
+    .select("role, role_id, is_active")
     .eq("user_id", verifiedUserId)
     .eq("is_active", true)
     .maybeSingle();
   if (staffErr) return false;
 
-  const staff = staffRow as { role: string; is_active: boolean } | null;
+  const staff = staffRow as { role: string; role_id: string; is_active: boolean } | null;
   if (!staff?.role) {
     return evaluateStaffHasPageAccess({ pageSlug, staff: null, pagePermission: null });
   }
@@ -100,7 +100,7 @@ export async function staffHasPageAccessForUser(
   const { data: permRow, error: permErr } = await sb
     .from("role_page_permissions")
     .select("can_access")
-    .eq("role", staff.role)
+    .eq("role_id", staff.role_id)
     .eq("page_slug", pageSlug)
     .maybeSingle();
   if (permErr) return false;

@@ -20649,7 +20649,7 @@ export type Database = {
           created_at: string
           id: string
           is_allowed: boolean
-          role: Database["public"]["Enums"]["staff_role"]
+          role_id: string
           updated_at: string
         }
         Insert: {
@@ -20657,7 +20657,7 @@ export type Database = {
           created_at?: string
           id?: string
           is_allowed?: boolean
-          role: Database["public"]["Enums"]["staff_role"]
+          role_id: string
           updated_at?: string
         }
         Update: {
@@ -20665,10 +20665,18 @@ export type Database = {
           created_at?: string
           id?: string
           is_allowed?: boolean
-          role?: Database["public"]["Enums"]["staff_role"]
+          role_id?: string
           updated_at?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "role_action_permissions_role_id_fkey"
+            columns: ["role_id"]
+            isOneToOne: false
+            referencedRelation: "staff_roles_catalog"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       role_page_permissions: {
         Row: {
@@ -20676,7 +20684,7 @@ export type Database = {
           created_at: string
           id: string
           page_slug: string
-          role: Database["public"]["Enums"]["staff_role"]
+          role_id: string
           updated_at: string
         }
         Insert: {
@@ -20684,7 +20692,7 @@ export type Database = {
           created_at?: string
           id?: string
           page_slug: string
-          role: Database["public"]["Enums"]["staff_role"]
+          role_id: string
           updated_at?: string
         }
         Update: {
@@ -20692,10 +20700,18 @@ export type Database = {
           created_at?: string
           id?: string
           page_slug?: string
-          role?: Database["public"]["Enums"]["staff_role"]
+          role_id?: string
           updated_at?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "role_page_permissions_role_id_fkey"
+            columns: ["role_id"]
+            isOneToOne: false
+            referencedRelation: "staff_roles_catalog"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       route_quote_artifacts: {
         Row: {
@@ -22230,6 +22246,7 @@ export type Database = {
           is_active: boolean
           is_owner: boolean
           role: Database["public"]["Enums"]["staff_role"]
+          role_id: string
           staff_role_id: string
           updated_at: string
           user_id: string
@@ -22244,6 +22261,7 @@ export type Database = {
           is_active?: boolean
           is_owner?: boolean
           role?: Database["public"]["Enums"]["staff_role"]
+          role_id: string
           staff_role_id: string
           updated_at?: string
           user_id: string
@@ -22258,6 +22276,7 @@ export type Database = {
           is_active?: boolean
           is_owner?: boolean
           role?: Database["public"]["Enums"]["staff_role"]
+          role_id?: string
           staff_role_id?: string
           updated_at?: string
           user_id?: string
@@ -22271,7 +22290,56 @@ export type Database = {
             referencedRelation: "staff_work_patterns"
             referencedColumns: ["id"]
           },
+          {
+            foreignKeyName: "staff_profiles_role_id_fkey"
+            columns: ["role_id"]
+            isOneToOne: false
+            referencedRelation: "staff_roles_catalog"
+            referencedColumns: ["id"]
+          },
         ]
+      }
+      staff_roles_catalog: {
+        Row: {
+          base_role: Database["public"]["Enums"]["staff_role"]
+          created_at: string
+          created_by: string | null
+          description: string | null
+          id: string
+          is_active: boolean
+          is_owner_role: boolean
+          is_system: boolean
+          name: string
+          role_key: string
+          updated_at: string
+        }
+        Insert: {
+          base_role: Database["public"]["Enums"]["staff_role"]
+          created_at?: string
+          created_by?: string | null
+          description?: string | null
+          id?: string
+          is_active?: boolean
+          is_owner_role?: boolean
+          is_system?: boolean
+          name: string
+          role_key: string
+          updated_at?: string
+        }
+        Update: {
+          base_role?: Database["public"]["Enums"]["staff_role"]
+          created_at?: string
+          created_by?: string | null
+          description?: string | null
+          id?: string
+          is_active?: boolean
+          is_owner_role?: boolean
+          is_system?: boolean
+          name?: string
+          role_key?: string
+          updated_at?: string
+        }
+        Relationships: []
       }
       staff_service_areas: {
         Row: {
@@ -29361,7 +29429,7 @@ export type Database = {
       admin_assign_staff_role: {
         Args: {
           _correlation_id?: string
-          _new_role: Database["public"]["Enums"]["staff_role"]
+          _new_role_id: string
           _staff_id: string
         }
         Returns: undefined
@@ -29374,7 +29442,7 @@ export type Database = {
         Args: {
           _correlation_id?: string
           _full_name: string
-          _role: Database["public"]["Enums"]["staff_role"]
+          _role_id: string
           _service_area_ids?: string[]
           _user_id: string
           _username: string
@@ -29401,6 +29469,10 @@ export type Database = {
           p_reviewed_document_ids?: string[]
         }
         Returns: Json
+      }
+      admin_delete_staff_role: {
+        Args: { _correlation_id?: string; _role_id: string }
+        Returns: undefined
       }
       admin_driver_financial_repair_lock: {
         Args: { p_acquire?: boolean; p_driver_id: string }
@@ -29643,6 +29715,18 @@ export type Database = {
         Args: { p_offer: Json; p_service_area_ids?: string[] }
         Returns: string
       }
+      admin_save_staff_role: {
+        Args: {
+          _base_role: Database["public"]["Enums"]["staff_role"]
+          _copy_from_role_id?: string
+          _correlation_id?: string
+          _description: string
+          _is_active?: boolean
+          _name: string
+          _role_id: string
+        }
+        Returns: string
+      }
       admin_set_driver_operational_status: {
         Args: {
           p_driver_id: string
@@ -29663,7 +29747,7 @@ export type Database = {
           _action_key: string
           _correlation_id?: string
           _is_allowed: boolean
-          _role: Database["public"]["Enums"]["staff_role"]
+          _role_id: string
         }
         Returns: undefined
       }
@@ -29672,7 +29756,7 @@ export type Database = {
           _can_access: boolean
           _correlation_id?: string
           _page_slug: string
-          _role: Database["public"]["Enums"]["staff_role"]
+          _role_id: string
         }
         Returns: undefined
       }
@@ -32796,6 +32880,7 @@ export type Database = {
         Args: { p_driver_id: string; p_trip_id: string }
         Returns: number
       }
+      staff_can_manage_roles: { Args: { _user_id: string }; Returns: boolean }
       staff_has_action: {
         Args: { _action_key: string; _user_id: string }
         Returns: boolean
@@ -32805,6 +32890,7 @@ export type Database = {
         Returns: boolean
       }
       staff_has_page_access: { Args: { p_page_slug: string }; Returns: boolean }
+      staff_role_id_of: { Args: { _user_id: string }; Returns: string }
       staff_role_of: {
         Args: { _user_id: string }
         Returns: Database["public"]["Enums"]["staff_role"]

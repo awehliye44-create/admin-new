@@ -367,19 +367,26 @@ export async function requirePageAccess(
 
   const { data: staffRow } = await gate.supabase
     .from('staff_profiles')
-    .select('role, is_active')
+    .select('role_id, is_active')
     .eq('user_id', gate.userId)
     .eq('is_active', true)
     .maybeSingle();
 
-  const role = staffRow?.role
-    ? String(staffRow.role)
-    : 'super_admin'; // backward compat: legacy admin JWT without staff profile
+  // Legacy admin JWT without a staff profile resolves to the protected owner role.
+  let roleId: string | null = staffRow?.role_id ? String(staffRow.role_id) : null;
+  if (!roleId) {
+    const { data: ownerRole } = await gate.supabase
+      .from('staff_roles_catalog')
+      .select('id')
+      .eq('is_owner_role', true)
+      .maybeSingle();
+    roleId = ownerRole?.id ? String(ownerRole.id) : null;
+  }
 
   const { data: perm, error: permErr } = await gate.supabase
     .from('role_page_permissions')
     .select('can_access')
-    .eq('role', role)
+    .eq('role_id', roleId ?? '00000000-0000-0000-0000-000000000000')
     .eq('page_slug', pageSlug)
     .eq('can_access', true)
     .maybeSingle();
