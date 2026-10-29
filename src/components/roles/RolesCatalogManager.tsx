@@ -153,11 +153,11 @@ export function RolesCatalogManager({
                     <TableCell className="text-right">
                       {canManage && (
                         <div className="flex justify-end gap-1">
-                          <Button variant="ghost" size="icon" title="Duplicate" onClick={() => open({ kind: 'create', copyFrom: role })}>
-                            <Copy className="h-4 w-4" />
-                          </Button>
                           {!role.is_owner_role && (
                             <>
+                              <Button variant="ghost" size="icon" title="Duplicate" onClick={() => open({ kind: 'create', copyFrom: role })}>
+                                <Copy className="h-4 w-4" />
+                              </Button>
                               <Button variant="ghost" size="icon" title="Edit" onClick={() => open({ kind: 'edit', role })}>
                                 <Edit className="h-4 w-4" />
                               </Button>

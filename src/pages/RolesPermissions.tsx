@@ -149,7 +149,8 @@ const ROLE_CONFIG: Record<StaffRole, { label: string; icon: typeof Crown; color:
 export default function RolesPermissions() {
   const { user } = useAuth();
   const { actor, isReadOnly, activeSuperAdminCount, has: hasCapability, refetch: refetchCapabilities } = useRoleCapabilities();
-  const canManageRoles = hasCapability('roles_permissions.manage_permissions');
+  const { isOwner } = useStaffProfile();
+  const canManageRoles = isOwner;
   const canCreate = hasCapability('roles_permissions.create_role');
   const canEdit = hasCapability('roles_permissions.edit_role');
   const canDelete = hasCapability('roles_permissions.delete_role');
@@ -1056,7 +1057,7 @@ export default function RolesPermissions() {
                                   <TableCell key={r} className="text-center">
                                     {isToggling ? (
                                       <Loader2 className="h-4 w-4 animate-spin mx-auto text-muted-foreground" />
-                                    ) : canManageRoles && !role.is_owner_role ? (
+                                    ) : canManageRoles && !role.is_owner_role && page !== 'roles' ? (
                                       <button
                                         onClick={() => handleTogglePermission(page, r)}
                                         className="mx-auto block cursor-pointer hover:scale-110 transition-transform"
@@ -1325,7 +1326,7 @@ export default function RolesPermissions() {
                   <SelectValue placeholder="Choose a role" />
                 </SelectTrigger>
                 <SelectContent>
-                  {roles.filter(r => r.is_active).map(r => (
+                  {roles.filter(r => r.is_active && !r.is_owner_role).map(r => (
                     <SelectItem key={r.id} value={r.id}>
                       <div className="flex items-center gap-2">
                         {(() => { const Icon = ROLE_CONFIG[r.base_role].icon; return <Icon className="h-4 w-4" />; })()}
@@ -1469,7 +1470,7 @@ export default function RolesPermissions() {
                     <SelectValue placeholder="Choose a role" />
                   </SelectTrigger>
                   <SelectContent>
-                    {roles.filter(r => r.is_active).map(r => (
+                    {roles.filter(r => r.is_active && !r.is_owner_role).map(r => (
                       <SelectItem key={r.id} value={r.id}>
                         <div className="flex items-center gap-2">
                           {(() => { const Icon = ROLE_CONFIG[r.base_role].icon; return <Icon className="h-4 w-4" />; })()}

@@ -17,6 +17,7 @@
 ## Roles & Permissions (owner-created roles)
 
 - [x] Stage 1: roles list, staff and permissions on role_id, backend checks, role management UI
+- [x] Single Super Admin: owner-only staff/role management, enforced in the database and app (2026-10-29)
 - [ ] Stage 2: granular View/Create/Edit/Delete/Approve/Export/Manage actions per page, enforced on buttons and backend
 - [ ] Stage 3: field-level hiding/masking, dashboard widgets, search/notifications/reports
 - [ ] Stage 4: restricted test role walkthrough and rule tests

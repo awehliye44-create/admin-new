@@ -204,6 +204,8 @@ export function StaffProfileProvider({ children }: { children: ReactNode }) {
       if (isStaffLoading) return true;
       // Owner has unrestricted access to every admin page
       if (staffProfile?.is_owner === true) return true;
+      // Roles & Permissions is reserved for the single ONECAB Owner
+      if (pageSlug === 'roles') return false;
       // No staff profile but has admin role → full access (backward compat)
       if (!staffProfile && allowedPages.size > 0) return true;
       if (!staffProfile) return true; // No restrictions if no staff system set up
@@ -215,9 +217,7 @@ export function StaffProfileProvider({ children }: { children: ReactNode }) {
     [staffProfile, allowedPages, isStaffLoading]
   );
 
-  const canManageRoles = staffProfile
-    ? staffProfile.is_owner === true || canAccessPage('roles')
-    : true; // legacy admin without staff profile
+  const canManageRoles = staffProfile?.is_owner === true;
 
   return (
     <StaffProfileContext.Provider
