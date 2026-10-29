@@ -453,7 +453,7 @@ serve(async (req) => {
       const { data: pagePerm } = await supabase
         .from("role_page_permissions")
         .select("can_access")
-        .eq("role", staffRole)
+        .eq("role_id", staffRoleId)
         .eq("page_slug", "financial-reconciliation")
         .eq("can_access", true)
         .maybeSingle();
