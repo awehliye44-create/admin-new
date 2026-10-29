@@ -114,10 +114,21 @@ interface StaffMember {
   full_name: string;
   username: string | null;
   role: StaffRole;
+  role_id: string;
   is_active: boolean;
   is_owner: boolean;
   created_at: string;
   service_areas: { id: string; service_area_id: string; name: string }[];
+}
+
+export interface CatalogRole {
+  id: string;
+  name: string;
+  description: string | null;
+  base_role: StaffRole;
+  is_system: boolean;
+  is_owner_role: boolean;
+  is_active: boolean;
 }
 
 interface ServiceArea {
@@ -145,7 +156,7 @@ export default function RolesPermissions() {
   const canAssignAreas = hasCapability('roles_permissions.assign_service_areas');
   const correlationId = () => (typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : String(Date.now()));
   const [actionMatrix, setActionMatrix] = useState<Record<string, Record<string, boolean>>>({});
-  const [pendingDelegation, setPendingDelegation] = useState<{ role: StaffRole; actionKey: string } | null>(null);
+  const [pendingDelegation, setPendingDelegation] = useState<{ role: string; actionKey: string } | null>(null);
   const [confirmSuperAdmin, setConfirmSuperAdmin] = useState<null | (() => void)>(null);
   const [togglingAction, setTogglingAction] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState('staff');
@@ -156,7 +167,7 @@ export default function RolesPermissions() {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
-  const [filterRole, setFilterRole] = useState<StaffRole | 'all'>('all');
+  const [filterRole, setFilterRole] = useState<string>('all');
 
   // Dialog states
   const [showAddDialog, setShowAddDialog] = useState(false);
@@ -170,9 +181,9 @@ export default function RolesPermissions() {
   const [formUserUuid, setFormUserUuid] = useState('');
   const [formFullName, setFormFullName] = useState('');
   const [formUsername, setFormUsername] = useState('');
-  const [formRole, setFormRole] = useState<StaffRole>('operator');
+  const [formRole, setFormRole] = useState<string>('');
   const [formServiceAreas, setFormServiceAreas] = useState<string[]>([]);
-  const [reassignRole, setReassignRole] = useState<StaffRole>('operator');
+  const [reassignRole, setReassignRole] = useState<string>('');
 
   // Permission matrix
   const [permissionMatrix, setPermissionMatrix] = useState<Record<string, Record<string, boolean>>>({});
@@ -198,7 +209,7 @@ export default function RolesPermissions() {
     try {
       const { data: profiles, error: profilesError } = await supabase
         .from('staff_profiles')
-        .select('id, user_id, staff_role_id, full_name, username, role, is_active, is_owner, created_at')
+        .select('id, user_id, staff_role_id, full_name, username, role, role_id, is_active, is_owner, created_at')
         .order('created_at', { ascending: false });
 
       if (profilesError) throw profilesError;
@@ -239,15 +250,32 @@ export default function RolesPermissions() {
     setServiceAreas(data || []);
   }, []);
 
+  const [roles, setRoles] = useState<CatalogRole[]>([]);
+  const fetchRoles = useCallback(async () => {
+    const { data, error: rolesErr } = await supabase
+      .from('staff_roles_catalog')
+      .select('id, name, description, base_role, is_system, is_owner_role, is_active')
+      .order('is_owner_role', { ascending: false })
+      .order('is_system', { ascending: false })
+      .order('name');
+    if (rolesErr) {
+      setError(`Could not load roles: ${rolesErr.message}`);
+      return;
+    }
+    setRoles((data || []) as CatalogRole[]);
+  }, []);
+  const roleById = (id: string | null | undefined) => roles.find(r => r.id === id);
+  const roleName = (id: string | null | undefined) => roleById(id)?.name ?? 'Unknown role';
+
   const fetchPermissionMatrix = useCallback(async () => {
     const { data } = await supabase
       .from('role_page_permissions')
-      .select('role, page_slug, can_access');
+      .select('role_id, page_slug, can_access');
 
     const matrix: Record<string, Record<string, boolean>> = {};
     (data || []).forEach((p: any) => {
       if (!matrix[p.page_slug]) matrix[p.page_slug] = {};
-      matrix[p.page_slug][p.role] = p.can_access;
+      matrix[p.page_slug][p.role_id] = p.can_access;
     });
     setPermissionMatrix(matrix);
   }, []);
@@ -255,12 +283,12 @@ export default function RolesPermissions() {
   const fetchActionMatrix = useCallback(async () => {
     const { data } = await supabase
       .from('role_action_permissions')
-      .select('role, action_key, is_allowed');
+      .select('role_id, action_key, is_allowed');
 
     const matrix: Record<string, Record<string, boolean>> = {};
     (data || []).forEach((p: any) => {
       if (!matrix[p.action_key]) matrix[p.action_key] = {};
-      matrix[p.action_key][p.role] = p.is_allowed;
+      matrix[p.action_key][p.role_id] = p.is_allowed;
     });
     setActionMatrix(matrix);
   }, []);
@@ -296,13 +324,14 @@ export default function RolesPermissions() {
   useEffect(() => {
     fetchStaffMembers();
     fetchServiceAreas();
+    fetchRoles();
     fetchPermissionMatrix();
     fetchActionMatrix();
     fetchAuditLogs();
-  }, [fetchStaffMembers, fetchServiceAreas, fetchPermissionMatrix, fetchActionMatrix, fetchAuditLogs]);
+  }, [fetchStaffMembers, fetchServiceAreas, fetchRoles, fetchPermissionMatrix, fetchActionMatrix, fetchAuditLogs]);
 
   const filteredStaff = staffMembers.filter(s => {
-    if (filterRole !== 'all' && s.role !== filterRole) return false;
+    if (filterRole !== 'all' && s.role_id !== filterRole) return false;
     if (searchQuery) {
       const q = searchQuery.toLowerCase();
       return (
@@ -318,7 +347,7 @@ export default function RolesPermissions() {
     setFormUserUuid('');
     setFormFullName('');
     setFormUsername('');
-    setFormRole('operator');
+    setFormRole('');
     setFormServiceAreas([]);
   };
 
@@ -337,7 +366,12 @@ export default function RolesPermissions() {
       return;
     }
 
-    const guard = canCreateStaff(actor, formRole, formServiceAreas.length);
+    const formRoleRow = roleById(formRole);
+    if (!formRoleRow) {
+      setError('Choose a role');
+      return;
+    }
+    const guard = canCreateStaff(actor, formRoleRow.base_role, formServiceAreas.length);
     if (!guard.allowed) {
       setError(guard.reason ?? DENIED_COPY.actionDenied);
       return;
@@ -350,7 +384,7 @@ export default function RolesPermissions() {
         _user_id: formUserUuid.trim(),
         _full_name: formFullName.trim(),
         _username: formUsername.trim(),
-        _role: formRole as any,
+        _role_id: formRole,
         _service_area_ids: formServiceAreas,
         _correlation_id: correlationId(),
       });
@@ -370,7 +404,7 @@ export default function RolesPermissions() {
       });
       if (syncErr) throw syncErr;
 
-      setSuccess(`Staff member added as ${ROLE_LABELS[formRole]}`);
+      setSuccess(`Staff member added as ${roleName(formRole)}`);
       resetForm();
       setShowAddDialog(false);
       await Promise.all([fetchStaffMembers(), fetchAuditLogs()]);
@@ -382,7 +416,7 @@ export default function RolesPermissions() {
   };
 
   const handleAddStaff = async () => {
-    if (formRole === 'super_admin') {
+    if (roleById(formRole)?.is_owner_role) {
       setConfirmSuperAdmin(() => () => {
         setConfirmSuperAdmin(null);
         void performAddStaff();
@@ -430,7 +464,7 @@ export default function RolesPermissions() {
     const guard = canAssignRole(
       actor,
       { role: selectedStaff.role, isActive: selectedStaff.is_active },
-      reassignRole,
+      roleById(reassignRole)?.base_role ?? selectedStaff.role,
       activeSuperAdminCount,
     );
     if (!guard.allowed) {
@@ -442,12 +476,12 @@ export default function RolesPermissions() {
     try {
       const { error: rpcError } = await supabase.rpc('admin_assign_staff_role', {
         _staff_id: selectedStaff.id,
-        _new_role: reassignRole as any,
+        _new_role_id: reassignRole,
         _correlation_id: correlationId(),
       });
       if (rpcError) throw rpcError;
 
-      setSuccess(`Role reassigned to ${ROLE_LABELS[reassignRole]}. New Staff ID will be generated.`);
+      setSuccess(`Role changed to ${roleName(reassignRole)}.`);
       setShowReassignDialog(false);
       await Promise.all([fetchStaffMembers(), fetchAuditLogs()]);
     } catch (err: any) {
@@ -458,7 +492,7 @@ export default function RolesPermissions() {
   };
 
   const handleReassignRole = async () => {
-    if (reassignRole === 'super_admin') {
+    if (roleById(reassignRole)?.is_owner_role) {
       setConfirmSuperAdmin(() => () => {
         setConfirmSuperAdmin(null);
         void performReassignRole();
@@ -588,13 +622,14 @@ export default function RolesPermissions() {
     URL.revokeObjectURL(url);
   };
 
-  const RoleBadge = ({ role }: { role: StaffRole }) => {
-    const config = ROLE_CONFIG[role];
+  const RoleBadge = ({ roleId }: { roleId: string }) => {
+    const row = roleById(roleId);
+    const config = ROLE_CONFIG[row?.base_role ?? 'operator'];
     const Icon = config.icon;
     return (
       <Badge variant="outline" className={config.color}>
         <Icon className="mr-1 h-3 w-3" />
-        {config.label}
+        {row?.name ?? 'Unknown role'}
       </Badge>
     );
   };
@@ -613,15 +648,14 @@ export default function RolesPermissions() {
     { label: 'Settings', pages: ['general-settings', 'integrations', 'webhooks', 'system', 'roles', 'user-directory', 'notifications', 'alert-sounds'] },
   ];
 
-  const ROLES_ORDER: StaffRole[] = ['super_admin', 'admin', 'operator', 'finance_manager', 'customer_support', 'compliance_officer'];
 
   const [togglingPerm, setTogglingPerm] = useState<string | null>(null);
 
-  const handleTogglePermission = async (pageSlug: string, role: StaffRole) => {
+  const handleTogglePermission = async (pageSlug: string, role: string) => {
     const currentAccess = permissionMatrix[pageSlug]?.[role] ?? false;
     const newAccess = !currentAccess;
 
-    const guard = canTogglePagePermission(actor, role, pageSlug, newAccess);
+    const guard = canTogglePagePermission(actor, roleById(role)?.base_role ?? 'super_admin', pageSlug, newAccess);
     if (!guard.allowed) {
       setError(guard.reason ?? DENIED_COPY.actionDenied);
       return;
@@ -634,7 +668,7 @@ export default function RolesPermissions() {
     try {
       // Backend RPC re-checks capability, protection rules and writes the audit row
       const { error: rpcError } = await supabase.rpc('admin_set_role_page_permission', {
-        _role: role as any,
+        _role_id: role,
         _page_slug: pageSlug,
         _can_access: newAccess,
         _correlation_id: correlationId(),
@@ -654,8 +688,8 @@ export default function RolesPermissions() {
     }
   };
 
-  const applyActionPermission = async (role: StaffRole, actionKey: string, nextValue: boolean) => {
-    const guard = canToggleActionPermission(actor, role, actionKey, nextValue);
+  const applyActionPermission = async (role: string, actionKey: string, nextValue: boolean) => {
+    const guard = canToggleActionPermission(actor, roleById(role)?.base_role ?? 'super_admin', actionKey, nextValue);
     if (!guard.allowed) {
       setError(guard.reason ?? DENIED_COPY.actionDenied);
       return;
@@ -667,7 +701,7 @@ export default function RolesPermissions() {
 
     try {
       const { error: rpcError } = await supabase.rpc('admin_set_role_action_permission', {
-        _role: role as any,
+        _role_id: role,
         _action_key: actionKey,
         _is_allowed: nextValue,
         _correlation_id: correlationId(),
@@ -687,7 +721,7 @@ export default function RolesPermissions() {
     }
   };
 
-  const handleToggleActionPermission = (role: StaffRole, actionKey: string) => {
+  const handleToggleActionPermission = (role: string, actionKey: string) => {
     const current = actionMatrix[actionKey]?.[role] ?? false;
     const nextValue = !current;
     // Explicit delegation confirmation before granting a sensitive capability
@@ -809,15 +843,15 @@ export default function RolesPermissions() {
                     className="pl-10"
                   />
                 </div>
-                <Select value={filterRole} onValueChange={(v) => setFilterRole(v as StaffRole | 'all')}>
+                <Select value={filterRole} onValueChange={setFilterRole}>
                   <SelectTrigger className="w-[200px]">
                     <Filter className="h-4 w-4 mr-2" />
                     <SelectValue placeholder="Filter by role" />
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="all">All Roles</SelectItem>
-                    {ROLES_ORDER.map(r => (
-                      <SelectItem key={r} value={r}>{ROLE_LABELS[r]}</SelectItem>
+                    {roles.map(r => (
+                      <SelectItem key={r.id} value={r.id}>{r.name}</SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
@@ -879,7 +913,7 @@ export default function RolesPermissions() {
                             {staff.username || '—'}
                           </TableCell>
                           <TableCell>
-                            <RoleBadge role={staff.role} />
+                            <RoleBadge roleId={staff.role_id} />
                           </TableCell>
                           <TableCell>
                             <div className="flex flex-wrap gap-1">
@@ -975,14 +1009,14 @@ export default function RolesPermissions() {
                     <TableHeader>
                       <TableRow>
                         <TableHead className="w-[200px] sticky left-0 bg-background z-10">Page</TableHead>
-                        {ROLES_ORDER.map(r => {
-                          const config = ROLE_CONFIG[r];
-                          const Icon = config.icon;
+                        {roles.map(role => {
+                          const r = role.id;
+                          const Icon = ROLE_CONFIG[role.base_role].icon;
                           return (
                             <TableHead key={r} className="text-center min-w-[100px]">
-                              <div className="flex items-center justify-center gap-1">
+                              <div className="flex items-center justify-center gap-1" title={role.description ?? role.name}>
                                 <Icon className="h-3 w-3" />
-                                <span className="text-xs">{config.prefix}</span>
+                                <span className={`text-xs ${role.is_active ? '' : 'line-through text-muted-foreground'}`}>{role.name}</span>
                               </div>
                             </TableHead>
                           );
@@ -993,7 +1027,7 @@ export default function RolesPermissions() {
                       {PAGE_GROUPS.map(group => (
                         <Fragment key={`group-${group.label}`}>
                           <TableRow className="bg-muted/50">
-                            <TableCell colSpan={ROLES_ORDER.length + 1} className="font-semibold text-xs uppercase tracking-wider py-2">
+                            <TableCell colSpan={roles.length + 1} className="font-semibold text-xs uppercase tracking-wider py-2">
                               {group.label}
                             </TableCell>
                           </TableRow>
@@ -1002,7 +1036,8 @@ export default function RolesPermissions() {
                               <TableCell className="sticky left-0 bg-background z-10 capitalize text-sm">
                                 {page.replace(/-/g, ' ')}
                               </TableCell>
-                              {ROLES_ORDER.map(r => {
+                              {roles.map(role => {
+                                const r = role.id;
                                 const key = `${page}-${r}`;
                                 const hasAccess = permissionMatrix[page]?.[r] ?? false;
                                 const isToggling = togglingPerm === key;
@@ -1010,11 +1045,11 @@ export default function RolesPermissions() {
                                   <TableCell key={r} className="text-center">
                                     {isToggling ? (
                                       <Loader2 className="h-4 w-4 animate-spin mx-auto text-muted-foreground" />
-                                    ) : canManageRoles ? (
+                                    ) : canManageRoles && !role.is_owner_role ? (
                                       <button
                                         onClick={() => handleTogglePermission(page, r)}
                                         className="mx-auto block cursor-pointer hover:scale-110 transition-transform"
-                                        title={hasAccess ? `Revoke ${page} from ${ROLE_LABELS[r]}` : `Grant ${page} to ${ROLE_LABELS[r]}`}
+                                        title={hasAccess ? `Revoke ${page} from ${role.name}` : `Grant ${page} to ${role.name}`}
                                       >
                                         {hasAccess ? (
                                           <CheckCircle className="h-4 w-4 text-green-500" />
@@ -1058,14 +1093,14 @@ export default function RolesPermissions() {
                     <TableHeader>
                       <TableRow>
                         <TableHead className="w-[240px] sticky left-0 bg-background z-10">Capability</TableHead>
-                        {ROLES_ORDER.map(r => {
-                          const config = ROLE_CONFIG[r];
-                          const Icon = config.icon;
+                        {roles.map(role => {
+                          const r = role.id;
+                          const Icon = ROLE_CONFIG[role.base_role].icon;
                           return (
                             <TableHead key={r} className="text-center min-w-[100px]">
-                              <div className="flex items-center justify-center gap-1">
+                              <div className="flex items-center justify-center gap-1" title={role.description ?? role.name}>
                                 <Icon className="h-3 w-3" />
-                                <span className="text-xs">{config.prefix}</span>
+                                <span className={`text-xs ${role.is_active ? '' : 'line-through text-muted-foreground'}`}>{role.name}</span>
                               </div>
                             </TableHead>
                           );
@@ -1081,7 +1116,8 @@ export default function RolesPermissions() {
                               {DEMAND_ZONE_ACTION_HELP[actionKey]}
                             </p>
                           </TableCell>
-                          {ROLES_ORDER.map(r => {
+                          {roles.map(role => {
+                            const r = role.id;
                             const key = `${actionKey}-${r}`;
                             const isAllowed = actionMatrix[actionKey]?.[r] ?? false;
                             const isToggling = togglingAction === key;
@@ -1089,14 +1125,14 @@ export default function RolesPermissions() {
                               <TableCell key={r} className="text-center">
                                 {isToggling ? (
                                   <Loader2 className="h-4 w-4 animate-spin mx-auto text-muted-foreground" />
-                                ) : canManageRoles ? (
+                                ) : canManageRoles && !role.is_owner_role ? (
                                   <button
                                     onClick={() => handleToggleActionPermission(r, actionKey)}
                                     className="mx-auto block cursor-pointer hover:scale-110 transition-transform"
                                     title={
                                       isAllowed
-                                        ? `Revoke ${DEMAND_ZONE_ACTION_LABELS[actionKey]} from ${ROLE_LABELS[r]}`
-                                        : `Grant ${DEMAND_ZONE_ACTION_LABELS[actionKey]} to ${ROLE_LABELS[r]}`
+                                        ? `Revoke ${DEMAND_ZONE_ACTION_LABELS[actionKey]} from ${role.name}`
+                                        : `Grant ${DEMAND_ZONE_ACTION_LABELS[actionKey]} to ${role.name}`
                                     }
                                   >
                                     {isAllowed ? (
@@ -1273,24 +1309,26 @@ export default function RolesPermissions() {
 
             <div className="space-y-2">
               <Label>Role</Label>
-              <Select value={formRole} onValueChange={(v) => setFormRole(v as StaffRole)}>
+              <Select value={formRole} onValueChange={setFormRole}>
                 <SelectTrigger>
-                  <SelectValue />
+                  <SelectValue placeholder="Choose a role" />
                 </SelectTrigger>
                 <SelectContent>
-                  {ROLES_ORDER.map(r => (
-                    <SelectItem key={r} value={r}>
+                  {roles.filter(r => r.is_active).map(r => (
+                    <SelectItem key={r.id} value={r.id}>
                       <div className="flex items-center gap-2">
-                        {(() => { const Icon = ROLE_CONFIG[r].icon; return <Icon className="h-4 w-4" />; })()}
-                        {ROLE_LABELS[r]} ({ROLE_PREFIXES[r]})
+                        {(() => { const Icon = ROLE_CONFIG[r.base_role].icon; return <Icon className="h-4 w-4" />; })()}
+                        {r.name}
                       </div>
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
-              <p className="text-xs text-muted-foreground">
-                Staff ID will be auto-generated: {ROLE_PREFIXES[formRole]}XXX
-              </p>
+              {roleById(formRole) && (
+                <p className="text-xs text-muted-foreground">
+                  Staff ID will be auto-generated: {ROLE_PREFIXES[roleById(formRole)!.base_role]}XXX
+                </p>
+              )}
             </div>
 
             <div className="space-y-2">
@@ -1342,7 +1380,7 @@ export default function RolesPermissions() {
             <div className="space-y-4">
               <div className="p-3 rounded-lg bg-muted flex items-center gap-3">
                 <span className="font-mono font-bold text-primary">{selectedStaff.staff_role_id}</span>
-                <RoleBadge role={selectedStaff.role} />
+                <RoleBadge roleId={selectedStaff.role_id} />
               </div>
 
               <div className="grid grid-cols-2 gap-4">
@@ -1407,7 +1445,7 @@ export default function RolesPermissions() {
                 <div className="flex items-center gap-2 mt-1">
                   <span className="text-sm text-muted-foreground">Current:</span>
                   <span className="font-mono text-sm">{selectedStaff.staff_role_id}</span>
-                  <RoleBadge role={selectedStaff.role} />
+                  <RoleBadge roleId={selectedStaff.role_id} />
                 </div>
               </div>
 
@@ -1415,29 +1453,26 @@ export default function RolesPermissions() {
 
               <div className="space-y-2">
                 <Label>New Role</Label>
-                <Select value={reassignRole} onValueChange={(v) => setReassignRole(v as StaffRole)}>
+                <Select value={reassignRole} onValueChange={setReassignRole}>
                   <SelectTrigger>
-                    <SelectValue />
+                    <SelectValue placeholder="Choose a role" />
                   </SelectTrigger>
                   <SelectContent>
-                    {ROLES_ORDER.map(r => (
-                      <SelectItem key={r} value={r}>
+                    {roles.filter(r => r.is_active).map(r => (
+                      <SelectItem key={r.id} value={r.id}>
                         <div className="flex items-center gap-2">
-                          {(() => { const Icon = ROLE_CONFIG[r].icon; return <Icon className="h-4 w-4" />; })()}
-                          {ROLE_LABELS[r]} ({ROLE_PREFIXES[r]})
+                          {(() => { const Icon = ROLE_CONFIG[r.base_role].icon; return <Icon className="h-4 w-4" />; })()}
+                          {r.name}
                         </div>
                       </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
-                <p className="text-xs text-muted-foreground">
-                  New Staff ID: {ROLE_PREFIXES[reassignRole]}XXX
-                </p>
               </div>
 
               <DialogFooter>
                 <Button variant="outline" onClick={() => setShowReassignDialog(false)}>Cancel</Button>
-                <Button onClick={handleReassignRole} disabled={isSubmitting || reassignRole === selectedStaff.role}>
+                <Button onClick={handleReassignRole} disabled={isSubmitting || !reassignRole || reassignRole === selectedStaff.role_id}>
                   {isSubmitting && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
                   Reassign Role
                 </Button>
@@ -1466,7 +1501,7 @@ export default function RolesPermissions() {
                 <p className="font-medium">{selectedStaff.full_name}</p>
                 <div className="flex items-center gap-2 mt-1">
                   <span className="font-mono text-sm">{selectedStaff.staff_role_id}</span>
-                  <RoleBadge role={selectedStaff.role} />
+                  <RoleBadge roleId={selectedStaff.role_id} />
                 </div>
               </div>
 
@@ -1501,7 +1536,7 @@ export default function RolesPermissions() {
                 </div>
                 <div>
                   <p className="text-xs text-muted-foreground">Role</p>
-                  <div className="mt-1"><RoleBadge role={selectedStaff.role} /></div>
+                  <div className="mt-1"><RoleBadge roleId={selectedStaff.role_id} /></div>
                 </div>
                 <div>
                   <p className="text-xs text-muted-foreground">Full Name</p>
