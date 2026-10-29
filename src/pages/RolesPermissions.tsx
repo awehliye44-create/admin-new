@@ -919,7 +919,12 @@ export default function RolesPermissions() {
                           </TableCell>
                           <TableCell>
                             <div className="flex flex-wrap gap-1">
-                              {staff.service_areas.length > 0 ? (
+                              {staff.is_owner || staff.role === 'super_admin' ? (
+                                <Badge variant="secondary" className="text-xs">
+                                  <MapPin className="h-3 w-3 mr-1" />
+                                  All service areas
+                                </Badge>
+                              ) : staff.service_areas.length > 0 ? (
                                 staff.service_areas.map(sa => (
                                   <Badge key={sa.id} variant="secondary" className="text-xs">
                                     <MapPin className="h-3 w-3 mr-1" />
@@ -1406,6 +1411,14 @@ export default function RolesPermissions() {
                 </div>
               </div>
 
+              {selectedStaff.is_owner || selectedStaff.role === 'super_admin' ? (
+              <div className="space-y-2">
+                <Label>Service Areas</Label>
+                <p className="text-sm text-muted-foreground border rounded-md p-3">
+                  Super Admin always has access to all service areas.
+                </p>
+              </div>
+              ) : (
               <div className="space-y-2">
                 <Label>Service Areas</Label>
                 <div className="border rounded-md p-3 max-h-[150px] overflow-y-auto space-y-2">
@@ -1424,6 +1437,7 @@ export default function RolesPermissions() {
                   ))}
                 </div>
               </div>
+              )}
 
               <DialogFooter>
                 <Button variant="outline" onClick={() => setShowEditDialog(false)}>Cancel</Button>
