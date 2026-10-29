@@ -1437,6 +1437,7 @@ export default function RolesPermissions() {
                   ))}
                 </div>
               </div>
+              )}
 
               <DialogFooter>
                 <Button variant="outline" onClick={() => setShowEditDialog(false)}>Cancel</Button>
