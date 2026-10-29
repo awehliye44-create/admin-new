@@ -1,3 +1,3 @@
 # Architecture rules
 
-- Trip-specific preset configuration must require the trip's rider, a server-verified admin, or a JWT-linked driver with an unexpired pending `ride_offers` row; always use the trip's stored service area and existing negotiation gates to prevent unrelated access and generic-offer fallback.
+- Trip-specific preset configuration must require the trip's rider, a server-verified admin, or a JWT-linked driver with an unexpired pending `ride_offers` row; always use the trip's stored service area and existing negotiation gates to prevent unrelated access and generic-offer fallback.- Staff access resolves through `staff_profiles.role_id` → `staff_roles_catalog`, and page/action permissions are keyed by `role_id`; `staff_profiles.role` is a trigger-derived access level kept only for legacy role-name checks. Why: owner-created roles must drive every permission check from a single source.
