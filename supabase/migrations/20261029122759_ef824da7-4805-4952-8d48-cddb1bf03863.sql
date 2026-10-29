@@ -1,0 +1,2 @@
+REVOKE ALL ON FUNCTION public.staff_role_id_of(uuid), public.staff_can_manage_roles(uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.staff_role_id_of(uuid), public.staff_can_manage_roles(uuid) TO authenticated, service_role;
