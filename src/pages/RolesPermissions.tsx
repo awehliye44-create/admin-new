@@ -1057,7 +1057,7 @@ export default function RolesPermissions() {
                                   <TableCell key={r} className="text-center">
                                     {isToggling ? (
                                       <Loader2 className="h-4 w-4 animate-spin mx-auto text-muted-foreground" />
-                                    ) : canManageRoles && !role.is_owner_role ? (
+                                    ) : canManageRoles && !role.is_owner_role && page !== 'roles' ? (
                                       <button
                                         onClick={() => handleTogglePermission(page, r)}
                                         className="mx-auto block cursor-pointer hover:scale-110 transition-transform"
