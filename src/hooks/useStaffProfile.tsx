@@ -11,6 +11,8 @@ export interface StaffProfile {
   full_name: string;
   username: string | null;
   role: StaffRole;
+  role_id: string;
+  role_name?: string;
   is_active: boolean;
   is_owner?: boolean;
   created_at: string;
@@ -124,7 +126,7 @@ export function StaffProfileProvider({ children }: { children: ReactNode }) {
       // Fetch staff profile (including inactive — we explicitly check is_active below)
       const { data: profile } = await supabase
         .from('staff_profiles')
-        .select('id, user_id, staff_role_id, full_name, username, role, is_active, is_owner, created_at')
+        .select('id, user_id, staff_role_id, full_name, username, role, role_id, is_active, is_owner, created_at, staff_roles_catalog(name)')
         .eq('user_id', userId)
         .maybeSingle();
 
@@ -143,8 +145,8 @@ export function StaffProfileProvider({ children }: { children: ReactNode }) {
         setStaffProfile(null);
         const { data: allPerms } = await supabase
           .from('role_page_permissions')
-          .select('page_slug')
-          .eq('role', 'super_admin' as any)
+          .select('page_slug, staff_roles_catalog!inner(is_owner_role)')
+          .eq('staff_roles_catalog.is_owner_role', true)
           .eq('can_access', true);
         setAllowedPages(new Set((allPerms || []).map(p => p.page_slug)));
         setAssignedServiceAreas([]);
@@ -152,13 +154,16 @@ export function StaffProfileProvider({ children }: { children: ReactNode }) {
         return;
       }
 
-      setStaffProfile(profile as unknown as StaffProfile);
+      setStaffProfile({
+        ...(profile as unknown as StaffProfile),
+        role_name: (profile as any).staff_roles_catalog?.name ?? undefined,
+      });
 
       // Fetch page permissions for this role
       const { data: perms } = await supabase
         .from('role_page_permissions')
         .select('page_slug')
-        .eq('role', profile.role as any)
+        .eq('role_id', (profile as any).role_id)
         .eq('can_access', true);
 
       setAllowedPages(new Set((perms || []).map(p => p.page_slug)));
@@ -211,8 +216,8 @@ export function StaffProfileProvider({ children }: { children: ReactNode }) {
   );
 
   const canManageRoles = staffProfile
-    ? staffProfile.is_owner === true || ['super_admin', 'admin'].includes(staffProfile.role)
-    : true; // backward compat
+    ? staffProfile.is_owner === true || canAccessPage('roles')
+    : true; // legacy admin without staff profile
 
   return (
     <StaffProfileContext.Provider
