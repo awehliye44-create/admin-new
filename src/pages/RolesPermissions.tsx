@@ -149,10 +149,10 @@ const ROLE_CONFIG: Record<StaffRole, { label: string; icon: typeof Crown; color:
 
 export default function RolesPermissions() {
   const { user } = useAuth();
+  const { isOwner } = useStaffProfile();
   const { actor: capabilityActor, isReadOnly, activeSuperAdminCount, has: hasCapability, refetch: refetchCapabilities } = useRoleCapabilities();
   // The Owner always holds every capability; never let a slow capability load lock the matrix.
   const actor = isOwner ? { ...capabilityActor, isSuperAdmin: true } : capabilityActor;
-  const { isOwner } = useStaffProfile();
   const canManageRoles = isOwner;
   const canCreate = hasCapability('roles_permissions.create_role');
   const canEdit = hasCapability('roles_permissions.edit_role');
