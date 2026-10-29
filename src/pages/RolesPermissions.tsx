@@ -50,6 +50,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { useStaffProfile, StaffRole, ROLE_LABELS, ROLE_PREFIXES } from '@/hooks/useStaffProfile';
 import { useRoleCapabilities } from '@/hooks/useRoleCapabilities';
 import { Switch } from '@/components/ui/switch';
+import { RolesCatalogManager } from '@/components/roles/RolesCatalogManager';
 import { HelpTip, PermissionsHelpButton, DelegationConfirmDialog } from '@/components/roles/RolesHelp';
 import {
   DEMAND_ZONE_ROLE_ACTION_KEYS,
@@ -997,6 +998,16 @@ export default function RolesPermissions() {
 
         {/* Permissions Matrix Tab */}
         <TabsContent value="permissions">
+          <RolesCatalogManager
+            roles={roles}
+            staffCountByRole={staffMembers.reduce<Record<string, number>>((acc, m) => { acc[m.role_id] = (acc[m.role_id] ?? 0) + 1; return acc; }, {})}
+            pageCountByRole={Object.values(permissionMatrix).reduce<Record<string, number>>((acc, byRole) => { Object.entries(byRole).forEach(([id, ok]) => { if (ok) acc[id] = (acc[id] ?? 0) + 1; }); return acc; }, {})}
+            actionCountByRole={Object.values(actionMatrix).reduce<Record<string, number>>((acc, byRole) => { Object.entries(byRole).forEach(([id, ok]) => { if (ok) acc[id] = (acc[id] ?? 0) + 1; }); return acc; }, {})}
+            canManage={canManageRoles}
+            onChanged={async () => { await Promise.all([fetchRoles(), fetchPermissionMatrix(), fetchActionMatrix(), fetchAuditLogs()]); }}
+            onError={(m) => { setSuccess(null); setError(m); }}
+            onSuccess={(m) => { setError(null); setSuccess(m); }}
+          />
           <Card>
             <CardHeader>
               <CardTitle>Permissions Matrix</CardTitle>
