@@ -72,6 +72,7 @@ import {
   canCreateStaff,
 } from '../../shared/rolesPermissionsSSOT';
 import { format } from 'date-fns';
+import { toast } from 'sonner';
 
 type AuditEventType =
   | 'roles.permission.toggle'
@@ -148,8 +149,10 @@ const ROLE_CONFIG: Record<StaffRole, { label: string; icon: typeof Crown; color:
 
 export default function RolesPermissions() {
   const { user } = useAuth();
-  const { actor, isReadOnly, activeSuperAdminCount, has: hasCapability, refetch: refetchCapabilities } = useRoleCapabilities();
   const { isOwner } = useStaffProfile();
+  const { actor: capabilityActor, isReadOnly, activeSuperAdminCount, has: hasCapability, refetch: refetchCapabilities } = useRoleCapabilities();
+  // The Owner always holds every capability; never let a slow capability load lock the matrix.
+  const actor = isOwner ? { ...capabilityActor, isSuperAdmin: true } : capabilityActor;
   const canManageRoles = isOwner;
   const canCreate = hasCapability('roles_permissions.create_role');
   const canEdit = hasCapability('roles_permissions.edit_role');
@@ -657,9 +660,11 @@ export default function RolesPermissions() {
     const currentAccess = permissionMatrix[pageSlug]?.[role] ?? false;
     const newAccess = !currentAccess;
 
-    const guard = canTogglePagePermission(actor, roleById(role)?.base_role ?? 'super_admin', pageSlug, newAccess);
+    const targetRole = roleById(role);
+    if (!targetRole) return;
+    const guard = canTogglePagePermission(actor, targetRole.is_owner_role ? 'super_admin' : targetRole.base_role === 'super_admin' ? 'admin' : targetRole.base_role, pageSlug, newAccess);
     if (!guard.allowed) {
-      setError(guard.reason ?? DENIED_COPY.actionDenied);
+      toast.error(guard.reason ?? DENIED_COPY.actionDenied);
       return;
     }
 
@@ -681,19 +686,22 @@ export default function RolesPermissions() {
         ...prev,
         [pageSlug]: { ...prev[pageSlug], [role]: newAccess },
       }));
+      toast.success(`${newAccess ? 'Granted' : 'Removed'} ${pageSlug.replace(/-/g, ' ')} for ${targetRole.name}`);
       fetchAuditLogs();
     } catch (err: any) {
       console.error('Failed to toggle permission:', err);
-      setError(err.message || 'Failed to update permission');
+      toast.error(err.message || 'Failed to update permission');
     } finally {
       setTogglingPerm(null);
     }
   };
 
   const applyActionPermission = async (role: string, actionKey: string, nextValue: boolean) => {
-    const guard = canToggleActionPermission(actor, roleById(role)?.base_role ?? 'super_admin', actionKey, nextValue);
+    const targetRole = roleById(role);
+    if (!targetRole) return;
+    const guard = canToggleActionPermission(actor, targetRole.is_owner_role ? 'super_admin' : targetRole.base_role === 'super_admin' ? 'admin' : targetRole.base_role, actionKey, nextValue);
     if (!guard.allowed) {
-      setError(guard.reason ?? DENIED_COPY.actionDenied);
+      toast.error(guard.reason ?? DENIED_COPY.actionDenied);
       return;
     }
 
@@ -714,10 +722,11 @@ export default function RolesPermissions() {
         ...prev,
         [actionKey]: { ...prev[actionKey], [role]: nextValue },
       }));
+      toast.success(`${nextValue ? 'Granted' : 'Removed'} permission for ${targetRole.name}`);
       await Promise.all([fetchAuditLogs(), refetchCapabilities()]);
     } catch (err: any) {
       console.error('Failed to toggle action permission:', err);
-      setError(err.message || 'Failed to update permission');
+      toast.error(err.message || 'Failed to update permission');
     } finally {
       setTogglingAction(null);
     }
@@ -1017,7 +1026,7 @@ export default function RolesPermissions() {
           <Card>
             <CardHeader>
               <CardTitle>Permissions Matrix</CardTitle>
-              <CardDescription>Page access permissions for each role</CardDescription>
+              <CardDescription>Tick or untick a box to give or remove page access for a role. Super Admin always has every page and cannot be changed.</CardDescription>
             </CardHeader>
             <CardContent>
               <ScrollArea className="w-full">
@@ -1063,17 +1072,13 @@ export default function RolesPermissions() {
                                     {isToggling ? (
                                       <Loader2 className="h-4 w-4 animate-spin mx-auto text-muted-foreground" />
                                     ) : canManageRoles && !role.is_owner_role && page !== 'roles' ? (
-                                      <button
-                                        onClick={() => handleTogglePermission(page, r)}
-                                        className="mx-auto block cursor-pointer hover:scale-110 transition-transform"
+                                      <Checkbox
+                                        checked={hasAccess}
+                                        onCheckedChange={() => handleTogglePermission(page, r)}
+                                        className="mx-auto"
+                                        aria-label={hasAccess ? `Revoke ${page} from ${role.name}` : `Grant ${page} to ${role.name}`}
                                         title={hasAccess ? `Revoke ${page} from ${role.name}` : `Grant ${page} to ${role.name}`}
-                                      >
-                                        {hasAccess ? (
-                                          <CheckCircle className="h-4 w-4 text-green-500" />
-                                        ) : (
-                                          <div className="h-4 w-4 rounded-full border-2 border-muted-foreground/30 hover:border-primary" />
-                                        )}
-                                      </button>
+                                      />
                                     ) : (
                                       hasAccess ? (
                                         <CheckCircle className="h-4 w-4 text-green-500 mx-auto" />
@@ -1143,21 +1148,16 @@ export default function RolesPermissions() {
                                 {isToggling ? (
                                   <Loader2 className="h-4 w-4 animate-spin mx-auto text-muted-foreground" />
                                 ) : canManageRoles && !role.is_owner_role ? (
-                                  <button
-                                    onClick={() => handleToggleActionPermission(r, actionKey)}
-                                    className="mx-auto block cursor-pointer hover:scale-110 transition-transform"
-                                    title={
+                                  <Checkbox
+                                    checked={isAllowed}
+                                    onCheckedChange={() => handleToggleActionPermission(r, actionKey)}
+                                    className="mx-auto"
+                                    aria-label={
                                       isAllowed
                                         ? `Revoke ${DEMAND_ZONE_ACTION_LABELS[actionKey]} from ${role.name}`
                                         : `Grant ${DEMAND_ZONE_ACTION_LABELS[actionKey]} to ${role.name}`
                                     }
-                                  >
-                                    {isAllowed ? (
-                                      <CheckCircle className="h-4 w-4 text-green-500" />
-                                    ) : (
-                                      <div className="h-4 w-4 rounded-full border-2 border-muted-foreground/30 hover:border-primary" />
-                                    )}
-                                  </button>
+                                  />
                                 ) : isAllowed ? (
                                   <CheckCircle className="h-4 w-4 text-green-500 mx-auto" />
                                 ) : (
