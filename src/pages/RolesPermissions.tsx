@@ -590,7 +590,7 @@ export default function RolesPermissions() {
 
   const openReassignDialog = (staff: StaffMember) => {
     setSelectedStaff(staff);
-    setReassignRole(staff.role);
+    setReassignRole(staff.role_id);
     setShowReassignDialog(true);
   };
 
@@ -607,7 +607,7 @@ export default function RolesPermissions() {
         s.staff_role_id,
         s.full_name,
         s.username || '',
-        ROLE_LABELS[s.role],
+        roleName(s.role_id),
         s.service_areas.map(sa => sa.name).join('; '),
         s.created_at,
       ].map(csvCell).join(','))
@@ -1222,9 +1222,9 @@ export default function RolesPermissions() {
                           const action = log.event_type.replace('roles.', '').replace(/\./g, ' ');
                           let summary = '';
                           if (log.event_type === 'roles.permission.toggle') {
-                            summary = `${d.new_access ? 'GRANTED' : 'REVOKED'} "${d.page_slug}" for ${ROLE_LABELS[d.role as StaffRole] ?? d.role}`;
+                            summary = `${d.new_access ? 'GRANTED' : 'REVOKED'} "${d.page_slug}" for ${String(d.target_role ?? d.role ?? '')}`;
                           } else if (log.event_type === 'roles.staff.add') {
-                            summary = `Added ${d.full_name} as ${ROLE_LABELS[d.role as StaffRole] ?? d.role}`;
+                            summary = `Added ${d.full_name} as ${ROLE_LABELS[d.role as StaffRole] ?? String(d.role ?? '')}`;
                           } else if (log.event_type === 'roles.staff.reassign') {
                             summary = `${d.full_name}: ${ROLE_LABELS[d.previous_role as StaffRole] ?? d.previous_role} → ${ROLE_LABELS[d.new_role as StaffRole] ?? d.new_role}`;
                           } else if (log.event_type === 'roles.staff.remove') {
