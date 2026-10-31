@@ -142,6 +142,7 @@ export default function Documents() {
           id, driver_id, document_type, document_type_id, document_name, file_url, status, expiry_date, notes, rejection_reason, reviewed_at, reviewed_by, created_at, updated_at, is_current, superseded_by, last_reminded_at, reminder_sent_days, submission_idempotency_key,
           driver:drivers(id, first_name, last_name, phone, deleted_at)
         `)
+        .order('expiry_date', { ascending: true, nullsFirst: false })
         .order('created_at', { ascending: false })
         .limit(500);
 
