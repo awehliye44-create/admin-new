@@ -417,8 +417,34 @@ Deno.serve(async (req) => {
         }
       }
 
-      // Use the atomic database function
-      const { data, error } = await supabase.rpc("accept_scheduled_ride", {
+      // Live Europe/London document eligibility (same SSOT as accept-offer).
+      // RPC also enforces this — Edge check gives a clear error before the lock.
+      {
+        const { data: docsApproved, error: docsErr } = await supabase.rpc(
+          "check_driver_documents_approved",
+          { p_driver_id: driver_id },
+        );
+        if (docsErr) {
+          console.error("[scheduled-ride-action] docs eligibility RPC error:", docsErr);
+          return errorResponse("DATABASE_ERROR", docsErr.message, 500);
+        }
+        if (docsApproved !== true) {
+          return errorResponse(
+            "DOCUMENTS_NOT_APPROVED",
+            "One or more of your documents has expired or is not approved. Renew them before accepting scheduled rides.",
+            403,
+          );
+        }
+      }
+
+      // Invoke as the authenticated driver so SECURITY DEFINER auth.uid() /
+      // check_driver_documents_approved inside the RPC cannot be skipped.
+      // Service-role client remains for HELD guards + post-accept normalize.
+      const authHeader = req.headers.get("Authorization") ?? "";
+      const driverRpc = createClient(supabaseUrl, supabaseAnonKey, {
+        global: { headers: { Authorization: authHeader } },
+      });
+      const { data, error } = await driverRpc.rpc("accept_scheduled_ride", {
         p_trip_id: trip_id,
         p_driver_id: driver_id,
       });
@@ -434,6 +460,7 @@ Deno.serve(async (req) => {
         const statusCode = data.error === "TRIP_NOT_FOUND" ? 404 :
                           data.error === "TRIP_ALREADY_TAKEN" ? 409 :
                           data.error === "DRIVER_EXCLUDED" ? 403 :
+                          data.error === "DOCUMENTS_NOT_APPROVED" ? 403 :
                           data.error === "LOCK_CONTENTION" ? 409 : 400;
 
         return new Response(
