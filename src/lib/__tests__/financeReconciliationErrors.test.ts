@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  assertDriverStatementTotalsResponse,
   assertFinanceReconciliationSsotResponse,
   classifyFinanceReconciliationError,
 } from '@/lib/financeReconciliationErrors';
@@ -67,6 +68,36 @@ describe('financeReconciliationErrors', () => {
         },
       }),
     ).not.toThrow();
+  });
+
+  it('accepts statement_totals payload without FR summary', () => {
+    expect(() =>
+      assertDriverStatementTotalsResponse({
+        period: { from: '2026-10-01', to: '2026-10-31' },
+        currency_code: 'GBP',
+        driver_statement_totals: [
+          {
+            driver_id: 'd1',
+            gross_earnings_pence: 1000,
+            commission_pence: 200,
+            net_earnings_pence: 800,
+          },
+        ],
+        meta: { ssot_version: 'financial_reconciliation_ssot_v5', data_source_badge: 'LIVE' },
+      }),
+    ).not.toThrow();
+
+    expect(() =>
+      assertFinanceReconciliationSsotResponse({
+        driver_statement_totals: [],
+      }),
+    ).toThrow(/missing finance_reconciliation_summary or profit_ssot/);
+
+    expect(() =>
+      assertDriverStatementTotalsResponse({
+        finance_reconciliation_summary: { customer_revenue: {} },
+      }),
+    ).toThrow(/missing driver_statement_totals/);
   });
 });
 
