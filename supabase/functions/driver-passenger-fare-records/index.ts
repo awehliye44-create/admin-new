@@ -159,6 +159,7 @@ Deno.serve(async (req) => {
             typeof trip.payment_collection_model === "string"
               ? trip.payment_collection_model
               : null,
+          invoice_no: typeof trip.invoice_no === "string" ? trip.invoice_no : null,
           invoice_available: Boolean(trip.invoice_no || trip.invoice_generated_at),
           pdf_download_authorised: false,
         };

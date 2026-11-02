@@ -337,17 +337,25 @@ async function signedUrlFromAdminInvoice(
   supabase: SupabaseClient,
   invoice: { pdf_storage_path?: string | null; invoice_pdf_url?: string | null },
 ): Promise<string | null> {
-  if (invoice.invoice_pdf_url) {
-    return invoice.invoice_pdf_url;
+  // Always mint a fresh signed URL from storage. Rows historically store expired
+  // /object/sign/ URLs in invoice_pdf_url — returning those makes PDFs appear "missing".
+  if (invoice.pdf_storage_path?.startsWith("invoices/drivers/")) {
+    const { data: signed, error } = await supabase.storage
+      .from(ADMIN_INVOICE_BUCKET)
+      .createSignedUrl(invoice.pdf_storage_path, 60 * 60);
+    if (!error && signed?.signedUrl) return signed.signedUrl;
   }
-  if (!invoice.pdf_storage_path?.startsWith("invoices/drivers/")) {
-    return null;
+  // Legacy fallback: only accept a non-signed durable URL (never a prior signed link).
+  const stored = invoice.invoice_pdf_url?.trim() || "";
+  if (
+    stored &&
+    !stored.includes("/object/sign/") &&
+    !stored.includes("token=") &&
+    !stored.includes("X-Amz-")
+  ) {
+    return stored;
   }
-  const { data: signed, error } = await supabase.storage
-    .from(ADMIN_INVOICE_BUCKET)
-    .createSignedUrl(invoice.pdf_storage_path, 60 * 60);
-  if (error || !signed?.signedUrl) return null;
-  return signed.signedUrl;
+  return null;
 }
 
 export async function getDriverStatementSignedUrl(
