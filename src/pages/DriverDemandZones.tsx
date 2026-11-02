@@ -587,6 +587,9 @@ export default function DriverDemandZones() {
             <Button variant="outline" onClick={() => setSettingsOpen(true)}>
               <Settings2 className="mr-2 h-4 w-4" />
               Heat map &amp; surge settings
+              {serviceAreaFilter === 'all'
+                ? ' (select a service area)'
+                : ` · ${filterServiceAreas.find((sa) => sa.id === serviceAreaFilter)?.name ?? 'service area'}`}
             </Button>
             <Button onClick={openCreate} disabled={!manualZonesEnabled || !canManageManualZones}>
               <Plus className="mr-2 h-4 w-4" />
@@ -817,7 +820,10 @@ export default function DriverDemandZones() {
         onOpenChange={setSettingsOpen}
         serviceAreaId={serviceAreaFilter}
         serviceAreaName={
-          filterServiceAreas.find((sa) => sa.id === serviceAreaFilter)?.name ?? 'All service areas'
+          serviceAreaFilter === 'all'
+            ? 'All service areas'
+            : (filterServiceAreas.find((sa) => sa.id === serviceAreaFilter)?.name ??
+              'Selected service area')
         }
       />
     </AdminLayout>
