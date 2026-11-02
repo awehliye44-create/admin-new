@@ -116,14 +116,21 @@ export function nativeAppHandoffLocation(args: {
   return accountEmailVerificationDeepLink(args.appType, token, error);
 }
 
-/** Supabase edge bridge: HTTPS email button that hands off to the native app. */
+/** Supabase edge bridge: HTTPS email button that hands off to the native app (or Driver Portal). */
 export function accountEmailVerificationBridgeUrl(
   supabaseUrl: string,
   appType: VerificationAppType,
   token: string,
+  options?: { handoff?: string | null },
 ): string {
   const base = supabaseUrl.replace(/\/+$/, "");
-  return `${base}/functions/v1/account-email-verify-link?token=${encodeURIComponent(token)}&app=${appType}`;
+  const params = new URLSearchParams({
+    token,
+    app: appType,
+  });
+  const handoff = String(options?.handoff ?? "").trim();
+  if (handoff) params.set("handoff", handoff);
+  return `${base}/functions/v1/account-email-verify-link?${params.toString()}`;
 }
 
 /** Email change bridge (separate from signup verification). */

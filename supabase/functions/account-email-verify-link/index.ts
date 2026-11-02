@@ -5,11 +5,13 @@ import {
   type VerificationAppType,
 } from "../_shared/accountEmailVerification.ts";
 import {
+  driverPortalVerifyEmailUrl,
   EMAIL_VERIFICATION_AUDIT,
   hashVerificationToken,
   isLatestUnusedVerificationToken,
   isVerificationTokenExpired,
   logVerificationAudit,
+  parseDriverPortalHandoff,
 } from "../_shared/emailVerificationPolicy.ts";
 
 const corsHeaders = {
@@ -41,6 +43,19 @@ function nativeAppHandoffResponse(
     error,
     userAgent: req.headers.get("user-agent"),
   }));
+}
+
+function handoffResponse(
+  req: Request,
+  appType: VerificationAppType,
+  token: string,
+  error: string | undefined,
+  portalHandoff: boolean,
+): Response {
+  if (portalHandoff && appType === "driver") {
+    return redirectResponse(driverPortalVerifyEmailUrl(token, error));
+  }
+  return nativeAppHandoffResponse(req, appType, token, error);
 }
 
 type LinkValidation =
@@ -100,6 +115,7 @@ Deno.serve(async (req) => {
   const url = new URL(req.url);
   const token = String(url.searchParams.get("token") ?? "").trim();
   const appType = resolveVerificationAppType(url.searchParams.get("app"));
+  const portalHandoff = parseDriverPortalHandoff(url.searchParams.get("handoff"));
 
   if (!token) {
     logVerificationAudit(EMAIL_VERIFICATION_AUDIT.INVALID_TOKEN, {
@@ -107,7 +123,7 @@ Deno.serve(async (req) => {
       phase: "verify_link",
       reason: "missing_token",
     });
-    return nativeAppHandoffResponse(req, appType, "", "missing_token");
+    return handoffResponse(req, appType, "", "missing_token", portalHandoff);
   }
 
   const validation = await validateVerificationLink(token, appType);
@@ -123,8 +139,8 @@ Deno.serve(async (req) => {
       reason: validation.reason,
     });
     const openToken = NON_RECOVERABLE_LINK_REASONS.has(validation.reason) ? "" : token;
-    return nativeAppHandoffResponse(req, appType, openToken, validation.reason);
+    return handoffResponse(req, appType, openToken, validation.reason, portalHandoff);
   }
 
-  return nativeAppHandoffResponse(req, appType, token);
+  return handoffResponse(req, appType, token, undefined, portalHandoff);
 });

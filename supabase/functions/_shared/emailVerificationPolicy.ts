@@ -5,6 +5,12 @@ export const EMAIL_VERIFICATION_EXPIRY_MINUTES = 30;
 export const EMAIL_VERIFICATION_RESEND_COOLDOWN_SECONDS = 60;
 
 export const ONECAB_NATIVE_CLIENT_HEADER = "x-onecab-native-client";
+/** Browser Driver Portal — allowed only for driver email verification (not customer/admin). */
+export const ONECAB_DRIVER_PORTAL_CLIENT_HEADER = "x-onecab-client";
+export const ONECAB_DRIVER_PORTAL_CLIENT_VALUE = "driver-portal";
+export const DRIVER_PORTAL_EMAIL_HANDOFF = "driver_portal";
+export const DRIVER_PORTAL_VERIFY_EMAIL_PATH = "/driver-portal/verify-email";
+export const DRIVER_PORTAL_PUBLIC_ORIGIN = "https://onecab.net";
 
 export const EMAIL_VERIFICATION_AUDIT = {
   SENT: "EMAIL_VERIFICATION_SENT",
@@ -22,27 +28,62 @@ type VerificationTokenRowRef = {
   user_id: string;
 };
 
+export function isNativeClientRequest(req: Request): boolean {
+  return String(req.headers.get(ONECAB_NATIVE_CLIENT_HEADER) ?? "").trim().toLowerCase() === "native";
+}
+
+export function isDriverPortalClientRequest(req: Request): boolean {
+  return (
+    String(req.headers.get(ONECAB_DRIVER_PORTAL_CLIENT_HEADER) ?? "").trim().toLowerCase() ===
+    ONECAB_DRIVER_PORTAL_CLIENT_VALUE
+  );
+}
+
+/**
+ * Email verification Edges: native always allowed.
+ * Driver Portal browser client allowed only when appType === "driver".
+ * Never open customer/admin verification to arbitrary browsers.
+ */
+export function assertEmailVerificationClientAllowed(
+  req: Request,
+  appType: VerificationAppType,
+): Response | null {
+  if (isNativeClientRequest(req)) return null;
+  if (appType === "driver" && isDriverPortalClientRequest(req)) return null;
+
+  logVerificationAudit(EMAIL_VERIFICATION_AUDIT.INVALID_TOKEN, {
+    phase: "native_client_required",
+    reason: "browser_client_not_allowed",
+    app_type: appType,
+  });
+  return new Response(JSON.stringify({
+    error: "Email verification can only be completed in the ONECAB app or Driver Portal.",
+    code: "native_app_required",
+  }), {
+    status: 403,
+    headers: {
+      "Access-Control-Allow-Origin": "*",
+      "Access-Control-Allow-Headers":
+        "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version, x-onecab-native-client, x-onecab-client",
+      "Content-Type": "application/json",
+    },
+  });
+}
+
+/** @deprecated Prefer assertEmailVerificationClientAllowed — kept for native-only call sites. */
 export function assertNativeClientOnly(req: Request): Response | null {
-  const nativeClient = String(req.headers.get(ONECAB_NATIVE_CLIENT_HEADER) ?? "").trim().toLowerCase();
-  if (nativeClient !== "native") {
-    logVerificationAudit(EMAIL_VERIFICATION_AUDIT.INVALID_TOKEN, {
-      phase: "native_client_required",
-      reason: "browser_client_not_allowed",
-    });
-    return new Response(JSON.stringify({
-      error: "Email verification can only be completed in the ONECAB app.",
-      code: "native_app_required",
-    }), {
-      status: 403,
-      headers: {
-        "Access-Control-Allow-Origin": "*",
-        "Access-Control-Allow-Headers":
-          "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version, x-onecab-native-client",
-        "Content-Type": "application/json",
-      },
-    });
-  }
-  return null;
+  return assertEmailVerificationClientAllowed(req, "customer");
+}
+
+export function driverPortalVerifyEmailUrl(token: string, error?: string): string {
+  const params = new URLSearchParams({ app: "driver", token });
+  if (error) params.set("error", error);
+  return `${DRIVER_PORTAL_PUBLIC_ORIGIN}${DRIVER_PORTAL_VERIFY_EMAIL_PATH}?${params.toString()}`;
+}
+
+export function parseDriverPortalHandoff(raw: unknown): boolean {
+  const value = String(raw ?? "").trim().toLowerCase();
+  return value === DRIVER_PORTAL_EMAIL_HANDOFF || value === "web" || value === "portal";
 }
 
 export function verificationExpiresAt(now = Date.now()): string {

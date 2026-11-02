@@ -34,7 +34,7 @@ Deno.test("email-change email has no browser fallback", () => {
   assertEquals(BROWSER_RE.test(email.text), false);
 });
 
-Deno.test("send functions no longer build web verify URLs", async () => {
+Deno.test("send functions no longer build legacy browser verify URLs", async () => {
   const send = await Deno.readTextFile(
     new URL("../../functions/send-account-email-verification/index.ts", import.meta.url),
   );
@@ -50,6 +50,26 @@ Deno.test("send functions no longer build web verify URLs", async () => {
   assertEquals(shared.includes("accountEmailVerificationWebUrl"), false);
   assertEquals(shared.includes("accountEmailChangeWebUrl"), false);
   assertEquals(shared.includes("driver.onecab.net"), false);
+});
+
+Deno.test("Driver Portal email handoff is explicit and driver-only", async () => {
+  // Read-only source lock — do not import Edge modules (avoids Deno npm:@supabase resolve).
+  const policy = await Deno.readTextFile(
+    new URL("../../functions/_shared/emailVerificationPolicy.ts", import.meta.url),
+  );
+  const link = await Deno.readTextFile(
+    new URL("../../functions/account-email-verify-link/index.ts", import.meta.url),
+  );
+  const send = await Deno.readTextFile(
+    new URL("../../functions/send-account-email-verification/index.ts", import.meta.url),
+  );
+  assertEquals(policy.includes('ONECAB_DRIVER_PORTAL_CLIENT_VALUE = "driver-portal"'), true);
+  assertEquals(policy.includes("assertEmailVerificationClientAllowed"), true);
+  assertEquals(policy.includes('appType === "driver" && isDriverPortalClientRequest(req)'), true);
+  assertEquals(link.includes("driverPortalVerifyEmailUrl"), true);
+  assertEquals(link.includes('portalHandoff && appType === "driver"'), true);
+  assertEquals(send.includes("assertEmailVerificationClientAllowed"), true);
+  assertEquals(send.includes("DRIVER_PORTAL_EMAIL_HANDOFF"), true);
 });
 
 Deno.test("signup verification send-before-persist and uses verification tag", async () => {

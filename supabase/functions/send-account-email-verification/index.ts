@@ -6,15 +6,17 @@ import {
   type VerificationAppType,
 } from "../_shared/accountEmailVerification.ts";
 import {
+  assertEmailVerificationClientAllowed,
   assertPendingVerificationAccountForEmailSend,
   assertVerificationResendAllowed,
+  DRIVER_PORTAL_EMAIL_HANDOFF,
   EMAIL_VERIFICATION_AUDIT,
   EMAIL_VERIFICATION_RESEND_COOLDOWN_SECONDS,
   generateVerificationToken,
   hashVerificationToken,
   invalidateUnusedVerificationTokens,
   logVerificationAudit,
-  ONECAB_NATIVE_CLIENT_HEADER,
+  parseDriverPortalHandoff,
   verificationExpiresAt,
 } from "../_shared/emailVerificationPolicy.ts";
 import {
@@ -26,26 +28,8 @@ import { sendResendEmail } from "../_shared/resendMail.ts";
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers":
-    "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version, x-onecab-native-client",
+    "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version, x-onecab-native-client, x-onecab-client",
 };
-
-function assertNativeClientOnly(req: Request): Response | null {
-  const nativeClient = String(req.headers.get(ONECAB_NATIVE_CLIENT_HEADER) ?? "").trim().toLowerCase();
-  if (nativeClient !== "native") {
-    logVerificationAudit(EMAIL_VERIFICATION_AUDIT.SENT, {
-      phase: "send_blocked",
-      reason: "browser_client_not_allowed",
-    });
-    return new Response(JSON.stringify({
-      error: "Verification emails can only be sent from the ONECAB app.",
-      code: "native_app_required",
-    }), {
-      status: 403,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
-  }
-  return null;
-}
 
 async function resolveProfileFirstName(
   service: AnySupabaseClient,
@@ -93,9 +77,6 @@ Deno.serve(async (req) => {
     const supabaseAnonKey = Deno.env.get("SUPABASE_ANON_KEY")!;
     const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
-    const nativeGuard = assertNativeClientOnly(req);
-    if (nativeGuard) return nativeGuard;
-
     const authHeader = req.headers.get("Authorization");
     if (!authHeader) {
       return new Response(JSON.stringify({ error: "Unauthorized" }), {
@@ -117,6 +98,9 @@ Deno.serve(async (req) => {
 
     const body = await req.json().catch(() => ({}));
     const appType = resolveVerificationAppType(body.app_type);
+    const clientGuard = assertEmailVerificationClientAllowed(req, appType);
+    if (clientGuard) return clientGuard;
+    const portalHandoff = parseDriverPortalHandoff(body.handoff);
 
     if (user.email_confirmed_at) {
       logVerificationAudit(EMAIL_VERIFICATION_AUDIT.ALREADY_VERIFIED, {
@@ -170,7 +154,9 @@ Deno.serve(async (req) => {
     const hash = await hashVerificationToken(rawToken);
     const expiresAt = verificationExpiresAt();
 
-    const verifyUrl = accountEmailVerificationBridgeUrl(supabaseUrl, appType, rawToken);
+    const verifyUrl = accountEmailVerificationBridgeUrl(supabaseUrl, appType, rawToken, {
+      handoff: portalHandoff && appType === "driver" ? DRIVER_PORTAL_EMAIL_HANDOFF : null,
+    });
     const profileFirstName = await resolveProfileFirstName(service, user.id, appType);
     const firstName = resolveVerificationFirstName(user.user_metadata, profileFirstName);
 

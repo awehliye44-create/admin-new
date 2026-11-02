@@ -1,7 +1,7 @@
 import { createClient } from "npm:@supabase/supabase-js@2.57.2";
 import { resolveVerificationAppType } from "../_shared/accountEmailVerification.ts";
 import {
-  assertNativeClientOnly,
+  assertEmailVerificationClientAllowed,
   EMAIL_VERIFICATION_AUDIT,
   hashVerificationToken,
   isLatestUnusedVerificationToken,
@@ -12,7 +12,7 @@ import {
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers":
-    "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version, x-onecab-native-client",
+    "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version, x-onecab-native-client, x-onecab-client",
 };
 
 function jsonResponse(body: Record<string, unknown>, status = 200): Response {
@@ -28,9 +28,6 @@ Deno.serve(async (req) => {
   }
 
   try {
-    const nativeGuard = assertNativeClientOnly(req);
-    if (nativeGuard) return nativeGuard;
-
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const service = createClient(supabaseUrl, serviceKey);
@@ -39,6 +36,8 @@ Deno.serve(async (req) => {
     const body = req.method === "POST" ? await req.json().catch(() => ({})) : {};
     const token = String(body.token ?? url.searchParams.get("token") ?? "").trim();
     const appType = resolveVerificationAppType(body.app_type ?? url.searchParams.get("app"));
+    const clientGuard = assertEmailVerificationClientAllowed(req, appType);
+    if (clientGuard) return clientGuard;
 
     if (!token) {
       logVerificationAudit(EMAIL_VERIFICATION_AUDIT.INVALID_TOKEN, { app_type: appType, reason: "missing_token" });
