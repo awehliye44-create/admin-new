@@ -191,6 +191,9 @@ verify_jwt = false
 [functions.auto-generate-statements]
 verify_jwt = false
 
+[functions.deliver-driver-statement]
+verify_jwt = false
+
 [functions.validate-scheduled-booking]
 verify_jwt = false
 

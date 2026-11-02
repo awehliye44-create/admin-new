@@ -13,7 +13,7 @@ Deno.test("auto-generate-statements consumes shared invoice aggregation; no PS d
   );
   assertStringIncludes(src, "aggregateDriverInvoice");
   assertStringIncludes(src, "buildInvoiceItems");
-  assertStringIncludes(src, "assertServiceRole");
+  assertStringIncludes(src, "assertCronOrServiceRoleAuth");
   assertStringIncludes(src, "statement_schedule_configs");
   assertStringIncludes(src, "next_run_at");
   assertStringIncludes(src, 'if (config.next_run_at && new Date(config.next_run_at) > now)');
@@ -32,6 +32,7 @@ Deno.test("scheduled skip when next_run_at is in the future is the idempotency g
   );
   assertStringIncludes(src, "continue; // Not time yet");
   assertStringIncludes(src, "generateDriverInvoicePdfOnly");
+  assertStringIncludes(src, "deliverDriverStatement");
   assertStringIncludes(src, 'from("invoices")');
   assertStringIncludes(src, 'from("invoice_items")');
   assertStringIncludes(src, 'from("statement_runs")');
@@ -44,4 +45,6 @@ Deno.test("email/PDF boundaries: PDF via shared service; handler does not import
   assertFalse(src.includes("resendMail"));
   assertFalse(src.includes("sendResend"));
   assertStringIncludes(src, "is_auto_send_enabled");
+  assertStringIncludes(src, "deliverDriverStatement");
+  assertStringIncludes(src, 'status: "draft"');
 });

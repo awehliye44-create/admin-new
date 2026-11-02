@@ -1,10 +1,11 @@
 import type { AnySupabaseClient } from "../_shared/supabaseClientTypes.ts";
 import { createClient } from "npm:@supabase/supabase-js@2.57.2";
+import { assertCronOrServiceRoleAuth } from "../_shared/cronEdgeAuth.ts";
 import { deliverDriverStatement } from "../_shared/deliverDriverStatement.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-onecab-cron-secret",
 };
 
 async function isAdmin(supabase: AnySupabaseClient, userId: string): Promise<boolean> {
@@ -36,9 +37,7 @@ Deno.serve(async (req) => {
       });
     }
 
-    const token = authHeader.replace("Bearer ", "");
-    const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-    const isServiceCall = token === serviceKey;
+    const token = authHeader.replace("Bearer ", "").trim();
     let sentByUserId: string | null = null;
 
     const body = await req.json();
@@ -46,6 +45,9 @@ Deno.serve(async (req) => {
 
     const isDeliverAction = action === "deliver";
     const isBackfillAction = action === "backfill";
+
+    const cronAuth = await assertCronOrServiceRoleAuth(req, body);
+    const isServiceCall = cronAuth.ok;
 
     if (!isServiceCall) {
       const { data: { user }, error: authError } = await supabaseAdmin.auth.getUser(token);

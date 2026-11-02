@@ -1,10 +1,10 @@
 import { createClient } from "npm:@supabase/supabase-js@2.57.2";
-import { assertServiceRole } from "../_shared/internalAuth.ts";
+import { assertCronOrServiceRoleAuth } from "../_shared/cronEdgeAuth.ts";
 import { aggregateDriverInvoice, buildInvoiceItems } from "../_shared/driverInvoiceAggregation.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-onecab-cron-secret",
 };
 
 Deno.serve(async (req) => {
@@ -12,8 +12,10 @@ Deno.serve(async (req) => {
     return new Response("ok", { headers: corsHeaders });
   }
 
-  const gate = assertServiceRole(req);
-  if (gate) return gate;
+  // Accept edge-env service role, CRON_SECRET, or any JWT that passes
+  // auth.admin.listUsers (vault service_role_key can lag env rotation).
+  const auth = await assertCronOrServiceRoleAuth(req);
+  if (!auth.ok) return auth.response;
 
   try {
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
@@ -232,8 +234,10 @@ Deno.serve(async (req) => {
                 completed_trips: completedTrips.size,
                 no_show_trips: noShowTrips,
                 late_cancel_trips: lateCancelTrips,
-                status: config.is_auto_send_enabled && config.send_mode === "immediate" ? "sent" : "draft",
-                sent_at: config.is_auto_send_enabled && config.send_mode === "immediate" ? new Date().toISOString() : null,
+                // Always insert as draft; deliverDriverStatement (or manual Send All)
+                // promotes to sent after PDF + inbox succeed.
+                status: "draft",
+                sent_at: null,
               })
               .select()
               .single();
@@ -242,14 +246,36 @@ Deno.serve(async (req) => {
               const items = buildInvoiceItems(inv.id, agg);
               if (items.length) await supabase.from("invoice_items").insert(items);
 
+              const shouldAutoSend =
+                config.is_auto_send_enabled && config.send_mode === "immediate";
+
               try {
-                const { generateDriverInvoicePdfOnly } = await import("../_shared/driverInvoiceService.ts");
-                const pdfResult = await generateDriverInvoicePdfOnly(supabase, inv.id);
-                if (!pdfResult.ok) {
-                  console.warn("[auto-generate-statements] pdf_generation_failed", {
-                    invoiceId: inv.id,
-                    error: pdfResult.error,
+                if (shouldAutoSend) {
+                  const { deliverDriverStatement } = await import("../_shared/deliverDriverStatement.ts");
+                  const delivered = await deliverDriverStatement(supabase, inv.id, {
+                    regeneratePdf: true,
                   });
+                  if (!delivered.success) {
+                    console.warn("[auto-generate-statements] deliver_failed", {
+                      invoiceId: inv.id,
+                      error: delivered.error,
+                    });
+                    // Keep draft so Admin Send All can retry with a real PDF/inbox path.
+                    await supabase.from("invoices").update({
+                      status: "draft",
+                      sent_at: null,
+                      invoice_pdf_error: delivered.error ?? "deliver_failed",
+                    }).eq("id", inv.id);
+                  }
+                } else {
+                  const { generateDriverInvoicePdfOnly } = await import("../_shared/driverInvoiceService.ts");
+                  const pdfResult = await generateDriverInvoicePdfOnly(supabase, inv.id);
+                  if (!pdfResult.ok) {
+                    console.warn("[auto-generate-statements] pdf_generation_failed", {
+                      invoiceId: inv.id,
+                      error: pdfResult.error,
+                    });
+                  }
                 }
               } catch (pdfErr) {
                 console.warn("[auto-generate-statements] pdf_generation_error", pdfErr);
@@ -260,8 +286,22 @@ Deno.serve(async (req) => {
             }
           }
 
+          const { count: stillDraft } = await supabase
+            .from("invoices")
+            .select("id", { count: "exact", head: true })
+            .eq("statement_run_id", run.id)
+            .eq("status", "draft");
+
+          const autoSendImmediate =
+            config.is_auto_send_enabled && config.send_mode === "immediate";
+          const runStatus = !autoSendImmediate
+            ? "completed"
+            : (stillDraft ?? 0) > 0
+            ? "completed"
+            : "sent";
+
           await supabase.from("statement_runs").update({
-            status: config.is_auto_send_enabled && config.send_mode === "immediate" ? "sent" : "completed",
+            status: runStatus,
             total_invoices: runInvoiceCount,
             total_amount_pence: runTotal,
             completed_at: new Date().toISOString(),
