@@ -14529,6 +14529,7 @@ export type Database = {
           invoice_email_status: string | null
           invoice_generated_at: string | null
           invoice_number: string
+          invoice_pdf_error: string | null
           invoice_pdf_url: string | null
           late_cancel_trips: number
           lifecycle_status: string | null
@@ -14586,6 +14587,7 @@ export type Database = {
           invoice_email_status?: string | null
           invoice_generated_at?: string | null
           invoice_number: string
+          invoice_pdf_error?: string | null
           invoice_pdf_url?: string | null
           late_cancel_trips?: number
           lifecycle_status?: string | null
@@ -14643,6 +14645,7 @@ export type Database = {
           invoice_email_status?: string | null
           invoice_generated_at?: string | null
           invoice_number?: string
+          invoice_pdf_error?: string | null
           invoice_pdf_url?: string | null
           late_cancel_trips?: number
           lifecycle_status?: string | null

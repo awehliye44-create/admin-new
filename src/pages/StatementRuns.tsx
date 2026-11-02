@@ -234,22 +234,62 @@ export default function StatementRuns() {
 
   const sendRunMutation = useMutation({
     mutationFn: async (runId: string) => {
-      const { error } = await supabase
+      await supabase
+        .from("statement_runs")
+        .update({ status: "sending" })
+        .eq("id", runId);
+
+      const { data: drafts, error: listError } = await supabase
         .from("invoices")
-        .update({ status: "sent", sent_at: new Date().toISOString(), finalized_at: new Date().toISOString() })
+        .select("id")
         .eq("statement_run_id", runId)
         .eq("status", "draft");
+      if (listError) throw listError;
+
+      const invoiceIds = (drafts || []).map((row) => row.id);
+      if (invoiceIds.length === 0) {
+        await supabase.from("statement_runs").update({ status: "sent" }).eq("id", runId);
+        return { sent: 0, failed: 0 };
+      }
+
+      const { data, error } = await supabase.functions.invoke("deliver-driver-statement", {
+        body: {
+          action: "deliver",
+          invoice_ids: invoiceIds,
+          regenerate_pdf: true,
+        },
+      });
       if (error) throw error;
+      if (data?.error) throw new Error(data.error);
+
+      const results = Array.isArray(data?.results) ? data.results : [];
+      const sent = results.filter((r: { success?: boolean }) => r?.success).length;
+      const failed = results.length - sent;
+      if (failed > 0 && sent === 0) {
+        await supabase.from("statement_runs").update({ status: "failed" }).eq("id", runId);
+        throw new Error(results.find((r: { error?: string }) => r?.error)?.error || "Statement delivery failed");
+      }
 
       await supabase
         .from("statement_runs")
-        .update({ status: "sent" })
+        .update({ status: failed > 0 ? "completed" : "sent" })
         .eq("id", runId);
+
+      return { sent, failed };
     },
-    onSuccess: () => {
+    onSuccess: (result) => {
       queryClient.invalidateQueries({ queryKey: ["statement-runs"] });
       queryClient.invalidateQueries({ queryKey: ["invoices"] });
-      toast({ title: "All statements sent" });
+      toast({
+        title: result.failed > 0 ? "Statements partially sent" : "All statements sent",
+        description: result.failed > 0
+          ? `${result.sent} sent, ${result.failed} failed — check invoice delivery logs`
+          : `Delivered ${result.sent} earnings statements to drivers`,
+        variant: result.failed > 0 ? "destructive" : "default",
+      });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Send failed", description: err.message, variant: "destructive" });
     },
   });
 
