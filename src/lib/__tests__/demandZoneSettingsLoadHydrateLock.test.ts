@@ -54,6 +54,14 @@ describe('demand zone settings load/hydrate lock', () => {
     expect(dialog).toContain('Starter defaults are shown for first-time create only');
   });
 
+  it('does not use maybeSingle for settings load (duplicate rows must not blank the dialog)', () => {
+    expect(dialog).not.toMatch(/\.maybeSingle\s*\(/);
+    expect(dialog).toContain('.limit(1)');
+    expect(dialog).toContain('pickDemandZoneSettingsRow');
+    expect(dialog).toContain('formatDemandZoneSettingsLoadError');
+    expect(form).toContain('formatDemandZoneSettingsLoadError');
+  });
+
   it('does not silently discard dirty edits on background refetch', () => {
     expect(dialog).toContain('serverSettingsAreNewerThanBaseline');
     expect(dialog).toContain('Server settings changed while you were editing');

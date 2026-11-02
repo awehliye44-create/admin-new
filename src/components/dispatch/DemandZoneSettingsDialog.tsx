@@ -29,7 +29,9 @@ import {
 import {
   buildDemandZoneSettingsSavePayload,
   demandZoneSettingsFormsEqual,
+  formatDemandZoneSettingsLoadError,
   mapDemandZoneSettingsRowToForm,
+  pickDemandZoneSettingsRow,
   safeHexColourForDisplay,
   serverSettingsAreNewerThanBaseline,
   starterDemandZoneSettingsForm,
@@ -43,9 +45,11 @@ interface Props {
   onOpenChange: (open: boolean) => void;
   serviceAreaId: string;
   serviceAreaName: string;
+  /** Optional row already loaded by the page list query — used as cache/fallback. */
+  prefetchedSettings?: Partial<DemandZoneSettings> | null;
 }
 
-const SETTINGS_SELECT =
+export const DEMAND_ZONE_SETTINGS_SELECT =
   'id,service_area_id,surge_enabled,heat_map_enabled,manual_zones_enabled,recompute_interval_minutes,consecutive_checks_required,zone_radius_meters,open_trip_max_lifetime_minutes,low_min_trips,low_max_trips,medium_min_trips,medium_max_trips,high_min_trips,multiplier_low,multiplier_medium,multiplier_high,max_multiplier,colour_low,colour_medium,colour_high,updated_by,created_at,updated_at';
 
 export function DemandZoneSettingsDialog({
@@ -53,6 +57,7 @@ export function DemandZoneSettingsDialog({
   onOpenChange,
   serviceAreaId,
   serviceAreaName,
+  prefetchedSettings = null,
 }: Props) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -84,6 +89,14 @@ export function DemandZoneSettingsDialog({
   const canSurge = can(DEMAND_ZONE_ACTION_KEYS.configureSurge);
   const readOnly = !canHeatMap && !canColours && !canSurge;
 
+  const cachedFromParent = useMemo(() => {
+    if (!prefetchedSettings || isAllAreas) return null;
+    if (prefetchedSettings.service_area_id && prefetchedSettings.service_area_id !== serviceAreaId) {
+      return null;
+    }
+    return prefetchedSettings as DemandZoneSettings;
+  }, [prefetchedSettings, isAllAreas, serviceAreaId]);
+
   const {
     data: settings,
     isPending,
@@ -95,23 +108,41 @@ export function DemandZoneSettingsDialog({
   } = useQuery({
     queryKey: ['demand-zone-settings', serviceAreaId],
     enabled: open && !isAllAreas,
+    // Prefer already-loaded page data so the dialog is not blocked by a flaky single-row read.
+    initialData: () => {
+      const fromAll = queryClient.getQueryData<DemandZoneSettings[]>(['demand-zone-settings-all']);
+      const match = fromAll?.find((row) => row.service_area_id === serviceAreaId);
+      return match ?? cachedFromParent ?? undefined;
+    },
+    initialDataUpdatedAt: 0,
     queryFn: async () => {
+      // Avoid maybeSingle(): duplicate rows for one service_area_id yield PGRST116 and blank the dialog
+      // even though the list query on this page succeeds.
       const { data, error } = await supabase
         .from('service_area_demand_zone_settings')
-        .select(SETTINGS_SELECT)
+        .select(DEMAND_ZONE_SETTINGS_SELECT)
         .eq('service_area_id', serviceAreaId)
-        .maybeSingle();
-      if (error) throw error;
-      return (data as DemandZoneSettings | null) ?? null;
+        .order('updated_at', { ascending: false })
+        .limit(1);
+      if (error) {
+        throw new Error(formatDemandZoneSettingsLoadError(error));
+      }
+      const row = pickDemandZoneSettingsRow(data as DemandZoneSettings[] | null);
+      if (row) return row;
+      // Fall back to page cache / prefetch before declaring missing.
+      const fromAll = queryClient.getQueryData<DemandZoneSettings[]>(['demand-zone-settings-all']);
+      const match = fromAll?.find((r) => r.service_area_id === serviceAreaId);
+      return match ?? cachedFromParent ?? null;
     },
   });
 
   const loadStatus: DemandZoneSettingsLoadStatus = useMemo(() => {
     if (!open || isAllAreas) return 'idle';
+    // Prefer a successful row (including cache) over a background refetch error.
+    if (settings != null) return 'ready';
     if (isPending) return 'loading';
     if (isError) return 'error';
     if (isSuccess && settings == null) return 'missing';
-    if (isSuccess && settings != null) return 'ready';
     return 'loading';
   }, [open, isAllAreas, isPending, isError, isSuccess, settings]);
 
@@ -465,7 +496,7 @@ export function DemandZoneSettingsDialog({
               <div>
                 <p className="font-medium">Could not load settings</p>
                 <p className="mt-1 text-xs">
-                  {loadError instanceof Error ? loadError.message : 'Unknown load error'}
+                  {formatDemandZoneSettingsLoadError(loadError)}
                 </p>
                 <p className="mt-2 text-xs text-muted-foreground">
                   Editable defaults are not shown. Save stays disabled until load succeeds.

@@ -234,3 +234,32 @@ export function serverSettingsAreNewerThanBaseline(input: {
   if (demandZoneSettingsFormsEqual(input.baseline, input.incoming)) return false;
   return input.formDirty;
 }
+
+/** PostgREST errors are plain objects — not always `instanceof Error`. */
+export function formatDemandZoneSettingsLoadError(error: unknown): string {
+  if (!error) return 'Unknown load error';
+  if (error instanceof Error && error.message.trim()) return error.message;
+  if (typeof error === 'object' && error !== null) {
+    const record = error as Record<string, unknown>;
+    const message = typeof record.message === 'string' ? record.message.trim() : '';
+    const code = typeof record.code === 'string' ? record.code.trim() : '';
+    const details = typeof record.details === 'string' ? record.details.trim() : '';
+    if (message && code && details) return `${message} (${code}: ${details})`;
+    if (message && code) return `${message} (${code})`;
+    if (message) return message;
+    if (code) return code;
+  }
+  if (typeof error === 'string' && error.trim()) return error;
+  return 'Unknown load error';
+}
+
+/**
+ * Select one settings row without maybeSingle().
+ * Duplicate service_area_id rows make maybeSingle() throw PGRST116 even though a list read succeeds.
+ */
+export function pickDemandZoneSettingsRow<T>(
+  rows: T[] | null | undefined,
+): T | null {
+  if (!rows || rows.length === 0) return null;
+  return rows[0] ?? null;
+}

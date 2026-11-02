@@ -3,7 +3,9 @@ import { DEMAND_ZONE_SETTINGS_DEFAULTS } from '../../../shared/demandZoneSurgeSS
 import {
   buildDemandZoneSettingsSavePayload,
   demandZoneSettingsFormsEqual,
+  formatDemandZoneSettingsLoadError,
   mapDemandZoneSettingsRowToForm,
+  pickDemandZoneSettingsRow,
   safeHexColourForDisplay,
   serverSettingsAreNewerThanBaseline,
   shouldRehydrateDemandZoneSettingsForm,
@@ -171,5 +173,26 @@ describe('buildDemandZoneSettingsSavePayload', () => {
     expect(payload.colour_low).toBe('#22C55E');
     expect(payload.multiplier_low).toBe(1.15);
     expect(payload.surge_enabled).toBe(true);
+  });
+});
+
+describe('formatDemandZoneSettingsLoadError', () => {
+  it('reads PostgREST plain-object messages (not instanceof Error)', () => {
+    expect(
+      formatDemandZoneSettingsLoadError({
+        message: 'JSON object requested, multiple (or no) rows returned',
+        code: 'PGRST116',
+        details: 'Results contain 2 rows, application/vnd.pgrst.object+json requires 1 row',
+      }),
+    ).toContain('PGRST116');
+    expect(formatDemandZoneSettingsLoadError(null)).toBe('Unknown load error');
+  });
+});
+
+describe('pickDemandZoneSettingsRow', () => {
+  it('returns the first row and null for empty', () => {
+    expect(pickDemandZoneSettingsRow([{ id: 'a' }, { id: 'b' }])).toEqual({ id: 'a' });
+    expect(pickDemandZoneSettingsRow([])).toBeNull();
+    expect(pickDemandZoneSettingsRow(null)).toBeNull();
   });
 });

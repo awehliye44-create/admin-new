@@ -160,7 +160,7 @@ export default function DriverDemandZones() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('service_area_demand_zone_settings')
-        .select('service_area_id, heat_map_enabled, manual_zones_enabled, recompute_interval_minutes, open_trip_max_lifetime_minutes, low_min_trips, low_max_trips, medium_min_trips, medium_max_trips, high_min_trips, consecutive_checks_required, surge_enabled, multiplier_low, multiplier_medium, multiplier_high, colour_low, colour_medium, colour_high');
+        .select('id,service_area_id,surge_enabled,heat_map_enabled,manual_zones_enabled,recompute_interval_minutes,consecutive_checks_required,zone_radius_meters,open_trip_max_lifetime_minutes,low_min_trips,low_max_trips,medium_min_trips,medium_max_trips,high_min_trips,multiplier_low,multiplier_medium,multiplier_high,max_multiplier,colour_low,colour_medium,colour_high,updated_by,created_at,updated_at');
       if (error) throw error;
       return (data ?? []) as DemandZoneSettings[];
     },
@@ -825,6 +825,7 @@ export default function DriverDemandZones() {
             : (filterServiceAreas.find((sa) => sa.id === serviceAreaFilter)?.name ??
               'Selected service area')
         }
+        prefetchedSettings={selectedSettings}
       />
     </AdminLayout>
   );
