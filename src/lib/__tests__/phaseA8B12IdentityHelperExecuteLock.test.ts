@@ -1,6 +1,10 @@
 /**
  * Lock: Phase A8B12 identity/permission-helper EXECUTE draft.
  * If this fails, fix the draft — never delete or soften the lock.
+ *
+ * Note: staff_has_action authenticated EXECUTE was later restored by
+ * 20261224140000_staff_has_action_authenticated_execute_restore.sql because
+ * Admin RLS invokes it as the invoker. That restore is locked separately.
  */
 import fs from 'fs';
 import path from 'path';
@@ -28,6 +32,17 @@ const POSTGRES_INTERNAL = [
   'recalculate_driver_documents_approved(uuid)',
 ];
 
+const HARD_STOP_NO_ACL = [
+  'admin_assign_staff_role',
+  'admin_create_staff_member',
+  'approve_corporate_request',
+  'suspend_corporate_request',
+  'force_driver_offline',
+  'ride_offer_dispatch_push_delivery',
+  'ride_offer_enqueue_reminders',
+  'submit_driver_location_sample',
+];
+
 function read(rel: string): string {
   return fs.readFileSync(path.join(ROOT, rel), 'utf8');
 }
@@ -36,26 +51,31 @@ function esc(sig: string): string {
   return `public.${sig}`.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
+/** Strip `--` line comments so exclusion lists in the header do not trip ACL checks. */
+function aclStatementsOnly(sql: string): string {
+  return sql
+    .split('\n')
+    .filter((line) => !/^\s*--/.test(line))
+    .join('\n');
+}
+
 describe('phaseA8B12IdentityHelperExecuteLock', () => {
   it('ACL-locks ten identity/helper functions without body changes', () => {
     const sql = read(CANONICAL);
     const rb = read(ROLLBACK);
+    const sqlAcl = aclStatementsOnly(sql);
     expect(sql).toMatch(/NOT APPLIED/i);
-    expect(sql).not.toMatch(/CREATE OR REPLACE FUNCTION/i);
-    expect(sql).not.toMatch(/FROM postgres/i);
-    expect(rb).not.toMatch(/\bREVOKE\b/i);
-    expect(rb).not.toMatch(/\banon\b/i);
-    expect(rb).not.toMatch(/\bPUBLIC\b/);
+    expect(sqlAcl).not.toMatch(/CREATE OR REPLACE FUNCTION/i);
+    expect(sqlAcl).not.toMatch(/FROM postgres/i);
+    expect(aclStatementsOnly(rb)).not.toMatch(/\bREVOKE\b/i);
+    // Rollback may mention anon/PUBLIC in comments; it must not GRANT them EXECUTE.
+    expect(rb).not.toMatch(/GRANT\s+EXECUTE[\s\S]*?\bTO\s+anon\b/i);
+    expect(rb).not.toMatch(/GRANT\s+EXECUTE[\s\S]*?\bTO\s+PUBLIC\b/i);
 
     // Mounted staff mutators / corporate approve must not be ACL-revoked here.
-    expect(sql).not.toMatch(/admin_assign_staff_role/i);
-    expect(sql).not.toMatch(/admin_create_staff_member/i);
-    expect(sql).not.toMatch(/approve_corporate_request/i);
-    expect(sql).not.toMatch(/suspend_corporate_request/i);
-    expect(sql).not.toMatch(/force_driver_offline/i);
-    expect(sql).not.toMatch(/ride_offer_dispatch_push_delivery/i);
-    expect(sql).not.toMatch(/ride_offer_enqueue_reminders/i);
-    expect(sql).not.toMatch(/submit_driver_location_sample/i);
+    for (const name of HARD_STOP_NO_ACL) {
+      expect(sqlAcl).not.toMatch(new RegExp(name, 'i'));
+    }
 
     for (const sig of EDGE_SERVICE_ONLY) {
       const s = esc(sig);
