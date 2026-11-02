@@ -110,3 +110,28 @@ export function assertFinanceReconciliationSsotResponse(data: unknown): void {
     `${FN} wrong contract: missing finance_reconciliation_summary or profit_ssot`,
   );
 }
+
+/**
+ * Contract for statement_totals=1 responses.
+ * That mode intentionally returns driver_statement_totals only (no FR summary / profit_ssot).
+ */
+export function assertDriverStatementTotalsResponse(data: unknown): void {
+  if (!data || typeof data !== 'object') {
+    throw new Error(`${FN} statement_totals returned an empty or invalid body`);
+  }
+  const row = data as Record<string, unknown>;
+  if (!Array.isArray(row.driver_statement_totals)) {
+    if (
+      'revolut_provider_only' in row
+      || 'provider_only_count' in row
+      || (row.summary && typeof row.summary === 'object' && 'revolut_orphan_count' in (row.summary as object))
+    ) {
+      throw new Error(
+        `${FN} wrong contract: orphan/provider-only payload (missing driver_statement_totals). Redeploy SSOT from admin-new.`,
+      );
+    }
+    throw new Error(
+      `${FN} wrong contract: statement_totals mode missing driver_statement_totals`,
+    );
+  }
+}

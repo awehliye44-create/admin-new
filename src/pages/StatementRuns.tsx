@@ -60,6 +60,7 @@ export default function StatementRuns() {
   });
 
   const createRunMutation = useMutation({
+    meta: { suppressErrorToast: true },
     mutationFn: async () => {
       if (!selectedRegion) throw new Error("Select a region");
 

@@ -5,7 +5,10 @@ import type {
 } from '@/hooks/useFinanceReconciliation';
 import { supabase } from '@/integrations/supabase/client';
 import { fetchEdgeFunctionGet } from '@/lib/fetchEdgeFunctionGet';
-import { assertFinanceReconciliationSsotResponse } from '@/lib/financeReconciliationErrors';
+import {
+  assertDriverStatementTotalsResponse,
+  assertFinanceReconciliationSsotResponse,
+} from '@/lib/financeReconciliationErrors';
 import { normalizeFinanceReconciliationPeriod } from '@/lib/financeReconciliationPeriod';
 
 /** Build query params for admin-finance-reconciliation (Financial Reconciliation SSOT). */
@@ -101,11 +104,16 @@ export async function fetchDriverStatementPeriodTotals(
   driverIds: string[],
 ): Promise<DriverStatementPeriodTotal[]> {
   if (driverIds.length === 0) return [];
-  const data = await invokeFinanceReconciliation(filter, from, to, {
-    statement_totals: '1',
-    driver_ids: driverIds.join(','),
-    audit_limit: '10000',
-  });
+  // statement_totals=1 returns { driver_statement_totals } only — do not assert full FR summary.
+  const data = await fetchEdgeFunctionGet<FinanceReconciliationResponse>(
+    'admin-finance-reconciliation',
+    buildFinanceReconciliationParams(filter, from, to, {
+      statement_totals: '1',
+      driver_ids: driverIds.join(','),
+      audit_limit: '10000',
+    }),
+  );
+  assertDriverStatementTotalsResponse(data);
   return data.driver_statement_totals ?? [];
 }
 
