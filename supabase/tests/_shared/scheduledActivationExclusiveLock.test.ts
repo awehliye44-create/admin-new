@@ -154,3 +154,36 @@ Deno.test("source lock: rescue kicks auto-dispatch with declined_driver_id", asy
   assertStringIncludes(src, "SCHEDULED_ACTIVATION_DISPATCH_RETRY");
   assertStringIncludes(src, "SCHEDULED_ACTIVATION_DISPATCH_KICK_FAILED");
 });
+
+Deno.test("race: exclusive Accept and fallback rescue are mutually exclusive via CAS", async () => {
+  const checkin = await Deno.readTextFile(
+    new URL("../../functions/scheduled-checkin/index.ts", import.meta.url),
+  );
+  const rescue = await Deno.readTextFile(
+    new URL(
+      "../../functions/_shared/scheduledActivationExclusiveRescue.ts",
+      import.meta.url,
+    ),
+  );
+  // Accept (start_journey) only commits while still awaiting_activation_accept.
+  assertStringIncludes(checkin, 'eq("scheduled_status", "awaiting_activation_accept")');
+  assertStringIncludes(checkin, 'status: "en_route_to_pickup"');
+  assertStringIncludes(checkin, "activatedRows");
+  // Rescue only converts while still in exclusive rescue statuses; 0-row CAS = loser.
+  assertStringIncludes(rescue, "EXCLUSIVE_RESCUE_SCHEDULED_STATUSES");
+  assertStringIncludes(rescue, "cas_matched_0");
+  assertStringIncludes(rescue, "already_converted");
+  // Converted trip must not remain awaiting_activation_accept (Accept cannot also win).
+  assertStringIncludes(rescue, "buildExclusiveFailureConversionPatch");
+  const ssot = await Deno.readTextFile(
+    new URL(
+      "../../functions/_shared/scheduledActivationExclusiveSSOT.ts",
+      import.meta.url,
+    ),
+  );
+  assertStringIncludes(ssot, "buildScheduledUrgentConversionPatch");
+  const urgent = await Deno.readTextFile(
+    new URL("../../functions/_shared/scheduledDispatchConfig.ts", import.meta.url),
+  );
+  assertStringIncludes(urgent, 'scheduled_status: "converted_to_instant"');
+});
