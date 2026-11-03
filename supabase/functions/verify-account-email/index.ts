@@ -2,10 +2,8 @@ import { createClient } from "npm:@supabase/supabase-js@2.57.2";
 import { resolveVerificationAppType } from "../_shared/accountEmailVerification.ts";
 import {
   assertNativeClientOnly,
+  consumeAccountEmailVerificationToken,
   EMAIL_VERIFICATION_AUDIT,
-  hashVerificationToken,
-  isLatestUnusedVerificationToken,
-  isVerificationTokenExpired,
   logVerificationAudit,
 } from "../_shared/emailVerificationPolicy.ts";
 
@@ -41,26 +39,9 @@ Deno.serve(async (req) => {
     const appType = resolveVerificationAppType(body.app_type ?? url.searchParams.get("app"));
 
     if (!token) {
-      logVerificationAudit(EMAIL_VERIFICATION_AUDIT.INVALID_TOKEN, { app_type: appType, reason: "missing_token" });
-      return jsonResponse({
-        ok: false,
-        code: "invalid_token",
-        error: "This verification link is invalid.",
-      }, 400);
-    }
-
-    const hash = await hashVerificationToken(token);
-    const { data: row, error } = await service
-      .from("account_email_verifications")
-      .select("id, user_id, email, expires_at, verified_at")
-      .eq("token_hash", hash)
-      .eq("app_type", appType)
-      .maybeSingle();
-
-    if (error || !row) {
       logVerificationAudit(EMAIL_VERIFICATION_AUDIT.INVALID_TOKEN, {
         app_type: appType,
-        reason: "token_not_found",
+        reason: "missing_token",
       });
       return jsonResponse({
         ok: false,
@@ -69,69 +50,38 @@ Deno.serve(async (req) => {
       }, 400);
     }
 
-    const { data: authLookup } = await service.auth.admin.getUserById(row.user_id);
-    if (authLookup?.user?.email_confirmed_at) {
-      logVerificationAudit(EMAIL_VERIFICATION_AUDIT.ALREADY_VERIFIED, {
-        user_id: row.user_id,
+    const consumed = await consumeAccountEmailVerificationToken(service, token, appType);
+    if (!consumed.ok) {
+      const auditEvent = consumed.code === "expired_token"
+        ? EMAIL_VERIFICATION_AUDIT.EXPIRED
+        : EMAIL_VERIFICATION_AUDIT.INVALID_TOKEN;
+      logVerificationAudit(auditEvent, {
         app_type: appType,
-      });
-      return jsonResponse({ ok: true, already_verified: true });
-    }
-
-    if (row.verified_at) {
-      logVerificationAudit(EMAIL_VERIFICATION_AUDIT.ALREADY_VERIFIED, {
-        user_id: row.user_id,
-        app_type: appType,
-        source: "token_row",
-      });
-      return jsonResponse({ ok: true, already_verified: true });
-    }
-
-    if (isVerificationTokenExpired(row.expires_at)) {
-      logVerificationAudit(EMAIL_VERIFICATION_AUDIT.EXPIRED, {
-        user_id: row.user_id,
-        app_type: appType,
-        expires_at: row.expires_at,
+        reason: consumed.code,
       });
       return jsonResponse({
         ok: false,
-        code: "expired_token",
-        error: "This verification link has expired.",
+        code: consumed.code,
+        error: consumed.code === "expired_token"
+          ? "This verification link has expired."
+          : "This verification link is invalid.",
       }, 400);
     }
 
-    if (!(await isLatestUnusedVerificationToken(service, row, appType))) {
-      logVerificationAudit(EMAIL_VERIFICATION_AUDIT.INVALID_TOKEN, {
-        user_id: row.user_id,
+    logVerificationAudit(
+      consumed.alreadyVerified
+        ? EMAIL_VERIFICATION_AUDIT.ALREADY_VERIFIED
+        : EMAIL_VERIFICATION_AUDIT.SUCCESS,
+      {
+        user_id: consumed.userId,
         app_type: appType,
-        reason: "superseded_token",
-      });
-      return jsonResponse({
-        ok: false,
-        code: "invalid_token",
-        error: "This verification link is invalid.",
-      }, 400);
-    }
+      },
+    );
 
-    const now = new Date().toISOString();
-    await service.from("account_email_verifications").update({ verified_at: now }).eq("id", row.id);
-    await service
-      .from("account_email_verifications")
-      .delete()
-      .eq("user_id", row.user_id)
-      .eq("app_type", appType)
-      .is("verified_at", null)
-      .neq("id", row.id);
-
-    await service.auth.admin.updateUserById(row.user_id, { email_confirm: true });
-    await service.rpc("mark_account_email_verified", { _user_id: row.user_id, _app_type: appType });
-
-    logVerificationAudit(EMAIL_VERIFICATION_AUDIT.SUCCESS, {
-      user_id: row.user_id,
-      app_type: appType,
+    return jsonResponse({
+      ok: true,
+      ...(consumed.alreadyVerified ? { already_verified: true } : {}),
     });
-
-    return jsonResponse({ ok: true });
   } catch (err) {
     console.error("verify-account-email error:", err);
     return jsonResponse({ error: "Internal server error" }, 500);

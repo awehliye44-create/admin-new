@@ -242,3 +242,67 @@ export async function assertPendingVerificationAccountForEmailSend(
   }
   return { ok: true };
 }
+
+export type ConsumeEmailVerificationResult =
+  | { ok: true; alreadyVerified: boolean; userId: string }
+  | {
+    ok: false;
+    code: "missing_token" | "invalid_token" | "expired_token";
+  };
+
+/**
+ * Authoritatively confirm Auth email from a raw verification token.
+ * Used by native verify-account-email and by the HTTPS email bridge
+ * (verify before browser→app handoff). Never logs the raw token.
+ */
+export async function consumeAccountEmailVerificationToken(
+  service: SupabaseClient,
+  rawToken: string,
+  appType: VerificationAppType,
+): Promise<ConsumeEmailVerificationResult> {
+  const token = rawToken.trim();
+  if (!token) return { ok: false, code: "missing_token" };
+
+  const hash = await hashVerificationToken(token);
+  const { data: row, error } = await service
+    .from("account_email_verifications")
+    .select("id, user_id, email, expires_at, verified_at")
+    .eq("token_hash", hash)
+    .eq("app_type", appType)
+    .maybeSingle();
+
+  if (error || !row) {
+    return { ok: false, code: "invalid_token" };
+  }
+
+  const { data: authLookup } = await service.auth.admin.getUserById(row.user_id);
+  if (authLookup?.user?.email_confirmed_at || row.verified_at) {
+    return { ok: true, alreadyVerified: true, userId: row.user_id };
+  }
+
+  if (isVerificationTokenExpired(row.expires_at)) {
+    return { ok: false, code: "expired_token" };
+  }
+
+  if (!(await isLatestUnusedVerificationToken(service, row, appType))) {
+    return { ok: false, code: "invalid_token" };
+  }
+
+  const now = new Date().toISOString();
+  await service.from("account_email_verifications").update({ verified_at: now }).eq("id", row.id);
+  await service
+    .from("account_email_verifications")
+    .delete()
+    .eq("user_id", row.user_id)
+    .eq("app_type", appType)
+    .is("verified_at", null)
+    .neq("id", row.id);
+
+  await service.auth.admin.updateUserById(row.user_id, { email_confirm: true });
+  await service.rpc("mark_account_email_verified", {
+    _user_id: row.user_id,
+    _app_type: appType,
+  });
+
+  return { ok: true, alreadyVerified: false, userId: row.user_id };
+}

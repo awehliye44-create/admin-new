@@ -87,12 +87,47 @@ export function isAndroidUserAgent(userAgent: string | null | undefined): boolea
   return /Android/i.test(String(userAgent ?? ""));
 }
 
-/** iOS Safari often ignores HTTPS 302 → custom-scheme; serve an HTML open button instead. */
+/** iOS Safari often ignores HTTPS 302 → custom-scheme. */
 export function isIosSafariUserAgent(userAgent: string | null | undefined): boolean {
   const ua = String(userAgent ?? "");
   if (!/iPhone|iPad|iPod/i.test(ua)) return false;
   if (/CriOS|FxiOS|EdgiOS|OPiOS|DuckDuckGo/i.test(ua)) return false;
   return /Safari/i.test(ua) || /AppleWebKit/i.test(ua);
+}
+
+/**
+ * Public admin site that can serve real text/html.
+ * Supabase Edge rewrites function HTML bodies to text/plain + CSP sandbox,
+ * so the email bridge must 302 here instead of returning HTML itself.
+ */
+export const ACCOUNT_EMAIL_VERIFIED_SITE_ORIGIN = "https://adminonecab.net";
+
+export type EmailVerifiedPageStatus =
+  | "ok"
+  | "already_verified"
+  | "expired_token"
+  | "invalid_token"
+  | "missing_token"
+  | "error";
+
+/** Static Pages handoff (rendered HTML). Never includes the raw token. */
+export function accountEmailVerifiedPageUrl(
+  appType: VerificationAppType,
+  status: EmailVerifiedPageStatus,
+  siteOrigin = ACCOUNT_EMAIL_VERIFIED_SITE_ORIGIN,
+): string {
+  const base = siteOrigin.replace(/\/+$/, "");
+  const params = new URLSearchParams({
+    app: appType,
+    status,
+  });
+  return `${base}/auth/email-verified/?${params.toString()}`;
+}
+
+/** Deep link into the holding screen after server-side confirm (no token). */
+export function accountEmailVerifiedAppDeepLink(appType: VerificationAppType): string {
+  const scheme = verificationAppScheme(appType);
+  return `${scheme}://verify-email?app=${encodeURIComponent(appType)}&result=verified`;
 }
 
 /**

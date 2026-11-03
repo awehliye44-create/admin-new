@@ -1,17 +1,14 @@
 import { createClient } from "npm:@supabase/supabase-js@2.57.2";
 import {
-  nativeAppHandoffHtml,
-  nativeAppHandoffLocation,
+  accountEmailVerifiedPageUrl,
   resolveVerificationAppType,
-  shouldServeNativeAppHandoffHtml,
   type VerificationAppType,
 } from "../_shared/accountEmailVerification.ts";
 import {
+  consumeAccountEmailVerificationToken,
   EMAIL_VERIFICATION_AUDIT,
-  hashVerificationToken,
-  isLatestUnusedVerificationToken,
-  isVerificationTokenExpired,
   logVerificationAudit,
+  type ConsumeEmailVerificationResult,
 } from "../_shared/emailVerificationPolicy.ts";
 
 const corsHeaders = {
@@ -30,88 +27,23 @@ function redirectResponse(location: string, status = 302): Response {
   });
 }
 
-function nativeAppHandoffResponse(
-  req: Request,
+function handoffPage(
   appType: VerificationAppType,
-  token: string,
-  error?: string,
+  status: Parameters<typeof accountEmailVerifiedPageUrl>[1],
 ): Response {
-  const userAgent = req.headers.get("user-agent");
-  if (shouldServeNativeAppHandoffHtml(userAgent)) {
-    return new Response(
-      nativeAppHandoffHtml({
-        appType,
-        path: "auth/verify-email",
-        token,
-        error,
-      }),
-      {
-        status: 200,
-        headers: {
-          ...corsHeaders,
-          "Content-Type": "text/html; charset=utf-8",
-          "Cache-Control": "no-store",
-        },
-      },
-    );
-  }
-  return redirectResponse(nativeAppHandoffLocation({
-    appType,
-    path: "auth/verify-email",
-    token,
-    error,
-    userAgent,
-  }));
+  // Always 302 to static Pages HTML. Supabase Edge forces function HTML bodies to
+  // Content-Type: text/plain (CSP sandbox), which makes Safari show raw source.
+  return redirectResponse(accountEmailVerifiedPageUrl(appType, status));
 }
 
-type LinkValidation =
-  | { ok: true }
-  | { ok: false; reason: "missing_token" | "invalid_token" | "expired_token" | "already_verified" };
-
-async function validateVerificationLink(
-  token: string,
-  appType: VerificationAppType,
-): Promise<LinkValidation> {
-  const supabaseUrl = Deno.env.get("SUPABASE_URL");
-  const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
-  if (!supabaseUrl || !serviceKey) {
-    return { ok: false, reason: "invalid_token" };
+function statusFromConsume(result: ConsumeEmailVerificationResult): Parameters<
+  typeof accountEmailVerifiedPageUrl
+>[1] {
+  if (result.ok) {
+    return result.alreadyVerified ? "already_verified" : "ok";
   }
-
-  const service = createClient(supabaseUrl, serviceKey);
-  const hash = await hashVerificationToken(token);
-  const { data: row, error } = await service
-    .from("account_email_verifications")
-    .select("id, user_id, expires_at, verified_at")
-    .eq("token_hash", hash)
-    .eq("app_type", appType)
-    .maybeSingle();
-
-  if (error || !row) {
-    return { ok: false, reason: "invalid_token" };
-  }
-
-  const { data: authLookup } = await service.auth.admin.getUserById(row.user_id);
-  if (authLookup?.user?.email_confirmed_at || row.verified_at) {
-    return { ok: false, reason: "already_verified" };
-  }
-
-  if (isVerificationTokenExpired(row.expires_at)) {
-    return { ok: false, reason: "expired_token" };
-  }
-
-  if (!(await isLatestUnusedVerificationToken(service, row, appType))) {
-    return { ok: false, reason: "invalid_token" };
-  }
-
-  return { ok: true };
+  return result.code;
 }
-
-const NON_RECOVERABLE_LINK_REASONS = new Set([
-  "missing_token",
-  "invalid_token",
-  "expired_token",
-]);
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -128,24 +60,52 @@ Deno.serve(async (req) => {
       phase: "verify_link",
       reason: "missing_token",
     });
-    return nativeAppHandoffResponse(req, appType, "", "missing_token");
+    return handoffPage(appType, "missing_token");
   }
 
-  const validation = await validateVerificationLink(token, appType);
-  if (!validation.ok) {
-    const auditEvent = validation.reason === "expired_token"
-      ? EMAIL_VERIFICATION_AUDIT.EXPIRED
-      : validation.reason === "already_verified"
-      ? EMAIL_VERIFICATION_AUDIT.ALREADY_VERIFIED
-      : EMAIL_VERIFICATION_AUDIT.INVALID_TOKEN;
-    logVerificationAudit(auditEvent, {
+  const supabaseUrl = Deno.env.get("SUPABASE_URL");
+  const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+  if (!supabaseUrl || !serviceKey) {
+    logVerificationAudit(EMAIL_VERIFICATION_AUDIT.INVALID_TOKEN, {
       app_type: appType,
       phase: "verify_link",
-      reason: validation.reason,
+      reason: "misconfigured",
     });
-    const openToken = NON_RECOVERABLE_LINK_REASONS.has(validation.reason) ? "" : token;
-    return nativeAppHandoffResponse(req, appType, openToken, validation.reason);
+    return handoffPage(appType, "error");
   }
 
-  return nativeAppHandoffResponse(req, appType, token);
+  try {
+    const service = createClient(supabaseUrl, serviceKey);
+    // Confirm Auth BEFORE browser→app handoff so “I’ve confirmed” works even if
+    // the custom-scheme open is blocked.
+    const consumed = await consumeAccountEmailVerificationToken(service, token, appType);
+    const status = statusFromConsume(consumed);
+
+    if (consumed.ok) {
+      logVerificationAudit(
+        consumed.alreadyVerified
+          ? EMAIL_VERIFICATION_AUDIT.ALREADY_VERIFIED
+          : EMAIL_VERIFICATION_AUDIT.SUCCESS,
+        {
+          user_id: consumed.userId,
+          app_type: appType,
+          phase: "verify_link",
+        },
+      );
+    } else {
+      const auditEvent = consumed.code === "expired_token"
+        ? EMAIL_VERIFICATION_AUDIT.EXPIRED
+        : EMAIL_VERIFICATION_AUDIT.INVALID_TOKEN;
+      logVerificationAudit(auditEvent, {
+        app_type: appType,
+        phase: "verify_link",
+        reason: consumed.code,
+      });
+    }
+
+    return handoffPage(appType, status);
+  } catch (err) {
+    console.error("account-email-verify-link error:", err instanceof Error ? err.message : "error");
+    return handoffPage(appType, "error");
+  }
 });

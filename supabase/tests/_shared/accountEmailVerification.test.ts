@@ -5,7 +5,10 @@
  * Driver listens for onecab-driver://. Samsung Gmail/Chrome Custom Tabs
  * block Location: custom-scheme, so the button never launched the app.
  *
- * Run: deno test --allow-read supabase/functions/_shared/accountEmailVerification.test.ts
+ * Nov 2026: Supabase Edge forces function HTML to text/plain + CSP sandbox,
+ * so Safari showed raw source. Bridge must 302 to static Pages HTML instead.
+ *
+ * Run: deno test --allow-read supabase/tests/_shared/accountEmailVerification.test.ts
  */
 
 import { assertEquals, assertStringIncludes } from "https://deno.land/std@0.224.0/assert/mod.ts";
@@ -16,9 +19,9 @@ import {
   CUSTOMER_APP_URL_SCHEME,
   accountEmailVerificationAndroidIntentUrl,
   accountEmailVerificationDeepLink,
-  nativeAppHandoffHtml,
+  accountEmailVerifiedAppDeepLink,
+  accountEmailVerifiedPageUrl,
   nativeAppHandoffLocation,
-  shouldServeNativeAppHandoffHtml,
 } from "../../functions/_shared/accountEmailVerification.ts";
 
 const TOKEN = "aabbccddeeff00112233445566778899aabbccddeeff00112233445566778899";
@@ -50,7 +53,6 @@ Deno.test("Driver deep link uses hyphenated scheme the APK registers", () => {
 });
 
 Deno.test("Android Gmail UA hands off via intent:// to com.onecab.driver.app", () => {
-  const TOKEN = "aabbccddeeff00112233445566778899aabbccddeeff00112233445566778899";
   const location = nativeAppHandoffLocation({
     appType: "driver",
     path: "auth/verify-email",
@@ -84,21 +86,25 @@ Deno.test("handoff Location never uses request-supplied redirect URLs", () => {
   assertEquals(intentSuffix.includes("browser_fallback_url"), false);
 });
 
-Deno.test("iOS Safari handoff HTML embeds the native deep link", () => {
-  assertEquals(
-    shouldServeNativeAppHandoffHtml(
-      "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1",
-    ),
-    true,
+Deno.test("verified page URL is static Pages HTML without the raw token", () => {
+  const page = accountEmailVerifiedPageUrl("driver", "ok");
+  assertEquals(page.startsWith("https://adminonecab.net/auth/email-verified/?"), true);
+  assertStringIncludes(page, "app=driver");
+  assertStringIncludes(page, "status=ok");
+  assertEquals(page.includes(TOKEN), false);
+  assertEquals(page.includes("token="), false);
+
+  const deep = accountEmailVerifiedAppDeepLink("driver");
+  assertEquals(deep, "onecab-driver://verify-email?app=driver&result=verified");
+});
+
+Deno.test("account-email-verify-link never returns HTML from the Edge function", async () => {
+  const src = await Deno.readTextFile(
+    new URL("../../functions/account-email-verify-link/index.ts", import.meta.url),
   );
-  assertEquals(shouldServeNativeAppHandoffHtml("Android Chrome"), false);
-  const html = nativeAppHandoffHtml({
-    appType: "driver",
-    path: "auth/verify-email",
-    token: TOKEN,
-  });
-  assertStringIncludes(html, "onecab-driver://auth/verify-email?");
-  assertStringIncludes(html, `token=${TOKEN}`);
-  assertStringIncludes(html, "Open ONECAB Driver");
-  assertEquals(html.includes("evil.example"), false);
+  assertEquals(src.includes('Content-Type": "text/html'), false);
+  assertEquals(src.includes("text/html; charset=utf-8"), false);
+  assertEquals(src.includes("nativeAppHandoffHtml"), false);
+  assertStringIncludes(src, "accountEmailVerifiedPageUrl");
+  assertStringIncludes(src, "consumeAccountEmailVerificationToken");
 });

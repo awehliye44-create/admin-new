@@ -76,3 +76,13 @@ Deno.test("signup verification insert always includes NOT NULL email column", as
   assertEquals(insertBlock.includes("token_hash: hash"), true);
   assertEquals(insertBlock.includes("user_id: user.id"), true);
 });
+
+Deno.test("static email-verified page exists for Safari handoff", async () => {
+  const html = await Deno.readTextFile(
+    new URL("../../../public/auth/email-verified/index.html", import.meta.url),
+  );
+  assertEquals(html.includes("<!DOCTYPE html>"), true);
+  assertEquals(html.includes("Open ONECAB Driver"), true);
+  assertEquals(html.includes("onecab-driver://verify-email"), true);
+  assertEquals(html.includes("I’ve confirmed my email") || html.includes("I've confirmed my email"), true);
+});

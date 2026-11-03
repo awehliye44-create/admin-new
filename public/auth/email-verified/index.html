@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="robots" content="noindex" />
+  <title>ONECAB email verification</title>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      margin: 0;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 28px 20px;
+      background: #ffffff;
+      color: #111111;
+      text-align: center;
+    }
+    .card {
+      max-width: 22rem;
+      width: 100%;
+    }
+    h1 {
+      font-size: 1.35rem;
+      font-weight: 800;
+      letter-spacing: -0.02em;
+      margin: 0 0 0.75rem;
+    }
+    p {
+      margin: 0.55rem 0;
+      line-height: 1.45;
+      color: #444444;
+      font-size: 0.95rem;
+    }
+    .err { color: #b42318; }
+    a.btn {
+      display: inline-block;
+      margin-top: 1.25rem;
+      padding: 0.9rem 1.35rem;
+      border-radius: 12px;
+      background: #111111;
+      color: #ffffff;
+      text-decoration: none;
+      font-weight: 700;
+    }
+    .muted { color: #6b7280; font-size: 0.85rem; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1 id="title">Confirming your email</h1>
+    <p id="message">One moment…</p>
+    <p>
+      <a class="btn" id="openApp" href="onecab-driver://verify-email?app=driver&result=verified">
+        Open ONECAB Driver
+      </a>
+    </p>
+    <p class="muted" id="hint"></p>
+  </div>
+  <script>
+    (function () {
+      var params = new URLSearchParams(window.location.search);
+      var app = params.get("app") === "customer" ? "customer"
+        : params.get("app") === "admin" ? "admin"
+        : "driver";
+      var status = params.get("status") || "ok";
+      var schemes = {
+        driver: "onecab-driver",
+        customer: "onecab-customer",
+        admin: "onecabadmin"
+      };
+      var labels = {
+        driver: "ONECAB Driver",
+        customer: "ONECAB",
+        admin: "ONECAB Admin"
+      };
+      var title = document.getElementById("title");
+      var message = document.getElementById("message");
+      var hint = document.getElementById("hint");
+      var openApp = document.getElementById("openApp");
+      var deepLink = schemes[app] + "://verify-email?app=" + encodeURIComponent(app) + "&result=verified";
+      openApp.href = deepLink;
+      openApp.textContent = "Open " + labels[app];
+
+      if (status === "ok" || status === "already_verified") {
+        title.textContent = status === "already_verified" ? "Email already confirmed" : "Email confirmed";
+        message.textContent = "Return to the app to continue phone verification. Tap the button if the app does not open.";
+        hint.textContent = "If the app is already open on Verify your email, tap I’ve confirmed my email.";
+        // Best-effort auto-open; the visible button is the reliable path on iOS.
+        try { window.location.replace(deepLink); } catch (e) {}
+        return;
+      }
+
+      title.textContent = "Unable to confirm email";
+      message.className = "err";
+      if (status === "expired_token") {
+        message.textContent = "This verification link has expired.";
+      } else if (status === "missing_token") {
+        message.textContent = "This verification link is incomplete.";
+      } else {
+        message.textContent = "This verification link is invalid or has already been used.";
+      }
+      hint.textContent = "Open the app and tap Resend confirmation email, then use the newest link.";
+      openApp.href = schemes[app] + "://verify-email?app=" + encodeURIComponent(app);
+    })();
+  </script>
+</body>
+</html>
