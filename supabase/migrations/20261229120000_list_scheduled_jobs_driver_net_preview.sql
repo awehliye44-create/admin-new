@@ -1,3 +1,4 @@
+-- Renumbered from 20261224170000 so apply order follows prod head 20261228194500.
 -- MK-261103-006: Scheduled Jobs list must expose driver-net preview, never
 -- raw customer estimated_fare under a confusing alias that native withholds.
 -- compute_driver_net_preview_from_gross uses the viewing driver's tier.
