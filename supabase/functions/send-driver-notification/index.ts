@@ -34,7 +34,7 @@ import {
 
 interface NotificationPayload {
   driverId: string;
-  type: 'RIDE_OFFER' | 'RIDE_STOP' | 'TRIP_UPDATE' | 'SYSTEM_ALERT';
+  type: 'RIDE_OFFER' | 'RIDE_STOP' | 'TRIP_UPDATE' | 'SYSTEM_ALERT' | 'NEGOTIATION_UPDATE';
   title: string;
   body: string;
   data?: Record<string, string>;
