@@ -205,9 +205,13 @@ Deno.serve(async (req) => {
 
     await invalidateUnusedVerificationTokens(service, user.id, appType);
 
+    // email is NOT NULL on account_email_verifications. Omitting it makes the
+    // insert fail AFTER Resend already delivered the message — inbox links then
+    // hash-miss and never confirm Auth (Driver stuck on Verify your email).
     const { error: insertError } = await service.from("account_email_verifications").insert({
       user_id: user.id,
       app_type: appType,
+      email: user.email,
       token_hash: hash,
       expires_at: expiresAt,
     });

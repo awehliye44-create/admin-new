@@ -64,3 +64,15 @@ Deno.test("signup verification send-before-persist and uses verification tag", a
   assertEquals(insertIdx > sendIdx, true);
   assertEquals(send.includes('tag: "account_email_verification"'), true);
 });
+
+Deno.test("signup verification insert always includes NOT NULL email column", async () => {
+  const send = await Deno.readTextFile(
+    new URL("../../functions/send-account-email-verification/index.ts", import.meta.url),
+  );
+  const insertIdx = send.indexOf('from("account_email_verifications").insert');
+  assertEquals(insertIdx >= 0, true);
+  const insertBlock = send.slice(insertIdx, insertIdx + 450);
+  assertEquals(insertBlock.includes("email: user.email"), true);
+  assertEquals(insertBlock.includes("token_hash: hash"), true);
+  assertEquals(insertBlock.includes("user_id: user.id"), true);
+});

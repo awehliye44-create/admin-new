@@ -87,6 +87,14 @@ export function isAndroidUserAgent(userAgent: string | null | undefined): boolea
   return /Android/i.test(String(userAgent ?? ""));
 }
 
+/** iOS Safari often ignores HTTPS 302 → custom-scheme; serve an HTML open button instead. */
+export function isIosSafariUserAgent(userAgent: string | null | undefined): boolean {
+  const ua = String(userAgent ?? "");
+  if (!/iPhone|iPad|iPod/i.test(ua)) return false;
+  if (/CriOS|FxiOS|EdgiOS|OPiOS|DuckDuckGo/i.test(ua)) return false;
+  return /Safari/i.test(ua) || /AppleWebKit/i.test(ua);
+}
+
 /**
  * Location for the email-bridge handoff. Never taken from the request URL.
  * Android Chrome/Gmail Custom Tabs follow intent:// and block custom-scheme 302s.
@@ -114,6 +122,70 @@ export function nativeAppHandoffLocation(args: {
     return accountEmailChangeDeepLink(args.appType, token, error);
   }
   return accountEmailVerificationDeepLink(args.appType, token, error);
+}
+
+function escapeHtmlAttr(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
+/**
+ * HTML interstitial for iOS Safari (and similar) that cannot follow Location: custom-scheme.
+ * Deep link is fixed from appType/path/token — never from caller-supplied redirect URLs.
+ */
+export function nativeAppHandoffHtml(args: {
+  appType: VerificationAppType;
+  path: NativeVerifyPath;
+  token?: string | null;
+  error?: string | null;
+}): string {
+  const deepLink = nativeAppHandoffLocation({
+    ...args,
+    userAgent: "iPhone",
+  });
+  const href = escapeHtmlAttr(deepLink);
+  const appLabel = args.appType === "driver"
+    ? "ONECAB Driver"
+    : args.appType === "admin"
+    ? "ONECAB Admin"
+    : "ONECAB";
+  const title = args.error
+    ? "Open the app to continue"
+    : "Confirming your email";
+  const body = args.error
+    ? "This link could not finish in the browser. Open the app, then use Resend if needed."
+    : "Tap below if the app does not open automatically.";
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta http-equiv="refresh" content="0;url=${href}" />
+  <title>${escapeHtmlAttr(title)}</title>
+  <style>
+    body{font-family:-apple-system,BlinkMacSystemFont,Segoe UI,sans-serif;margin:0;padding:32px 20px;background:#fff;color:#111;text-align:center}
+    a.btn{display:inline-block;margin-top:20px;padding:14px 22px;border-radius:12px;background:#111;color:#fff;text-decoration:none;font-weight:700}
+    p{line-height:1.45;color:#444}
+  </style>
+  <script>location.replace(${JSON.stringify(deepLink)});</script>
+</head>
+<body>
+  <h1>${escapeHtmlAttr(title)}</h1>
+  <p>${escapeHtmlAttr(body)}</p>
+  <p><a class="btn" href="${href}">Open ${escapeHtmlAttr(appLabel)}</a></p>
+</body>
+</html>`;
+}
+
+export function shouldServeNativeAppHandoffHtml(
+  userAgent: string | null | undefined,
+): boolean {
+  if (isAndroidUserAgent(userAgent)) return false;
+  return isIosSafariUserAgent(userAgent) || /iPhone|iPad|iPod/i.test(String(userAgent ?? ""));
 }
 
 /** Supabase edge bridge: HTTPS email button that hands off to the native app. */

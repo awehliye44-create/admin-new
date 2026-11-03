@@ -1,7 +1,9 @@
 import { createClient } from "npm:@supabase/supabase-js@2.57.2";
 import {
+  nativeAppHandoffHtml,
   nativeAppHandoffLocation,
   resolveVerificationAppType,
+  shouldServeNativeAppHandoffHtml,
   type VerificationAppType,
 } from "../_shared/accountEmailVerification.ts";
 import {
@@ -34,12 +36,31 @@ function nativeAppHandoffResponse(
   token: string,
   error?: string,
 ): Response {
+  const userAgent = req.headers.get("user-agent");
+  if (shouldServeNativeAppHandoffHtml(userAgent)) {
+    return new Response(
+      nativeAppHandoffHtml({
+        appType,
+        path: "auth/verify-email",
+        token,
+        error,
+      }),
+      {
+        status: 200,
+        headers: {
+          ...corsHeaders,
+          "Content-Type": "text/html; charset=utf-8",
+          "Cache-Control": "no-store",
+        },
+      },
+    );
+  }
   return redirectResponse(nativeAppHandoffLocation({
     appType,
     path: "auth/verify-email",
     token,
     error,
-    userAgent: req.headers.get("user-agent"),
+    userAgent,
   }));
 }
 

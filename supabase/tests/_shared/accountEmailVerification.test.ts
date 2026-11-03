@@ -16,7 +16,9 @@ import {
   CUSTOMER_APP_URL_SCHEME,
   accountEmailVerificationAndroidIntentUrl,
   accountEmailVerificationDeepLink,
+  nativeAppHandoffHtml,
   nativeAppHandoffLocation,
+  shouldServeNativeAppHandoffHtml,
 } from "../../functions/_shared/accountEmailVerification.ts";
 
 const TOKEN = "aabbccddeeff00112233445566778899aabbccddeeff00112233445566778899";
@@ -80,4 +82,23 @@ Deno.test("handoff Location never uses request-supplied redirect URLs", () => {
   );
   assertEquals(intentSuffix.includes("com.evil"), false);
   assertEquals(intentSuffix.includes("browser_fallback_url"), false);
+});
+
+Deno.test("iOS Safari handoff HTML embeds the native deep link", () => {
+  assertEquals(
+    shouldServeNativeAppHandoffHtml(
+      "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1",
+    ),
+    true,
+  );
+  assertEquals(shouldServeNativeAppHandoffHtml("Android Chrome"), false);
+  const html = nativeAppHandoffHtml({
+    appType: "driver",
+    path: "auth/verify-email",
+    token: TOKEN,
+  });
+  assertStringIncludes(html, "onecab-driver://auth/verify-email?");
+  assertStringIncludes(html, `token=${TOKEN}`);
+  assertStringIncludes(html, "Open ONECAB Driver");
+  assertEquals(html.includes("evil.example"), false);
 });
