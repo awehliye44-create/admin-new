@@ -1617,8 +1617,6 @@ async function handleWeeklyPayoutOccurrence(req: Request): Promise<Response> {
         provider_payment_id: providerPaymentId,
         provider_state: providerState,
         provider_request_id: validated.normalized.provider_request_id,
-        amount_pence: validated.normalized.amount_pence,
-        currency: validated.normalized.currency,
       });
 
       await supabase.rpc("finalize_driver_payout_submission", {
