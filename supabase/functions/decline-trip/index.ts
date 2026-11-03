@@ -88,6 +88,8 @@ serve(async (req) => {
 
     // Invoke decline_ride_offer RPC — it updates the offer and triggers
     // maybe_advance_dispatch_after_offer_resolution (wave advance / no_drivers).
+    // Note: while confirmed_driver_id is set, maybe_advance returns early — exclusive
+    // activation rescue below owns immediate nearby fallback.
     const { error: declineErr } = await supabase.rpc('decline_ride_offer', {
       p_offer_id: offer.id,
       p_driver_id: driver_id,
@@ -97,6 +99,41 @@ serve(async (req) => {
     if (declineErr) {
       console.error('[decline-trip] decline_ride_offer RPC failed:', declineErr);
       return errorResponse(declineErr.message, 500, undefined, 'DECLINE_FAILED');
+    }
+
+    // P2 — Exclusive scheduled activation decline → immediate nearby fallback
+    // (do not wait for scheduled-dispatch cron). Push failure alone never lands here.
+    try {
+      const { data: tripRow } = await supabase
+        .from('trips')
+        .select('id, scheduled_status, confirmed_driver_id, dispatch_mode')
+        .eq('id', trip_id)
+        .maybeSingle();
+      const sched = String(tripRow?.scheduled_status ?? '').trim().toLowerCase();
+      const confirmed = String(tripRow?.confirmed_driver_id ?? '').trim();
+      if (sched === 'awaiting_activation_accept' && confirmed === driver_id) {
+        const { data: gds } = await supabase
+          .from('global_dispatch_settings')
+          .select('max_driver_find_time_minutes')
+          .eq('singleton', true)
+          .maybeSingle();
+        const maxFind = Math.max(1, Number(gds?.max_driver_find_time_minutes ?? 6) || 6);
+        const {
+          rescueExclusiveActivationToNearby,
+          SCHEDULED_ACTIVATION_EXCLUSIVE_REASON,
+        } = await import('../_shared/scheduledActivationExclusiveRescue.ts');
+        await rescueExclusiveActivationToNearby(supabase, {
+          tripId: trip_id,
+          reason: SCHEDULED_ACTIVATION_EXCLUSIVE_REASON.declinedImmediate,
+          maxFindDriverMinutes: maxFind,
+          supabaseUrl,
+          supabaseServiceKey,
+          excludeDriverId: driver_id,
+          expireOpenOffers: true,
+        });
+      }
+    } catch (rescueErr) {
+      console.error('[decline-trip] exclusive activation rescue failed:', rescueErr);
     }
 
     await logAuditEvent(supabase, 'trip_declined', {

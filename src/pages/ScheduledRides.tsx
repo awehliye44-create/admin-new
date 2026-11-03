@@ -558,6 +558,12 @@ export default function ScheduledRides() {
         return;
       }
 
+      // List-only marketplace alert (not NRO). Drivers need a heads-up when
+      // Admin publishes — soft poll alone left Requested silent (MK-261103-006).
+      void supabase.functions.invoke('scheduled-dispatch', {
+        body: { notify_marketplace_trip_id: selectedTrip.id },
+      });
+
       toast.success('Available in Scheduled Jobs — drivers can pre-confirm');
       setIsJobsOpen(false);
       setSelectedTrip(null);
@@ -622,20 +628,32 @@ export default function ScheduledRides() {
 
     setIsSaving(true);
     try {
-      const nowIso = new Date().toISOString();
-      // Broadcast Now — NRO path. May release an existing preconfirm (drop-out recovery).
-      // Never overwrite a live accepted driver_id.
+      const nowMs = Date.now();
+      const nowIso = new Date(nowMs).toISOString();
+      // Live NRO path: flip onto instant nearby-card (same as T−urgent convert).
+      // Leaving dispatch_mode=scheduled made Driver treat offers as preconfirm.
+      // Find-driver window matches Admin max_driver_find_time_minutes (default 6).
+      const maxFindMinutes = 6;
+      const searchingExpiresAtIso = new Date(
+        nowMs + maxFindMinutes * 60_000,
+      ).toISOString();
       const { data: broadcastRows, error } = await supabase
         .from('trips')
         .update({
-          scheduled_status: 'broadcasting',
-          status: 'offered',
+          dispatch_mode: 'instant',
+          scheduled_status: 'converted_to_instant',
+          status: 'searching',
+          dispatch_status: 'broadcasting',
+          broadcast_enabled: true,
+          searching_expires_at: searchingExpiresAtIso,
+          current_broadcast_round: 0,
           scheduled_broadcast_at: nowIso,
-          dispatch_mode: 'scheduled',
           confirmed_driver_id: null,
+          driver_id: null,
           pending_release_kind: null,
           pending_release_at: null,
           pending_release_driver_id: null,
+          updated_at: nowIso,
         })
         .eq('id', selectedTrip.id)
         .in('scheduled_status', [

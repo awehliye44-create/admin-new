@@ -584,6 +584,56 @@ Deno.serve(async (req) => {
       });
     }
 
+    // P2 — Exclusive scheduled activation expiry → prompt nearby fallback
+    // (scheduled-dispatch STEP 1a remains the recovery/idempotent owner).
+    // Push delivery failure alone never expires an offer — only server expires_at.
+    try {
+      const { data: awaitingExclusive } = await supabase
+        .from("trips")
+        .select("id, confirmed_driver_id, scheduled_status, status")
+        .eq("scheduled_status", "awaiting_activation_accept")
+        .is("driver_id", null)
+        .limit(40);
+      if (awaitingExclusive?.length) {
+        const { data: gds } = await supabase
+          .from("global_dispatch_settings")
+          .select("max_driver_find_time_minutes")
+          .eq("singleton", true)
+          .maybeSingle();
+        const maxFind = Math.max(1, Number(gds?.max_driver_find_time_minutes ?? 6) || 6);
+        const {
+          rescueExclusiveActivationToNearby,
+          SCHEDULED_ACTIVATION_EXCLUSIVE_REASON,
+        } = await import("../_shared/scheduledActivationExclusiveRescue.ts");
+        const nowIso = new Date().toISOString();
+        for (const trip of awaitingExclusive) {
+          if (isTripTerminalForDispatch(trip)) continue;
+          const confirmedId = String(trip.confirmed_driver_id ?? "").trim();
+          if (!confirmedId) continue;
+          const { data: openOffers } = await supabase
+            .from("ride_offers")
+            .select("id")
+            .eq("trip_id", trip.id)
+            .eq("driver_id", confirmedId)
+            .in("status", ["pending", "offered"])
+            .gt("expires_at", nowIso)
+            .limit(1);
+          if (openOffers?.length) continue;
+          await rescueExclusiveActivationToNearby(supabase, {
+            tripId: trip.id,
+            reason: SCHEDULED_ACTIVATION_EXCLUSIVE_REASON.expiredImmediate,
+            maxFindDriverMinutes: maxFind,
+            supabaseUrl,
+            supabaseServiceKey: supabaseKey,
+            excludeDriverId: confirmedId,
+            expireOpenOffers: true,
+          });
+        }
+      }
+    } catch (exclusiveRescueErr) {
+      console.warn("[expire-offers] exclusive activation rescue failed:", exclusiveRescueErr);
+    }
+
     // 2. Find trips with all offers resolved but still searching
     // Scan & Go retired (trips.scan_go dropped 20260903121500) — do not SELECT or branch on it.
     const { data: staleTrips, error: tripsError } = await supabase

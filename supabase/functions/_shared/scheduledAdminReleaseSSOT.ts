@@ -7,6 +7,8 @@
  * - Broadcast → open NRO / auto-dispatch path now (or At via pending_release)
  */
 
+import { buildScheduledUrgentConversionPatch } from "./scheduledDispatchConfig.ts";
+
 export const PENDING_RELEASE_KINDS = ["assign", "broadcast", "jobs"] as const;
 export type PendingReleaseKind = (typeof PENDING_RELEASE_KINDS)[number];
 
@@ -78,18 +80,27 @@ export function buildMakeAvailableScheduledJobsPatch(input: {
 }
 
 /**
- * Broadcast Now — leave HELD (or release preconfirm) and start the existing
- * NRO / auto-dispatch path. Distinct from Make Available (Scheduled Jobs).
- * Always clears confirmed_driver_id so Broadcast can recover after a drop-out.
+ * Broadcast Now — leave HELD (or release preconfirm) and start the live NRO
+ * / auto-dispatch path. Distinct from Make Available (Scheduled Jobs).
+ *
+ * Must flip onto the instant nearby-card path (`converted_to_instant`).
+ * Leaving `dispatch_mode=scheduled` + `broadcasting` created ride_offers that
+ * the Driver app still mapped as scheduled preconfirm (MK-261103-006 class).
+ * Always clears confirmed_driver_id / driver_id so Broadcast recovers drop-outs
+ * without duplicating a preconfirm assignment.
  */
-export function buildBroadcastNowPatch(input: { nowIso: string }): Record<string, unknown> {
+export function buildBroadcastNowPatch(input: {
+  nowIso: string;
+  searchingExpiresAtIso: string;
+}): Record<string, unknown> {
   return {
-    scheduled_status: "broadcasting",
-    status: "offered",
+    ...buildScheduledUrgentConversionPatch({
+      nowIso: input.nowIso,
+      searchingExpiresAtIso: input.searchingExpiresAtIso,
+    }),
     scheduled_broadcast_at: input.nowIso,
-    dispatch_mode: "scheduled",
     confirmed_driver_id: null,
-    ...clearPendingReleasePatch(),
+    driver_id: null,
   };
 }
 

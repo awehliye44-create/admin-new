@@ -191,6 +191,10 @@ Deno.test("auto-dispatch blocks Admin HELD / preconfirm / activation even with f
   assertStringIncludes(src, 'sched === "awaiting_activation_accept"');
   assertStringIncludes(src, 'sched === "driver_assigned"');
   assertStringIncludes(src, "scheduled_held_or_preconfirm: true");
+  // Broadcast Now / STEP 2 broadcasting must NOT be blocked (creates ride_offers).
+  assertStringIncludes(src, 'sched === "broadcasting"');
+  assertStringIncludes(src, "scheduledBroadcastOpen");
+  assertStringIncludes(src, "mode === \"scheduled\" && !scheduledBroadcastOpen");
   // Must audit inline — abortDispatch is defined after vehicle-type resolve.
   const heldIdx = src.indexOf('reason: "SCHEDULED_HELD_OR_PRECONFIRM"');
   const abortDefIdx = src.indexOf("const abortDispatch =");
