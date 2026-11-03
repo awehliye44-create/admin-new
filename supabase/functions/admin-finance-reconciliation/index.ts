@@ -932,7 +932,7 @@ serve(async (req) => {
       ? []
       : search?.trim()
       ? await (async () => {
-        let auditSearchQuery = buildFinanceReconciliationTripQuery(supabase, {
+        let auditSearchQuery: any = buildFinanceReconciliationTripQuery(supabase, {
           periodFrom,
           periodTo,
           auditLimit: Math.min(auditLimit, 50),
@@ -1413,11 +1413,11 @@ serve(async (req) => {
       check.variance_pence = Math.abs(variance);
       check.delta_pence = Math.abs(variance);
       check.balanced = balanced;
-      check.status = status;
+      (check as { status: string }).status = status;
       card.variance_pence = variance;
       card.delta_pence = variance;
       card.balanced = balanced;
-      card.status = status;
+      (card as { status: string }).status = status;
       (card as { identity_applied?: boolean }).identity_applied = true;
       (card as { identity_fail_closed?: boolean }).identity_fail_closed = identity.fail_closed;
     }
