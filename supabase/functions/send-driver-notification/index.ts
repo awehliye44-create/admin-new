@@ -705,12 +705,11 @@ Deno.serve(async (req) => {
         }
 
         const hasTopLevelNotification = !!message.notification;
-        console.log(`[send-driver-notification] → ${platform} [${payload.type}] hasNotification=${hasTopLevelNotification}:`, token.substring(0, 20) + "...");
+        console.log(`[send-driver-notification] → ${platform} [${payload.type}] hasNotification=${hasTopLevelNotification}`);
         if (isRideOffer) {
           const apsPayload = message.apns?.payload?.aps;
           console.log(`[send-driver-notification] RIDE_OFFER payload shape: data=${!!message.data}, notification=${hasTopLevelNotification}, android=${!!message.android}, apns=${!!message.apns}`);
           console.log(`[send-driver-notification] RIDE_OFFER details: platform=${platform}, contentAvailable=${apsPayload?.['content-available'] ?? 'none'}, hasApsAlert=${!!apsPayload?.alert}, sound=${apsPayload?.sound ?? 'none'}, androidPriority=${message.android?.priority ?? 'none'}`);
-          console.log(`[send-driver-notification] RIDE_OFFER full message JSON:`, JSON.stringify(message).substring(0, 500));
           if (platform === 'ios') {
             const isRealert = !!payload.data?.ios_realert;
             console.log(`[send-driver-notification] ios_apns_payload_has_alert=${!!apsPayload?.alert} ios_apns_sound_name=${apsPayload?.sound ?? 'none'} ios_apns_push_type=${message.apns?.headers?.['apns-push-type']} ios_apns_priority=${message.apns?.headers?.['apns-priority']} ios_interruption_level=${apsPayload?.['interruption-level'] ?? 'none'} ios_reminder_sent=${isRealert}`);
