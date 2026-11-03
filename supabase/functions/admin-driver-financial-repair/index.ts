@@ -1198,7 +1198,7 @@ async function handleApply(
           driverNetPence: Math.min(tenOnly, tenRestore),
           tipPence: tipOnly,
           currency: loaded.evidence.currency ?? "GBP",
-          commissionPct: stamp?.commission_pct,
+          commissionPct: stamp?.commission_pct ?? undefined,
         });
         tenRestoredPence = tenRestore;
         walletDelta += tenRestore;

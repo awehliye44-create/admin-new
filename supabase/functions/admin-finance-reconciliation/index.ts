@@ -885,7 +885,7 @@ serve(async (req) => {
       .map((d) => String(d.region_id ?? ""))
       .filter(Boolean);
     const { meta: currencyMeta, currencyGroups: baseCurrencyGroups } = await resolveFinanceCurrencyScope(
-      supabase as unknown as AnySupabaseClient,
+      supabase as never,
       {
         resolvedRegionId: resolvedRegionId ?? null,
         serviceAreaId: serviceAreaId ?? null,
