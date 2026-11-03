@@ -103,7 +103,7 @@ Deno.serve(async (req) => {
           regeneratePdf: !row.pdf_storage_path || regenerate_pdf,
           sentByUserId,
         });
-        results.push({ invoice_id: row.id, ...result });
+        results.push({ ...result, invoice_id: row.id });
       }
 
       return new Response(JSON.stringify({ success: true, results }), {

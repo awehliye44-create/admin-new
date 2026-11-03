@@ -236,7 +236,7 @@ serveWithEdgeTiming("respond-trip-modification", corsHeaders, async (req) => {
           supabaseUrl, supabaseServiceKey,
           trip.passenger_id,
           "❌ Modification Rejected",
-          rejectionReason ? `Driver declined: ${rejectionReason}` : "Driver declined your route change request",
+          "Driver declined your route change request",
           trip.id,
         );
       }

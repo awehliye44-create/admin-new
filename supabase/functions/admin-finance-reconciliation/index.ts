@@ -152,7 +152,7 @@ function buildProviderOrderAuditRows(
   }> = [];
 
   for (const trip of tripRows) {
-    const orderId = String(trip.provider_order_id ?? "").trim();
+    const orderId = String((trip as Record<string, unknown>).provider_order_id ?? "").trim();
     if (!orderId || seen.has(orderId)) continue;
     seen.add(orderId);
     const driverName = trip.driver
@@ -537,7 +537,7 @@ serve(async (req) => {
       serviceAreaId: serviceAreaId ?? null,
     });
 
-    let tripQuery = buildFinanceReconciliationTripQuery(supabase, {
+    let tripQuery: any = buildFinanceReconciliationTripQuery(supabase, {
       periodFrom,
       periodTo,
       auditLimit,
@@ -627,7 +627,7 @@ serve(async (req) => {
       walletDownstream = "UNAVAILABLE";
     }
 
-    let tripRows = (tripResult.data || []) as TripAuditSourceRow[];
+    let tripRows = (tripResult.data || []) as unknown as TripAuditSourceRow[];
     let tripIds = tripRows.map((t) => t.id);
     let paymentRows: Array<{
       captured_amount_pence: number | null;
@@ -688,7 +688,7 @@ serve(async (req) => {
         paymentSessionRows = (paymentSessionsRes.data ?? []) as PaymentSessionMoneyRow[];
         paymentRows = mergePaymentSessionsIntoCaptureRows({
           paymentSessions: paymentSessionRows,
-        }).rows;
+        }).rows as typeof paymentRows;
       }
       // Legacy payments: PI / provider status for badges only — amounts come from paymentSessions.
       auditPaymentBadgeRows = (paymentsRes.error ? [] : (paymentsRes.data || [])).map((p) => ({
@@ -735,7 +735,7 @@ serve(async (req) => {
         paymentSessionRows = (paymentSessionsRes.data ?? []) as PaymentSessionMoneyRow[];
         paymentRows = mergePaymentSessionsIntoCaptureRows({
           paymentSessions: paymentSessionRows,
-        }).rows;
+        }).rows as typeof paymentRows;
       }
     }
 
@@ -885,7 +885,7 @@ serve(async (req) => {
       .map((d) => String(d.region_id ?? ""))
       .filter(Boolean);
     const { meta: currencyMeta, currencyGroups: baseCurrencyGroups } = await resolveFinanceCurrencyScope(
-      supabase,
+      supabase as never,
       {
         resolvedRegionId: resolvedRegionId ?? null,
         serviceAreaId: serviceAreaId ?? null,
@@ -932,7 +932,7 @@ serve(async (req) => {
       ? []
       : search?.trim()
       ? await (async () => {
-        let auditSearchQuery = buildFinanceReconciliationTripQuery(supabase, {
+        let auditSearchQuery: any = buildFinanceReconciliationTripQuery(supabase, {
           periodFrom,
           periodTo,
           auditLimit: Math.min(auditLimit, 50),
@@ -963,7 +963,7 @@ serve(async (req) => {
         const { data: searchTrips, error: searchError } = await auditSearchQuery;
         if (searchError) throw searchError;
 
-        const auditSourceRows = (searchTrips || []) as TripAuditSourceRow[];
+        const auditSourceRows = (searchTrips || []) as unknown as TripAuditSourceRow[];
         const auditTripIds = auditSourceRows.map((t) => t.id);
         if (auditTripIds.length === 0) return [];
 
@@ -1098,7 +1098,7 @@ serve(async (req) => {
           .in("trip_id", todayTripIds);
         todayPayments = mergePaymentSessionsIntoCaptureRows({
           paymentSessions: sessionData.data ?? [],
-        }).rows;
+        }).rows as typeof paymentRows;
       }
       const capturedByTrip = new Map<string, number>();
       for (const p of todayPayments) {
@@ -1413,11 +1413,11 @@ serve(async (req) => {
       check.variance_pence = Math.abs(variance);
       check.delta_pence = Math.abs(variance);
       check.balanced = balanced;
-      check.status = status;
+      (check as { status: string }).status = status;
       card.variance_pence = variance;
       card.delta_pence = variance;
       card.balanced = balanced;
-      card.status = status;
+      (card as { status: string }).status = status;
       (card as { identity_applied?: boolean }).identity_applied = true;
       (card as { identity_fail_closed?: boolean }).identity_fail_closed = identity.fail_closed;
     }
@@ -1427,7 +1427,7 @@ serve(async (req) => {
     );
     for (const row of trip_financial_audit) {
       if (!unresolvedShortfallTrips.has(String(row.trip_id ?? ""))) continue;
-      row.reconciliation_status = { label: "UNRESOLVED_SHORTFALL", tone: "error" };
+      row.reconciliation_status = { label: "UNRESOLVED_SHORTFALL", tone: "red" };
       row.capture_mismatch = true;
       row.resolved_by_receivable_recovery = false;
     }
@@ -1449,8 +1449,8 @@ serve(async (req) => {
         trip_code: row.trip_code ?? null,
         trip_id: row.trip_id ?? null,
         final_fare_pence: row.final_fare_pence ?? null,
-        capture_amount_pence: row.capture_amount_pence ?? null,
-        outstanding_balance_pence: row.outstanding_balance_pence ?? null,
+        capture_amount_pence: row.captured_pence ?? null,
+        outstanding_balance_pence: row.outstanding_pence ?? null,
         provider_state: row.provider_state ?? null,
         pickup_waiting_charge_pence: row.pickup_waiting_charge_pence ?? null,
         receivable_outstanding_pence: openReceivables

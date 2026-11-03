@@ -322,6 +322,8 @@ export function mapProviderSubmissionOutcome(args: {
   release_reservation: boolean;
   wallet_debited: false;
   paid: false;
+  failure_code?: string | null;
+  failure_reason?: string | null;
 } {
   if (args.timed_out) {
     return {

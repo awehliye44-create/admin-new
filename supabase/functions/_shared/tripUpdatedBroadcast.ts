@@ -398,7 +398,7 @@ export async function broadcastTripLifecycleUpdated(
     .select("*")
     .eq("trip_id", tripId)
     .order("stop_index", { ascending: true });
-  const payload = buildTripUpdatedBroadcastPayload(trip as Record<string, unknown>, {
+  const payload = normalizeTripUpdatedPayload(trip as Record<string, unknown>, {
     stops: stops ?? [],
   });
   await broadcastTripUpdated(supabase, payload);
