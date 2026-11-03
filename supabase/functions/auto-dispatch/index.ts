@@ -527,20 +527,28 @@ Deno.serve(async (req) => {
 
     // Hard Rule #1 / #4: Admin HELD + preconfirm + activation-armed trips must
     // never enter marketplace auto-dispatch (even with force_rebroadcast).
-    // Marketplace opens only after Broadcast / Return Job / T−urgent convert.
-    // While dispatch_mode remains `scheduled`, nearby-card waves stay off —
-    // Driver Requested tab + activation NRO own that surface; auto-dispatch
-    // runs only after T−urgent / check-in convert flips mode to instant.
+    // Make Available (scheduled_status=scheduled|pending) stays list-only —
+    // Driver Requested tab owns that surface.
+    // Admin Broadcast Now/At and STEP 2 no-driver activation set
+    // scheduled_status=broadcasting while dispatch_mode may still be
+    // `scheduled` — those MUST create ride_offers (NRO). Blocking all
+    // mode===scheduled aborted Broadcast Now (zombie offered, £0/0s card
+    // paths, no FCM) — MK-261103-006 class.
+    // T−urgent convert still flips mode to instant; broadcasting is the
+    // scheduled-mode NRO exception.
     // Audit inline (abortDispatch is defined after vehicle-type resolve).
     {
       const mode = String(trip.dispatch_mode ?? "").trim().toLowerCase();
       const sched = String(trip.scheduled_status ?? "").trim().toLowerCase();
+      const scheduledBroadcastOpen =
+        mode === "scheduled" &&
+        (sched === "broadcasting" || sched === "dispatching");
       if (
-        mode === "scheduled" ||
         sched === "admin_held" ||
         sched === "driver_assigned" ||
         sched === "awaiting_activation_accept" ||
-        sched === "scheduled_committed"
+        sched === "scheduled_committed" ||
+        (mode === "scheduled" && !scheduledBroadcastOpen)
       ) {
         console.log("[auto-dispatch] Skipping Admin-held / preconfirm / activation / scheduled-mode trip:", {
           trip_id,

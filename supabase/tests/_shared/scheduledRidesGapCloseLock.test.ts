@@ -75,8 +75,10 @@ Deno.test("scheduled-checkin check_in never activates; only awaiting_activation 
   const src = await Deno.readTextFile(
     new URL("../../functions/scheduled-checkin/index.ts", import.meta.url),
   );
-  assertStringIncludes(src, "SCHEDULED_CHECKIN_STAMPED");
-  assertStringIncludes(src, "activated: false");
+  // Plain check_in is hard-removed (410) — only start_journey on awaiting_activation_accept activates.
+  assertStringIncludes(src, "Plain check_in never activates");
+  assertStringIncludes(src, "CHECKIN_REMOVED");
+  assertStringIncludes(src, "isCheckInOnly");
   assertStringIncludes(src, "SCHEDULED_ACTIVATION_ACCEPT_SUCCESS");
   assertStringIncludes(src, 'eq("scheduled_status", "awaiting_activation_accept")');
   assertStringIncludes(src, 'action === "start_journey"');
@@ -109,13 +111,22 @@ Deno.test("releaseAndRebroadcast stamps broadcast_at when missing", async () => 
   );
   const releaseIdx = src.indexOf("async function releaseAndRebroadcast");
   assert(releaseIdx >= 0);
-  const slice = src.slice(releaseIdx, releaseIdx + 3500);
+  // Urgent path delegates to exclusive rescue SSOT (convert + exclude + auto-dispatch kick).
+  // Non-urgent keeps marketplace reopen with broadcast_at stamp.
+  const slice = src.slice(releaseIdx, releaseIdx + 2500);
   assertStringIncludes(slice, "scheduled_broadcast_at: broadcastAt");
   assertStringIncludes(slice, "awaiting_activation_accept");
-  // Urgent path converts to instant then auto-dispatch; non-urgent stays marketplace.
-  assertStringIncludes(slice, "buildScheduledUrgentConversionPatch");
-  assertStringIncludes(slice, "if (urgent)");
-  assertStringIncludes(slice, "triggerAutoDispatch");
+  assertStringIncludes(slice, "if (args.urgent === false)");
+  assertStringIncludes(slice, "rescueExclusiveActivationToNearby");
+  assertStringIncludes(slice, "excludeDriverId");
+  assertStringIncludes(slice, "expireOpenOffers: true");
+  // Rescue SSOT still builds the urgent conversion patch (search window set once).
+  const rescueSrc = await Deno.readTextFile(
+    new URL("../../functions/_shared/scheduledActivationExclusiveRescue.ts", import.meta.url),
+  );
+  assertStringIncludes(rescueSrc, "buildExclusiveFailureConversionPatch");
+  assertStringIncludes(rescueSrc, "already_converted");
+  assertStringIncludes(rescueSrc, "triggerAutoDispatchWithRetry");
 });
 
 Deno.test("get_available excludes admin_held from driver marketplace", async () => {
@@ -191,6 +202,10 @@ Deno.test("auto-dispatch blocks Admin HELD / preconfirm / activation even with f
   assertStringIncludes(src, 'sched === "awaiting_activation_accept"');
   assertStringIncludes(src, 'sched === "driver_assigned"');
   assertStringIncludes(src, "scheduled_held_or_preconfirm: true");
+  // Broadcast Now / STEP 2 broadcasting must NOT be blocked (creates ride_offers).
+  assertStringIncludes(src, 'sched === "broadcasting"');
+  assertStringIncludes(src, "scheduledBroadcastOpen");
+  assertStringIncludes(src, "mode === \"scheduled\" && !scheduledBroadcastOpen");
   // Must audit inline — abortDispatch is defined after vehicle-type resolve.
   const heldIdx = src.indexOf('reason: "SCHEDULED_HELD_OR_PRECONFIRM"');
   const abortDefIdx = src.indexOf("const abortDispatch =");

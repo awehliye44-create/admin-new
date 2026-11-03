@@ -34,7 +34,16 @@ import {
 
 interface NotificationPayload {
   driverId: string;
-  type: 'RIDE_OFFER' | 'RIDE_STOP' | 'TRIP_UPDATE' | 'SYSTEM_ALERT' | 'NEGOTIATION_UPDATE';
+  type:
+    | 'RIDE_OFFER'
+    | 'RIDE_STOP'
+    | 'TRIP_UPDATE'
+    | 'SYSTEM_ALERT'
+    | 'NEGOTIATION_UPDATE'
+    // Scheduled Jobs marketplace / commitment alerts (not NRO envelopes).
+    | 'SCHEDULED_RIDE_REQUEST'
+    | 'SCHEDULED_JOB_CONFIRMED'
+    | 'SCHEDULED_COMMITMENT';
   title: string;
   body: string;
   data?: Record<string, string>;
@@ -46,6 +55,10 @@ const VALID_NOTIFICATION_TYPES = [
   'TRIP_UPDATE',
   'SYSTEM_ALERT',
   'NEGOTIATION_UPDATE',
+  // Make Available marketplace + scheduled commitment / confirm pushes.
+  'SCHEDULED_RIDE_REQUEST',
+  'SCHEDULED_JOB_CONFIRMED',
+  'SCHEDULED_COMMITMENT',
 ];
 const RATE_LIMIT_CONFIG = { limit: 200, windowMs: 60000, keyPrefix: 'send-notification' };
 
@@ -480,9 +493,11 @@ Deno.serve(async (req) => {
             }
           : {
               ...incomingData,
-              // Preserve client routing type for trip_modified (Driver parseTripModifiedPushData).
-              // Envelope stays TRIP_UPDATE for the allow-list.
-              type: isTripModified ? 'trip_modified' : payload.type,
+              // Preserve client routing type for trip_modified / scheduled marketplace.
+              // Envelope (payload.type) stays on the allow-list; data.type drives native routing.
+              type: isTripModified
+                ? 'trip_modified'
+                : (incomingData.type || payload.type),
               notificationType:
                 incomingData.notificationType ||
                 incomingData.notification_type ||

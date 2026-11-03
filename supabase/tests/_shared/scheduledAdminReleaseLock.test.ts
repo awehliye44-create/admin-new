@@ -41,12 +41,18 @@ Deno.test("Make Available publishes Scheduled Jobs without NRO", async () => {
   assertEquals(patch.pending_release_kind, null);
 });
 
-Deno.test("Broadcast Now starts NRO path (not Scheduled Jobs-only)", () => {
-  const patch = buildBroadcastNowPatch({ nowIso: "2026-09-21T12:00:00.000Z" });
-  assertEquals(patch.scheduled_status, "broadcasting");
-  assertEquals(patch.status, "offered");
+Deno.test("Broadcast Now starts live NRO path via instant conversion (not Scheduled Jobs-only)", () => {
+  const patch = buildBroadcastNowPatch({
+    nowIso: "2026-09-21T12:00:00.000Z",
+    searchingExpiresAtIso: "2026-09-21T12:06:00.000Z",
+  });
+  assertEquals(patch.dispatch_mode, "instant");
+  assertEquals(patch.scheduled_status, "converted_to_instant");
+  assertEquals(patch.status, "searching");
+  assertEquals(patch.searching_expires_at, "2026-09-21T12:06:00.000Z");
   assertEquals(patch.scheduled_broadcast_at, "2026-09-21T12:00:00.000Z");
   assertEquals(patch.confirmed_driver_id, null);
+  assertEquals(patch.driver_id, null);
   assertEquals(patch.pending_release_kind, null);
 });
 

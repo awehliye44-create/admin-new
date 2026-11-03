@@ -45,7 +45,17 @@ import {
   expireTripWhenSearchExhaustedAndNotifyCustomer,
   notifyCustomerTripLifecycle,
 } from "../_shared/customerTripLifecycleNotify.ts";
-import { notifyCustomerNegotiationRematch } from "../_shared/negotiationFailureRematch.ts";
+import { notifyScheduledMarketplaceOpen } from "../_shared/scheduledMarketplaceNotifySSOT.ts";
+import {
+  buildExclusiveActivationOfferSnapshot,
+  resolveActivationGrossPenceForPreview,
+  resolveExclusiveActivationDriverNetPence,
+  SCHEDULED_ACTIVATION_EXCLUSIVE_REASON,
+} from "../_shared/scheduledActivationExclusiveSSOT.ts";
+import {
+  evaluateConfirmedDriverExclusiveEligibility,
+  rescueExclusiveActivationToNearby,
+} from "../_shared/scheduledActivationExclusiveRescue.ts";
 
 declare const EdgeRuntime:
   | { waitUntil?: (promise: Promise<unknown>) => void }
@@ -100,7 +110,10 @@ interface ScheduledTrip {
   is_scheduled?: boolean | null;
   base_fare_pence?: number | null;
   currency_code?: string | null;
+  currency?: string | null;
   fare?: number | null;
+  airport_charge_pence?: number | null;
+  service_area_id?: string | null;
   estimated_duration_minutes?: number | null;
   // Legacy columns (no longer drive activation)
   commitment_time?: string | null;
@@ -209,20 +222,30 @@ async function triggerAutoDispatch(args: {
   tripId: string;
   forceRebroadcast?: boolean;
   triggerReason: string;
+  declinedDriverId?: string | null;
 }) {
-  const { supabaseUrl, supabaseServiceKey, tripId, forceRebroadcast = true, triggerReason } = args;
+  const {
+    supabaseUrl,
+    supabaseServiceKey,
+    tripId,
+    forceRebroadcast = true,
+    triggerReason,
+    declinedDriverId,
+  } = args;
   try {
+    const body: Record<string, unknown> = {
+      trip_id: tripId,
+      force_rebroadcast: forceRebroadcast,
+      trigger_reason: triggerReason,
+    };
+    if (declinedDriverId) body.declined_driver_id = declinedDriverId;
     const resp = await fetch(`${supabaseUrl}/functions/v1/auto-dispatch`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${supabaseServiceKey}`,
       },
-      body: JSON.stringify({
-        trip_id: tripId,
-        force_rebroadcast: forceRebroadcast,
-        trigger_reason: triggerReason,
-      }),
+      body: JSON.stringify(body),
     });
     const data = await resp.json().catch(() => ({}));
     if (!resp.ok) {
@@ -236,7 +259,7 @@ async function triggerAutoDispatch(args: {
   }
 }
 
-/** Release a committed driver back to broadcast: clear assignment and rebroadcast. */
+/** Release exclusive / committed driver → urgent nearby convert (SSOT rescue). */
 async function releaseAndRebroadcast(
   supabase: AnySupabaseClient,
   args: {
@@ -248,79 +271,51 @@ async function releaseAndRebroadcast(
     supabaseServiceKey: string;
     urgent?: boolean;
     maxFindDriverMinutes?: number;
+    excludeDriverId?: string | null;
   },
 ) {
-  const { trip, reason, now } = args;
-  const broadcastAt = trip.scheduled_broadcast_at && String(trip.scheduled_broadcast_at).trim()
-    ? trip.scheduled_broadcast_at
-    : now.toISOString();
-
-  // Urgent (activation NRO expire / critical late): flip to instant nearby-card
-  // path then auto-dispatch. Non-urgent: reopen scheduled marketplace only
-  // (Requested tab) — auto-dispatch stays off while dispatch_mode=scheduled.
-  const urgent = args.urgent === true;
-  const maxFind = Math.max(1, Number(args.maxFindDriverMinutes ?? 6));
-  const updatePatch = urgent
-    ? {
-      ...buildScheduledUrgentConversionPatch({
-        nowIso: now.toISOString(),
-        searchingExpiresAtIso: new Date(now.getTime() + maxFind * 60_000).toISOString(),
-      }),
-      driver_id: null,
-      confirmed_driver_id: null,
-      scheduled_broadcast_at: broadcastAt,
-      commitment_time: null,
-      scheduled_committed_at: null,
-    }
-    : {
-      driver_id: null,
-      confirmed_driver_id: null,
-      scheduled_status: "broadcasting",
-      scheduled_broadcast_at: broadcastAt,
-      status: "offered",
-      commitment_time: null,
-      scheduled_committed_at: null,
-      updated_at: now.toISOString(),
-    };
-
-  const { error } = await supabase
-    .from("trips")
-    .update(updatePatch)
-    .eq("id", trip.id)
-    .is("completed_at", null)
-    .not("status", "in", TERMINAL_TRIP_STATUS_POSTGREST_LIST)
-    .in("scheduled_status", [
-      "scheduled_committed",
-      "driver_assigned",
-      "awaiting_activation_accept",
-    ]);
-
-  if (error) {
-    console.error("[scheduled-dispatch] releaseAndRebroadcast update failed:", trip.id, error);
+  if (args.urgent === false) {
+    // Legacy non-urgent branch kept for call-site compatibility — prefer urgent.
+    const nowIso = args.now.toISOString();
+    const broadcastAt = args.trip.scheduled_broadcast_at &&
+        String(args.trip.scheduled_broadcast_at).trim()
+      ? args.trip.scheduled_broadcast_at
+      : nowIso;
+    await supabase
+      .from("trips")
+      .update({
+        driver_id: null,
+        confirmed_driver_id: null,
+        scheduled_status: "broadcasting",
+        scheduled_broadcast_at: broadcastAt,
+        status: "offered",
+        commitment_time: null,
+        scheduled_committed_at: null,
+        updated_at: nowIso,
+      })
+      .eq("id", args.trip.id)
+      .is("completed_at", null)
+      .not("status", "in", TERMINAL_TRIP_STATUS_POSTGREST_LIST)
+      .in("scheduled_status", [
+        "scheduled_committed",
+        "driver_assigned",
+        "awaiting_activation_accept",
+      ]);
     return;
   }
 
-  console.log("SCHEDULED_DRIVER_RELEASED", {
-    trip_id: trip.id,
-    driver_id: trip.driver_id ?? trip.confirmed_driver_id,
-    reason,
-    urgent,
+  await rescueExclusiveActivationToNearby(supabase, {
+    tripId: args.trip.id,
+    reason: args.reason,
+    now: args.now,
+    maxFindDriverMinutes: args.maxFindDriverMinutes ?? 6,
+    supabaseUrl: args.supabaseUrl,
+    supabaseServiceKey: args.supabaseServiceKey,
+    excludeDriverId: args.excludeDriverId ??
+      args.trip.confirmed_driver_id ??
+      args.trip.driver_id,
+    expireOpenOffers: true,
   });
-
-  if (urgent) {
-    voidBackground(
-      triggerAutoDispatch({
-        supabaseUrl: args.supabaseUrl,
-        supabaseServiceKey: args.supabaseServiceKey,
-        tripId: trip.id,
-        forceRebroadcast: true,
-        triggerReason: reason,
-      }),
-    );
-  }
-
-  // Rematch — lifecycle WAV (finding-another), never mute send-customer-notification / trip_cancelled.
-  voidBackground(notifyCustomerNegotiationRematch(supabase, trip.id));
 }
 
 
@@ -351,6 +346,54 @@ Deno.serve(async (req) => {
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
+
+    // Admin Make Available (Now) — list-only marketplace alert, not NRO.
+    {
+      let body: Record<string, unknown> = {};
+      try {
+        body = (await req.json()) as Record<string, unknown>;
+      } catch {
+        body = {};
+      }
+      const notifyTripId = String(body.notify_marketplace_trip_id ?? "").trim();
+      if (notifyTripId) {
+        const { data: tripRow, error: tripErr } = await supabase
+          .from("trips")
+          .select(
+            "id, service_area_id, pickup_address, scheduled_at, trip_code, trip_number, scheduled_status, scheduled_broadcast_at, confirmed_driver_id, driver_id",
+          )
+          .eq("id", notifyTripId)
+          .maybeSingle();
+        if (tripErr || !tripRow) {
+          return errorResponse("TRIP_NOT_FOUND", "Scheduled trip not found", 404);
+        }
+        const sched = String(tripRow.scheduled_status ?? "").toLowerCase();
+        if (sched === "admin_held" || !tripRow.scheduled_broadcast_at) {
+          return errorResponse(
+            "INVALID_STATE",
+            "Trip is not open on the Scheduled Jobs marketplace",
+            409,
+          );
+        }
+        if (tripRow.confirmed_driver_id || tripRow.driver_id) {
+          return successResponse({
+            success: true,
+            notified: 0,
+            skipped: "already_assigned",
+          });
+        }
+        const result = await notifyScheduledMarketplaceOpen(supabase, tripRow);
+        console.log("SCHEDULED_MARKETPLACE_NOTIFY", {
+          trip_id: notifyTripId,
+          notified: result.notified,
+        });
+        return successResponse({
+          success: true,
+          notified: result.notified,
+          trip_id: notifyTripId,
+        });
+      }
+    }
 
     const now = new Date();
     const nowMs = now.getTime();
@@ -520,9 +563,17 @@ Deno.serve(async (req) => {
                 .eq("id", trip.id);
               continue;
             }
+            const searchingExpiresAt = new Date(
+              nowMs + maxFindDriverMinutes * 60_000,
+            ).toISOString();
             const { data: broadcastRows, error } = await supabase
               .from("trips")
-              .update(buildBroadcastNowPatch({ nowIso: now.toISOString() }))
+              .update(
+                buildBroadcastNowPatch({
+                  nowIso: now.toISOString(),
+                  searchingExpiresAtIso: searchingExpiresAt,
+                }),
+              )
               .eq("id", trip.id)
               .is("completed_at", null)
               .not("status", "in", TERMINAL_TRIP_STATUS_POSTGREST_LIST)
@@ -612,6 +663,24 @@ Deno.serve(async (req) => {
               action: "admin_pending_jobs_executed",
               metadata: {},
             });
+            const { data: jobsTrip } = await supabase
+              .from("trips")
+              .select(
+                "id, service_area_id, pickup_address, scheduled_at, trip_code, trip_number",
+              )
+              .eq("id", trip.id)
+              .maybeSingle();
+            if (jobsTrip) {
+              voidBackground(
+                notifyScheduledMarketplaceOpen(supabase, jobsTrip).then((r) => {
+                  console.log("SCHEDULED_MARKETPLACE_NOTIFY", {
+                    trip_id: trip.id,
+                    notified: r.notified,
+                    via: "pending_jobs_at",
+                  });
+                }),
+              );
+            }
           }
         }
       }
@@ -691,44 +760,81 @@ Deno.serve(async (req) => {
         );
         const expiresAt = new Date(nowMs + responseMinutes * 60_000).toISOString();
 
-        const netPence = (() => {
-          const fromNet = Number(trip.driver_net_pence ?? trip.driver_net_before_tip_pence ?? 0);
-          if (Number.isFinite(fromNet) && fromNet > 0) return Math.round(fromNet);
-          const fromFarePence = Number(trip.final_fare_pence ?? trip.estimated_total_pence ?? 0);
-          if (Number.isFinite(fromFarePence) && fromFarePence > 0) {
-            return Math.round(fromFarePence);
+        // P5 — driver net only (stamped or commission SSOT preview). Never customer gross.
+        let computedPreview: number | null = null;
+        const stampedNet = resolveExclusiveActivationDriverNetPence({ trip });
+        if (stampedNet == null) {
+          const gross = resolveActivationGrossPenceForPreview(trip);
+          if (gross != null && trip.service_area_id) {
+            const { data: preview } = await supabase.rpc(
+              "compute_driver_net_preview_from_gross",
+              {
+                p_gross_pence: gross,
+                p_driver_id: confirmedDriverId,
+                p_service_area_id: trip.service_area_id,
+                p_airport_charge_pence: Number(trip.airport_charge_pence ?? 0) || 0,
+              },
+            );
+            const n = Number(preview);
+            computedPreview = Number.isFinite(n) && n > 0 ? Math.round(n) : null;
           }
-          const fromMajor = Number(trip.estimated_fare ?? trip.fare ?? 0);
-          if (Number.isFinite(fromMajor) && fromMajor > 0) {
-            return Math.round(fromMajor * 100);
-          }
-          return 0;
-        })();
-        if (netPence <= 0) {
-          console.error(`[scheduled-dispatch] Activation offer skipped — no driver net for ${trip.id}`);
+        }
+        const netPence = resolveExclusiveActivationDriverNetPence({
+          trip,
+          computedPreviewPence: computedPreview,
+        });
+        if (netPence == null || netPence <= 0) {
+          console.error(
+            `[scheduled-dispatch] Activation bypass — driver net unavailable for ${trip.id}`,
+          );
+          await releaseAndRebroadcast(supabase, {
+            trip,
+            reason: SCHEDULED_ACTIVATION_EXCLUSIVE_REASON.netUnavailableBypass,
+            now,
+            nowMs,
+            supabaseUrl,
+            supabaseServiceKey,
+            urgent: true,
+            maxFindDriverMinutes,
+            excludeDriverId: confirmedDriverId,
+          });
           continue;
         }
 
-        const offerSnapshot = {
-          scheduled_status: "awaiting_activation_accept",
-          scheduled_at: trip.scheduled_at,
-          dispatch_mode: "scheduled",
-          is_scheduled: true,
-          confirmed_driver_id: confirmedDriverId,
-          pickup_address: trip.pickup_address,
-          pickup_latitude: trip.pickup_latitude,
-          pickup_longitude: trip.pickup_longitude,
-          dropoff_address: trip.dropoff_address,
-          dropoff_latitude: trip.dropoff_latitude,
-          dropoff_longitude: trip.dropoff_longitude,
-          estimated_duration_minutes: trip.estimated_duration_minutes,
-          special_instructions: trip.special_instructions,
-          driver_net_fare_pence: netPence,
-          offered_driver_net_pence: netPence,
-          negotiation_disabled: true,
-          presets_enabled: false,
-          scheduled_kind: due.kind,
-        };
+        // P3 — eligibility before arm (stacked / finishing earlier trip allowed).
+        const eligibility = await evaluateConfirmedDriverExclusiveEligibility(supabase, {
+          driverId: confirmedDriverId,
+          tripId: trip.id,
+          nowMs,
+          allowOnTrip: true,
+        });
+        if (!eligibility.eligible) {
+          console.log("SCHEDULED_ACTIVATION_INELIGIBLE_BYPASS", {
+            trip_id: trip.id,
+            driver_id: confirmedDriverId,
+            reason: eligibility.reason,
+          });
+          await releaseAndRebroadcast(supabase, {
+            trip,
+            reason: SCHEDULED_ACTIVATION_EXCLUSIVE_REASON.ineligibleBypass,
+            now,
+            nowMs,
+            supabaseUrl,
+            supabaseServiceKey,
+            urgent: true,
+            maxFindDriverMinutes,
+            excludeDriverId: confirmedDriverId,
+          });
+          continue;
+        }
+
+        const offerSnapshot = buildExclusiveActivationOfferSnapshot({
+          trip,
+          confirmedDriverId,
+          netPence,
+          kind: due.kind,
+          expiresAtIso: expiresAt,
+        });
 
         const { data: offerRows, error: offerErr } = await supabase
           .from("ride_offers")
@@ -740,18 +846,33 @@ Deno.serve(async (req) => {
             expires_at: expiresAt,
             offered_driver_net_pence: netPence,
             is_urgent_dispatch: false,
+            is_stacked: eligibility.isStacked,
             offer_snapshot: offerSnapshot,
           })
           .select("id");
 
+        // Insert may be skipped by tr_block_ineligible_ride_offer (returns 0 rows).
         if (offerErr || !offerRows?.length) {
           console.error(
-            `[scheduled-dispatch] Activation offer insert failed:`,
+            `[scheduled-dispatch] Activation offer insert failed/blocked:`,
             trip.id,
             offerErr,
           );
+          await releaseAndRebroadcast(supabase, {
+            trip,
+            reason: SCHEDULED_ACTIVATION_EXCLUSIVE_REASON.insertBlockedBypass,
+            now,
+            nowMs,
+            supabaseUrl,
+            supabaseServiceKey,
+            urgent: true,
+            maxFindDriverMinutes,
+            excludeDriverId: confirmedDriverId,
+          });
           continue;
         }
+
+        const offerId = String(offerRows[0].id);
 
         const { data: armedRows, error: commitError } = await supabase
           .from("trips")
@@ -774,39 +895,38 @@ Deno.serve(async (req) => {
           await supabase
             .from("ride_offers")
             .update({ status: "cancelled", updated_at: now.toISOString() })
-            .eq("id", offerRows[0].id);
+            .eq("id", offerId);
           continue;
         }
 
         await logSnapshot(supabase, {
           tripId: trip.id,
           action: "scheduled_activation_nro",
-          stage: "considered",
+          stage: "offer_inserted",
           driverId: confirmedDriverId,
           metadata: {
             kind: due.kind,
             activation_at: new Date(due.activationAtMs).toISOString(),
             scheduled_at: trip.scheduled_at,
-            offer_id: offerRows[0].id,
+            offer_id: offerId,
             estimated_duration_minutes: trip.estimated_duration_minutes,
+            driver_net_pence: netPence,
+            expires_at: expiresAt,
           },
         });
 
-        queueBackground(
-          sendDriverPush(supabase, {
-            driverId: confirmedDriverId,
-            type: "SCHEDULED_COMMITMENT",
-            title: "SCHEDULED RIDE",
-            body: `Accept now to drive to pickup · ${trip.pickup_address ?? "pickup"}`,
-            data: {
-              trip_id: trip.id,
-              type: "scheduled_commitment",
-              offer_kind: "scheduled",
-              pickup_address: trip.pickup_address ?? "",
-              scheduled_at: trip.scheduled_at,
-            },
-          }),
-        );
+        // P1 — standard RIDE_OFFER / NEW_RIDE_OFFER is owned by
+        // tr_send_push_on_ride_offer_insert → ride_offer_dispatch_push_delivery
+        // (offer_id + NEW_RIDE_OFFER + net from offer_snapshot). Do NOT also
+        // send SCHEDULED_COMMITMENT or a second Edge RIDE_OFFER (duplicates).
+        console.log("SCHEDULED_ACTIVATION_NRO_ARMED", {
+          trip_id: trip.id,
+          offer_id: offerId,
+          driver_id: confirmedDriverId,
+          expires_at: expiresAt,
+          driver_net_pence: netPence,
+          is_stacked: eligibility.isStacked,
+        });
 
         committedCount++;
       }
@@ -855,13 +975,14 @@ Deno.serve(async (req) => {
           });
           await releaseAndRebroadcast(supabase, {
             trip: trip as ScheduledTrip,
-            reason: "scheduled_activation_nro_expired_or_declined",
+            reason: SCHEDULED_ACTIVATION_EXCLUSIVE_REASON.expiredOrDeclined,
             now,
             nowMs,
             supabaseUrl,
             supabaseServiceKey,
             urgent: true,
             maxFindDriverMinutes,
+            excludeDriverId: trip.confirmed_driver_id,
           });
         }
       }
