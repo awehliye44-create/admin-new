@@ -17,6 +17,7 @@ import {
   buildScheduledUrgentConversionPatch,
   NO_PRECONFIRMED_CONVERT_SCHEDULED_STATUSES,
 } from "../_shared/scheduledDispatchConfig.ts";
+import { maxBroadcastSequences } from "../_shared/dispatch-settings.ts";
 import {
   isScheduledActivationDue,
   scheduledActivationLookaheadMs,
@@ -406,7 +407,7 @@ Deno.serve(async (req) => {
          urgent_dispatch_trigger_minutes_before_pickup, locked_driver_response_minutes,
          max_driver_find_time_minutes, scheduled_urgent_card_label,
          long_trip_threshold_minutes, local_activation_minutes_before_pickup,
-         long_activation_minutes_before_pickup`,
+         long_activation_minutes_before_pickup, max_dispatch_rounds`,
       )
       .eq("singleton", true)
       .maybeSingle();
@@ -414,6 +415,10 @@ Deno.serve(async (req) => {
     const schedConfig = resolveScheduledDispatchConfig(globalSettings);
     const maxFindDriverMinutes = schedConfig.maxFindDriverMinutes;
     const activationConfig = schedConfig.activation;
+    const instantMaxSequences = maxBroadcastSequences(
+      { max_dispatch_rounds: (globalSettings as { max_dispatch_rounds?: number } | null)?.max_dispatch_rounds },
+      null,
+    );
 
     let committedCount = 0;
     let broadcastStarted = 0;
@@ -584,6 +589,7 @@ Deno.serve(async (req) => {
                   maxExistingBroadcastRound: Number.isFinite(maxExistingBroadcastRound)
                     ? maxExistingBroadcastRound
                     : 0,
+                  maxBroadcastSequences: instantMaxSequences,
                 }),
               )
               .eq("id", trip.id)
@@ -1269,6 +1275,7 @@ Deno.serve(async (req) => {
           nowIso: now.toISOString(),
           searchingExpiresAtIso: searchingExpiresAt,
           maxExistingBroadcastRound,
+          maxBroadcastSequences: instantMaxSequences,
         });
 
         const { data: convertedRows, error: updateError } = await supabase
@@ -1475,6 +1482,7 @@ Deno.serve(async (req) => {
                 maxExistingBroadcastRound: Number.isFinite(maxExistingBroadcastRound)
                   ? maxExistingBroadcastRound
                   : 0,
+                maxBroadcastSequences: instantMaxSequences,
               }),
               confirmed_driver_id: null,
             })

@@ -45,5 +45,11 @@ export function resolveUniqueDispatchBroadcastRound(params: {
   const anchor = resolveConversionBroadcastRoundAnchor(maxExisting);
   const next = Math.max(resolved, anchor + 1);
   const maxSequences = Math.max(1, Math.floor(params.maxRounds));
+  // While the customer search TTL is live, keep allocating unique sequences past
+  // the cycle budget so waves continue until searching_expires_at (instant
+  // MK-261104-004 behaviour: offers kept flowing for the full find-driver window).
+  if (params.searchWindowActive) {
+    return next;
+  }
   return Math.min(next, maxSequences);
 }

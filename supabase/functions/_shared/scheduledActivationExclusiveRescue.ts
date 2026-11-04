@@ -10,6 +10,7 @@ import {
   SCHEDULED_ACTIVATION_EXCLUSIVE_REASON,
   isExclusiveActivationArmedStatus,
 } from "./scheduledActivationExclusiveSSOT.ts";
+import { maxBroadcastSequences } from "./dispatch-settings.ts";
 import { notifyCustomerNegotiationRematch } from "./negotiationFailureRematch.ts";
 import {
   isTripTerminalForDispatch,
@@ -162,6 +163,15 @@ export async function rescueExclusiveActivationToNearby(
     .order("broadcast_round", { ascending: false })
     .limit(1);
   const maxExistingBroadcastRound = Number(priorOffers?.[0]?.broadcast_round ?? 0);
+  const { data: globalRounds } = await supabase
+    .from("global_dispatch_settings")
+    .select("max_dispatch_rounds")
+    .eq("singleton", true)
+    .maybeSingle();
+  const instantMaxSequences = maxBroadcastSequences(
+    { max_dispatch_rounds: globalRounds?.max_dispatch_rounds },
+    null,
+  );
   const patch = buildExclusiveFailureConversionPatch({
     nowIso,
     searchingExpiresAtIso,
@@ -171,6 +181,7 @@ export async function rescueExclusiveActivationToNearby(
     maxExistingBroadcastRound: Number.isFinite(maxExistingBroadcastRound)
       ? maxExistingBroadcastRound
       : 0,
+    maxBroadcastSequences: instantMaxSequences,
   });
 
   const { data: updatedRows, error: updateErr } = await supabase

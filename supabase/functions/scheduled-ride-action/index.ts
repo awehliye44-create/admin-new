@@ -18,6 +18,7 @@ import {
   buildScheduledUrgentConversionPatch,
   resolveScheduledDispatchConfig,
 } from "../_shared/scheduledDispatchConfig.ts";
+import { maxBroadcastSequences } from "../_shared/dispatch-settings.ts";
 import { notifyCustomerTripLifecycle } from "../_shared/customerTripLifecycleNotify.ts";
 
 const RATE_LIMIT_CONFIG = {
@@ -776,10 +777,14 @@ Deno.serve(async (req) => {
       if (isCheckinOpen) {
         const { data: globalCfg } = await supabase
           .from("global_dispatch_settings")
-          .select("max_driver_find_time_minutes")
+          .select("max_driver_find_time_minutes, max_dispatch_rounds")
           .eq("singleton", true)
           .maybeSingle();
         const maxFindDriverMinutes = resolveScheduledDispatchConfig(globalCfg ?? {}).maxFindDriverMinutes;
+        const instantMaxSequences = maxBroadcastSequences(
+          { max_dispatch_rounds: globalCfg?.max_dispatch_rounds },
+          null,
+        );
         const convertNow = new Date();
         const { data: priorConvertOffers } = await supabase
           .from("ride_offers")
@@ -800,6 +805,7 @@ Deno.serve(async (req) => {
             maxExistingBroadcastRound: Number.isFinite(maxExistingBroadcastRound)
               ? maxExistingBroadcastRound
               : 0,
+            maxBroadcastSequences: instantMaxSequences,
           }))
           .eq("id", trip_id);
 
