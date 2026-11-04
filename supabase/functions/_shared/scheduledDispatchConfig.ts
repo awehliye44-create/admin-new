@@ -10,6 +10,7 @@ import {
   resolveScheduledActivationConfig,
   type ScheduledActivationConfig,
 } from "./scheduledActivationSSOT.ts";
+import { resolveNextRematchBroadcastRound } from "./driverCancelRematch.ts";
 
 export type ScheduledDispatchConfig = {
   enableScheduledToUrgentConversion: boolean;
@@ -290,6 +291,13 @@ export function isNoPreconfirmedConvertScheduledStatus(
 export function buildScheduledUrgentConversionPatch(input: {
   nowIso: string;
   searchingExpiresAtIso: string;
+  /**
+   * Max ride_offers.broadcast_round already used on this trip (scheduled
+   * broadcast / rematch history). Anchors current_broadcast_round so the first
+   * post-convert auto-dispatch sequence cannot collide with UNIQUE
+   * (trip_id, driver_id, broadcast_round). Omit / 0 when no prior offers.
+   */
+  maxExistingBroadcastRound?: number | null;
 }): {
   dispatch_mode: "instant";
   scheduled_status: "converted_to_instant";
@@ -297,7 +305,7 @@ export function buildScheduledUrgentConversionPatch(input: {
   dispatch_status: "broadcasting";
   broadcast_enabled: true;
   searching_expires_at: string;
-  current_broadcast_round: 0;
+  current_broadcast_round: number;
   updated_at: string;
   pending_release_kind: null;
   pending_release_at: null;
@@ -310,7 +318,10 @@ export function buildScheduledUrgentConversionPatch(input: {
     dispatch_status: "broadcasting",
     broadcast_enabled: true,
     searching_expires_at: input.searchingExpiresAtIso,
-    current_broadcast_round: 0,
+    // Fresh W1 of the next cycle after offer history (0 when none → next seq 1).
+    current_broadcast_round: resolveNextRematchBroadcastRound(
+      input.maxExistingBroadcastRound ?? 0,
+    ),
     updated_at: input.nowIso,
     // T−urgent overrides any later Assign At / Broadcast At.
     pending_release_kind: null,

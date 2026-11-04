@@ -16,9 +16,11 @@ import { finalizeNegotiationFailureAndRebroadcast, notifyCustomerNegotiationRema
 import {
   buildRebroadcastInvocations,
   buildVehicleTypeSelectedStuckInvocations,
+  DISPATCH_STATUS_OFFER_CREATE_BLOCKED,
   filterTripIdsWithNoPendingOffers,
   findStuckVehicleTypeSelectedTrips,
   isOfferExpiryWaveEnabled,
+  isStaleTripRebroadcastCandidate,
   DEFAULT_MAX_BROADCAST_SEQUENCES,
   OFFER_EXPIRED_TRIGGER_REASON,
   sweepExpiredOffers,
@@ -676,9 +678,21 @@ Deno.serve(async (req) => {
         // trips.max_broadcast_rounds is absolute sequences (cycles × 3).
         const maxRounds = trip.max_broadcast_rounds || DEFAULT_MAX_BROADCAST_SEQUENCES;
 
-        if (currentRound < maxRounds) {
+        // Permanent offer-create block must not loop via stale_trip_no_pending.
+        if (String(trip.dispatch_status ?? "") === DISPATCH_STATUS_OFFER_CREATE_BLOCKED) {
+          continue;
+        }
+
+        if (
+          isStaleTripRebroadcastCandidate({
+            dispatch_status: trip.dispatch_status ?? null,
+            current_broadcast_round: currentRound,
+            max_broadcast_rounds: maxRounds,
+            pending_offer_count: 0,
+          })
+        ) {
           tripsToRebroadcast.push(trip.id);
-        } else {
+        } else if (currentRound >= maxRounds) {
           // SSOT: expire_trip_when_search_exhausted. Scheduled handover must not
           // use instant created_at TTL even if waves look exhausted.
           if (isScheduledInstantConversionPending(trip)) {

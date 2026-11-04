@@ -566,12 +566,24 @@ Deno.serve(async (req) => {
             const searchingExpiresAt = new Date(
               nowMs + maxFindDriverMinutes * 60_000,
             ).toISOString();
+            const { data: priorBroadcastOffers } = await supabase
+              .from("ride_offers")
+              .select("broadcast_round")
+              .eq("trip_id", trip.id)
+              .order("broadcast_round", { ascending: false })
+              .limit(1);
+            const maxExistingBroadcastRound = Number(
+              priorBroadcastOffers?.[0]?.broadcast_round ?? 0,
+            );
             const { data: broadcastRows, error } = await supabase
               .from("trips")
               .update(
                 buildBroadcastNowPatch({
                   nowIso: now.toISOString(),
                   searchingExpiresAtIso: searchingExpiresAt,
+                  maxExistingBroadcastRound: Number.isFinite(maxExistingBroadcastRound)
+                    ? maxExistingBroadcastRound
+                    : 0,
                 }),
               )
               .eq("id", trip.id)
@@ -1221,11 +1233,11 @@ Deno.serve(async (req) => {
       const convertTripIds = ridesToConvert.map((t: { id: string }) => t.id);
       const { data: convertOffers } = await supabase
         .from("ride_offers")
-        .select("trip_id, status, offered_at, created_at")
+        .select("trip_id, status, offered_at, created_at, broadcast_round")
         .in("trip_id", convertTripIds)
         .order("created_at", { ascending: true });
 
-      const offersByTrip = new Map<string, typeof convertOffers>();
+      const offersByTrip = new Map<string, NonNullable<typeof convertOffers>>();
       for (const offer of convertOffers || []) {
         const list = offersByTrip.get(offer.trip_id) ?? [];
         list.push(offer);
@@ -1249,9 +1261,14 @@ Deno.serve(async (req) => {
         if (!decision.convert) continue;
 
         const searchingExpiresAt = new Date(nowMs + maxFindDriverMinutes * 60_000).toISOString();
+        const maxExistingBroadcastRound = tripOffers.reduce((max, offer) => {
+          const round = Number(offer.broadcast_round ?? 0);
+          return Number.isFinite(round) ? Math.max(max, Math.floor(round)) : max;
+        }, 0);
         const conversionPatch = buildScheduledUrgentConversionPatch({
           nowIso: now.toISOString(),
           searchingExpiresAtIso: searchingExpiresAt,
+          maxExistingBroadcastRound,
         });
 
         const { data: convertedRows, error: updateError } = await supabase
@@ -1440,12 +1457,24 @@ Deno.serve(async (req) => {
         // the converted search path with an already-past deadline, then reuse expire RPC.
         // Expire RPC returns false while scheduled handover is still pending.
         if (!isConverted) {
+          const { data: priorExpireOffers } = await supabase
+            .from("ride_offers")
+            .select("broadcast_round")
+            .eq("trip_id", trip.id)
+            .order("broadcast_round", { ascending: false })
+            .limit(1);
+          const maxExistingBroadcastRound = Number(
+            priorExpireOffers?.[0]?.broadcast_round ?? 0,
+          );
           await supabase
             .from("trips")
             .update({
               ...buildScheduledUrgentConversionPatch({
                 nowIso: now.toISOString(),
                 searchingExpiresAtIso: pastDeadlineIso,
+                maxExistingBroadcastRound: Number.isFinite(maxExistingBroadcastRound)
+                  ? maxExistingBroadcastRound
+                  : 0,
               }),
               confirmed_driver_id: null,
             })

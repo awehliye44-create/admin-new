@@ -66,6 +66,9 @@ export function buildSearchCycleId(
 /**
  * Align rematch to the end of the current 3-wave cycle so the next
  * auto-dispatch sequence is W1 of a fresh cycle (UNIQUE trip+driver+round safe).
+ *
+ * Also used by scheduled→instant conversion so post-convert waves do not reuse
+ * broadcast_round keys from the earlier scheduled marketplace offers.
  */
 export function resolveNextRematchBroadcastRound(
   maxExistingBroadcastRound: number | null | undefined,
@@ -75,6 +78,20 @@ export function resolveNextRematchBroadcastRound(
       ? Math.max(0, Math.floor(maxExistingBroadcastRound))
       : 0;
   return Math.floor((maxRound + 2) / 3) * 3;
+}
+
+/** Highest ride_offers.broadcast_round for a trip (revoked/expired/accepted count). */
+export function maxBroadcastRoundFromOfferRows(
+  offers: ReadonlyArray<{ broadcast_round?: number | null } | null | undefined>,
+): number {
+  let max = 0;
+  for (const offer of offers) {
+    const round = offer?.broadcast_round;
+    if (typeof round === "number" && Number.isFinite(round)) {
+      max = Math.max(max, Math.floor(round));
+    }
+  }
+  return max;
 }
 
 /**

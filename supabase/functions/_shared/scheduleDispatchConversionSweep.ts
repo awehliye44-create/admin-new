@@ -116,7 +116,7 @@ export async function runScheduleDispatchConversionSweep(
   const convertTripIds = pendingTrips.map((t: { id: string }) => t.id);
   const { data: convertOffers } = await supabase
     .from("ride_offers")
-    .select("trip_id, status, offered_at, created_at")
+    .select("trip_id, status, offered_at, created_at, broadcast_round")
     .in("trip_id", convertTripIds)
     .order("created_at", { ascending: true });
 
@@ -226,11 +226,16 @@ export async function runScheduleDispatchConversionSweep(
       }
 
       const searchingExpiresAt = new Date(nowMs + maxFindDriverMinutes * 60_000).toISOString();
+      const maxExistingBroadcastRound = tripOffers.reduce((max, offer) => {
+        const round = Number((offer as { broadcast_round?: number | null }).broadcast_round ?? 0);
+        return Number.isFinite(round) ? Math.max(max, Math.floor(round)) : max;
+      }, 0);
       const { data: convertedRows, error: convertErr } = await supabase
         .from("trips")
         .update(buildScheduledUrgentConversionPatch({
           nowIso: now.toISOString(),
           searchingExpiresAtIso: searchingExpiresAt,
+          maxExistingBroadcastRound,
         }))
         .eq("id", trip.id)
         .in("scheduled_status", [...NO_PRECONFIRMED_CONVERT_SCHEDULED_STATUSES])

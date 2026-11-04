@@ -10,6 +10,36 @@ export const SEARCH_WINDOW_RECHECK_TRIGGER_REASON = "search_window_recheck" as c
 /** expire-offers stale scan requires dispatch_status=broadcasting (not searching). */
 export const STALE_TRIP_REBROADCAST_DISPATCH_STATUS = "broadcasting" as const;
 
+/**
+ * Permanent offer-create failure (unique broadcast_round collision). Leaves the
+ * trip out of the stale_trip_no_pending rebroadcast loop.
+ */
+export const DISPATCH_STATUS_OFFER_CREATE_BLOCKED = "offer_create_blocked" as const;
+export const OFFER_CREATE_UNIQUE_COLLISION_REASON = "OFFER_CREATE_UNIQUE_COLLISION" as const;
+
+export function isRideOfferBroadcastRoundUniqueViolation(error: unknown): boolean {
+  const text = (() => {
+    if (typeof error === "string") return error;
+    if (error && typeof error === "object") {
+      const record = error as { message?: unknown; code?: unknown; error?: unknown };
+      return [record.message, record.code, record.error].filter(Boolean).join(" ");
+    }
+    return String(error ?? "");
+  })();
+  if (/ride_offers_trip_id_driver_id_broadcast_round_key/i.test(text)) return true;
+  return /23505/.test(text) && /broadcast_round/i.test(text);
+}
+
+export function tripPatchAfterPermanentOfferCreateError(nowIso: string): {
+  dispatch_status: typeof DISPATCH_STATUS_OFFER_CREATE_BLOCKED;
+  updated_at: string;
+} {
+  return {
+    dispatch_status: DISPATCH_STATUS_OFFER_CREATE_BLOCKED,
+    updated_at: nowIso,
+  };
+}
+
 export type StaleTripRebroadcastCandidate = {
   dispatch_status: string | null;
   current_broadcast_round: number | null;

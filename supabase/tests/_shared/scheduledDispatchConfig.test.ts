@@ -196,7 +196,20 @@ Deno.test("MK-260817-004: customer scheduled_status converts at check-in / urgen
   }
   if (patch.status !== "searching") throw new Error("convert must set status searching");
   if (patch.current_broadcast_round !== 0) {
-    throw new Error("convert must reset current_broadcast_round so instant waves start at 1");
+    throw new Error("convert with no offer history must anchor at 0 so instant waves start at 1");
+  }
+  if (patch.searching_expires_at !== "2026-08-17T08:08:00.000Z") {
+    throw new Error("convert must stamp searching_expires_at");
+  }
+  const afterBroadcast = buildScheduledUrgentConversionPatch({
+    nowIso: "2026-08-17T08:05:00.000Z",
+    searchingExpiresAtIso: "2026-08-17T08:08:00.000Z",
+    maxExistingBroadcastRound: 4,
+  });
+  if (afterBroadcast.current_broadcast_round !== 6) {
+    throw new Error(
+      `convert after offer history must rematch-align (got ${afterBroadcast.current_broadcast_round})`,
+    );
   }
 
   const overdue = shouldConvertScheduledToUrgent({
