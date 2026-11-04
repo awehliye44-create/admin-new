@@ -132,6 +132,10 @@ Deno.test("source: applyProviderRefund + session upsert call shared notify; hold
   );
   assertStringIncludes(notifySrc, "auth.admin.getUserById");
   assertStringIncludes(notifySrc, "passenger_phone");
+  // SMS must be Twilio Messaging — never MSG91 (call-masking only).
+  assertStringIncludes(notifySrc, "sendTwilioSms");
+  assertEquals(notifySrc.includes("msg91.com"), false);
+  assertEquals(notifySrc.includes("MSG91_AUTH_KEY"), false);
 });
 
 Deno.test("late-cancel rematch still NO_FEE / full release after this change", () => {

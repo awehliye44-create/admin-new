@@ -63,9 +63,8 @@ Deno.serve(async (req) => {
       throw new Error("expected £5 refund already recorded on trip");
     }
 
-    // Prior skips were caused by selecting non-existent customers.email.
-    // Mark them failed so claimChannel can retry only those channels.
-    const { error: resetErr } = await supabase
+    // Retry incorrectly skipped contacts, and SMS that was wrongly sent via MSG91.
+    const { error: resetSkipErr } = await supabase
       .from("customer_refund_notification_deliveries")
       .update({
         status: "failed",
@@ -76,7 +75,20 @@ Deno.serve(async (req) => {
       .eq("provider_refund_id", PROVIDER_REFUND_ID)
       .eq("status", "skipped")
       .in("skipped_reason", ["missing_user_id", "missing_email", "missing_phone"]);
-    if (resetErr) throw new Error(`reset failed: ${resetErr.message}`);
+    if (resetSkipErr) throw new Error(`reset skipped failed: ${resetSkipErr.message}`);
+
+    const { error: resetSmsErr } = await supabase
+      .from("customer_refund_notification_deliveries")
+      .update({
+        status: "failed",
+        provider_message_id: null,
+        error_message: "retry_after_switch_to_twilio",
+        updated_at: new Date().toISOString(),
+      })
+      .eq("provider_refund_id", PROVIDER_REFUND_ID)
+      .eq("channel", "sms")
+      .eq("status", "sent");
+    if (resetSmsErr) throw new Error(`reset sms failed: ${resetSmsErr.message}`);
 
     const channels = await notifyCustomerConfirmedRefund(supabase, {
       tripId: TRIP_ID,

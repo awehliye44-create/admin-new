@@ -13,6 +13,7 @@ import {
   shouldNotifyCustomerRefund,
   type RefundNotifyChannel,
 } from "./customerRefundNotifySSOT.ts";
+import { sendTwilioSms } from "./twilioSms.ts";
 
 export type NotifyCustomerRefundArgs = {
   tripId: string;
@@ -174,9 +175,7 @@ async function sendEmail(args: {
   return { ok: true, messageId: result.id ?? undefined };
 }
 
-/**
- * MSG91 transactional SMS (freeform sendhttp). Missing auth/sender → skipped.
- */
+/** Twilio Messaging SMS. MSG91 is call-masking only — never use it for refund SMS. */
 async function sendSms(args: {
   phoneE164: string;
   body: string;
@@ -185,46 +184,7 @@ async function sendSms(args: {
   | { ok: false; error: string }
   | { skipped: true; reason: string }
 > {
-  const authKey = (Deno.env.get("MSG91_AUTH_KEY") ?? "").trim();
-  const sender = (Deno.env.get("MSG91_SMS_SENDER") ?? Deno.env.get("MSG91_CALLER_ID") ?? "").trim();
-  if (!authKey) return { skipped: true, reason: "sms_provider_not_configured" };
-  if (!sender || !/^[A-Za-z0-9]{3,11}$/.test(sender.replace(/^\+/, ""))) {
-    // Allow numeric sender IDs; otherwise require alphanumeric sender.
-    if (!sender) return { skipped: true, reason: "sms_sender_not_configured" };
-  }
-
-  const mobiles = args.phoneE164.replace(/[^\d]/g, "");
-  if (!mobiles) return { skipped: true, reason: "invalid_phone" };
-
-  try {
-    const url = new URL("https://control.msg91.com/api/sendhttp.php");
-    url.searchParams.set("authkey", authKey);
-    url.searchParams.set("mobiles", mobiles);
-    url.searchParams.set("message", args.body.slice(0, 600));
-    url.searchParams.set("sender", sender.replace(/^\+/, "").slice(0, 11) || "ONECAB");
-    url.searchParams.set("route", "4");
-    url.searchParams.set("response", "json");
-
-    const response = await fetch(url.toString(), { method: "GET" });
-    const raw = await response.text();
-    let parsed: Record<string, unknown> = {};
-    try {
-      parsed = raw ? JSON.parse(raw) as Record<string, unknown> : {};
-    } catch {
-      parsed = { raw };
-    }
-    if (!response.ok) {
-      return { ok: false, error: `sms_http_${response.status}` };
-    }
-    const type = String(parsed.type ?? "").toLowerCase();
-    if (type && type !== "success") {
-      return { ok: false, error: String(parsed.message ?? parsed.raw ?? "sms_rejected").slice(0, 200) };
-    }
-    const messageId = String(parsed.message ?? parsed.request_id ?? parsed.raw ?? "").slice(0, 120) || undefined;
-    return { ok: true, messageId };
-  } catch (err) {
-    return { ok: false, error: err instanceof Error ? err.message : String(err) };
-  }
+  return await sendTwilioSms(args);
 }
 
 /**
