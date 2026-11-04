@@ -155,12 +155,22 @@ export async function rescueExclusiveActivationToNearby(
 
   const maxFind = Math.max(1, Number(args.maxFindDriverMinutes ?? 6));
   const searchingExpiresAtIso = new Date(now.getTime() + maxFind * 60_000).toISOString();
+  const { data: priorOffers } = await supabase
+    .from("ride_offers")
+    .select("broadcast_round")
+    .eq("trip_id", tripId)
+    .order("broadcast_round", { ascending: false })
+    .limit(1);
+  const maxExistingBroadcastRound = Number(priorOffers?.[0]?.broadcast_round ?? 0);
   const patch = buildExclusiveFailureConversionPatch({
     nowIso,
     searchingExpiresAtIso,
     scheduledBroadcastAt: trip.scheduled_broadcast_at ?? nowIso,
     excludeDriverId,
     existingExcludedDriverIds: trip.excluded_driver_ids,
+    maxExistingBroadcastRound: Number.isFinite(maxExistingBroadcastRound)
+      ? maxExistingBroadcastRound
+      : 0,
   });
 
   const { data: updatedRows, error: updateErr } = await supabase

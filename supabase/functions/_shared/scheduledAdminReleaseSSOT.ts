@@ -92,11 +92,13 @@ export function buildMakeAvailableScheduledJobsPatch(input: {
 export function buildBroadcastNowPatch(input: {
   nowIso: string;
   searchingExpiresAtIso: string;
+  maxExistingBroadcastRound?: number | null;
 }): Record<string, unknown> {
   return {
     ...buildScheduledUrgentConversionPatch({
       nowIso: input.nowIso,
       searchingExpiresAtIso: input.searchingExpiresAtIso,
+      maxExistingBroadcastRound: input.maxExistingBroadcastRound,
     }),
     scheduled_broadcast_at: input.nowIso,
     confirmed_driver_id: null,

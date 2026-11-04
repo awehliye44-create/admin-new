@@ -781,6 +781,15 @@ Deno.serve(async (req) => {
           .maybeSingle();
         const maxFindDriverMinutes = resolveScheduledDispatchConfig(globalCfg ?? {}).maxFindDriverMinutes;
         const convertNow = new Date();
+        const { data: priorConvertOffers } = await supabase
+          .from("ride_offers")
+          .select("broadcast_round")
+          .eq("trip_id", trip_id)
+          .order("broadcast_round", { ascending: false })
+          .limit(1);
+        const maxExistingBroadcastRound = Number(
+          priorConvertOffers?.[0]?.broadcast_round ?? 0,
+        );
         await supabase
           .from("trips")
           .update(buildScheduledUrgentConversionPatch({
@@ -788,6 +797,9 @@ Deno.serve(async (req) => {
             searchingExpiresAtIso: new Date(
               convertNow.getTime() + maxFindDriverMinutes * 60_000,
             ).toISOString(),
+            maxExistingBroadcastRound: Number.isFinite(maxExistingBroadcastRound)
+              ? maxExistingBroadcastRound
+              : 0,
           }))
           .eq("id", trip_id);
 

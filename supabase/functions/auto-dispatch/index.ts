@@ -78,10 +78,18 @@ import { tripFareFieldsForOfferSnapshot } from "../_shared/tripFareSnapshot.ts";
 import {
   isCustomerSearchWindowActive,
   resolveCustomerSearchDeadlineMs,
-  resolveDispatchBroadcastRound,
   shouldExpireTripAfterWavesExhausted,
   WAVE3_NO_ELIGIBLE_LOG_TOKEN,
 } from "../_shared/dispatchSearchWindow.ts";
+import {
+  maxBroadcastRoundFromOfferRows,
+  resolveUniqueDispatchBroadcastRound,
+} from "../_shared/dispatchBroadcastRoundAllocation.ts";
+import {
+  isRideOfferBroadcastRoundUniqueViolation,
+  OFFER_CREATE_UNIQUE_COLLISION_REASON,
+  tripPatchAfterPermanentOfferCreateError,
+} from "../_shared/sweepExpiredOffers.ts";
 import { isScheduledInstantConversionPending } from "../_shared/scheduledHandoverHoldLock.ts";
 import { expireTripWhenSearchExhaustedAndNotifyCustomer } from "../_shared/customerTripLifecycleNotify.ts";
 import { finalizeRideAssignmentSideEffects } from "../_shared/rideAssignmentFinalize.ts";
@@ -857,6 +865,13 @@ Deno.serve(async (req) => {
     // ── PROGRESSIVE RADIUS + 3-WAVE CYCLE SEQUENCES ──
     // current_broadcast_round stores absolute sequence (1…max_dispatch_rounds×3).
     // Wave = ((seq-1)%3)+1; Round = floor((seq-1)/3)+1.
+    // Offer history max prevents UNIQUE (trip, driver, broadcast_round) collisions
+    // after scheduled broadcast → cancel rematch → convert-to-instant.
+    const { data: offerRoundRows } = await supabase
+      .from("ride_offers")
+      .select("broadcast_round")
+      .eq("trip_id", trip_id);
+    const maxExistingOfferRound = maxBroadcastRoundFromOfferRows(offerRoundRows ?? []);
     const storedRound = trip.current_broadcast_round || 0;
     let searchWindowActive = true;
     let currentRound = storedRound + 1;
@@ -876,12 +891,21 @@ Deno.serve(async (req) => {
     try {
       searchWindowActive = isCustomerSearchWindowActive(trip, dispatchSettings);
       maxRounds = maxBroadcastRounds(dispatchSettings, trip.max_broadcast_rounds);
-      currentRound = resolveDispatchBroadcastRound({
+      currentRound = resolveUniqueDispatchBroadcastRound({
         storedRound,
+        maxExistingOfferRound,
         maxRounds,
         forceRebroadcast: force_rebroadcast,
         searchWindowActive,
       });
+      if (currentRound !== storedRound + 1) {
+        audit("broadcast_round_collision_avoided", {
+          stored_round: storedRound,
+          max_existing_offer_round: maxExistingOfferRound,
+          resolved_round: currentRound,
+          trigger_reason: triggerReasonResolved,
+        });
+      }
       waveRadiiM = bookingDispatchWaveRadiiMeters(dispatchSettings);
       effectiveRadiusM = effectiveRadiusMeters(dispatchSettings, currentRound);
       waveCommission = resolveWaveCommission({
@@ -2843,9 +2867,31 @@ Deno.serve(async (req) => {
     });
 
     if (waveErr || !waveResult?.success) {
+      const createError = waveErr?.message || waveResult?.error || "commit_dispatch_wave_failed";
       console.error("[auto-dispatch] commit_dispatch_wave failed:", waveErr || waveResult?.error);
+      if (isRideOfferBroadcastRoundUniqueViolation(createError) ||
+        isRideOfferBroadcastRoundUniqueViolation(waveErr) ||
+        isRideOfferBroadcastRoundUniqueViolation(waveResult?.error)) {
+        const nowIso = new Date().toISOString();
+        await supabase
+          .from("trips")
+          .update(tripPatchAfterPermanentOfferCreateError(nowIso))
+          .eq("id", trip_id);
+        abortDispatch(OFFER_CREATE_UNIQUE_COLLISION_REASON, {
+          error: createError,
+          permanent: true,
+          attempted_broadcast_round: currentRound,
+          max_existing_offer_round: maxExistingOfferRound,
+        });
+        return errorResponse(
+          OFFER_CREATE_UNIQUE_COLLISION_REASON,
+          "Offer create blocked by existing broadcast_round — will not retry as stale",
+          409,
+          { trip_id, broadcast_round: currentRound },
+        );
+      }
       abortDispatch("DB_ERROR_CREATE_OFFERS", {
-        error: waveErr?.message || waveResult?.error || "commit_dispatch_wave_failed",
+        error: createError,
       });
       return errorResponse("DB_ERROR", "Failed to commit dispatch wave", 500);
     }

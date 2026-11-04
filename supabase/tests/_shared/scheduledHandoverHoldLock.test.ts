@@ -192,7 +192,7 @@ Deno.test("D: conversion stamps searching_expires_at from instant-search start, 
   assertEquals(patch.scheduled_status, "converted_to_instant");
   assertEquals(patch.status, "searching");
   assertEquals(patch.searching_expires_at, "2026-08-17T12:16:00.000Z");
-  assertEquals(patch.current_broadcast_round, 0);
+  assertEquals(patch.current_broadcast_round, 0); // no prior offers → next wave seq 1
   assertEquals(patch.searching_expires_at === MK006.created_at, false);
 
   const converted = {
@@ -435,14 +435,20 @@ Deno.test("source lock: scheduled-dispatch Step 4 only expires converted_to_inst
 });
 
 Deno.test("source lock: schedule-dispatch converts via Admin SSOT then auto-dispatch", async () => {
-  const src = await Deno.readTextFile(
+  const edge = await Deno.readTextFile(
     new URL("../../functions/schedule-dispatch/index.ts", import.meta.url),
   );
-  assertStringIncludes(src, "shouldConvertScheduledToUrgent");
-  assertStringIncludes(src, "buildScheduledUrgentConversionPatch");
-  assertStringIncludes(src, "NO_PRECONFIRMED_CONVERT_SCHEDULED_STATUSES");
-  assertStringIncludes(src, "/functions/v1/auto-dispatch");
-  assertEquals(src.includes("dispatch_trip_offers"), false);
+  assertStringIncludes(edge, "runScheduleDispatchConversionSweep");
+  assertStringIncludes(edge, "/functions/v1/auto-dispatch");
+  assertEquals(edge.includes("dispatch_trip_offers"), false);
+
+  const sweep = await Deno.readTextFile(
+    new URL("../../functions/_shared/scheduleDispatchConversionSweep.ts", import.meta.url),
+  );
+  assertStringIncludes(sweep, "shouldConvertScheduledToUrgent");
+  assertStringIncludes(sweep, "buildScheduledUrgentConversionPatch");
+  assertStringIncludes(sweep, "NO_PRECONFIRMED_CONVERT_SCHEDULED_STATUSES");
+  assertStringIncludes(sweep, "maxExistingBroadcastRound");
 });
 
 Deno.test("source lock: later expire replacements keep scheduled handover pending", async () => {
