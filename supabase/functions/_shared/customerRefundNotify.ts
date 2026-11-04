@@ -260,7 +260,7 @@ export async function notifyCustomerConfirmedRefund(
 
   const { data: trip } = await supabase
     .from("trips")
-    .select("id, trip_code, trip_number, passenger_id")
+    .select("id, trip_code, trip_number, passenger_id, passenger_phone")
     .eq("id", args.tripId)
     .maybeSingle();
 
@@ -272,11 +272,30 @@ export async function notifyCustomerConfirmedRefund(
     return { channels: { push: "skipped_no_passenger", email: "skipped_no_passenger", sms: "skipped_no_passenger" } };
   }
 
+  // customers has no email column — auth.users is the email SSOT (same as tripInvoice).
   const { data: customer } = await supabase
     .from("customers")
-    .select("id, user_id, email, phone")
+    .select("id, user_id, phone")
     .eq("id", trip.passenger_id)
     .maybeSingle();
+
+  const authUserId = String(customer?.user_id ?? "").trim();
+  let email = "";
+  if (authUserId) {
+    try {
+      const { data: authUser, error: authErr } = await supabase.auth.admin.getUserById(authUserId);
+      if (!authErr) {
+        email = String(authUser?.user?.email ?? "").trim();
+      }
+    } catch (authLookupErr) {
+      console.warn("[customerRefundNotify] auth email lookup failed", {
+        trip_id: args.tripId,
+        user_id: authUserId,
+        error: authLookupErr instanceof Error ? authLookupErr.message : String(authLookupErr),
+      });
+    }
+  }
+  const phone = String(customer?.phone ?? trip.passenger_phone ?? "").trim();
 
   const bookingReference = String(trip.trip_code ?? trip.trip_number ?? args.tripId).trim();
   const copy = buildCustomerRefundNotifyCopy({
@@ -284,10 +303,6 @@ export async function notifyCustomerConfirmedRefund(
     bookingReference,
     tripCode: trip.trip_code ?? trip.trip_number,
   });
-
-  const authUserId = String(customer?.user_id ?? "").trim();
-  const email = String(customer?.email ?? "").trim();
-  const phone = String(customer?.phone ?? "").trim();
 
   for (const channel of REFUND_NOTIFY_CHANNELS) {
     const claim = await claimChannel(supabase, {

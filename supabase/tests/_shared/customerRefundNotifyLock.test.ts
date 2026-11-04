@@ -110,6 +110,9 @@ Deno.test("source: applyProviderRefund + session upsert call shared notify; hold
   const disposeSrc = await Deno.readTextFile(
     new URL("../../functions/_shared/terminalTripPaymentDisposition.ts", import.meta.url),
   );
+  const notifySrc = await Deno.readTextFile(
+    new URL("../../functions/_shared/customerRefundNotify.ts", import.meta.url),
+  );
   const migration = await Deno.readTextFile(
     new URL(
       "../../migrations/20261229140000_customer_refund_notification_deliveries.sql",
@@ -122,6 +125,13 @@ Deno.test("source: applyProviderRefund + session upsert call shared notify; hold
   assertEquals(disposeSrc.includes("notifyCustomerConfirmedRefund"), false);
   assertStringIncludes(migration, "customer_refund_notification_deliveries");
   assertStringIncludes(migration, "UNIQUE (provider_refund_id, channel)");
+  // customers has no email column — must resolve via auth.users, not customers.email.
+  assert(
+    !notifySrc.includes('.select("id, user_id, email, phone")'),
+    "must not select non-existent customers.email",
+  );
+  assertStringIncludes(notifySrc, "auth.admin.getUserById");
+  assertStringIncludes(notifySrc, "passenger_phone");
 });
 
 Deno.test("late-cancel rematch still NO_FEE / full release after this change", () => {
