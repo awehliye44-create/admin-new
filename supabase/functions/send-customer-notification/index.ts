@@ -21,6 +21,7 @@ import {
   buildCustomerNotificationFcmMessage,
   isRawApnsDeviceToken,
 } from "../_shared/customerNotificationPush.ts";
+import { resolveCustomerAuthoritativeToken } from "../_shared/authoritativeDevicePush.ts";
 
 interface NotificationPayload {
   customer_id?: string;
@@ -101,10 +102,9 @@ Deno.serve(async (req) => {
       authUserId = customerRow.user_id.trim();
     }
 
-    // Get customer's push tokens (authoritative device preferred when available)
-    const { resolveCustomerAuthoritativeToken } = await import(
-      "../_shared/authoritativeDevicePush.ts"
-    );
+    // Get customer's push tokens (authoritative device preferred when available).
+    // Static import — dynamic import fails in the Edge compile sandbox
+    // (Module not found …/authoritativeDevicePush.ts).
     const authoritative = await resolveCustomerAuthoritativeToken(supabase, authUserId);
     const tokens = authoritative?.token
       ? [{ token: authoritative.token, platform: authoritative.platform }]

@@ -1,7 +1,7 @@
 /**
  * One-shot: re-run customer refund confirmations for MK-261104-003 after
- * contact-lookup fix (customers has no email column → prior skips were wrong).
- * Does not issue another Revolut refund. Auth: service role / internal finalize.
+ * contact-lookup / push-import fixes. Does not issue another Revolut refund.
+ * Auth: service role / internal finalize.
  */
 import { createClient } from "npm:@supabase/supabase-js@2.57.2";
 import { notifyCustomerConfirmedRefund } from "../_shared/customerRefundNotify.ts";
