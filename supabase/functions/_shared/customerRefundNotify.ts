@@ -106,26 +106,17 @@ async function markDelivery(
 }
 
 async function sendPush(args: {
+  supabase: SupabaseClient;
   customerUserId: string;
   tripId: string;
   title: string;
   body: string;
   providerRefundId: string;
 }): Promise<{ ok: true; messageId?: string } | { ok: false; error: string } | { skipped: true; reason: string }> {
-  const supabaseUrl = (Deno.env.get("SUPABASE_URL") ?? "").replace(/\/$/, "");
-  const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
-  if (!supabaseUrl || !serviceRoleKey) {
-    return { ok: false, error: "supabase_env_missing" };
-  }
   try {
-    const response = await fetch(`${supabaseUrl}/functions/v1/send-customer-notification`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${serviceRoleKey}`,
-        apikey: serviceRoleKey,
-      },
-      body: JSON.stringify({
+    // Same invoke path as create-ride / scheduled-dispatch (service client).
+    const { data, error } = await args.supabase.functions.invoke("send-customer-notification", {
+      body: {
         customer_id: args.customerUserId,
         title: args.title,
         body: args.body,
@@ -136,17 +127,22 @@ async function sendPush(args: {
           provider_refund_id: args.providerRefundId,
           path: "/account/rides",
         },
-      }),
+      },
     });
-    const raw = await response.text();
-    let parsed: Record<string, unknown> = {};
-    try {
-      parsed = raw ? JSON.parse(raw) as Record<string, unknown> : {};
-    } catch {
-      parsed = {};
+    if (error) {
+      const msg = String((error as { message?: string }).message ?? error).slice(0, 200);
+      // No device token is a skip, not a hard failure.
+      if (/NO_TOKENS|No push tokens/i.test(msg)) {
+        return { skipped: true, reason: "no_push_token" };
+      }
+      return { ok: false, error: `push_invoke:${msg}` };
     }
-    if (!response.ok) {
-      return { ok: false, error: `push_http_${response.status}:${String(parsed.error ?? raw).slice(0, 200)}` };
+    const parsed = (data ?? {}) as Record<string, unknown>;
+    if (parsed.error && String(parsed.error).toUpperCase() === "NO_TOKENS") {
+      return { skipped: true, reason: "no_push_token" };
+    }
+    if (parsed.success === false && parsed.error) {
+      return { ok: false, error: `push_${String(parsed.error).slice(0, 160)}` };
     }
     const sent = Number(parsed.sent ?? parsed.successCount ?? 0);
     if (!Number.isFinite(sent) || sent <= 0) {
@@ -157,7 +153,6 @@ async function sendPush(args: {
     return { ok: false, error: err instanceof Error ? err.message : String(err) };
   }
 }
-
 async function sendEmail(args: {
   email: string;
   subject: string;
@@ -332,6 +327,7 @@ export async function notifyCustomerConfirmedRefund(
           continue;
         }
         const pushResult = await sendPush({
+          supabase,
           customerUserId: authUserId,
           tripId: args.tripId,
           title: copy.title,
