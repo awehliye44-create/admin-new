@@ -252,6 +252,54 @@ Deno.test("convert without maxExistingBroadcastRound stays backward-compatible a
   });
   assertEquals(patch.current_broadcast_round, 0);
   assertEquals(patch.searching_expires_at, "2026-11-04T22:22:00.000Z");
+  assertEquals(patch.max_broadcast_rounds, 9); // Admin 3×3 default sequences
+});
+
+Deno.test("search TTL keeps allocating unique rounds past cycle budget (instant 6-min window)", () => {
+  // After convert with history max=4 and stamp maxRounds=9, waves continue while
+  // searching_expires_at is live — even past the naive cycle cap.
+  let stored = 6;
+  let maxOffer = 4;
+  const rounds: number[] = [];
+  for (let i = 0; i < 6; i++) {
+    const next = resolveUniqueDispatchBroadcastRound({
+      storedRound: stored,
+      maxExistingOfferRound: maxOffer,
+      maxRounds: 9,
+      forceRebroadcast: true,
+      searchWindowActive: true,
+    });
+    rounds.push(next);
+    maxOffer = next;
+    stored = next;
+  }
+  assertEquals(rounds[0], 7);
+  assertEquals(rounds.length, 6);
+  assertEquals(rounds[rounds.length - 1] > 9, true); // past budget while TTL live
+  // When search window ended, do not invent past budget
+  assertEquals(
+    resolveUniqueDispatchBroadcastRound({
+      storedRound: 9,
+      maxExistingOfferRound: 12,
+      maxRounds: 9,
+      forceRebroadcast: true,
+      searchWindowActive: false,
+    }),
+    9,
+  );
+});
+
+Deno.test("convert stamps instant-search deadline + sequence headroom for 6-min waves", () => {
+  const patch = buildScheduledUrgentConversionPatch({
+    nowIso: "2026-11-04T23:01:00.000Z",
+    searchingExpiresAtIso: "2026-11-04T23:07:00.000Z", // +6 minutes
+    maxExistingBroadcastRound: 4,
+    maxBroadcastSequences: 9,
+  });
+  assertEquals(patch.searching_expires_at, "2026-11-04T23:07:00.000Z");
+  assertEquals(patch.current_broadcast_round, 6);
+  assertEquals(patch.max_broadcast_rounds >= 9, true);
+  assertEquals(patch.max_broadcast_rounds >= 6 + 3, true);
 });
 
 Deno.test("unique violation is detected and permanently blocks stale rebroadcast", () => {

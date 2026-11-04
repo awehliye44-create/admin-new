@@ -15,6 +15,7 @@ import {
   resolveScheduledDispatchConfig,
   shouldConvertScheduledToUrgent,
 } from "./scheduledDispatchConfig.ts";
+import { maxBroadcastSequences } from "./dispatch-settings.ts";
 import {
   blockedTerminalTripLogPayload,
   isTripTerminalForDispatch,
@@ -55,7 +56,7 @@ export async function runScheduleDispatchConversionSweep(
       `enable_scheduled_to_urgent_conversion, scheduled_response_window_minutes,
        urgent_dispatch_trigger_minutes_before_pickup, locked_driver_response_minutes,
        max_driver_find_time_minutes, scheduled_urgent_card_label,
-       scheduled_rides_enabled`,
+       scheduled_rides_enabled, max_dispatch_rounds`,
     )
     .eq("singleton", true)
     .maybeSingle();
@@ -73,6 +74,10 @@ export async function runScheduleDispatchConversionSweep(
     (globalCfg as { scheduled_rides_enabled?: boolean }).scheduled_rides_enabled,
   );
   const maxFindDriverMinutes = schedConfig.maxFindDriverMinutes;
+  const instantMaxSequences = maxBroadcastSequences(
+    { max_dispatch_rounds: (globalCfg as { max_dispatch_rounds?: number }).max_dispatch_rounds },
+    null,
+  );
 
   const { data: pendingTrips, error: tripsErr } = await supabase
     .from("trips")
@@ -236,6 +241,7 @@ export async function runScheduleDispatchConversionSweep(
           nowIso: now.toISOString(),
           searchingExpiresAtIso: searchingExpiresAt,
           maxExistingBroadcastRound,
+          maxBroadcastSequences: instantMaxSequences,
         }))
         .eq("id", trip.id)
         .in("scheduled_status", [...NO_PRECONFIRMED_CONVERT_SCHEDULED_STATUSES])

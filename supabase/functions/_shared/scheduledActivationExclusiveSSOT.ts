@@ -207,6 +207,7 @@ export function buildExclusiveFailureConversionPatch(input: {
   excludeDriverId?: string | null;
   existingExcludedDriverIds?: unknown;
   maxExistingBroadcastRound?: number | null;
+  maxBroadcastSequences?: number | null;
 }): Record<string, unknown> {
   const excluded = mergeExcludedDriverIds(
     input.existingExcludedDriverIds,
@@ -217,6 +218,7 @@ export function buildExclusiveFailureConversionPatch(input: {
       nowIso: input.nowIso,
       searchingExpiresAtIso: input.searchingExpiresAtIso,
       maxExistingBroadcastRound: input.maxExistingBroadcastRound,
+      maxBroadcastSequences: input.maxBroadcastSequences,
     }),
     driver_id: null,
     confirmed_driver_id: null,

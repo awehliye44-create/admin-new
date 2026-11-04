@@ -262,14 +262,15 @@ async function enrichTripFareAsync(
     log("post-commit financial snapshot warning", { err: String(e) });
   }
 
-  if (!ctx.isScheduled) {
-    try {
-      const dispatchSettings = await loadDispatchSettings(supabase, ctx.serviceAreaId);
+  try {
+    const dispatchSettings = await loadDispatchSettings(supabase, ctx.serviceAreaId);
+    // Absolute sequences = Admin cycles × 3 (same stamp for scheduled + instant).
+    patch.max_broadcast_rounds = maxBroadcastRounds(dispatchSettings, null);
+    if (!ctx.isScheduled) {
       patch.searching_expires_at = customerSearchExpiresAtIso(dispatchSettings);
-      patch.max_broadcast_rounds = maxBroadcastRounds(dispatchSettings, null);
-    } catch {
-      /* keep insert defaults */
     }
+  } catch {
+    /* keep insert defaults */
   }
 
   const quoteAirportPence = resolveQuoteAirportChargePence(fareBreakdownJson);

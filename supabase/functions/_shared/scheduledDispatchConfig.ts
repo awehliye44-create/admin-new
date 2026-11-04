@@ -298,6 +298,12 @@ export function buildScheduledUrgentConversionPatch(input: {
    * (trip_id, driver_id, broadcast_round). Omit / 0 when no prior offers.
    */
   maxExistingBroadcastRound?: number | null;
+  /**
+   * Absolute sequences (Admin Max Dispatch Rounds × 3), same stamp as instant
+   * book post-commit. Ensures convert can run standard waves through the
+   * find-driver search window (typically 6 minutes).
+   */
+  maxBroadcastSequences?: number | null;
 }): {
   dispatch_mode: "instant";
   scheduled_status: "converted_to_instant";
@@ -306,11 +312,23 @@ export function buildScheduledUrgentConversionPatch(input: {
   broadcast_enabled: true;
   searching_expires_at: string;
   current_broadcast_round: number;
+  max_broadcast_rounds: number;
   updated_at: string;
   pending_release_kind: null;
   pending_release_at: null;
   pending_release_driver_id: null;
 } {
+  const maxExisting = input.maxExistingBroadcastRound ?? 0;
+  const cycleEnd = resolveNextRematchBroadcastRound(maxExisting);
+  // At least one full W1–W2–W3 of headroom after history, and never below Admin × 3.
+  const adminSequences =
+    typeof input.maxBroadcastSequences === "number" &&
+      Number.isFinite(input.maxBroadcastSequences) &&
+      input.maxBroadcastSequences > 0
+      ? Math.floor(input.maxBroadcastSequences)
+      : 9;
+  const maxBroadcastRounds = Math.max(adminSequences, cycleEnd + 3);
+
   return {
     dispatch_mode: "instant",
     scheduled_status: "converted_to_instant",
@@ -319,9 +337,8 @@ export function buildScheduledUrgentConversionPatch(input: {
     broadcast_enabled: true,
     searching_expires_at: input.searchingExpiresAtIso,
     // Fresh W1 of the next cycle after offer history (0 when none → next seq 1).
-    current_broadcast_round: resolveNextRematchBroadcastRound(
-      input.maxExistingBroadcastRound ?? 0,
-    ),
+    current_broadcast_round: cycleEnd,
+    max_broadcast_rounds: maxBroadcastRounds,
     updated_at: input.nowIso,
     // T−urgent overrides any later Assign At / Broadcast At.
     pending_release_kind: null,

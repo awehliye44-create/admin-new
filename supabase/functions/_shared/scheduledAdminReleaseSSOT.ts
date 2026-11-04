@@ -93,12 +93,14 @@ export function buildBroadcastNowPatch(input: {
   nowIso: string;
   searchingExpiresAtIso: string;
   maxExistingBroadcastRound?: number | null;
+  maxBroadcastSequences?: number | null;
 }): Record<string, unknown> {
   return {
     ...buildScheduledUrgentConversionPatch({
       nowIso: input.nowIso,
       searchingExpiresAtIso: input.searchingExpiresAtIso,
       maxExistingBroadcastRound: input.maxExistingBroadcastRound,
+      maxBroadcastSequences: input.maxBroadcastSequences,
     }),
     scheduled_broadcast_at: input.nowIso,
     confirmed_driver_id: null,
