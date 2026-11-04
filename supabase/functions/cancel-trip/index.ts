@@ -12,8 +12,10 @@ import {
 import { requireUser } from "../_shared/internalAuth.ts";
 import { disposeTerminalTripPayment } from "../_shared/terminalTripPaymentDisposition.ts";
 import {
-  isArrivalCancellationFeeEligible,
-  resolveFreeWaitingExpiresAtMs,
+  hasActiveDriverAssignment,
+  resolveTerminalPaymentDecision,
+  type FarePricingFeeConfig,
+  type TerminalPaymentDecision,
 } from "../_shared/terminalFeeDecisionSSOT.ts";
 import {
   finalizeWaitingSegmentsAtTerminal,
@@ -45,6 +47,56 @@ import { buildCancelledScheduledStatePatch } from "../_shared/tripTerminalDispat
  */
 
 const RATE_LIMIT_CONFIG = { limit: 30, windowMs: 60 * 1000 };
+
+const CANCEL_ASSIGNMENT_CAS_ATTEMPTS = 3;
+
+function mapTerminalDecisionToCancelFields(
+  decision: TerminalPaymentDecision,
+  reason: string | undefined,
+): {
+  appliedFee: number;
+  feeType: string;
+  financialOutcome: string;
+  cancellationReasonFinal: string;
+} {
+  switch (decision.disposition_reason) {
+    case "LATE_PASSENGER_CANCELLATION":
+      return {
+        appliedFee: decision.fee_amount_pence,
+        feeType: "late_cancellation",
+        financialOutcome: "LATE_PASSENGER_CANCELLATION",
+        cancellationReasonFinal: reason || "late_passenger_cancellation",
+      };
+    case "ARRIVAL_CANCELLATION_FEE":
+      return {
+        appliedFee: decision.fee_amount_pence,
+        feeType: "arrival_cancellation",
+        financialOutcome: "ARRIVAL_CANCELLATION",
+        cancellationReasonFinal: reason || "arrival_cancellation_fee",
+      };
+    case "OTHER_CANCELLATION_FEE":
+      return {
+        appliedFee: decision.fee_amount_pence,
+        feeType: "cancellation",
+        financialOutcome: "CANCELLED_WITH_FEE",
+        cancellationReasonFinal: reason || "cancelled_after_grace",
+      };
+    case "CUSTOMER_NO_SHOW":
+      return {
+        appliedFee: decision.fee_amount_pence,
+        feeType: "no_show",
+        financialOutcome: "NO_SHOW",
+        cancellationReasonFinal: reason || "no_show",
+      };
+    default:
+      return {
+        appliedFee: 0,
+        feeType: "none",
+        financialOutcome: "CANCELLED_NO_FEE",
+        cancellationReasonFinal: reason || decision.terminal_reason || "cancelled",
+      };
+  }
+}
 
 serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -85,11 +137,11 @@ serve(async (req) => {
     const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const supabase = createClient(supabaseUrl, supabaseKey);
 
-    // Fetch trip
+    // Fetch trip — assignment fee decisions use live driver_id / confirmed_driver_id only.
     const { data: trip, error: tripErr } = await supabase
       .from("trips")
       .select(
-        "id, status, driver_id, confirmed_driver_id, passenger_id, service_area_id, vehicle_type_id, assigned_at, arrived_at, cancellation_grace_expires_at, free_wait_expires_at, payment_method, waiting_minutes, waiting_charge_pence, scheduled_at, started_at, is_scheduled, scheduled_status, completed_at"
+        "id, status, driver_id, confirmed_driver_id, passenger_id, service_area_id, vehicle_type_id, assigned_at, arrived_at, cancellation_grace_expires_at, free_wait_expires_at, payment_method, waiting_minutes, waiting_charge_pence, scheduled_at, started_at, is_scheduled, scheduled_status, completed_at, authorised_amount_pence, payment_session_id, payment_provider"
       )
       .eq("id", trip_id)
       .maybeSingle();
@@ -158,7 +210,7 @@ serve(async (req) => {
     const fpsQuery = supabase
       .from("fare_pricing_settings")
       .select(
-        "cancellation_fee_pence, cancellation_grace_period_minutes, cancellation_apply_after_arrival_only, no_show_fee_pence, no_show_wait_time_minutes, no_show_apply_after_arrival_only, waiting_per_minute_pence, late_cancel_enabled, late_cancel_threshold_minutes, late_cancel_fee_pence, arrival_cancellation_enabled, arrival_cancellation_fee_pence, arrival_cancellation_apply_after_free_waiting_expired, arrival_cancellation_after_arrival_only, free_waiting_minutes"
+        "id, cancellation_fee_pence, cancellation_grace_period_minutes, cancellation_apply_after_arrival_only, no_show_fee_pence, no_show_wait_time_minutes, no_show_apply_after_arrival_only, waiting_per_minute_pence, late_cancel_enabled, late_cancel_threshold_minutes, late_cancel_fee_pence, arrival_cancellation_enabled, arrival_cancellation_fee_pence, arrival_cancellation_apply_after_free_waiting_expired, arrival_cancellation_after_arrival_only, free_waiting_minutes"
       )
       .eq("service_area_id", trip.service_area_id);
 
@@ -178,13 +230,9 @@ serve(async (req) => {
       );
     }
 
-    const cancellationFeePence = fps.cancellation_fee_pence;
-    const cancellationGracePeriodMinutes = fps.cancellation_grace_period_minutes;
-    const cancellationApplyAfterArrivalOnly = fps.cancellation_apply_after_arrival_only;
     const noShowFeePence = fps.no_show_fee_pence;
     const noShowWaitTimeMinutes = fps.no_show_wait_time_minutes;
     const noShowApplyAfterArrivalOnly = fps.no_show_apply_after_arrival_only;
-    const waitingPerMinutePence = fps.waiting_per_minute_pence;
     const lateCancelEnabled = fps.late_cancel_enabled;
     const lateCancelThresholdMinutes = fps.late_cancel_threshold_minutes;
     const lateCancelFeePence = fps.late_cancel_fee_pence;
@@ -264,125 +312,77 @@ serve(async (req) => {
     }
     // ══════════════════════════════════════════
     // CANCELLATION PATH (rider or admin)
+    // Fee decision owner: terminalFeeDecisionSSOT (same as dispose).
+    // Late cancel requires an active assignment at commit — searching/rematching
+    // with no live driver is free even inside the scheduled window (MK-261104-003).
     // ══════════════════════════════════════════
     else if (cancelled_by === "rider" || cancelled_by === "admin") {
-      const driverAssigned = !!trip.driver_id;
-      const driverArrived = !!trip.arrived_at;
-
-      // ── LATE PASSENGER CANCELLATION CHECK (scheduled trips) ──
-      // Evaluated first: if the trip has a scheduled_at time and late_cancel is enabled,
-      // check if we're within the threshold window before pickup.
-      // For immediate trips (no scheduled_at), this block is skipped entirely.
-      let lateCancelApplied = false;
-
-      if (lateCancelEnabled && trip.scheduled_at) {
-        const scheduledPickup = new Date(trip.scheduled_at);
-        const timeToPickupMinutes = (scheduledPickup.getTime() - now.getTime()) / 60000;
-
-        console.log(
-          `[cancel-trip] LATE_CANCEL check: trip=${trip_id}, scheduled_at=${trip.scheduled_at}, ` +
-          `time_to_pickup=${timeToPickupMinutes.toFixed(1)}min, threshold=${lateCancelThresholdMinutes}min, ` +
-          `late_cancel_fee=${lateCancelFeePence}p, late_cancel_enabled=${lateCancelEnabled}`
-        );
-
-        if (timeToPickupMinutes <= lateCancelThresholdMinutes) {
-          // Within threshold → apply late cancellation fee
-          appliedFee = lateCancelFeePence;
-          feeType = "late_cancellation";
-          cancellationReasonFinal = reason || "late_passenger_cancellation";
-          financialOutcome = "LATE_PASSENGER_CANCELLATION";
-          lateCancelApplied = true;
-
-          console.log(
-            `[cancel-trip] LATE_CANCEL APPLIED: trip=${trip_id}, fee=${lateCancelFeePence}p, ` +
-            `time_to_pickup=${timeToPickupMinutes.toFixed(1)}min <= threshold=${lateCancelThresholdMinutes}min`
-          );
-        } else {
-          console.log(
-            `[cancel-trip] LATE_CANCEL SKIPPED: trip=${trip_id}, ` +
-            `time_to_pickup=${timeToPickupMinutes.toFixed(1)}min > threshold=${lateCancelThresholdMinutes}min — no fee`
-          );
-        }
-      } else if (lateCancelEnabled && !trip.scheduled_at) {
-        // Immediate trip with late_cancel enabled — not applicable
-        console.log(
-          `[cancel-trip] LATE_CANCEL N/A: trip=${trip_id} is immediate (no scheduled_at), skipping late cancel check`
-        );
+      if (
+        fps.arrival_cancellation_enabled === true &&
+        trip.arrived_at &&
+        (cancelled_by === "rider" || cancelled_by === "admin")
+      ) {
+        const counted = await resolvePickupWaitingAtDecision();
+        if (counted == null) return waitingEvidenceUnavailableResponse();
       }
 
-      // If late cancel was applied, skip the standard grace/cancellation logic
-      if (!lateCancelApplied) {
-        // PHASE A: Post-booking, pre-arrival cancellation
-        if (driverAssigned && !driverArrived) {
-          if (cancellationApplyAfterArrivalOnly) {
-            appliedFee = 0;
-            feeType = "none";
-            cancellationReasonFinal = reason || "cancelled_pre_arrival";
-          } else {
-            const graceExpires = trip.cancellation_grace_expires_at
-              ? new Date(trip.cancellation_grace_expires_at)
-              : null;
-            const graceWritten = graceExpires != null && !Number.isNaN(graceExpires.getTime());
+      const feeConfig: FarePricingFeeConfig = {
+        cancellation_fee_pence: fps.cancellation_fee_pence,
+        cancellation_grace_period_minutes: fps.cancellation_grace_period_minutes,
+        cancellation_apply_after_arrival_only: fps.cancellation_apply_after_arrival_only,
+        no_show_fee_pence: fps.no_show_fee_pence,
+        no_show_wait_time_minutes: fps.no_show_wait_time_minutes,
+        no_show_apply_after_arrival_only: fps.no_show_apply_after_arrival_only,
+        late_cancel_enabled: fps.late_cancel_enabled,
+        late_cancel_threshold_minutes: fps.late_cancel_threshold_minutes,
+        late_cancel_fee_pence: fps.late_cancel_fee_pence,
+        arrival_cancellation_enabled: fps.arrival_cancellation_enabled,
+        arrival_cancellation_fee_pence: fps.arrival_cancellation_fee_pence,
+        arrival_cancellation_apply_after_free_waiting_expired:
+          fps.arrival_cancellation_apply_after_free_waiting_expired,
+        arrival_cancellation_after_arrival_only: fps.arrival_cancellation_after_arrival_only,
+        free_waiting_minutes: fps.free_waiting_minutes,
+      };
 
-            // Null grace is not written anywhere. Do not treat it as expired.
-            if (!graceWritten || now <= graceExpires!) {
-              appliedFee = 0;
-              feeType = "none";
-              cancellationReasonFinal = graceWritten ? "post_booking_grace" : (reason || "cancelled_pre_arrival_no_grace_stamp");
-              financialOutcome = "CANCELLED_NO_FEE";
-            } else {
-              appliedFee = cancellationFeePence;
-              feeType = "cancellation";
-              cancellationReasonFinal = reason || "cancelled_after_grace";
-              financialOutcome = "CANCELLED_WITH_FEE";
-            }
-          }
-        }
-        // PHASE B: Post-arrival cancellation.
-        // Arrival alone is not a fee. cancellation_grace_expires_at is not written
-        // and must not gate this. Arrival fee applies only after free waiting expired
-        // on free_wait_expires_at AND counted in-radius seconds.
-        else if (driverArrived) {
-          const freeExpiresMs = resolveFreeWaitingExpiresAtMs({
-            arrived_at: trip.arrived_at ?? null,
-            free_wait_expires_at: trip.free_wait_expires_at ?? null,
-            free_waiting_minutes: fps.free_waiting_minutes ?? null,
-          });
-          let countedInRadiusSeconds: number | null = null;
-          if (fps.arrival_cancellation_enabled === true) {
-            countedInRadiusSeconds = await resolvePickupWaitingAtDecision();
-            if (countedInRadiusSeconds == null) return waitingEvidenceUnavailableResponse();
-          }
-          const arrivalFeeEligible = fps.arrival_cancellation_enabled === true
-            && isArrivalCancellationFeeEligible({
-              arrivedAtMs: trip.arrived_at ? new Date(trip.arrived_at).getTime() : null,
-              cancelledAtMs: now.getTime(),
-              freeExpiresMs,
-              requireFreeWaitExpired: fps.arrival_cancellation_apply_after_free_waiting_expired !== false,
-              freeWaitingMinutes: fps.free_waiting_minutes ?? null,
-              countedInRadiusSeconds,
-            });
-          const arrivalFeePence = Math.max(0, Math.round(Number(fps.arrival_cancellation_fee_pence ?? 0)));
-          if (arrivalFeeEligible && arrivalFeePence > 0) {
-            appliedFee = arrivalFeePence;
-            feeType = "arrival_cancellation";
-            cancellationReasonFinal = reason || "arrival_cancellation_fee";
-            financialOutcome = "ARRIVAL_CANCELLATION";
-          } else {
-            appliedFee = 0;
-            feeType = "none";
-            cancellationReasonFinal = reason || "cancelled_during_free_waiting";
-            financialOutcome = "CANCELLED_NO_FEE";
-          }
-        }
-        // No driver assigned → always free
-        else {
-          appliedFee = 0;
-          feeType = "none";
-          cancellationReasonFinal = reason || "cancelled_no_driver";
-          financialOutcome = "CANCELLED_NO_FEE";
-        }
-      }
+      // Admin cancel-trip still evaluates customer fee policy the same way as rider
+      // (legacy cancel-trip behaviour). Admin panel full-release uses admin-trip-actions.
+      const decisionCancelledBy = cancelled_by === "admin" ? "rider" : cancelled_by;
+      const terminalDecision = resolveTerminalPaymentDecision({
+        evidence: {
+          trip_id,
+          trip_status: "cancelled",
+          started_at: trip.started_at ?? null,
+          arrived_at: trip.arrived_at ?? null,
+          free_wait_expires_at: trip.free_wait_expires_at ?? null,
+          cancelled_at: decisionAtIso,
+          cancelled_by: decisionCancelledBy,
+          scheduled_at: trip.scheduled_at ?? null,
+          cancellation_grace_expires_at: trip.cancellation_grace_expires_at ?? null,
+          driver_id: trip.driver_id ?? null,
+          confirmed_driver_id: trip.confirmed_driver_id ?? null,
+          no_show_recorded: false,
+          authorised_amount_pence: Math.max(0, Math.round(Number(trip.authorised_amount_pence ?? 0))),
+          previously_captured_amount_pence: 0,
+          payment_session_id: trip.payment_session_id ?? null,
+          provider: trip.payment_provider ?? "revolut",
+          decision_at: decisionAtIso,
+          pickup_waiting_counted_seconds: canonicalPickupWaitingSeconds,
+        },
+        config: feeConfig,
+        feePolicyId: fps.id ?? null,
+      });
+
+      const mapped = mapTerminalDecisionToCancelFields(terminalDecision, reason);
+      appliedFee = mapped.appliedFee;
+      feeType = mapped.feeType;
+      financialOutcome = mapped.financialOutcome;
+      cancellationReasonFinal = mapped.cancellationReasonFinal;
+
+      console.log(
+        `[cancel-trip] SSOT fee decision: trip=${trip_id}, reason=${terminalDecision.disposition_reason}, ` +
+          `fee=${appliedFee}p, active_assignment=${hasActiveDriverAssignment(trip)}, ` +
+          `driver_id=${trip.driver_id ?? "null"}, confirmed_driver_id=${trip.confirmed_driver_id ?? "null"}`,
+      );
     }
     // Driver cancellation (not no-show)
     else if (cancelled_by === "driver") {
@@ -393,50 +393,166 @@ serve(async (req) => {
     }
 
     // ══════════════════════════════════════════
-    // UPDATE TRIP
+    // UPDATE TRIP (assignment compare-and-set)
     // ══════════════════════════════════════════
-    // Active assignment is cleared by enforce_trip_cancel_assignment_invariant.
-    // previous_driver_id keeps the driver who accepted/arrived so settlement
-    // and driver history do not depend on the nulled driver_id.
-    const tripUpdate: Record<string, unknown> = {
-      status: tripStatus,
-      cancelled_at: decisionAtIso,
-      cancelled_by: cancelled_by,
-      cancellation_reason: cancellationReasonFinal,
-      cancellation_fee_pence: appliedFee,
-      financial_outcome: financialOutcome,
-      negotiation_owner_driver_id: null,
-      current_offer_driver_id: null,
-      negotiation_locked_until: null,
-      current_offer_expires_at: null,
-      searching_expires_at: null,
-      dispatch_status: "cancelled",
-      updated_at: now.toISOString(),
-    };
+    // Commit only if live assignment still matches the fee decision snapshot.
+    // Replacement accept uses accept_ride_offer FOR UPDATE and rejects cancelled
+    // trips; if accept wins first we retry with the new assignment. If cancel
+    // wins first, outstanding offers are revoked below and late accept fails.
+    let entitledDriverId: string | null = trip.confirmed_driver_id ?? trip.driver_id ?? null;
+    let cancelCommitted = false;
+    let lastUpdateErr: { message?: string } | null = null;
 
-    const entitledDriverId = trip.confirmed_driver_id ?? trip.driver_id ?? null;
-    if (entitledDriverId) {
-      tripUpdate.previous_driver_id = entitledDriverId;
+    for (let attempt = 1; attempt <= CANCEL_ASSIGNMENT_CAS_ATTEMPTS; attempt++) {
+      if (attempt > 1 && (cancelled_by === "rider" || cancelled_by === "admin") && !is_no_show) {
+        const { data: freshTrip, error: freshErr } = await supabase
+          .from("trips")
+          .select(
+            "id, status, driver_id, confirmed_driver_id, passenger_id, service_area_id, vehicle_type_id, assigned_at, arrived_at, cancellation_grace_expires_at, free_wait_expires_at, payment_method, waiting_minutes, waiting_charge_pence, scheduled_at, started_at, is_scheduled, scheduled_status, completed_at, authorised_amount_pence, payment_session_id, payment_provider",
+          )
+          .eq("id", trip_id)
+          .maybeSingle();
+        if (freshErr || !freshTrip) {
+          console.error("[cancel-trip] CAS refetch failed", freshErr);
+          return errorResponse("Failed to cancel trip", 500);
+        }
+        if (terminalStatuses.includes(freshTrip.status) || freshTrip.completed_at) {
+          return errorResponse(
+            "Trip completed or reached a terminal status before it could be cancelled",
+            409,
+          );
+        }
+        Object.assign(trip, freshTrip);
+        entitledDriverId = trip.confirmed_driver_id ?? trip.driver_id ?? null;
+
+        const feeConfig: FarePricingFeeConfig = {
+          cancellation_fee_pence: fps.cancellation_fee_pence,
+          cancellation_grace_period_minutes: fps.cancellation_grace_period_minutes,
+          cancellation_apply_after_arrival_only: fps.cancellation_apply_after_arrival_only,
+          no_show_fee_pence: fps.no_show_fee_pence,
+          no_show_wait_time_minutes: fps.no_show_wait_time_minutes,
+          no_show_apply_after_arrival_only: fps.no_show_apply_after_arrival_only,
+          late_cancel_enabled: fps.late_cancel_enabled,
+          late_cancel_threshold_minutes: fps.late_cancel_threshold_minutes,
+          late_cancel_fee_pence: fps.late_cancel_fee_pence,
+          arrival_cancellation_enabled: fps.arrival_cancellation_enabled,
+          arrival_cancellation_fee_pence: fps.arrival_cancellation_fee_pence,
+          arrival_cancellation_apply_after_free_waiting_expired:
+            fps.arrival_cancellation_apply_after_free_waiting_expired,
+          arrival_cancellation_after_arrival_only: fps.arrival_cancellation_after_arrival_only,
+          free_waiting_minutes: fps.free_waiting_minutes,
+        };
+        if (fps.arrival_cancellation_enabled === true && trip.arrived_at) {
+          const counted = await resolvePickupWaitingAtDecision();
+          if (counted == null) return waitingEvidenceUnavailableResponse();
+        }
+        const decisionCancelledBy = cancelled_by === "admin" ? "rider" : cancelled_by;
+        const terminalDecision = resolveTerminalPaymentDecision({
+          evidence: {
+            trip_id,
+            trip_status: "cancelled",
+            started_at: trip.started_at ?? null,
+            arrived_at: trip.arrived_at ?? null,
+            free_wait_expires_at: trip.free_wait_expires_at ?? null,
+            cancelled_at: decisionAtIso,
+            cancelled_by: decisionCancelledBy,
+            scheduled_at: trip.scheduled_at ?? null,
+            cancellation_grace_expires_at: trip.cancellation_grace_expires_at ?? null,
+            driver_id: trip.driver_id ?? null,
+            confirmed_driver_id: trip.confirmed_driver_id ?? null,
+            no_show_recorded: false,
+            authorised_amount_pence: Math.max(0, Math.round(Number(trip.authorised_amount_pence ?? 0))),
+            previously_captured_amount_pence: 0,
+            payment_session_id: trip.payment_session_id ?? null,
+            provider: trip.payment_provider ?? "revolut",
+            decision_at: decisionAtIso,
+            pickup_waiting_counted_seconds: canonicalPickupWaitingSeconds,
+          },
+          config: feeConfig,
+          feePolicyId: fps.id ?? null,
+        });
+        const mapped = mapTerminalDecisionToCancelFields(terminalDecision, reason);
+        appliedFee = mapped.appliedFee;
+        feeType = mapped.feeType;
+        financialOutcome = mapped.financialOutcome;
+        cancellationReasonFinal = mapped.cancellationReasonFinal;
+        console.log(
+          `[cancel-trip] SSOT fee re-decision after assignment race: attempt=${attempt}, ` +
+            `reason=${terminalDecision.disposition_reason}, fee=${appliedFee}p, ` +
+            `active_assignment=${hasActiveDriverAssignment(trip)}`,
+        );
+      }
+
+      // Active assignment is cleared by enforce_trip_cancel_assignment_invariant.
+      // previous_driver_id keeps the driver who accepted/arrived so settlement
+      // and driver history do not depend on the nulled driver_id.
+      const tripUpdate: Record<string, unknown> = {
+        status: tripStatus,
+        cancelled_at: decisionAtIso,
+        cancelled_by: cancelled_by,
+        cancellation_reason: cancellationReasonFinal,
+        cancellation_fee_pence: appliedFee,
+        financial_outcome: financialOutcome,
+        negotiation_owner_driver_id: null,
+        current_offer_driver_id: null,
+        negotiation_locked_until: null,
+        current_offer_expires_at: null,
+        searching_expires_at: null,
+        dispatch_status: "cancelled",
+        updated_at: now.toISOString(),
+      };
+      if (appliedFee <= 0) {
+        tripUpdate.late_cancel_fee_pence = 0;
+      } else if (feeType === "late_cancellation") {
+        tripUpdate.late_cancel_fee_pence = appliedFee;
+      }
+      entitledDriverId = trip.confirmed_driver_id ?? trip.driver_id ?? null;
+      if (entitledDriverId) {
+        tripUpdate.previous_driver_id = entitledDriverId;
+      }
+
+      // schedule-dispatch selects by scheduled_status; a cancelled scheduled trip
+      // must not stay eligible for urgent conversion (MK-260916-030).
+      Object.assign(tripUpdate, buildCancelledScheduledStatePatch(trip));
+
+      const snapDriverId = trip.driver_id ?? null;
+      const snapConfirmedId = trip.confirmed_driver_id ?? null;
+      let updateQuery = supabase
+        .from("trips")
+        .update(tripUpdate)
+        .eq("id", trip_id)
+        .is("completed_at", null)
+        .not("status", "in", `(${terminalStatuses.join(",")})`);
+      updateQuery = snapDriverId == null
+        ? updateQuery.is("driver_id", null)
+        : updateQuery.eq("driver_id", snapDriverId);
+      updateQuery = snapConfirmedId == null
+        ? updateQuery.is("confirmed_driver_id", null)
+        : updateQuery.eq("confirmed_driver_id", snapConfirmedId);
+
+      const { data: cancelledRows, error: updateErr } = await updateQuery.select("id");
+      if (updateErr) {
+        lastUpdateErr = updateErr;
+        console.error("[cancel-trip] update error:", updateErr);
+        return errorResponse("Failed to cancel trip", 500);
+      }
+      if (cancelledRows && cancelledRows.length > 0) {
+        cancelCommitted = true;
+        break;
+      }
+      console.warn(
+        `[cancel-trip] assignment CAS miss attempt=${attempt}/${CANCEL_ASSIGNMENT_CAS_ATTEMPTS} trip=${trip_id}`,
+      );
     }
 
-    // schedule-dispatch selects by scheduled_status; a cancelled scheduled trip
-    // must not stay eligible for urgent conversion (MK-260916-030).
-    Object.assign(tripUpdate, buildCancelledScheduledStatePatch(trip));
-
-    const { data: cancelledRows, error: updateErr } = await supabase
-      .from("trips")
-      .update(tripUpdate)
-      .eq("id", trip_id)
-      .is("completed_at", null)
-      .not("status", "in", `(${terminalStatuses.join(",")})`)
-      .select("id");
-
-    if (updateErr) {
-      console.error("[cancel-trip] update error:", updateErr);
-      return errorResponse("Failed to cancel trip", 500);
-    }
-    if (!cancelledRows || cancelledRows.length === 0) {
-      return errorResponse("Trip completed or reached a terminal status before it could be cancelled", 409);
+    if (!cancelCommitted) {
+      if (lastUpdateErr) {
+        return errorResponse("Failed to cancel trip", 500);
+      }
+      return errorResponse(
+        "Trip assignment changed or reached a terminal status before it could be cancelled",
+        409,
+      );
     }
 
     // Close the open pickup segment at cancelled_at. The fee decision above is

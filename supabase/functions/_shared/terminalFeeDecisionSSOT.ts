@@ -206,6 +206,19 @@ export function isArrivalCancellationFeeEligible(args: {
 }
 
 /**
+ * Active assignment at cancellation commit = live trips.driver_id or
+ * trips.confirmed_driver_id only. Revoked offers, historical assigned_at,
+ * outstanding offers, and cleared rematch state do not count.
+ */
+export function hasActiveDriverAssignment(evidence: {
+  driver_id?: string | null;
+  confirmed_driver_id?: string | null;
+}): boolean {
+  const live = evidence.driver_id ?? evidence.confirmed_driver_id ?? null;
+  return typeof live === "string" && live.trim().length > 0;
+}
+
+/**
  * Positive force-fee must not replace a canonical no-fee decision.
  * Admin force of 0 (full release) is still applied.
  */
@@ -377,7 +390,7 @@ export function resolveTerminalPaymentDecision(args: {
   const customerCancel = isCustomerInitiatedCancel(evidence.cancelled_by);
   const cancelledAtMs = parseMs(evidence.cancelled_at) ?? decisionAtMs;
   const arrivedAtMs = parseMs(evidence.arrived_at);
-  const driverWasAssigned = !!(evidence.driver_id || evidence.confirmed_driver_id);
+  const driverWasAssigned = hasActiveDriverAssignment(evidence);
 
   // ── 2. ARRIVAL_CANCELLATION_FEE ───────────────────────────────────
   if (
@@ -458,6 +471,10 @@ export function resolveTerminalPaymentDecision(args: {
   }
 
   // ── 3. LATE_PASSENGER_CANCELLATION ────────────────────────────────
+  // Requires an active assignment at decision time (driver_id /
+  // confirmed_driver_id). Searching / rematching with no live driver is free
+  // even inside the scheduled window (MK-261104-003). Historical assigned_at,
+  // revoked offers, and outstanding offers are not an active assignment.
   if (
     customerCancel &&
     config.late_cancel_enabled === true &&
@@ -472,22 +489,29 @@ export function resolveTerminalPaymentDecision(args: {
     ) {
       const minutesToPickup = (scheduledMs - cancelledAtMs) / 60_000;
       if (minutesToPickup <= thresholdMin) {
-        const fee = pence(config.late_cancel_fee_pence);
-        return buildDecision({
-          reason: "LATE_PASSENGER_CANCELLATION",
-          feeType: fee > 0 ? "late_passenger_cancellation" : "none",
-          feeAmount: fee,
-          evidence,
-          terminalReason: "late_passenger_cancellation",
-          providerAction: fee > 0 ? "partial_capture_fee" : "void_full",
-          feePolicyId: args.feePolicyId,
-          extraEvidence: {
-            scheduled_at: evidence.scheduled_at,
-            minutes_to_pickup: minutesToPickup,
-            late_cancel_threshold_minutes: thresholdMin,
-            late_cancel_fee_pence: config.late_cancel_fee_pence,
-          },
-        });
+        if (!driverWasAssigned) {
+          // Fall through to OTHER / NO_FEE_FULL_RELEASE — rematch or search.
+        } else {
+          const fee = pence(config.late_cancel_fee_pence);
+          return buildDecision({
+            reason: "LATE_PASSENGER_CANCELLATION",
+            feeType: fee > 0 ? "late_passenger_cancellation" : "none",
+            feeAmount: fee,
+            evidence,
+            terminalReason: "late_passenger_cancellation",
+            providerAction: fee > 0 ? "partial_capture_fee" : "void_full",
+            feePolicyId: args.feePolicyId,
+            extraEvidence: {
+              scheduled_at: evidence.scheduled_at,
+              minutes_to_pickup: minutesToPickup,
+              late_cancel_threshold_minutes: thresholdMin,
+              late_cancel_fee_pence: config.late_cancel_fee_pence,
+              active_assignment: true,
+              active_assignment_driver_id:
+                evidence.confirmed_driver_id ?? evidence.driver_id ?? null,
+            },
+          });
+        }
       }
     }
   }

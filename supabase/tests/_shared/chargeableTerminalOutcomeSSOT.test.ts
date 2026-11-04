@@ -159,8 +159,10 @@ Deno.test("cancel-trip persists arrival outcome and previous driver before settl
   const src = await Deno.readTextFile(
     new URL("../../functions/cancel-trip/index.ts", import.meta.url),
   );
-  assertEquals(src.includes('financialOutcome = "ARRIVAL_CANCELLATION"'), true);
-  assertEquals(src.includes('financialOutcome = "LATE_PASSENGER_CANCELLATION"'), true);
+  // Outcomes come from mapTerminalDecisionToCancelFields(SSOT), not inline fee branches.
+  assertEquals(src.includes('financialOutcome: "ARRIVAL_CANCELLATION"'), true);
+  assertEquals(src.includes('financialOutcome: "LATE_PASSENGER_CANCELLATION"'), true);
+  assertEquals(src.includes("resolveTerminalPaymentDecision"), true);
   assertEquals(src.includes("previous_driver_id"), true);
   assertEquals(src.includes("creditsDriverWallet"), false);
   assertEquals(src.includes("maybeResumeTerminalFeeSettlementAfterProviderFee"), true);

@@ -9,6 +9,7 @@ import {
   resolveTripPaymentStatusFromRefund,
 } from "./providerRefundSSOT.ts";
 import { FINANCIAL_MODEL_VIOLATION, SERVICE_AREA_FINANCIAL_MODEL } from "./commissionWalletSSOT.ts";
+import { notifyCustomerConfirmedRefund } from "./customerRefundNotify.ts";
 
 export type ApplyProviderRefundArgs = {
   tripId: string;
@@ -205,6 +206,25 @@ export async function applyProviderRefundToOnecab(
     });
   } catch {
     /* optional audit */
+  }
+
+  // Confirmed refund only — never hold release. Channel idempotency prevents
+  // duplicate sends on already_applied / webhook retries. Failures do not throw.
+  try {
+    await notifyCustomerConfirmedRefund(supabase, {
+      tripId,
+      providerRefundId,
+      amountPence: eventRefundPence,
+      paymentSessionId: rpc.payment_session_id ?? null,
+      refundStatus: "confirmed",
+      source: args.source,
+    });
+  } catch (notifyErr) {
+    console.error("[applyProviderRefund] refund notify failed (refund unchanged)", {
+      trip_id: tripId,
+      provider_refund_id: providerRefundId,
+      error: notifyErr instanceof Error ? notifyErr.message : String(notifyErr),
+    });
   }
 
   return {

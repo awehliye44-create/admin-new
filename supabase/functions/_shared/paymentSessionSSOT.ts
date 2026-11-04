@@ -33,6 +33,7 @@ import {
   sumRefundChildrenPence,
   FEE_STATUS,
 } from "./paymentSessionRefundFeeSSOT.ts";
+import { notifyCustomerConfirmedRefund } from "./customerRefundNotify.ts";
 
 export type PaymentSessionStatus =
   | RevolutPaymentSessionStatus
@@ -980,6 +981,7 @@ export async function upsertPaymentSessionRefund(
     .eq("provider_refund_id", providerRefundId)
     .maybeSingle();
 
+  let insertedNew = false;
   if (!existing?.id) {
     const { error } = await supabase.from("payment_session_refunds").insert({
       payment_session_id: sessionId,
@@ -999,10 +1001,37 @@ export async function upsertPaymentSessionRefund(
         console.warn("[paymentSessionSSOT] refund insert failed", error.message);
         return { ok: false, refunded_amount_pence: null, error: error.message };
       }
+    } else {
+      insertedNew = true;
     }
   }
 
   const recomputed = await recomputePaymentSessionRefundedAmount(supabase, sessionId);
+
+  // Provider-confirmed refund child insert → same customer notify path as
+  // applyProviderRefundToOnecab. Channel ledger is idempotent across both.
+  if (insertedNew) {
+    try {
+      const tripId = session?.trip_id != null ? String(session.trip_id) : null;
+      if (tripId) {
+        await notifyCustomerConfirmedRefund(supabase, {
+          tripId,
+          providerRefundId,
+          amountPence: amount,
+          paymentSessionId: sessionId,
+          refundStatus: "confirmed",
+          source: "payment_session_refund_confirmed",
+        });
+      }
+    } catch (notifyErr) {
+      console.error("[paymentSessionSSOT] refund notify failed (refund unchanged)", {
+        payment_session_id: sessionId,
+        provider_refund_id: providerRefundId,
+        error: notifyErr instanceof Error ? notifyErr.message : String(notifyErr),
+      });
+    }
+  }
+
   return {
     ok: true,
     skipped: Boolean(existing?.id),

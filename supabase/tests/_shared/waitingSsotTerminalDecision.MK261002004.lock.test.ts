@@ -344,13 +344,15 @@ async function src(rel: string): Promise<string> {
 Deno.test("source lock: cancel-trip decides from segments before any mutation and freezes them at cancelled_at", async () => {
   const s = await src("cancel-trip/index.ts");
   assertEquals(s.includes("trip.pickup_waiting_counted_seconds"), false);
+  // First tripUpdate mutate is the assignment CAS commit; waiting must be resolved before it.
+  // CAS retry may resolve waiting again before a later .update(tripUpdate).
   const update = s.indexOf(".update(tripUpdate)");
   const resolveUses = [...s.matchAll(/await resolvePickupWaitingAtDecision\(\)/g)].map((m) => m.index!);
-  assertEquals(resolveUses.length, 2);
-  for (const i of resolveUses) assert(i < update, "waiting resolved before trip mutation");
+  assert(resolveUses.length >= 2, "no-show + rider/admin (and CAS retry) must resolve waiting");
+  assert(resolveUses.some((i) => i < update), "waiting resolved before first trip mutation");
   const unavailable = [...s.matchAll(/return waitingEvidenceUnavailableResponse\(\)/g)].map((m) => m.index!);
-  assertEquals(unavailable.length, 2);
-  for (const i of unavailable) assert(i < update, "fail-closed return precedes trip mutation");
+  assert(unavailable.length >= 2, "fail-closed waiting returns must remain");
+  assert(unavailable.some((i) => i < update), "fail-closed return precedes first trip mutation");
   assertStringIncludes(s, "WAITING_EVIDENCE_UNAVAILABLE");
   const finalize = s.indexOf("finalizeWaitingSegmentsAtTerminal(supabase");
   const dispose = s.indexOf("disposeTerminalTripPayment(supabase");
@@ -362,6 +364,7 @@ Deno.test("source lock: cancel-trip decides from segments before any mutation an
   assertStringIncludes(s, "maybeResumeTerminalFeeSettlementAfterProviderFee");
   assertStringIncludes(s, "previous_driver_id");
   assertStringIncludes(s, "forceFeePenceOverride: true");
+  assertStringIncludes(s, "resolveTerminalPaymentDecision");
 });
 
 Deno.test("source lock: disposition evidence uses the canonical value, never the cache", async () => {

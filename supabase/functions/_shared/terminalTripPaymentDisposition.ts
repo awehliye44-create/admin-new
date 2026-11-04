@@ -512,7 +512,9 @@ export async function disposeTerminalTripPayment(
     .select(
       // Provider-neutral / Revolut identifiers only — never select removed provider PI columns
       // (legacy PI select caused PostgREST 400 → false trip_not_found).
-      "id, status, started_at, arrived_at, free_wait_expires_at, cancelled_at, cancelled_by, cancellation_reason, scheduled_at, cancellation_grace_expires_at, driver_id, confirmed_driver_id, service_area_id, vehicle_type_id, payment_provider, provider_order_id, payment_session_id, authorised_amount_pence, cancellation_fee_pence, no_show_charge_pence, payment_status, arrival_cancellation_applied, dispatch_mode, scheduled_status, is_scheduled, pickup_waiting_counted_seconds",
+      // previous_driver_id freezes the commit-time assignment after cancel clears driver_id
+      // so late-cancel / entitlement re-decision matches cancel-trip (MK-261104-003).
+      "id, status, started_at, arrived_at, free_wait_expires_at, cancelled_at, cancelled_by, cancellation_reason, scheduled_at, cancellation_grace_expires_at, driver_id, confirmed_driver_id, previous_driver_id, service_area_id, vehicle_type_id, payment_provider, provider_order_id, payment_session_id, authorised_amount_pence, cancellation_fee_pence, no_show_charge_pence, payment_status, arrival_cancellation_applied, dispatch_mode, scheduled_status, is_scheduled, pickup_waiting_counted_seconds",
     )
     .eq("id", args.tripId)
     .maybeSingle();
@@ -606,6 +608,26 @@ export async function disposeTerminalTripPayment(
     waitingEvidenceSource = "trip_waiting_segments";
   }
 
+  // Live assignment wins. After cancel clears driver_id, previous_driver_id is the
+  // assignment frozen at cancellation commit — not historical rematch leftovers.
+  const statusNorm = normalizeStatus(trip.status as string);
+  const liveDriverId =
+    (trip.driver_id as string | null) ?? (trip.confirmed_driver_id as string | null) ?? null;
+  const frozenPreviousDriverId = (trip.previous_driver_id as string | null) ?? null;
+  const terminalStatuses = new Set([
+    "cancelled",
+    "canceled",
+    "customer_cancelled",
+    "driver_cancelled",
+    "expired",
+    "expired_no_driver",
+    "no_show",
+    "failed",
+    "declined",
+  ]);
+  const assignmentDriverId = liveDriverId
+    ?? (terminalStatuses.has(statusNorm) ? frozenPreviousDriverId : null);
+
   let decision = resolveTerminalPaymentDecision({
     evidence: {
       trip_id: args.tripId,
@@ -617,9 +639,11 @@ export async function disposeTerminalTripPayment(
       cancelled_by: trip.cancelled_by as string | null,
       scheduled_at: trip.scheduled_at as string | null,
       cancellation_grace_expires_at: trip.cancellation_grace_expires_at as string | null,
-      driver_id: trip.driver_id as string | null,
-      confirmed_driver_id: trip.confirmed_driver_id as string | null,
-      no_show_recorded: normalizeStatus(trip.status as string) === "no_show",
+      driver_id: assignmentDriverId,
+      confirmed_driver_id: (trip.confirmed_driver_id as string | null) ?? (
+        !liveDriverId && terminalStatuses.has(statusNorm) ? frozenPreviousDriverId : null
+      ),
+      no_show_recorded: statusNorm === "no_show",
       authorised_amount_pence: authPenceLocal,
       previously_captured_amount_pence: priorCaptured,
       payment_session_id: (paymentSession?.id as string | null) ?? null,

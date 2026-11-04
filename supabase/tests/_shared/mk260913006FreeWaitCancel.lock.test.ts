@@ -323,7 +323,8 @@ Deno.test("A2: live cancel-trip / disposition sources enforce free-wait gates", 
   const dispose = await Deno.readTextFile(new URL("../../functions/_shared/terminalTripPaymentDisposition.ts", import.meta.url));
   const fee = await Deno.readTextFile(new URL("../../functions/_shared/terminalFeeDecisionSSOT.ts", import.meta.url));
   assertEquals(cancel.includes("cancelled_after_arrival_grace"), false);
-  assertStringIncludes(cancel, "isArrivalCancellationFeeEligible");
+  // cancel-trip owns fee via SSOT; free-wait / arrival eligibility stays in the SSOT module.
+  assertStringIncludes(cancel, "resolveTerminalPaymentDecision");
   assertStringIncludes(fee, "isArrivalCancellationFeeEligible");
   assertStringIncludes(fee, "shouldApplyForceFeeOverride");
   assertEquals(dispose.includes('status: "cancelled"'), false);
