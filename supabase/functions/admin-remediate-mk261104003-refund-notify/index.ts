@@ -77,18 +77,20 @@ Deno.serve(async (req) => {
       .in("skipped_reason", ["missing_user_id", "missing_email", "missing_phone"]);
     if (resetSkipErr) throw new Error(`reset skipped failed: ${resetSkipErr.message}`);
 
-    const { error: resetSmsErr } = await supabase
+    // Customer reported no Resend email received — retry email only.
+    // Do not resend push/SMS that already succeeded on the correct providers.
+    const { error: resetEmailErr } = await supabase
       .from("customer_refund_notification_deliveries")
       .update({
         status: "failed",
         provider_message_id: null,
-        error_message: "retry_after_switch_to_twilio",
+        error_message: "retry_customer_reported_not_received",
         updated_at: new Date().toISOString(),
       })
       .eq("provider_refund_id", PROVIDER_REFUND_ID)
-      .eq("channel", "sms")
+      .eq("channel", "email")
       .eq("status", "sent");
-    if (resetSmsErr) throw new Error(`reset sms failed: ${resetSmsErr.message}`);
+    if (resetEmailErr) throw new Error(`reset email failed: ${resetEmailErr.message}`);
 
     const channels = await notifyCustomerConfirmedRefund(supabase, {
       tripId: TRIP_ID,

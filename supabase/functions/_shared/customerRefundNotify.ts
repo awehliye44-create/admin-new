@@ -168,6 +168,7 @@ async function sendEmail(args: {
     subject: args.subject,
     html,
     text: args.body,
+    tag: "customer_refund_confirmation",
   });
   if (!result.ok) {
     return { ok: false, error: result.message ?? "email_send_failed" };
