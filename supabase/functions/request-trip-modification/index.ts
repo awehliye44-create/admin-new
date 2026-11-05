@@ -26,6 +26,7 @@ import {
   isDigitalPlatformPaymentMethod,
   MODIFICATION_UNCHANGED_CUSTOMER_MESSAGE,
   revisedPayablePenceForModification,
+  tripBlocksModificationsForUnresolvedPayment,
 } from "../_shared/modificationHoldLivenessSSOT.ts";
 import { upsertModificationUnchangedNotice } from "../_shared/customerPaymentFailureNoticeSSOT.ts";
 
@@ -482,6 +483,20 @@ serveWithEdgeTiming("request-trip-modification", corsHeaders, async (req) => {
     if (!customer || trip.passenger_id !== customer.id) {
       return new Response(JSON.stringify({ error: "Not authorized to modify this trip" }), {
         status: 403,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // Mid-trip lost hold: journey stays active but destination/stop changes are blocked.
+    if (tripBlocksModificationsForUnresolvedPayment(trip as Record<string, unknown>)) {
+      return new Response(JSON.stringify({
+        success: false,
+        tripUnchanged: true,
+        error: MODIFICATION_UNCHANGED_CUSTOMER_MESSAGE,
+        errorCode: "MID_TRIP_PAYMENT_AUTH_LOST",
+        reason: "Payment for this trip needs support recovery. Trip changes are unavailable.",
+      }), {
+        status: 409,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }

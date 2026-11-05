@@ -18,26 +18,44 @@ export const BOOKING_CANCELLED_PAYMENT_LOST_TITLE = "Booking cancelled";
 export const BOOKING_CANCELLED_PAYMENT_LOST_MESSAGE =
   "Your booking was cancelled because we couldn’t secure payment.";
 
-/** Trip statuses where the customer is already mid-ride (cancel-fee policy may differ). */
-export const IN_PROGRESS_LIKE_TRIP_STATUSES = new Set([
+/**
+ * Trip has started (passenger journey underway).
+ * Lost-auth here keeps the ride active and flags support recovery — does NOT cancel.
+ * Pre-start statuses (scheduled / searching / en_route / arrived) still cancel.
+ */
+export const STARTED_TRIP_STATUSES = new Set([
   "in_progress",
   "started",
   "on_trip",
   "ongoing",
   "trip_started",
-  "en_route",
-  "en_route_to_pickup",
-  "driver_en_route",
-  "enroute_to_pickup",
-  "driver_arriving",
-  "arrived",
-  "arrived_pickup",
-  "arrived_at_pickup",
-  "at_pickup",
-  "pickup_waiting",
-  "waiting",
-  "waiting_at_pickup",
 ]);
+
+/** @deprecated Prefer STARTED_TRIP_STATUSES for lost-auth recovery branching. */
+export const IN_PROGRESS_LIKE_TRIP_STATUSES = STARTED_TRIP_STATUSES;
+
+export const MID_TRIP_AUTH_LOST_FLAG = "mid_trip_payment_auth_lost";
+
+export function isStartedTripStatus(status: unknown): boolean {
+  return STARTED_TRIP_STATUSES.has(String(status ?? "").toLowerCase());
+}
+
+/** True when further destination/stop changes must be refused. */
+export function tripBlocksModificationsForUnresolvedPayment(trip: {
+  payment_status?: unknown;
+  payment_hold_status?: unknown;
+  metadata?: unknown;
+}): boolean {
+  const paymentStatus = String(trip.payment_status ?? "").toLowerCase();
+  const hold = String(trip.payment_hold_status ?? "").toLowerCase();
+  const meta = trip.metadata && typeof trip.metadata === "object"
+    ? trip.metadata as Record<string, unknown>
+    : {};
+  if (meta[MID_TRIP_AUTH_LOST_FLAG] === true) return true;
+  if (paymentStatus === "recovery_required") return true;
+  if (hold === "payment_shortfall" && paymentStatus === "recovery_required") return true;
+  return false;
+}
 
 export type ModificationHoldLiveness =
   | { ok: true; authorisedPence: number; sessionId: string }
@@ -158,21 +176,11 @@ export function lostAuthCustomerCopyForTripStatus(status: unknown): {
   title: string;
   message: string;
   kind: "booking_cancelled_payment" | "trip_cancelled_payment";
-  /**
-   * FLAG: in-progress currently cancels with CANCELLED_NO_FEE.
-   * Waiting-time / cancel-fee policy for mid-trip lost-auth needs a separate product decision.
-   */
+  /** Pre-start cancel only — started trips use recovery flag, not cancel. */
   inProgressCancelPolicyNeedsDecision: boolean;
 } {
-  const s = String(status ?? "").toLowerCase();
-  if (IN_PROGRESS_LIKE_TRIP_STATUSES.has(s)) {
-    return {
-      title: TRIP_CANCELLED_PAYMENT_LOST_TITLE,
-      message: TRIP_CANCELLED_PAYMENT_LOST_MESSAGE,
-      kind: "trip_cancelled_payment",
-      inProgressCancelPolicyNeedsDecision: true,
-    };
-  }
+  // Started trips no longer cancel here; keep booking copy for pre-start cancels.
+  void status;
   return {
     title: BOOKING_CANCELLED_PAYMENT_LOST_TITLE,
     message: BOOKING_CANCELLED_PAYMENT_LOST_MESSAGE,
@@ -180,6 +188,9 @@ export function lostAuthCustomerCopyForTripStatus(status: unknown): {
     inProgressCancelPolicyNeedsDecision: false,
   };
 }
+
+export const MODIFICATION_CHALLENGE_UNSUPPORTED_REJECTION =
+  "modification_challenge_unsupported";
 
 export function dedupeKeyForModificationUnchanged(requestId: string): string {
   return `modification_unchanged:tcr:${String(requestId).trim()}`;

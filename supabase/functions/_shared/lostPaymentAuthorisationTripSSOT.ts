@@ -1,6 +1,8 @@
 /**
- * MK-261105-002 — cancel a live ride when its current payment authorisation is
- * definitively lost and there is no newer valid replacement.
+ * MK-261105-002 — handle lost payment authorisation on a live trip.
+ * Pre-start: cancel the booking (no fee).
+ * After trip started: keep journey active, block further mods, flag support
+ * recovery, allow driver completion with payment unresolved.
  * Acknowledgement / push must never delay this path.
  */
 import type { SupabaseClient } from "npm:@supabase/supabase-js@2.57.2";
@@ -8,7 +10,11 @@ import { revokePendingOffersForTerminalTrip } from "./tripTerminalDispatch.ts";
 import { disposeTerminalTripPayment } from "./terminalTripPaymentDisposition.ts";
 import { upsertCustomerPaymentFailureNotice } from "./customerPaymentFailureNoticeSSOT.ts";
 import { notifyCustomerTripLifecycle } from "./customerTripLifecycleNotify.ts";
-import { lostAuthCustomerCopyForTripStatus } from "./modificationHoldLivenessSSOT.ts";
+import {
+  isStartedTripStatus,
+  lostAuthCustomerCopyForTripStatus,
+  MID_TRIP_AUTH_LOST_FLAG,
+} from "./modificationHoldLivenessSSOT.ts";
 
 const TERMINAL = new Set([
   "cancelled",
@@ -26,6 +32,7 @@ export type LostAuthCancelResult = {
   ok: boolean;
   action:
     | "cancelled"
+    | "flagged_recovery"
     | "already_terminal"
     | "superseded"
     | "not_current_auth"
@@ -89,6 +96,124 @@ export async function tripHasNewerValidAuthorisation(
   return false;
 }
 
+async function expireOpenTripChangeRequests(
+  supabase: SupabaseClient,
+  tripId: string,
+  nowIso: string,
+): Promise<void> {
+  await supabase
+    .from("trip_change_requests")
+    .update({
+      status: "expired",
+      payment_status: "failed",
+      rejection_reason: "mid_trip_payment_auth_lost",
+      updated_at: nowIso,
+    })
+    .eq("trip_id", tripId)
+    .in("status", [
+      "payment_required",
+      "payment_pending",
+      "payment_confirmed",
+      "pending_driver_approval",
+      "approved",
+    ]);
+}
+
+async function flagStartedTripForPaymentRecovery(
+  supabase: SupabaseClient,
+  args: {
+    trip: Record<string, unknown>;
+    tripId: string;
+    paymentSessionId?: string | null;
+    providerOrderId?: string | null;
+    source: string;
+    nowIso: string;
+  },
+): Promise<LostAuthCancelResult> {
+  const { trip, tripId, nowIso } = args;
+  const existingMeta = trip.metadata && typeof trip.metadata === "object"
+    ? trip.metadata as Record<string, unknown>
+    : {};
+
+  const { data: updated, error: updErr } = await supabase
+    .from("trips")
+    .update({
+      payment_status: "recovery_required",
+      payment_hold_status: "payment_shortfall",
+      payment_coverage_status: "recovery_required",
+      metadata: {
+        ...existingMeta,
+        [MID_TRIP_AUTH_LOST_FLAG]: true,
+        mid_trip_payment_auth_lost_at: nowIso,
+        mid_trip_payment_auth_lost_source: args.source,
+      },
+      updated_at: nowIso,
+    })
+    .eq("id", tripId)
+    .is("cancelled_at", null)
+    .not("status", "in", "(cancelled,canceled,completed,no_show,failed,expired,discarded)")
+    .select("id")
+    .maybeSingle();
+
+  if (updErr) {
+    return { ok: false, action: "failed", trip_id: tripId, reason: updErr.message };
+  }
+  if (!updated?.id) {
+    return { ok: true, action: "already_terminal", trip_id: tripId };
+  }
+
+  await expireOpenTripChangeRequests(supabase, tripId, nowIso);
+
+  try {
+    await supabase.from("ops_alerts").insert({
+      fingerprint: `mid_trip_payment_auth_lost:${tripId}`,
+      category: "payment",
+      severity: "critical",
+      status: "open",
+      source: "system",
+      app: "backend",
+      title: "Mid-trip payment hold lost — support recovery required",
+      description:
+        "The Revolut pre-authorisation was lost after the trip started. "
+        + "Journey stays active; further trip changes are blocked; driver may complete; "
+        + "payment remains unresolved for support recovery.",
+      related_trip_id: tripId,
+      related_entity_type: "payment_session",
+      related_entity_id: args.paymentSessionId ?? (trip.payment_session_id as string | null) ?? null,
+      metadata: {
+        provider_order_id: args.providerOrderId ?? trip.provider_order_id ?? null,
+        payment_session_id: args.paymentSessionId ?? trip.payment_session_id ?? null,
+        source: args.source,
+        trip_status: trip.status ?? null,
+        [MID_TRIP_AUTH_LOST_FLAG]: true,
+      },
+    });
+  } catch (err) {
+    console.warn("[lostPaymentAuthorisation] ops_alert insert failed", err);
+  }
+
+  await supabase.from("admin_payment_audit").insert({
+    action: "trip_flagged_payment_auth_lost_mid_trip",
+    provider: "revolut",
+    provider_payment_id: args.providerOrderId ?? trip.provider_order_id ?? null,
+    trip_id: tripId,
+    metadata: {
+      source: args.source,
+      payment_session_id: args.paymentSessionId ?? null,
+      trip_status: trip.status ?? null,
+      payment_status: "recovery_required",
+      payment_hold_status: "payment_shortfall",
+      journey_kept_active: true,
+      modifications_blocked: true,
+      completion_allowed_unresolved: true,
+    },
+  }).then(({ error }) => {
+    if (error) console.warn("[lostPaymentAuthorisation] audit insert failed", error.message);
+  });
+
+  return { ok: true, action: "flagged_recovery", trip_id: tripId };
+}
+
 export async function cancelTripForLostPaymentAuthorisation(
   supabase: SupabaseClient,
   args: {
@@ -106,7 +231,7 @@ export async function cancelTripForLostPaymentAuthorisation(
   const { data: trip, error: tripErr } = await supabase
     .from("trips")
     .select(
-      "id, status, passenger_id, payment_session_id, provider_order_id, payment_status, payment_hold_status, cancelled_at, financial_model",
+      "id, status, passenger_id, payment_session_id, provider_order_id, payment_status, payment_hold_status, cancelled_at, financial_model, metadata",
     )
     .eq("id", tripId)
     .maybeSingle();
@@ -136,8 +261,6 @@ export async function cancelTripForLostPaymentAuthorisation(
     return { ok: true, action: "not_current_auth", trip_id: tripId };
   }
 
-  // Confirm the referenced session is actually lost — do not cancel on a
-  // regressive CANCELLED webhook that left provider_state AUTHORISED.
   if (args.paymentSessionId) {
     const { data: lostSession } = await supabase
       .from("payment_sessions")
@@ -145,12 +268,12 @@ export async function cancelTripForLostPaymentAuthorisation(
       .eq("id", args.paymentSessionId)
       .maybeSingle();
     const provider = String(lostSession?.provider_state ?? "").toUpperCase();
-    const status = String(lostSession?.status ?? "").toLowerCase();
+    const sessionStatus = String(lostSession?.status ?? "").toLowerCase();
     const hold = String(lostSession?.hold_release_state ?? "").toLowerCase();
     const authLost =
       ["CANCELLED", "CANCELED", "FAILED", "DECLINED", "EXPIRED"].includes(provider)
       || hold === "released"
-      || ["cancelled", "canceled", "failed", "released", "payment_orphaned"].includes(status);
+      || ["cancelled", "canceled", "failed", "released", "payment_orphaned"].includes(sessionStatus);
     if (!authLost) {
       return { ok: true, action: "skipped", trip_id: tripId, reason: "session_still_authorised" };
     }
@@ -168,13 +291,23 @@ export async function cancelTripForLostPaymentAuthorisation(
 
   const nowIso = new Date().toISOString();
 
-  // Revoke outstanding offers immediately — before/parallel to trip cancel.
+  // After trip started: keep journey, block mods, flag support — do not cancel.
+  if (isStartedTripStatus(status)) {
+    return await flagStartedTripForPaymentRecovery(supabase, {
+      trip: trip as Record<string, unknown>,
+      tripId,
+      paymentSessionId: args.paymentSessionId,
+      providerOrderId: args.providerOrderId,
+      source: args.source,
+      nowIso,
+    });
+  }
+
   await revokePendingOffersForTerminalTrip(
     supabase as never,
     tripId,
     "payment_auth_cancelled",
   );
-  // Also revoke countered/accepted like cancel-trip.
   await supabase
     .from("ride_offers")
     .update({
@@ -227,9 +360,6 @@ export async function cancelTripForLostPaymentAuthorisation(
     });
   }
 
-  // Copy reflects actual trip status (booking vs live trip).
-  // FLAG: in-progress currently cancels with CANCELLED_NO_FEE — waiting-time /
-  // cancel-fee policy for mid-trip lost-auth needs a separate product decision.
   const lostCopy = lostAuthCustomerCopyForTripStatus(status);
   const passengerId = trip.passenger_id ? String(trip.passenger_id) : null;
   if (passengerId) {
@@ -253,7 +383,6 @@ export async function cancelTripForLostPaymentAuthorisation(
       .maybeSingle();
     const userId = customer?.user_id ? String(customer.user_id) : null;
     if (userId) {
-      // Heads-up only — never blocks cancel.
       void notifyCustomerTripLifecycle(supabase, {
         tripId,
         userId,
@@ -277,8 +406,6 @@ export async function cancelTripForLostPaymentAuthorisation(
       payment_session_id: args.paymentSessionId ?? null,
       cancellation_reason: "payment_failure",
       trip_status_at_cancel: status,
-      in_progress_cancel_policy_needs_decision:
-        lostCopy.inProgressCancelPolicyNeedsDecision,
       financial_outcome: "CANCELLED_NO_FEE",
     },
   }).then(({ error }) => {

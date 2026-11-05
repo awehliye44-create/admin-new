@@ -26,6 +26,7 @@ import {
 } from "./modificationPaymentFailureTaxonomy.ts";
 import {
   MODIFICATION_CHALLENGE_UNSUPPORTED_CUSTOMER_MESSAGE,
+  MODIFICATION_CHALLENGE_UNSUPPORTED_REJECTION,
   MODIFICATION_UNCHANGED_CUSTOMER_MESSAGE,
   revisedPayablePenceForModification,
 } from "./modificationHoldLivenessSSOT.ts";
@@ -529,15 +530,24 @@ export async function executeFareIncreaseModificationPayment(
     const pending = gate.phase === "PAYMENT_PENDING";
     const challengeUnsupported =
       pending && gate.reason === "customer_action_required";
+    // Unsupported mid-trip challenge: expire the change so a late provider
+    // confirm cannot apply it, and so an unresolved pending row cannot block
+    // completion of the original trip while the original hold is still valid.
+    const requestStatus = challengeUnsupported ? "expired" : gate.requestStatus;
+    const paymentStatus = challengeUnsupported ? "failed" : gate.paymentStatus;
+    const rejectionReason = challengeUnsupported
+      ? MODIFICATION_CHALLENGE_UNSUPPORTED_REJECTION
+      : `payment_${gate.reason}`;
     await supabase
       .from("trip_change_requests")
       .update({
-        status: gate.requestStatus,
-        payment_status: gate.paymentStatus,
-        rejection_reason: `payment_${gate.reason}`,
+        status: requestStatus,
+        payment_status: paymentStatus,
+        rejection_reason: rejectionReason,
         updated_at: new Date().toISOString(),
       })
-      .eq("id", requestId);
+      .eq("id", requestId)
+      .in("status", ["payment_required", "payment_pending", "payment_confirmed"]);
 
     const failure = classifyModificationPaymentFailure({
       gate,
@@ -560,9 +570,9 @@ export async function executeFareIncreaseModificationPayment(
     return {
       success: false,
       requestId,
-      status: gate.requestStatus,
-      paymentStatus: gate.paymentStatus,
-      paymentPhase: gate.phase,
+      status: requestStatus,
+      paymentStatus,
+      paymentPhase: challengeUnsupported ? "PAYMENT_FAILED" : gate.phase,
       paymentProcessing: pending && !challengeUnsupported,
       tripUnchanged: true,
       authorisedTotalPence: gate.authorisedTotalPence,

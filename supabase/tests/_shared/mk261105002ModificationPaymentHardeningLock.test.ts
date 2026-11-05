@@ -174,13 +174,27 @@ Deno.test("notice copy + lost-auth status wording", () => {
   const booking = lostAuthCustomerCopyForTripStatus("scheduled");
   assertEquals(booking.kind, "booking_cancelled_payment");
   assertEquals(booking.inProgressCancelPolicyNeedsDecision, false);
-  const live = lostAuthCustomerCopyForTripStatus("in_progress");
-  assertEquals(live.kind, "trip_cancelled_payment");
-  assertEquals(live.inProgressCancelPolicyNeedsDecision, true);
-  assertStringIncludes(lostSrc, "inProgressCancelPolicyNeedsDecision");
+  assertStringIncludes(lostSrc, "flagged_recovery");
+  assertStringIncludes(lostSrc, "mid_trip_payment_auth_lost");
+  assertStringIncludes(lostSrc, "recovery_required");
   assertStringIncludes(lostSrc, "CANCELLED_NO_FEE");
+  assertStringIncludes(execSrc, "MODIFICATION_CHALLENGE_UNSUPPORTED_REJECTION");
+  assertStringIncludes(execSrc, "requestStatus");
+  assertStringIncludes(execSrc, '"expired"');
   assertEquals(isDigitalPlatformPaymentMethod("APPLE_PAY"), true);
   assertEquals(isDigitalPlatformPaymentMethod("cash"), false);
+});
+
+Deno.test("challenge expire + mid-trip recovery migration + request block", async () => {
+  const followUp = await Deno.readTextFile(
+    `${ROOT}migrations/20261230150000_mk261105002_mod_challenge_midtrip_recovery.sql`,
+  );
+  assertStringIncludes(followUp, "modification_challenge_unsupported");
+  assertStringIncludes(followUp, "abandoned_or_expired");
+  assertStringIncludes(followUp, "mid_trip_payment_auth_lost_recovery");
+  assertStringIncludes(followUp, "recovery_required");
+  assertStringIncludes(reqSrc, "MID_TRIP_PAYMENT_AUTH_LOST");
+  assertStringIncludes(reqSrc, "tripBlocksModificationsForUnresolvedPayment");
 });
 
 Deno.test("gate source keeps CUSTOMER_ACTION_REQUIRED pending branch", () => {
