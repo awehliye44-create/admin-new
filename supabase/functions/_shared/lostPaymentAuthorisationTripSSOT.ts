@@ -8,6 +8,7 @@ import { revokePendingOffersForTerminalTrip } from "./tripTerminalDispatch.ts";
 import { disposeTerminalTripPayment } from "./terminalTripPaymentDisposition.ts";
 import { upsertCustomerPaymentFailureNotice } from "./customerPaymentFailureNoticeSSOT.ts";
 import { notifyCustomerTripLifecycle } from "./customerTripLifecycleNotify.ts";
+import { lostAuthCustomerCopyForTripStatus } from "./modificationHoldLivenessSSOT.ts";
 
 const TERMINAL = new Set([
   "cancelled",
@@ -226,15 +227,21 @@ export async function cancelTripForLostPaymentAuthorisation(
     });
   }
 
+  // Copy reflects actual trip status (booking vs live trip).
+  // FLAG: in-progress currently cancels with CANCELLED_NO_FEE — waiting-time /
+  // cancel-fee policy for mid-trip lost-auth needs a separate product decision.
+  const lostCopy = lostAuthCustomerCopyForTripStatus(status);
   const passengerId = trip.passenger_id ? String(trip.passenger_id) : null;
   if (passengerId) {
     await upsertCustomerPaymentFailureNotice(supabase, {
       passengerId,
-      kind: "booking_cancelled_payment",
+      kind: lostCopy.kind,
       tripId,
       clientActionId: null,
       paymentSessionId: args.paymentSessionId ?? (trip.payment_session_id as string | null),
       providerOrderId: args.providerOrderId ?? (trip.provider_order_id as string | null),
+      title: lostCopy.title,
+      message: lostCopy.message,
     }).catch((err: unknown) => {
       console.warn("[lostPaymentAuthorisation] notice upsert failed", err);
     });
@@ -246,13 +253,13 @@ export async function cancelTripForLostPaymentAuthorisation(
       .maybeSingle();
     const userId = customer?.user_id ? String(customer.user_id) : null;
     if (userId) {
-      // Heads-up only — never blocks cancel. Copy overridden for this incident class.
+      // Heads-up only — never blocks cancel.
       void notifyCustomerTripLifecycle(supabase, {
         tripId,
         userId,
         event: "payment_failed",
-        title: "Booking cancelled",
-        body: "Your booking was cancelled because we couldn’t secure payment.",
+        title: lostCopy.title,
+        body: lostCopy.message,
         notificationId: `payment_auth_lost-${tripId}`,
       }).catch((err: unknown) => {
         console.warn("[lostPaymentAuthorisation] push failed", err);
@@ -269,6 +276,10 @@ export async function cancelTripForLostPaymentAuthorisation(
       source: args.source,
       payment_session_id: args.paymentSessionId ?? null,
       cancellation_reason: "payment_failure",
+      trip_status_at_cancel: status,
+      in_progress_cancel_policy_needs_decision:
+        lostCopy.inProgressCancelPolicyNeedsDecision,
+      financial_outcome: "CANCELLED_NO_FEE",
     },
   }).then(({ error }) => {
     if (error) console.warn("[lostPaymentAuthorisation] audit insert failed", error.message);

@@ -296,7 +296,8 @@ export async function executeSameOrderIncrement(args: {
     .from("payment_sessions")
     .select(
       "id, provider_order_id, authorised_amount_pence, total_authorised_amount_pence, "
-        + "captured_amount_pence, currency, status, metadata, financial_operation_state",
+        + "captured_amount_pence, currency, status, metadata, financial_operation_state, "
+        + "hold_release_state, provider_state, released_at, captured_at",
     )
     .eq("id", sessionId)
     .maybeSingle();
@@ -324,6 +325,40 @@ export async function executeSameOrderIncrement(args: {
       eligibility: null,
       errorClassification: "ORDER_SESSION_MISMATCH",
     };
+  }
+
+  // MK-261105-002: never POST an increment against a releasing/released/dead hold.
+  {
+    const hold = String(session.hold_release_state ?? "").toLowerCase();
+    const provider = String(session.provider_state ?? "").toUpperCase();
+    const status = String(session.status ?? "").toLowerCase();
+    const deadHold =
+      hold === "releasing"
+      || hold === "released"
+      || (session.released_at && !session.captured_at)
+      || ["CANCELLED", "CANCELED", "FAILED", "DECLINED", "EXPIRED"].includes(provider)
+      || ["cancelled", "canceled", "failed", "released", "payment_orphaned", "expired"].includes(status);
+    if (deadHold) {
+      logIncrementEvent("increment_hold_not_live", {
+        payment_session_id: maskId(sessionId),
+        provider_order_id: maskId(orderId),
+        hold_release_state: hold || null,
+        provider_state: provider || null,
+        source: args.source,
+      });
+      return {
+        ok: false,
+        kind: "terminal",
+        message: "Payment hold is no longer live; cannot increment authorisation.",
+        providerConfirmedTotalPence: Math.round(
+          Number(session.total_authorised_amount_pence ?? session.authorised_amount_pence ?? 0),
+        ),
+        eligibility: null,
+        errorClassification: hold === "releasing"
+          ? "HOLD_RELEASE_IN_PROGRESS"
+          : "HOLD_NOT_LIVE",
+      };
+    }
   }
 
   const lock = await claimPaymentSessionFinancialLock(args.supabase, {

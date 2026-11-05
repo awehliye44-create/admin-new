@@ -24,6 +24,12 @@ import {
   failureClassForModificationFailure,
   type ModificationPaymentFailureClass,
 } from "./modificationPaymentFailureTaxonomy.ts";
+import {
+  MODIFICATION_CHALLENGE_UNSUPPORTED_CUSTOMER_MESSAGE,
+  MODIFICATION_UNCHANGED_CUSTOMER_MESSAGE,
+  revisedPayablePenceForModification,
+} from "./modificationHoldLivenessSSOT.ts";
+import { upsertModificationUnchangedNotice } from "./customerPaymentFailureNoticeSSOT.ts";
 
 export const CUSTOMER_PAYMENT_INCREMENT_UNRESOLVED =
   "CUSTOMER_PAYMENT_INCREMENT_UNRESOLVED";
@@ -85,13 +91,43 @@ function customerMessageForGate(
   failure: ReturnType<typeof classifyModificationPaymentFailure>,
 ): string {
   if (gate.phase === "PAYMENT_PENDING") {
+    if (gate.reason === "customer_action_required") {
+      // Mid-trip Revolut challenge UI is not supported — leave trip unchanged.
+      return MODIFICATION_CHALLENGE_UNSUPPORTED_CUSTOMER_MESSAGE;
+    }
     return "Payment is still processing. Your trip has not been changed.";
   }
   if (failure.kind === "bank_declined") return TRIP_CHANGE_BANK_DECLINED_CUSTOMER_MESSAGE;
   if (failure.kind === "technical") {
     return "We couldn't confirm the payment for this trip change. Your original trip is unchanged. Please try again in a moment.";
   }
-  return "The updated fare couldn't be authorised. Your original trip is unchanged.";
+  return MODIFICATION_UNCHANGED_CUSTOMER_MESSAGE;
+}
+
+async function recordModificationFailureNotice(
+  supabase: SupabaseClient,
+  args: {
+    trip: Record<string, unknown>;
+    requestId: string;
+    bankDeclined?: boolean;
+  },
+): Promise<void> {
+  const passengerId = args.trip.passenger_id ? String(args.trip.passenger_id) : "";
+  if (!passengerId) return;
+  await upsertModificationUnchangedNotice(supabase, {
+    passengerId,
+    tripId: String(args.trip.id),
+    changeRequestId: args.requestId,
+    paymentSessionId: args.trip.payment_session_id
+      ? String(args.trip.payment_session_id)
+      : null,
+    providerOrderId: args.trip.provider_order_id
+      ? String(args.trip.provider_order_id)
+      : null,
+    bankDeclined: args.bankDeclined === true,
+  }).catch((err: unknown) => {
+    console.warn("[executeFareIncreaseModificationPayment] notice upsert failed", err);
+  });
 }
 
 /** Canonical protected customer amount for PLATFORM_COLLECTED hold. */
@@ -169,17 +205,50 @@ export async function executeFareIncreaseModificationPayment(
 
   const fareDelta = Number(changeRequest.fare_delta_pence ?? 0);
   if (fareDelta <= 0) {
-    const { data: advanced, error: advanceError } = await supabase.rpc(
-      "advance_trip_change_after_payment",
-      { p_request_id: requestId },
+    // MK-261105-002: even decreases / zero-delta require a live hold covering
+    // the revised fare before any apply advance.
+    const requiredPayable = revisedPayablePenceForModification({
+      newFarePence: Number(changeRequest.new_fare_pence ?? 0),
+      originalFarePence: Number(changeRequest.original_fare_pence ?? 0),
+    });
+    const { error: holdErr } = await supabase.rpc(
+      "assert_trip_modification_hold_coverage",
+      {
+        p_trip_id: trip.id,
+        p_required_payable_pence: requiredPayable,
+      },
     );
-    if (advanceError) {
+    if (holdErr) {
+      await recordModificationFailureNotice(supabase, {
+        trip,
+        requestId,
+        bankDeclined: false,
+      });
       return {
         success: false,
         requestId,
         status: "payment_failed",
         paymentStatus: "failed",
-        error: advanceError.message,
+        error: MODIFICATION_UNCHANGED_CUSTOMER_MESSAGE,
+        errorCode: "MODIFICATION_HOLD_NOT_SATISFIED",
+        httpStatus: 402,
+        tripUnchanged: true,
+        requiredPayablePence: requiredPayable,
+        fareDeltaPence: fareDelta,
+      };
+    }
+    const { data: advanced, error: advanceError } = await supabase.rpc(
+      "advance_trip_change_after_payment",
+      { p_request_id: requestId },
+    );
+    if (advanceError) {
+      await recordModificationFailureNotice(supabase, { trip, requestId });
+      return {
+        success: false,
+        requestId,
+        status: "payment_failed",
+        paymentStatus: "failed",
+        error: MODIFICATION_UNCHANGED_CUSTOMER_MESSAGE,
         httpStatus: 500,
         tripUnchanged: true,
       };
@@ -391,18 +460,34 @@ export async function executeFareIncreaseModificationPayment(
     }
   }
 
-  // Fail closed: re-read canonical protected amount after provider result (#10–11).
+  // Fail closed: re-read canonical protected amount + hold liveness after provider result.
   let sessionProtected = 0;
+  let sessionHoldDead = false;
   if (trip.payment_session_id || trip.id) {
     const sessionQuery = supabase
       .from("payment_sessions")
-      .select("authorised_amount_pence, total_authorised_amount_pence")
+      .select(
+        "authorised_amount_pence, total_authorised_amount_pence, hold_release_state, "
+          + "provider_state, status, released_at, captured_at",
+      )
       .neq("purpose", "PAYMENT_RECOVERY")
       .order("created_at", { ascending: false })
       .limit(1);
     const { data: sessionRow } = trip.payment_session_id
       ? await sessionQuery.eq("id", String(trip.payment_session_id)).maybeSingle()
       : await sessionQuery.eq("trip_id", String(trip.id)).maybeSingle();
+    const hold = String(sessionRow?.hold_release_state ?? "").toLowerCase();
+    const provider = String(sessionRow?.provider_state ?? "").toUpperCase();
+    const status = String(sessionRow?.status ?? "").toLowerCase();
+    if (
+      hold === "releasing"
+      || hold === "released"
+      || (sessionRow?.released_at && !sessionRow?.captured_at)
+      || ["CANCELLED", "CANCELED", "FAILED", "DECLINED", "EXPIRED"].includes(provider)
+      || ["cancelled", "canceled", "failed", "released", "payment_orphaned", "expired"].includes(status)
+    ) {
+      sessionHoldDead = true;
+    }
     sessionProtected = Math.max(
       0,
       Math.round(Number(sessionRow?.total_authorised_amount_pence ?? 0)),
@@ -427,14 +512,14 @@ export async function executeFareIncreaseModificationPayment(
       total_authorised_amount_pence: sessionProtected,
     }),
   );
-  if (gate.mayApply && protectedAfter < newFarePence) {
+  if (gate.mayApply && (sessionHoldDead || protectedAfter < newFarePence)) {
     gate = {
       phase: "PAYMENT_FAILED",
       mayApply: false,
       paymentStatus: "failed",
       requestStatus: "payment_failed",
       authorisedTotalPence: protectedAfter,
-      reason: "amount_mismatch",
+      reason: sessionHoldDead ? "failed" : "amount_mismatch",
     };
   } else if (gate.mayApply) {
     gate = { ...gate, authorisedTotalPence: protectedAfter };
@@ -442,6 +527,8 @@ export async function executeFareIncreaseModificationPayment(
 
   if (!gate.mayApply) {
     const pending = gate.phase === "PAYMENT_PENDING";
+    const challengeUnsupported =
+      pending && gate.reason === "customer_action_required";
     await supabase
       .from("trip_change_requests")
       .update({
@@ -457,28 +544,40 @@ export async function executeFareIncreaseModificationPayment(
       declineReason: providerDeclineReason,
       errorCode: providerErrorCode,
     });
-    const errorCode = errorCodeForGate(gate, failure);
+    const errorCode = challengeUnsupported
+      ? "MODIFICATION_CHALLENGE_UNSUPPORTED"
+      : errorCodeForGate(gate, failure);
+    const bankDeclined = !pending && failure.kind === "bank_declined";
+    // Durable OK-ack for terminal failures and unsupported challenge (trip unchanged).
+    // Pure processing/timeout pending stays ephemeral until it settles or fails.
+    if (!pending || challengeUnsupported) {
+      await recordModificationFailureNotice(supabase, {
+        trip,
+        requestId,
+        bankDeclined,
+      });
+    }
     return {
       success: false,
       requestId,
       status: gate.requestStatus,
       paymentStatus: gate.paymentStatus,
       paymentPhase: gate.phase,
-      paymentProcessing: pending,
+      paymentProcessing: pending && !challengeUnsupported,
       tripUnchanged: true,
       authorisedTotalPence: gate.authorisedTotalPence,
       requiredPayablePence: newFarePence,
       fareDeltaPence: fareDelta,
       errorCode,
       declineReason: pending ? null : failure.bankDeclineReason,
-      bankDeclined: !pending && failure.kind === "bank_declined",
+      bankDeclined,
       failure_class: failureClassForModificationFailure({
-        pending,
+        pending: pending && !challengeUnsupported,
         kind: failure.kind,
         bankDeclineReason: failure.bankDeclineReason,
       }),
       error: customerMessageForGate(gate, failure),
-      httpStatus: pending ? 202 : 402,
+      httpStatus: pending && !challengeUnsupported ? 202 : 402,
     };
   }
 

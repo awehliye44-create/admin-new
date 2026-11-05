@@ -35,7 +35,12 @@ export type ModificationPaymentGateDecision =
     paymentStatus: "pending";
     requestStatus: "payment_pending";
     authorisedTotalPence: number;
-    reason: "processing" | "unknown" | "timeout" | "network";
+    reason:
+      | "processing"
+      | "unknown"
+      | "timeout"
+      | "network"
+      | "customer_action_required";
   }
   | {
     phase: "PAYMENT_FAILED";
@@ -252,6 +257,24 @@ export function decideFromPreauthInvokeResult(args: {
       requestStatus: "payment_failed",
       authorisedTotalPence: authorised,
       reason: "failed",
+    };
+  }
+
+  // MK-261105-002: issuer challenge / CUSTOMER_ACTION_REQUIRED is pending — never
+  // a bank decline and never unlocks apply. Mid-trip challenge UI is unsupported;
+  // callers leave the trip unchanged with clear copy.
+  if (
+    code === "CUSTOMER_ACTION_REQUIRED"
+    || coverage === "authorization_action_required"
+    || coverage.includes("action_required")
+  ) {
+    return {
+      phase: "PAYMENT_PENDING",
+      mayApply: false,
+      paymentStatus: "pending",
+      requestStatus: "payment_pending",
+      authorisedTotalPence: authorised,
+      reason: "customer_action_required",
     };
   }
 

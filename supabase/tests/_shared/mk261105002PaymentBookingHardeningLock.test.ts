@@ -181,5 +181,6 @@ Deno.test("lostPaymentAuthorisationTripSSOT refuses superseded / still-authorise
   assertStringIncludes(src, "CANCELLED_NO_FEE");
   assertStringIncludes(src, "payment_auth_cancelled");
   assertStringIncludes(src, "revokePendingOffersForTerminalTrip");
-  assert(src.includes("booking_cancelled_payment"));
+  assertStringIncludes(src, "lostAuthCustomerCopyForTripStatus");
+  assertStringIncludes(src, "inProgressCancelPolicyNeedsDecision");
 });

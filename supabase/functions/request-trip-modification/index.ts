@@ -22,6 +22,12 @@ import {
 import { computeModificationFareDelta } from "../_shared/tripModificationFareDelta.ts";
 import { SERVICE_AREA_FINANCIAL_MODEL } from "../_shared/commissionWalletSSOT.ts";
 import { executeFareIncreaseModificationPayment } from "../_shared/executeFareIncreaseModificationPayment.ts";
+import {
+  isDigitalPlatformPaymentMethod,
+  MODIFICATION_UNCHANGED_CUSTOMER_MESSAGE,
+  revisedPayablePenceForModification,
+} from "../_shared/modificationHoldLivenessSSOT.ts";
+import { upsertModificationUnchangedNotice } from "../_shared/customerPaymentFailureNoticeSSOT.ts";
 
 const LOCKED_STOP_STATUSES = new Set(["completed", "skipped", "arrived"]);
 const PRE_PICKUP_STATUSES = new Set([
@@ -1188,6 +1194,56 @@ serveWithEdgeTiming("request-trip-modification", corsHeaders, async (req) => {
     // PLATFORM_COLLECTED only: positive delta requires Revolut increment before apply.
     // DRIVER_COLLECTED must never enter Payment Sessions / Revolut increment.
     const paymentRequired = fareDeltaPence > 0 && platformCollected;
+    const digitalPlatform =
+      platformCollected && isDigitalPlatformPaymentMethod(trip.payment_method);
+    const revisedPayable = revisedPayablePenceForModification({
+      newFarePence,
+      originalFarePence: currentConfirmedFarePence,
+    });
+
+    // MK-261105-002: every fare change (including decrease / zero-delta) needs a
+    // live hold covering the revised fare before the change can be committed.
+    if (digitalPlatform && !paymentRequired) {
+      const { error: holdErr } = await supabase.rpc(
+        "assert_trip_modification_hold_coverage",
+        {
+          p_trip_id: tripId,
+          p_required_payable_pence: revisedPayable,
+        },
+      );
+      if (holdErr) {
+        const passengerId = trip.passenger_id ? String(trip.passenger_id) : "";
+        if (passengerId) {
+          await upsertModificationUnchangedNotice(supabase, {
+            passengerId,
+            tripId,
+            attemptId: crypto.randomUUID(),
+            paymentSessionId: trip.payment_session_id
+              ? String(trip.payment_session_id)
+              : null,
+            providerOrderId: trip.provider_order_id
+              ? String(trip.provider_order_id)
+              : null,
+          }).catch(() => {});
+        }
+        return new Response(JSON.stringify({
+          success: false,
+          tripUnchanged: true,
+          error: MODIFICATION_UNCHANGED_CUSTOMER_MESSAGE,
+          errorCode: "MODIFICATION_HOLD_NOT_SATISFIED",
+          requiredPayablePence: revisedPayable,
+          fareDeltaPence,
+          preview,
+          newFare: newCustomerTotalPence / 100,
+          newFarePence,
+          newCustomerTotalPence,
+          currentConfirmedCustomerTotalPence,
+        }), {
+          status: 402,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+    }
 
     const { data: changeRequest, error: insertError } = await supabase
       .from("trip_change_requests")
@@ -1221,6 +1277,34 @@ serveWithEdgeTiming("request-trip-modification", corsHeaders, async (req) => {
 
     if (insertError) {
       console.error("Failed to create modification request:", insertError);
+      const holdBlocked = /MODIFICATION_HOLD_NOT_SATISFIED|CUSTOMER_PAYMENT_INCREMENT_UNRESOLVED/i
+        .test(String(insertError.message ?? ""));
+      if (holdBlocked) {
+        const passengerId = trip.passenger_id ? String(trip.passenger_id) : "";
+        if (passengerId) {
+          await upsertModificationUnchangedNotice(supabase, {
+            passengerId,
+            tripId,
+            attemptId: crypto.randomUUID(),
+            paymentSessionId: trip.payment_session_id
+              ? String(trip.payment_session_id)
+              : null,
+            providerOrderId: trip.provider_order_id
+              ? String(trip.provider_order_id)
+              : null,
+          }).catch(() => {});
+        }
+        return new Response(JSON.stringify({
+          success: false,
+          tripUnchanged: true,
+          error: MODIFICATION_UNCHANGED_CUSTOMER_MESSAGE,
+          errorCode: "MODIFICATION_HOLD_NOT_SATISFIED",
+          fareDeltaPence,
+        }), {
+          status: 402,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
       return new Response(JSON.stringify({
         error: "Failed to create modification request",
         details: insertError.message,
