@@ -44,6 +44,8 @@ import { isAuthorisedHoldSessionStatus } from "../_shared/revolutPaymentHoldSSOT
 import { serveWithEdgeTiming } from "../_shared/edgeFunctionTiming.ts";
 import { createBookingWaterfallCollector } from "../_shared/bookingWaterfallTelemetry.ts";
 import { releaseHoldForPaymentSession } from "../_shared/holdReleaseSSOT.ts";
+import { isSameVerifiedBookingAttempt } from "../_shared/sameBookingAttemptSSOT.ts";
+import { upsertCustomerPaymentFailureNotice } from "../_shared/customerPaymentFailureNoticeSSOT.ts";
 import {
   buildTripFinancialModelSnapshot,
   classifyServiceAreaFinancialPairing,
@@ -132,6 +134,28 @@ async function failBookingAfterAuthorizedRevolutOrder(
       source: "create-trip-after-payment",
       idempotencyKey: `ctap_fail_${ctx.clientActionId ?? order.id}`,
     });
+    // MK-261105-002: finalize already linked a trip — adopt success, keep the hold.
+    if (release.status === "has_trip" && release.trip_id) {
+      const { data: liveTrip } = await supabase
+        .from("trips")
+        .select("id, trip_code, status")
+        .eq("id", release.trip_id)
+        .maybeSingle();
+      if (liveTrip) {
+        return new Response(JSON.stringify({
+          success: true,
+          ride_id: liveTrip.id,
+          trip_code: liveTrip.trip_code,
+          trip_reference: liveTrip.trip_code ?? null,
+          status: liveTrip.status,
+          idempotent: true,
+          adopted_after_release_claim: true,
+        }), {
+          status: 200,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+    }
     reversalStatus =
       release.released || release.idempotent || release.status === "released"
         ? "cancelled"
@@ -206,6 +230,18 @@ async function failBookingAfterAuthorizedRevolutOrder(
       console.error("[CREATE-TRIP-AFTER-PAYMENT] admin alert insert failed", error.message);
     }
   });
+
+  // Durable OK-ack notice (booking never created). Never blocks the response.
+  if (ctx.customerId && ctx.clientActionId) {
+    void upsertCustomerPaymentFailureNotice(supabase, {
+      passengerId: ctx.customerId,
+      kind: "booking_not_created",
+      clientActionId: ctx.clientActionId,
+      providerOrderId: order.id,
+    }).catch((err: unknown) => {
+      console.warn("[CREATE-TRIP-AFTER-PAYMENT] payment failure notice upsert failed", err);
+    });
+  }
 
   return new Response(JSON.stringify({
     error: customerMessage,
@@ -457,18 +493,31 @@ serveWithEdgeTiming("create-trip-after-payment", corsHeaders, async (req) => {
         ? loadPaymentSession(supabase, { clientActionId: body.client_action_id })
         : Promise.resolve(null));
 
+    type IdempotentTripRow = {
+      id: string;
+      trip_code: string;
+      status: string;
+      special_instructions?: string | null;
+      passenger_id?: string | null;
+      client_action_id?: string | null;
+      provider_order_id?: string | null;
+      payment_session_id?: string | null;
+    };
+    const idempotentSelect =
+      "id, trip_code, status, special_instructions, passenger_id, client_action_id, provider_order_id, payment_session_id";
+
     const [existingTripsRes, existingTripByPaymentRes, paymentRes, customerRowsRes, saRpcRes, paymentSessionRes] =
       await Promise.allSettled([
       supabase
         .from("trips")
-        .select("id, trip_code, status, special_instructions, customer_id")
+        .select(idempotentSelect)
         .eq("client_action_id", body.client_action_id)
         .limit(1),
       skipPlatformPreauth || !body.payment_intent_id
-        ? Promise.resolve({ data: [] as { id: string; trip_code: string; status: string; special_instructions?: string | null; customer_id?: string | null }[] })
+        ? Promise.resolve({ data: [] as IdempotentTripRow[], error: null })
         : supabase
           .from("trips")
-          .select("id, trip_code, status, special_instructions, customer_id")
+          .select(idempotentSelect)
           .eq("provider_order_id", body.payment_intent_id)
           .limit(1),
       skipPlatformPreauth
@@ -488,16 +537,39 @@ serveWithEdgeTiming("create-trip-after-payment", corsHeaders, async (req) => {
       paymentSessionPromise,
     ]);
 
+    // MK-261105-002: idempotency lookup errors must fail closed — never fall through
+    // to schedule_overlap / hold release (broken customer_id SELECT caused that).
+    const caiLookupRejected = existingTripsRes.status === "rejected";
+    const caiLookupError = existingTripsRes.status === "fulfilled"
+      ? (existingTripsRes.value as { error?: { message?: string } | null }).error
+      : null;
+    const payLookupRejected = existingTripByPaymentRes.status === "rejected";
+    const payLookupError = existingTripByPaymentRes.status === "fulfilled"
+      ? (existingTripByPaymentRes.value as { error?: { message?: string } | null }).error
+      : null;
+    if (caiLookupRejected || caiLookupError || payLookupRejected || payLookupError) {
+      log("REJECTED — idempotency trip lookup failed", {
+        cai_rejected: caiLookupRejected,
+        cai_error: caiLookupError?.message ?? (caiLookupRejected ? String(existingTripsRes.reason) : null),
+        pay_rejected: payLookupRejected,
+        pay_error: payLookupError?.message ?? (payLookupRejected ? String(existingTripByPaymentRes.reason) : null),
+      });
+      return new Response(JSON.stringify({
+        success: false,
+        error: "Could not verify existing booking. Please try again.",
+        code: "BOOKING_IDEMPOTENCY_LOOKUP_FAILED",
+      }), { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
     // 3. Idempotency short-circuit (client_action_id or payment ref)
     const idempotentTrip =
-      (existingTripsRes.status === "fulfilled" ? existingTripsRes.value.data?.[0] : null)
-      ?? (existingTripByPaymentRes.status === "fulfilled" ? existingTripByPaymentRes.value.data?.[0] : null);
+      (existingTripsRes.value.data?.[0] as IdempotentTripRow | undefined)
+      ?? (existingTripByPaymentRes.value.data?.[0] as IdempotentTripRow | undefined)
+      ?? null;
     if (idempotentTrip) {
       log("Idempotent — trip already exists", {
         tripId: idempotentTrip.id,
-        by: existingTripsRes.status === "fulfilled" && existingTripsRes.value.data?.[0]
-          ? "client_action_id"
-          : "payment_ref",
+        by: existingTripsRes.value.data?.[0] ? "client_action_id" : "payment_ref",
       });
       // Webhook finalize often wins Apple Pay races. If the stored trip has no
       // pickup note but CTAP body / session snapshot still has one, backfill it.
@@ -506,7 +578,15 @@ serveWithEdgeTiming("create-trip-after-payment", corsHeaders, async (req) => {
         customerRowsRes.status === "fulfilled" ? (customerRowsRes.value.data?.[0]?.id ?? null) : null;
       const tripOwnedByCaller = Boolean(
         callerCustomerId
-        && (idempotentTrip as { customer_id?: string | null }).customer_id === callerCustomerId,
+        && isSameVerifiedBookingAttempt(idempotentTrip, {
+          passengerId: callerCustomerId,
+          clientActionId: body.client_action_id,
+          providerOrderId: body.payment_intent_id ?? null,
+          paymentSessionId: (paymentSessionRes.status === "fulfilled"
+            ? paymentSessionRes.value?.id
+            : null) ?? null,
+        })
+        && String(idempotentTrip.passenger_id ?? "") === String(callerCustomerId),
       );
       if (!tripOwnedByCaller) {
         return new Response(JSON.stringify({
@@ -1073,7 +1153,7 @@ serveWithEdgeTiming("create-trip-after-payment", corsHeaders, async (req) => {
       const { data: existingTrips, error: ovErr } = await supabase
         .from("trips")
         .select(
-          "id, scheduled_at, estimated_duration_minutes, status, passenger_id, created_at, is_scheduled",
+          "id, scheduled_at, estimated_duration_minutes, status, passenger_id, created_at, is_scheduled, client_action_id, provider_order_id, payment_session_id",
         )
         .eq("passenger_id", customerId)
         .limit(200);
@@ -1098,6 +1178,26 @@ serveWithEdgeTiming("create-trip-after-payment", corsHeaders, async (req) => {
         existing: existingTrips ?? [],
       });
       if (overlap.has_conflict) {
+        // MK-261105-002: webhook finalize may have already created THIS booking.
+        // Same CAI / provider order / session → adopt success; never void the hold.
+        const conflicting = (existingTrips ?? []).find(
+          (t) => String((t as { id?: string }).id) === overlap.conflicting_trip_id,
+        );
+        if (
+          conflicting
+          && isSameVerifiedBookingAttempt(conflicting as IdempotentTripRow, {
+            passengerId: customerId,
+            clientActionId: body.client_action_id,
+            providerOrderId: body.payment_intent_id ?? paymentRefId ?? null,
+            paymentSessionId: paymentSessionId,
+          })
+        ) {
+          const sameBooking = await sameBookingTripResponse(
+            overlap.conflicting_trip_id,
+            "schedule_overlap_same_booking",
+          );
+          if (sameBooking) return sameBooking;
+        }
         return failBookingAfterAuthorizedPayment(
           supabase,
           verifiedRevolutOrder,

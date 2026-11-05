@@ -5,9 +5,9 @@
 
 import type { SupabaseClient } from "npm:@supabase/supabase-js@2.57.2";
 
-/** Customer-safe copy when booking fails after a hold was placed. */
+/** Customer-safe copy when booking fails after a hold was placed. MK-261105-002. */
 export const BOOKING_FAILED_NO_TRIP_MESSAGE =
-  "We couldn't complete your booking. No booking has been created. Please try again in a moment or choose another payment method.";
+  "Your ride wasn’t booked because we couldn’t authorise your payment.";
 
 export const AUTHORIZED_PREAUTH_STATUSES = new Set(["requires_capture", "succeeded"]);
 

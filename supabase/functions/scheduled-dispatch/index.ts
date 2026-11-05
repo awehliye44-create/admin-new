@@ -38,6 +38,7 @@ import {
   revokePendingOffersForTerminalTrip,
   TERMINAL_TRIP_STATUS_POSTGREST_LIST,
 } from "../_shared/tripTerminalDispatch.ts";
+import { assertPaymentGate, PaymentGateError } from "../_shared/paymentGate.ts";
 import {
   loadStackedRideConfig,
   logStackedRideDisabledSafeGuard,
@@ -499,6 +500,29 @@ Deno.serve(async (req) => {
                 .eq("id", trip.id);
               continue;
             }
+            // MK-261105-002: never assign unpaid / lost-auth scheduled rides.
+            try {
+              await assertPaymentGate(supabase, trip.id);
+            } catch (gateErr) {
+              const detail = gateErr instanceof PaymentGateError
+                ? gateErr.message
+                : String((gateErr as Error)?.message ?? gateErr);
+              console.warn("[scheduled-dispatch] pending assign payment gate blocked", {
+                trip_id: trip.id,
+                detail,
+              });
+              await supabase
+                .from("trips")
+                .update({
+                  scheduled_status: "payment_gate_blocked",
+                  pending_release_kind: null,
+                  pending_release_at: null,
+                  pending_release_driver_id: null,
+                  updated_at: now.toISOString(),
+                })
+                .eq("id", trip.id);
+              continue;
+            }
             const { data: assignRows, error } = await supabase
               .from("trips")
               .update(buildAssignNowPatch({ driverId, nowIso: now.toISOString() }))
@@ -564,6 +588,29 @@ Deno.serve(async (req) => {
                   pending_release_kind: null,
                   pending_release_at: null,
                   pending_release_driver_id: null,
+                })
+                .eq("id", trip.id);
+              continue;
+            }
+            // MK-261105-002: never broadcast unpaid / lost-auth scheduled rides.
+            try {
+              await assertPaymentGate(supabase, trip.id);
+            } catch (gateErr) {
+              const detail = gateErr instanceof PaymentGateError
+                ? gateErr.message
+                : String((gateErr as Error)?.message ?? gateErr);
+              console.warn("[scheduled-dispatch] pending broadcast payment gate blocked", {
+                trip_id: trip.id,
+                detail,
+              });
+              await supabase
+                .from("trips")
+                .update({
+                  scheduled_status: "payment_gate_blocked",
+                  pending_release_kind: null,
+                  pending_release_at: null,
+                  pending_release_driver_id: null,
+                  updated_at: now.toISOString(),
                 })
                 .eq("id", trip.id);
               continue;
@@ -760,6 +807,27 @@ Deno.serve(async (req) => {
         }
         // Defense: never arm activation while still Admin HELD.
         if (String(trip.scheduled_status) === "admin_held") {
+          continue;
+        }
+
+        // MK-261105-002: unpaid / lost-auth rides must not enter activation NRO.
+        try {
+          await assertPaymentGate(supabase, trip.id);
+        } catch (gateErr) {
+          const detail = gateErr instanceof PaymentGateError
+            ? gateErr.message
+            : String((gateErr as Error)?.message ?? gateErr);
+          console.warn("[scheduled-dispatch] activation payment gate blocked", {
+            trip_id: trip.id,
+            detail,
+          });
+          await supabase
+            .from("trips")
+            .update({
+              scheduled_status: "payment_gate_blocked",
+              updated_at: now.toISOString(),
+            })
+            .eq("id", trip.id);
           continue;
         }
 

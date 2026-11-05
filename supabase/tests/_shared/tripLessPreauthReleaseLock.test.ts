@@ -31,6 +31,9 @@ Deno.test("session-only release exports exist and never require a trip", async (
   assertStringIncludes(src, "persistTriplessSessionReleased");
   assertStringIncludes(src, "provider_state first");
   assertStringIncludes(src, 'provider_state: args.providerState');
+  // MK-261105-002: FOR UPDATE claim before voiding a tripless hold.
+  assertStringIncludes(src, "claim_payment_session_tripless_release");
+  assertStringIncludes(src, 'status: "has_trip"');
   const pure = await Deno.readTextFile(new URL("../../functions/_shared/holdReleasePure.ts", import.meta.url));
   assertStringIncludes(pure, "export function sessionAgeMs");
 });

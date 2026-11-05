@@ -180,7 +180,8 @@ export type TerminalDispositionReason =
   | "booking_failed_after_auth"
   | "rematch_expired"
   | "sweep_fallback"
-  | "manual_remediation";
+  | "manual_remediation"
+  | "payment_auth_cancelled";
 
 export type TerminalDispositionOutcome =
   | "RELEASED_AND_RECONCILED"

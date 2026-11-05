@@ -34,6 +34,7 @@ import {
   normalizeLifecycleProviderState,
 } from "../_shared/paymentSessionLifecycleStateSSOT.ts";
 import { applyPaymentSessionWebhookLifecycleUpdate } from "../_shared/applyPaymentSessionWebhookLifecycleUpdate.ts";
+import { cancelTripForLostPaymentAuthorisation } from "../_shared/lostPaymentAuthorisationTripSSOT.ts";
 import { resolvePaymentSessionCaptureAdvanceExtras } from "../_shared/paymentSessionCaptureTimestampSSOT.ts";
 import { transitionPaymentSession } from "../_shared/paymentSessionTransitionFacade.ts";
 import { persistProviderFeeAndMaybeResumeTerminalSettlement } from "../_shared/terminalFeeSettlementResumptionSSOT.ts";
@@ -562,6 +563,7 @@ Deno.serve(async (req) => {
         };
 
         let statusAdvanceExtras: Record<string, unknown> = {};
+        let ignoredTerminalAfterAuthorised = false;
 
         if (incomingIsRegression) {
           // Do not regress provider_state — still log structured lifecycle skip below.
@@ -599,6 +601,7 @@ Deno.serve(async (req) => {
           }
         } else if (["CANCELLED", "FAILED", "DECLINED"].includes(effectiveStateUpper)) {
           if (priorRank(priorProvider) >= 40) {
+            ignoredTerminalAfterAuthorised = true;
             console.warn(
               `[revolut-webhook] ignoring ${effectiveStateUpper} after ${priorProvider} for session ${session.id}`,
             );
@@ -675,6 +678,41 @@ Deno.serve(async (req) => {
             decision: lifecycleResult.decision,
             reason: lifecycleResult.reason,
           });
+        }
+
+        // MK-261105-002: definitive cancel of the trip's current auth → stop dispatch.
+        // Never wait on customer ack. Spurious CANCELLED that did not move an still-
+        // AUTHORISED session (rank≥40 ignore) is skipped unless the session was already
+        // released/cancelled by an earlier path (e.g. tripless release race).
+        {
+          const holdState = String(session.hold_release_state ?? "").toLowerCase();
+          const sessStatus = String(session.status ?? "").toLowerCase();
+          const sessionAlreadyLost =
+            holdState === "released"
+            || ["cancelled", "canceled", "failed", "released"].includes(sessStatus);
+          const cancelApplied =
+            !ignoredTerminalAfterAuthorised
+            && !lifecycleResult.error_message
+            && ["CANCELLED", "FAILED", "DECLINED"].includes(effectiveStateUpper);
+          if (
+            session.trip_id
+            && (cancelApplied || (sessionAlreadyLost && ["CANCELLED", "FAILED", "DECLINED"].includes(effectiveStateUpper)))
+          ) {
+            try {
+              const lost = await cancelTripForLostPaymentAuthorisation(supabase, {
+                tripId: String(session.trip_id),
+                providerOrderId: orderId,
+                paymentSessionId: String(session.id),
+                source: "revolut-webhook",
+              });
+              console.log("[revolut-webhook] lost payment auth trip disposition", lost);
+            } catch (err) {
+              console.error("[revolut-webhook] lost payment auth trip cancel failed", {
+                trip_id: session.trip_id,
+                error: err instanceof Error ? err.message : String(err),
+              });
+            }
+          }
         }
 
         // P0: never auto-finalise superseded / orphaned / already-trip sessions.

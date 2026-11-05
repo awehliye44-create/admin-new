@@ -51,6 +51,8 @@ export type HoldReleaseResult = {
   error?: string;
   idempotent?: boolean;
   fee_captured_pence?: number;
+  /** Set when tripless release aborted because finalize already linked a trip. */
+  trip_id?: string | null;
 };
 
 function sessionAlreadyTerminal(session: Record<string, unknown> | null | undefined): boolean {
@@ -226,10 +228,11 @@ async function persistTriplessSessionReleased(
     authorisedPence: number;
     providerState: string;
   },
-): Promise<{ ok: boolean; error?: string }> {
+): Promise<{ ok: boolean; error?: string; abortedHasTrip?: boolean }> {
   const now = new Date().toISOString();
   if (args.sessionId) {
-    const { error: flipErr } = await supabase
+    // Persist only while still tripless (claim held releasing). If finalize won, abort.
+    const { data: flipped, error: flipErr } = await supabase
       .from("payment_sessions")
       .update({
         provider_state: args.providerState,
@@ -237,8 +240,14 @@ async function persistTriplessSessionReleased(
         provider_state_verified_by: "holdReleaseSSOT",
         updated_at: now,
       })
-      .eq("id", args.sessionId);
+      .eq("id", args.sessionId)
+      .is("trip_id", null)
+      .select("id")
+      .maybeSingle();
     if (flipErr) return { ok: false, error: flipErr.message };
+    if (!flipped?.id) {
+      return { ok: false, error: "session_has_trip", abortedHasTrip: true };
+    }
   }
 
   await markPaymentSessionReleased(supabase, {
@@ -313,13 +322,53 @@ export async function releaseHoldForPaymentSession(
   }
 
   const sessionId = session?.id ? String(session.id) : null;
+
+  // MK-261105-002: FOR UPDATE claim before Revolut cancel — never void after finalize.
   if (sessionId) {
-    const attempts = Number(session?.release_attempt_count ?? 0) + 1;
-    await transitionPaymentSession(supabase, {
-      sessionId,
-      source: "hold_release",
-      patch: { release_attempt_count: attempts },
-    });
+    const { data: claimRaw, error: claimErr } = await supabase.rpc(
+      "claim_payment_session_tripless_release",
+      {
+        p_session_id: sessionId,
+        p_reason: args.terminalReason,
+        p_source: args.source,
+      },
+    );
+    if (claimErr) {
+      return {
+        ok: false,
+        released: false,
+        skipped: false,
+        status: "claim_failed",
+        error: claimErr.message,
+      };
+    }
+    const claim = (claimRaw ?? {}) as {
+      ok?: boolean;
+      code?: string;
+      trip_id?: string | null;
+      idempotent?: boolean;
+    };
+    if (claim.code === "has_trip" && claim.trip_id) {
+      // Do NOT void the linked booking's hold — CTAP/webhook already created the trip.
+      return {
+        ok: true,
+        released: false,
+        skipped: true,
+        status: "has_trip",
+        reason: "session_linked_to_trip",
+        trip_id: String(claim.trip_id),
+        idempotent: true,
+      };
+    }
+    if (claim.ok === false) {
+      return {
+        ok: false,
+        released: false,
+        skipped: false,
+        status: String(claim.code ?? "claim_failed"),
+        error: String(claim.code ?? "claim_failed"),
+      };
+    }
   }
 
   try {
@@ -331,6 +380,31 @@ export async function releaseHoldForPaymentSession(
     );
     const state = String(order.state ?? "").toUpperCase();
     const authorisedPence = Math.max(0, Number(order.amount ?? session?.authorised_amount_pence ?? 0));
+
+    const divertIfLinked = async (
+      persist: { ok: boolean; error?: string; abortedHasTrip?: boolean },
+    ): Promise<HoldReleaseResult | null> => {
+      if (persist.abortedHasTrip) {
+        const { data: linked } = await supabase
+          .from("payment_sessions")
+          .select("trip_id")
+          .eq("id", sessionId!)
+          .maybeSingle();
+        const linkedTripId = linked?.trip_id ? String(linked.trip_id) : null;
+        if (linkedTripId) {
+          return {
+            ok: true,
+            released: false,
+            skipped: true,
+            status: "has_trip",
+            reason: "session_linked_to_trip",
+            trip_id: linkedTripId,
+            idempotent: true,
+          };
+        }
+      }
+      return null;
+    };
 
     if (state === "COMPLETED") {
       await handleRevolutPaymentInvariantViolation(supabase, {
@@ -350,6 +424,8 @@ export async function releaseHoldForPaymentSession(
         authorisedPence,
         providerState: "REFUNDED",
       });
+      const diverted = await divertIfLinked(persist);
+      if (diverted) return diverted;
       if (!persist.ok) {
         return { ok: false, released: true, skipped: false, status: "local_persist_failed", error: persist.error };
       }
@@ -366,6 +442,8 @@ export async function releaseHoldForPaymentSession(
         authorisedPence,
         providerState: state,
       });
+      const diverted = await divertIfLinked(persist);
+      if (diverted) return diverted;
       if (!persist.ok) {
         return { ok: false, released: false, skipped: false, status: "local_persist_failed", error: persist.error };
       }
@@ -392,6 +470,10 @@ export async function releaseHoldForPaymentSession(
       authorisedPence,
       providerState: "CANCELLED",
     });
+    {
+      const diverted = await divertIfLinked(persist);
+      if (diverted) return diverted;
+    }
     if (!persist.ok) {
       return { ok: false, released: true, skipped: false, status: "local_persist_failed", error: persist.error };
     }
