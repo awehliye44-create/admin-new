@@ -127,10 +127,18 @@ export function FinancialReconciliationOverviewTab({
   const driverFareNet = useAuditKpis
     ? (o!.driver_fare_net_total_pence ?? o!.driver_net_total_pence)
     : (summary?.driver_money?.card_driver_payable_pence ?? null);
-  const driverTips = useAuditKpis ? (o!.driver_tips_total_pence ?? 0) : null;
+  // Tips null = unknown — never paint missing tip KPI as £0.00.
+  const driverTips = useAuditKpis ? (o!.driver_tips_total_pence ?? null) : null;
   const driverEntitlement = useAuditKpis
-    ? (o!.driver_entitlement_total_pence
-      ?? ((driverFareNet ?? 0) + (driverTips ?? 0) + (o!.airport_charges_total_pence ?? 0)))
+    ? (o!.driver_entitlement_total_pence != null
+      ? o!.driver_entitlement_total_pence
+      : (
+        driverFareNet != null && o!.driver_tips_total_pence != null
+          ? driverFareNet
+            + o!.driver_tips_total_pence
+            + (o!.airport_charges_total_pence ?? 0)
+          : null
+      ))
     : null;
 
   const openIssues = openIssueCount > 0

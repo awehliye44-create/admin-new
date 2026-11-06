@@ -936,12 +936,12 @@ export default function PayoutLedger() {
                         <TableCell className="text-xs">{formatNullablePence(row.live_balance_pence ?? null)}</TableCell>
                         <TableCell className="text-xs font-semibold">{formatNullablePence(row.available_balance_pence)}</TableCell>
                         <TableCell className="text-xs">{formatNullablePence(row.pending_balance_pence)}</TableCell>
-                        <TableCell className="text-xs">{formatNullablePence(row.reserved_pence ?? 0)}</TableCell>
+                        <TableCell className="text-xs">{formatNullablePence(row.reserved_pence)}</TableCell>
                         <TableCell className="text-xs">
-                          <div>{formatNullablePence(row.held_pence ?? 0)}</div>
+                          <div>{formatNullablePence(row.held_pence)}</div>
                           {(row.unbacked_pence ?? 0) > 0 ? (
                             <div className="text-[10px] text-amber-700">
-                              + {formatNullablePence(row.unbacked_pence ?? 0)} unbacked · {unbackedWalletReasonLabel(row.unbacked_reason)}
+                              + {formatNullablePence(row.unbacked_pence)} unbacked · {unbackedWalletReasonLabel(row.unbacked_reason)}
                             </div>
                           ) : null}
                         </TableCell>

@@ -23,16 +23,8 @@ function Metric({ label, value, hint }: { label: string; value: string; hint?: s
 }
 
 function reservedPence(row: DriverWalletSsotRow): number {
-  return Math.max(
-    0,
-    Math.round(
-      Number(
-        row.withdrawal_in_progress_pence
-          ?? row.included_in_payout_batch_amount_pence
-          ?? 0,
-      ),
-    ),
-  );
+  // ACTIVE reservation WIP only — never coalesce included_in_payout_batch.
+  return Math.max(0, Math.round(Number(row.withdrawal_in_progress_pence ?? 0)));
 }
 
 function openDifferencePence(row: DriverWalletSsotRow): number | null {

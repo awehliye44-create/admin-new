@@ -43,16 +43,8 @@ function walletStatusVariant(status: string | null | undefined): 'default' | 'se
 }
 
 function reservedPence(row: DriverWalletSsotRow): number {
-  return Math.max(
-    0,
-    Math.round(
-      Number(
-        row.withdrawal_in_progress_pence
-          ?? row.included_in_payout_batch_amount_pence
-          ?? 0,
-      ),
-    ),
-  );
+  // ACTIVE reservation WIP only — never coalesce included_in_payout_batch.
+  return Math.max(0, Math.round(Number(row.withdrawal_in_progress_pence ?? 0)));
 }
 
 function openDifferencePence(row: DriverWalletSsotRow): number | null {
@@ -193,7 +185,7 @@ export function DriverWalletDriverList({
                     {formatNullablePence(reservedPence(row), currencyCode)}
                   </TableCell>
                   <TableCell className="text-right tabular-nums">
-                    <div>{formatNullablePence(Math.max(0, Number(row.unbacked_wallet_pence ?? 0)), currencyCode)}</div>
+                    <div>{formatNullablePence(row.unbacked_wallet_pence, currencyCode)}</div>
                     {(row.unbacked_wallet_pence ?? 0) > 0 ? (
                       <div className="text-xs text-amber-700">{unbackedWalletReasonLabel(row.unbacked_wallet_reason)}</div>
                     ) : null}

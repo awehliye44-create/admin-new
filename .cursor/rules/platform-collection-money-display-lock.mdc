@@ -1,0 +1,31 @@
+# PLATFORM_COLLECTED money display lock
+
+## Surfaces
+
+1. Financial Reconciliation (SSOT)
+2. Payment Sessions (SSOT)
+3. Driver Wallet Ledger (SSOT)
+4. Payout Ledger (SSOT)
+
+## Never remove or “simplify away”
+
+- Unknown money renders as **—** / UNAVAILABLE — never `formatNullablePence(x ?? 0)` on chips/columns
+- Driver Wallet **Available** = `available_for_payout_pence` only — never `cashout_limit_pence`
+- Driver Wallet **Pending** = settlement `pending_balance_pence` only — never period KPI pending
+- **Reserved** = ACTIVE WIP (`withdrawal_in_progress_pence`) only — never `included_in_payout_batch` coalesce
+- FR tips/entitlement never invent £0 from missing KPI parts
+- Payout Overview: Pending (settlement) and Held/Unbacked are separate chips
+- Eligibility / Available rollups fail closed — never silently omit drivers while Live still sums
+
+## Lock tests
+
+- `src/lib/__tests__/platformCollectionMoneyDisplayLock.test.ts`
+- `supabase/tests/_shared/payoutAvailableNextBatchLock.test.ts`
+
+**If they fail, fix the code — never delete or soften the lock.**
+
+## Do not
+
+- Paint null money as £0.00 on live ops chips
+- Substitute a different semantic field when the primary is null
+- Coalesce count nulls to `0` when the chip means “unknown”

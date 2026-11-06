@@ -1,7 +1,8 @@
 /**
  * Driver Wallet Ledger list/detail display balances.
  * Pending / Available come from eligibility SSOT — never live − reservation,
- * never period-KPI pending as the primary field, never a provider-API second wallet.
+ * never period-KPI pending as the primary field, never cashout_limit as Available,
+ * never a provider-API second wallet.
  */
 
 export type DriverWalletSsotBalanceSource = {
@@ -14,9 +15,9 @@ export type DriverWalletSsotBalanceSource = {
 };
 
 export type DriverWalletSsotDisplayBalances = {
-  livePence: number;
-  availablePence: number;
-  pendingPence: number;
+  livePence: number | null;
+  availablePence: number | null;
+  pendingPence: number | null;
   withdrawalInProgressPence: number;
 };
 
@@ -30,13 +31,11 @@ export function displayDriverWalletSsotBalances(
   row: DriverWalletSsotBalanceSource,
 ): DriverWalletSsotDisplayBalances {
   return {
-    livePence: minor(row.wallet_balance_pence) ?? 0,
-    availablePence:
-      minor(row.available_for_payout_pence) ?? minor(row.cashout_limit_pence) ?? 0,
-    pendingPence:
-      minor(row.pending_balance_pence)
-      ?? minor(row.period_kpis?.pending_earnings_pence)
-      ?? 0,
+    livePence: minor(row.wallet_balance_pence),
+    // Never substitute cashout_limit for Available — different semantic.
+    availablePence: minor(row.available_for_payout_pence),
+    // Never substitute period KPI pending for settlement Pending.
+    pendingPence: minor(row.pending_balance_pence),
     withdrawalInProgressPence: Math.max(0, minor(row.withdrawal_in_progress_pence) ?? 0),
   };
 }

@@ -5,10 +5,10 @@ import {
 } from '@/lib/driverWalletSsotBalances';
 
 describe('displayDriverWalletSsotBalances', () => {
-  it('prefers eligibility pending/available over cashout_limit and period KPI', () => {
+  it('prefers eligibility pending/available and ignores cashout_limit / period KPI', () => {
     const balances = displayDriverWalletSsotBalances({
       wallet_balance_pence: 2239,
-      cashout_limit_pence: 2239,
+      cashout_limit_pence: 9999,
       available_for_payout_pence: 0,
       pending_balance_pence: 1818,
       period_kpis: { pending_earnings_pence: 0 },
@@ -21,15 +21,15 @@ describe('displayDriverWalletSsotBalances', () => {
     });
   });
 
-  it('does not treat live as available when overlay is missing', () => {
+  it('does not treat cashout_limit or live as Available when eligibility Available is missing', () => {
     const balances = displayDriverWalletSsotBalances({
       wallet_balance_pence: 773,
       cashout_limit_pence: 773,
-      period_kpis: { pending_earnings_pence: 0 },
+      period_kpis: { pending_earnings_pence: 500 },
     });
     expect(balances.livePence).toBe(773);
-    expect(balances.availablePence).toBe(773);
-    expect(balances.pendingPence).toBe(0);
+    expect(balances.availablePence).toBeNull();
+    expect(balances.pendingPence).toBeNull();
   });
 });
 

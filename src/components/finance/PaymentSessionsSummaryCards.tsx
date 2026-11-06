@@ -22,16 +22,19 @@ export function PaymentSessionsSummaryCards({
   currencyCode?: string;
 }) {
   if (!summary) return null;
+  // Never coerce null → £0 — unknown money must render as "—".
   const fmt = (p: number | null | undefined) => formatNullablePence(p, currencyCode);
 
+  // Canonical captured field first; alias only when primary is null (not when £0).
   const capturedTotal = summary.provider_captured_total_pence
-    ?? summary.total_customer_revenue_captured_pence;
-  const releasedTotal = summary.released_buffer_total_pence;
-  const refundedTotal = summary.refunded_total_pence;
-  const feesTotal = summary.provider_fees_total_pence;
+    ?? summary.total_customer_revenue_captured_pence
+    ?? null;
+  const releasedTotal = summary.released_buffer_total_pence ?? null;
+  const refundedTotal = summary.refunded_total_pence ?? null;
+  const feesTotal = summary.provider_fees_total_pence ?? null;
 
   return (
-    <div className="grid gap-2 grid-cols-2 lg:grid-cols-4">
+    <div className="grid gap-2 grid-cols-2 lg:grid-cols-4" data-testid="payment-sessions-summary-cards">
       <SummaryCard label="Captured total" value={fmt(capturedTotal)} />
       <SummaryCard label="Released total" value={fmt(releasedTotal)} />
       <SummaryCard label="Refunded total" value={fmt(refundedTotal)} />

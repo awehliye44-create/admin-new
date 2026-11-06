@@ -68,7 +68,7 @@ export function DriverWalletPeriodWidgetCards({
     );
   }
 
-  const fmt = (p: number | null | undefined) => formatNullablePence(p ?? 0, currencyCode);
+  const fmt = (p: number | null | undefined) => formatNullablePence(p, currencyCode);
   const summary = data?.summary;
   const account = data?.account;
 

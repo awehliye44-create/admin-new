@@ -952,7 +952,7 @@ export function PayoutLedgerCompanyTransfersPanel({
     kpis?.completed_driver_payouts_month_pence
     ?? kpis?.completed_month_pence
     ?? null;
-  const completedCompanyMonth = kpis?.completed_company_transfers_month_pence ?? 0;
+  const completedCompanyMonth = kpis?.completed_company_transfers_month_pence ?? null;
   const companyFundsUnderprotection = evaluateCompanyFundsUnderprotection({
     provider_available_balance_pence: companyBalance?.provider_available_balance_pence ?? null,
     protected_driver_liabilities_pence: companyBalance?.driver_liability_pence ?? null,

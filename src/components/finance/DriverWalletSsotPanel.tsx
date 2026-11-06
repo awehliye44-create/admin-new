@@ -127,7 +127,9 @@ export function DriverWalletSsotPanel({
 
 
   const fallbackMoney: FinanceMoneyFormat = money ?? {
-    fmt: (p, ccy) => formatMoneyMinor(p ?? 0, ccy ?? currencyCode ?? 'GBP'),
+    fmt: (p, ccy) => (p == null
+      ? '—'
+      : formatMoneyMinor(p, ccy ?? currencyCode ?? 'GBP')),
     currencyCode: currencyCode ?? 'GBP',
     currencySymbol: currencyCode ?? 'GBP',
     currencyMinorUnit: 2,
@@ -257,10 +259,10 @@ export function DriverWalletSsotPanel({
                       ) : null}
                     </TableCell>
                     <TableCell className="text-right tabular-nums">
-                      {fmt(row.payout_ledger_completed_pence ?? 0)}
+                      {fmt(row.payout_ledger_completed_pence)}
                     </TableCell>
                     <TableCell className="text-right tabular-nums">
-                      {fmt(row.available_for_payout_pence ?? row.cashout_limit_pence)}
+                      {fmt(row.available_for_payout_pence)}
                     </TableCell>
                     <TableCell className="text-right tabular-nums">
                       <div>{fmt(row.wallet_variance_pence)}</div>

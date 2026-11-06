@@ -49,19 +49,9 @@ export function buildDriverWalletFleetOverview(
   let onHold = 0;
 
   for (const row of rows) {
-    available += Math.round(
-      Number(row.available_for_payout_pence ?? row.cashout_limit_pence ?? 0),
-    );
-    pending += Math.max(
-      0,
-      Math.round(
-        Number(
-          row.pending_balance_pence
-            ?? row.period_kpis?.pending_earnings_pence
-            ?? 0,
-        ),
-      ),
-    );
+    // Never substitute cashout_limit or period KPI for Available / Pending.
+    available += Math.max(0, Math.round(Number(row.available_for_payout_pence ?? 0)));
+    pending += Math.max(0, Math.round(Number(row.pending_balance_pence ?? 0)));
     reserved += reservedPence(row);
     processingException += Math.max(
       0,
