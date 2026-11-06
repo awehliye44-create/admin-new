@@ -84,15 +84,17 @@ Deno.test("corporate BookRide invokes find-drivers SSOT, not drivers.is_online",
 
 Deno.test("find-drivers remains the availability SSOT (no corporate-only calculator)", async () => {
   const findDrivers = await readAdmin("supabase/functions/find-drivers/index.ts");
-  assertEquals(findDrivers.includes("driver_vehicle_categories"), true);
-  assertEquals(findDrivers.includes("is_default"), true);
-  assertEquals(findDrivers.includes("Default vehicle type"), true);
-  assertEquals(findDrivers.includes("driver_service_areas"), true);
-  assertEquals(findDrivers.includes(".eq('is_online', true)"), true);
-  assertEquals(findDrivers.includes(".eq('approval_status', 'approved')"), true);
-  assertEquals(findDrivers.includes(".eq('documents_approved', true)"), true);
-  assertEquals(findDrivers.includes("availability_state: 'unavailable'"), true);
-  assertEquals(findDrivers.includes("availability_state: 'available'"), true);
+  const ssot = await readAdmin("supabase/functions/_shared/findDriversAvailabilitySSOT.ts");
+  assertEquals(findDrivers.includes("evaluateRideNowVehicleAvailability"), true);
+  assertEquals(findDrivers.includes("findDriversAvailabilitySSOT"), true);
+  assertEquals(ssot.includes("driver_vehicle_categories"), true);
+  assertEquals(ssot.includes("is_default"), true);
+  assertEquals(ssot.includes("driver_service_areas"), true);
+  assertEquals(ssot.includes('.eq("is_online", true)'), true);
+  assertEquals(ssot.includes('.eq("approval_status", "approved")'), true);
+  assertEquals(ssot.includes('.eq("documents_approved", true)'), true);
+  assertEquals(findDrivers.includes('availability_state: "unavailable"'), true);
+  assertEquals(findDrivers.includes('availability_state: "available"'), true);
 
   let foundCorporateCalculator = false;
   for await (const entry of Deno.readDir(new URL("../", import.meta.url))) {

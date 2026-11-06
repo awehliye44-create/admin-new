@@ -1,5 +1,6 @@
 import { edgeFunctionInvokeHeaders } from "../_shared/edgeFunctionInvokeHeaders.ts";
 import { resolveAuthoritativeFare } from "../_shared/authoritativeFare.ts";
+import { assertRideNowVehicleAvailableOrError } from "../_shared/findDriversAvailabilitySSOT.ts";
 import type { AnySupabaseClient } from "../_shared/supabaseClientTypes.ts";
 import { createClient } from "npm:@supabase/supabase-js@2.57.2";
 import {
@@ -994,6 +995,37 @@ serveWithEdgeTiming("create-trip-after-payment", corsHeaders, async (req) => {
       );
     }
     reversalContext.serviceAreaId = serviceAreaId;
+
+    // Ride Now availability — same find-drivers SSOT as Choose Ride (scheduled skips).
+    if (
+      body.vehicle_type_id &&
+      typeof body.pickup?.lat === "number" &&
+      typeof body.pickup?.lng === "number"
+    ) {
+      const availabilityBlock = await assertRideNowVehicleAvailableOrError(supabase, {
+        pickup_lat: body.pickup.lat,
+        pickup_lng: body.pickup.lng,
+        vehicle_type_id: String(body.vehicle_type_id),
+        scheduled_at: isScheduledBooking ? String(body.scheduled_at ?? "scheduled") : null,
+      });
+      if (availabilityBlock) {
+        log("REJECTED — Ride Now vehicle unavailable at pickup", {
+          vehicle_type_id: body.vehicle_type_id,
+          code: availabilityBlock.code,
+        });
+        return failBookingAfterAuthorizedPayment(
+          supabase,
+          verifiedRevolutOrder,
+          {
+            ...reversalContext,
+            failureStage: "vehicle_unavailable",
+            failureReason: availabilityBlock.code,
+          },
+          409,
+          availabilityBlock.error,
+        );
+      }
+    }
 
     // 9b. Validate payment method against service area config
     if (serviceAreaId && body.payment_method) {

@@ -22,6 +22,7 @@ import {
   assertClientActionIdOrgBound,
   assertPaymentMethodAllowed,
 } from "../_shared/corporateBookAuthoritySSOT.ts";
+import { assertRideNowVehicleAvailableOrError } from "../_shared/findDriversAvailabilitySSOT.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -259,6 +260,22 @@ Deno.serve(async (req) => {
         error: "pickup/dropoff coordinates required for server fare quote",
         code: "FARE_COORDINATES_REQUIRED",
       });
+    }
+
+    // Ride Now only — scheduled skips live nearby (Customer Choose Ride policy).
+    if (vehicleTypeId) {
+      const availabilityBlock = await assertRideNowVehicleAvailableOrError(admin, {
+        pickup_lat: pickupLat,
+        pickup_lng: pickupLng,
+        vehicle_type_id: vehicleTypeId,
+        scheduled_at: scheduledAt,
+      });
+      if (availabilityBlock) {
+        return json(409, {
+          error: availabilityBlock.error,
+          code: availabilityBlock.code,
+        });
+      }
     }
 
     const fareRes = await fetch(`${supabaseUrl}/functions/v1/calculate-fare`, {

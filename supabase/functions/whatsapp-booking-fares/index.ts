@@ -2,22 +2,28 @@
  * whatsapp-booking-fares
  *
  * Returns authoritative per-vehicle fares for the WhatsApp external booking channel,
- * using the same canonical `calculate-fare` SSOT as the Customer app.
+ * using the same canonical `calculate-fare` SSOT as the Customer app, plus the same
+ * Ride Now nearby-driver availability SSOT as Customer Choose Ride (`find-drivers`).
  *
  * Request:
  *   POST { service_area_id, estimated_distance_km, estimated_duration_min,
- *           pickup?: { lat, lng }, dropoff?: { lat, lng } }
+ *           pickup?: { lat, lng }, dropoff?: { lat, lng },
+ *           scheduled_at?: string | null }
  *
  * Response:
  *   { success, financial_model, booking_workflow, currencyCode, distanceUnit,
  *     paymentMethods, vehicleFares, skip_platform_preauth }
+ *
+ * Each vehicleFare row includes:
+ *   availability_state: "available" | "unavailable" | "error"
+ *   (immediate bookings only; scheduled skips live nearby and marks available)
  *
  * The caller MUST branch on `booking_workflow`:
  *   "platform_collected"  → show digital payment methods, create Payment Session
  *   "driver_collected"    → no Payment Session/preauth, driver-collected UX
  *   "unavailable"         → do not create trip; show safe unavailable message
  *
- * No WhatsApp-specific pricing logic — this is a thin proxy to calculate-fare.
+ * No WhatsApp-specific pricing logic — fares stay on calculate-fare.
  */
 
 import { createClient } from "npm:@supabase/supabase-js@2.57.2";
@@ -29,6 +35,10 @@ import {
 } from "../_shared/commissionWalletSSOT.ts";
 import { edgeFunctionInvokeHeaders } from "../_shared/edgeFunctionInvokeHeaders.ts";
 import { assertPickupCoveredByResolveServiceArea } from "../_shared/whatsappPickupCoverageSSOT.ts";
+import {
+  evaluateRideNowAvailabilityForVehicleTypes,
+  isImmediateRideNowBooking,
+} from "../_shared/findDriversAvailabilitySSOT.ts";
 
 interface FareRequest {
   service_area_id: string;
@@ -36,6 +46,8 @@ interface FareRequest {
   estimated_duration_min: number;
   pickup?: { lat: number; lng: number };
   dropoff?: { lat: number; lng: number };
+  /** When set, live nearby-driver gating is skipped (scheduled journey). */
+  scheduled_at?: string | null;
 }
 
 Deno.serve(async (req) => {
@@ -49,7 +61,14 @@ Deno.serve(async (req) => {
 
   try {
     const body: FareRequest = await req.json().catch(() => ({} as FareRequest));
-    const { service_area_id, estimated_distance_km, estimated_duration_min, pickup, dropoff } = body;
+    const {
+      service_area_id,
+      estimated_distance_km,
+      estimated_duration_min,
+      pickup,
+      dropoff,
+      scheduled_at = null,
+    } = body;
 
     if (!service_area_id) {
       return respond({ success: false, error: "service_area_id is required" });
@@ -191,9 +210,40 @@ Deno.serve(async (req) => {
       });
     }
 
+    const rawVehicleFares = Array.isArray(farePayload.vehicleFares)
+      ? (farePayload.vehicleFares as Array<Record<string, unknown>>)
+      : [];
+
+    // Ride Now: annotate each priced type with the same nearby-driver SSOT as
+    // Customer Choose Ride. Scheduled journeys skip live nearby gating.
+    let vehicleFares = rawVehicleFares;
+    if (isImmediateRideNowBooking(scheduled_at)) {
+      const vehicleTypeIds = rawVehicleFares
+        .map((row) => (typeof row.vehicleTypeId === "string" ? row.vehicleTypeId : ""))
+        .filter(Boolean);
+      const availabilityByType = await evaluateRideNowAvailabilityForVehicleTypes(supabase, {
+        pickup_lat: pickup.lat,
+        pickup_lng: pickup.lng,
+        vehicle_type_ids: vehicleTypeIds,
+      });
+      vehicleFares = rawVehicleFares.map((row) => {
+        const id = typeof row.vehicleTypeId === "string" ? row.vehicleTypeId : "";
+        const availability_state = id
+          ? (availabilityByType[id] ?? "unavailable")
+          : "unavailable";
+        return { ...row, availability_state };
+      });
+    } else {
+      vehicleFares = rawVehicleFares.map((row) => ({
+        ...row,
+        availability_state: "available",
+      }));
+    }
+
     console.log(
       `[whatsapp-booking-fares] sa=${service_area_id} model=${financial_model} workflow=${booking_workflow}`,
-      `fares=${(farePayload.vehicleFares as unknown[])?.length ?? 0}`,
+      `fares=${vehicleFares.length}`,
+      `immediate=${isImmediateRideNowBooking(scheduled_at)}`,
     );
 
     return respond({
@@ -205,7 +255,7 @@ Deno.serve(async (req) => {
       currencyCode: farePayload.currencyCode,
       distanceUnit: farePayload.distanceUnit,
       paymentMethods: effectivePaymentMethods,
-      vehicleFares: farePayload.vehicleFares,
+      vehicleFares,
     });
   } catch (err) {
     console.error("[whatsapp-booking-fares] error:", err);

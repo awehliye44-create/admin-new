@@ -67,6 +67,7 @@ import {
 } from "../_shared/whatsappGuestBookingSSOT.ts";
 import { assertPickupCoveredByResolveServiceArea } from "../_shared/whatsappPickupCoverageSSOT.ts";
 import { validatePhoneForCountry, isValidE164Phone } from "../_shared/phoneValidation.ts";
+import { assertRideNowVehicleAvailableOrError } from "../_shared/findDriversAvailabilitySSOT.ts";
 
 interface GuestPaymentRequest {
   source?: string;
@@ -542,6 +543,26 @@ Deno.serve(async (req) => {
       service_area_id,
     }));
     return json({ error: coverage.error, code: coverage.code }, coverage.status);
+  }
+
+  // === Ride Now availability — same find-drivers SSOT as Customer Choose Ride ===
+  const availabilityBlock = await assertRideNowVehicleAvailableOrError(supabase, {
+    pickup_lat,
+    pickup_lng,
+    vehicle_type_id,
+    scheduled_at: body.scheduled_at ?? null,
+  });
+  if (availabilityBlock) {
+    console.warn(JSON.stringify({
+      event: "GUEST_VEHICLE_UNAVAILABLE",
+      code: availabilityBlock.code,
+      service_area_id,
+      vehicle_type_id,
+    }));
+    return json(
+      { error: availabilityBlock.error, code: availabilityBlock.code },
+      409,
+    );
   }
 
   // === Idempotency: check for existing session with same client_request_id ===
