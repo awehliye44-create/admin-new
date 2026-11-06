@@ -302,7 +302,7 @@ Deno.test("convert stamps instant-search deadline + sequence headroom for 6-min 
   assertEquals(patch.max_broadcast_rounds >= 6 + 3, true);
 });
 
-Deno.test("unique violation is detected and permanently blocks stale rebroadcast", () => {
+Deno.test("unique violation is detected; MK-261106-007 recovers stranded convert", () => {
   assertEquals(
     isRideOfferBroadcastRoundUniqueViolation(
       'duplicate key value violates unique constraint "ride_offers_trip_id_driver_id_broadcast_round_key"',
@@ -313,24 +313,30 @@ Deno.test("unique violation is detected and permanently blocks stale rebroadcast
     isRideOfferBroadcastRoundUniqueViolation("some other error"),
     false,
   );
-  const patch = tripPatchAfterPermanentOfferCreateError("2026-11-04T22:16:30.000Z");
-  assertEquals(patch.dispatch_status, DISPATCH_STATUS_OFFER_CREATE_BLOCKED);
+  // Legacy permanent patch still exists for rollback readability, but stale
+  // resume now recovers offer_create_blocked + round=0 with offer history.
+  const legacy = tripPatchAfterPermanentOfferCreateError("2026-11-04T22:16:30.000Z");
+  assertEquals(legacy.dispatch_status, DISPATCH_STATUS_OFFER_CREATE_BLOCKED);
   assertEquals(
     isStaleTripRebroadcastCandidate({
       dispatch_status: DISPATCH_STATUS_OFFER_CREATE_BLOCKED,
       current_broadcast_round: 0,
       max_broadcast_rounds: 9,
       pending_offer_count: 0,
+      max_existing_offer_round: 4,
+      searching_expires_at: "2026-11-04T22:22:00.000Z",
+      nowMs: Date.parse("2026-11-04T22:17:00.000Z"),
     }),
-    false,
+    true,
   );
-  // Round-0 broadcasting after failed convert must not be treated as stale-retry eligible
+  // Round-0 with no offer history remains ineligible (virgin trip).
   assertEquals(
     isStaleTripRebroadcastCandidate({
       dispatch_status: "broadcasting",
       current_broadcast_round: 0,
       max_broadcast_rounds: 9,
       pending_offer_count: 0,
+      max_existing_offer_round: 0,
     }),
     false,
   );
@@ -349,13 +355,13 @@ Deno.test("source lock: conversion + auto-dispatch + expire-offers wire unique r
   );
   assertStringIncludes(autoDispatch, "resolveUniqueDispatchBroadcastRound");
   assertStringIncludes(autoDispatch, "OFFER_CREATE_UNIQUE_COLLISION");
-  assertStringIncludes(autoDispatch, "tripPatchAfterPermanentOfferCreateError");
+  assertStringIncludes(autoDispatch, "tripPatchAfterTransientOfferCreateFailure");
 
   const expireOffers = await Deno.readTextFile(
     new URL("../../functions/expire-offers/index.ts", import.meta.url),
   );
   assertStringIncludes(expireOffers, "isStaleTripRebroadcastCandidate");
-  assertStringIncludes(expireOffers, "DISPATCH_STATUS_OFFER_CREATE_BLOCKED");
+  assertStringIncludes(expireOffers, "offer_create_blocked");
 
   const conversionConfig = await Deno.readTextFile(
     new URL("../../functions/_shared/scheduledDispatchConfig.ts", import.meta.url),

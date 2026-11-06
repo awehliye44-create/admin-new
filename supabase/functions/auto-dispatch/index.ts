@@ -88,13 +88,17 @@ import {
 } from "../_shared/dispatchSearchWindow.ts";
 import {
   maxBroadcastRoundFromOfferRows,
+  resolveConversionBroadcastRoundAnchor,
   resolveUniqueDispatchBroadcastRound,
 } from "../_shared/dispatchBroadcastRoundAllocation.ts";
 import {
   isRideOfferBroadcastRoundUniqueViolation,
   OFFER_CREATE_UNIQUE_COLLISION_REASON,
-  tripPatchAfterPermanentOfferCreateError,
 } from "../_shared/sweepExpiredOffers.ts";
+import {
+  isCommitDispatchWaveVersionMismatch,
+  tripPatchAfterTransientOfferCreateFailure,
+} from "../_shared/dispatchWaveCommitResumeSSOT.ts";
 import { isScheduledInstantConversionPending } from "../_shared/scheduledHandoverHoldLock.ts";
 import { expireTripWhenSearchExhaustedAndNotifyCustomer } from "../_shared/customerTripLifecycleNotify.ts";
 import { finalizeRideAssignmentSideEffects } from "../_shared/rideAssignmentFinalize.ts";
@@ -886,7 +890,28 @@ Deno.serve(async (req) => {
       .select("broadcast_round")
       .eq("trip_id", trip_id);
     const maxExistingOfferRound = maxBroadcastRoundFromOfferRows(offerRoundRows ?? []);
-    const storedRound = trip.current_broadcast_round || 0;
+    // MK-261106-007: convert/collision can leave current_broadcast_round=0 while
+    // offer history exists — heal the stamp before allocating the next sequence.
+    let storedRound = trip.current_broadcast_round || 0;
+    if (storedRound === 0 && maxExistingOfferRound > 0) {
+      storedRound = resolveConversionBroadcastRoundAnchor(maxExistingOfferRound);
+      await supabase
+        .from("trips")
+        .update({
+          current_broadcast_round: storedRound,
+          dispatch_status: "broadcasting",
+          broadcast_enabled: true,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", trip_id)
+        .is("completed_at", null)
+        .not("status", "in", TERMINAL_TRIP_STATUS_POSTGREST_LIST);
+      audit("broadcast_round_healed_from_offer_history", {
+        prior_stored_round: 0,
+        max_existing_offer_round: maxExistingOfferRound,
+        healed_stored_round: storedRound,
+      });
+    }
     let searchWindowActive = true;
     let currentRound = storedRound + 1;
     let maxRounds = coercePositiveInt(trip.max_broadcast_rounds) ?? 9;
@@ -2886,20 +2911,49 @@ Deno.serve(async (req) => {
       if (isRideOfferBroadcastRoundUniqueViolation(createError) ||
         isRideOfferBroadcastRoundUniqueViolation(waveErr) ||
         isRideOfferBroadcastRoundUniqueViolation(waveResult?.error)) {
+        // MK-261106-007: do not permanent-block. Stamp a recoverable round and
+        // keep broadcasting so expire-offers can resume before searching_expires_at.
         const nowIso = new Date().toISOString();
         await supabase
           .from("trips")
-          .update(tripPatchAfterPermanentOfferCreateError(nowIso))
+          .update(tripPatchAfterTransientOfferCreateFailure({
+            nowIso,
+            storedRound: storedRound,
+            maxExistingOfferRound,
+            attemptedBroadcastRound: currentRound,
+          }))
           .eq("id", trip_id);
         abortDispatch(OFFER_CREATE_UNIQUE_COLLISION_REASON, {
           error: createError,
-          permanent: true,
+          permanent: false,
+          recoverable: true,
           attempted_broadcast_round: currentRound,
           max_existing_offer_round: maxExistingOfferRound,
+          stored_round: storedRound,
         });
         return errorResponse(
           OFFER_CREATE_UNIQUE_COLLISION_REASON,
-          "Offer create blocked by existing broadcast_round — will not retry as stale",
+          "Offer create hit unique broadcast_round — stamped for stale resume",
+          409,
+          { trip_id, broadcast_round: currentRound },
+        );
+      }
+      if (
+        isCommitDispatchWaveVersionMismatch(createError)
+        || isCommitDispatchWaveVersionMismatch(waveResult?.error)
+      ) {
+        // Concurrent worker won the version — leave trip broadcasting; do not
+        // reset current_broadcast_round. expire-offers will resume if needed.
+        abortDispatch("VERSION_MISMATCH", {
+          error: createError,
+          recoverable: true,
+          attempted_broadcast_round: currentRound,
+          stored_round: storedRound,
+          max_existing_offer_round: maxExistingOfferRound,
+        });
+        return errorResponse(
+          "VERSION_MISMATCH",
+          "Concurrent dispatch commit — retry via expire-offers",
           409,
           { trip_id, broadcast_round: currentRound },
         );

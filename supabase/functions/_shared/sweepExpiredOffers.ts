@@ -11,8 +11,9 @@ export const SEARCH_WINDOW_RECHECK_TRIGGER_REASON = "search_window_recheck" as c
 export const STALE_TRIP_REBROADCAST_DISPATCH_STATUS = "broadcasting" as const;
 
 /**
- * Permanent offer-create failure (unique broadcast_round collision). Leaves the
- * trip out of the stale_trip_no_pending rebroadcast loop.
+ * Legacy status written by older unique-collision handling. New path recovers
+ * these via isStaleTripRebroadcastCandidate (MK-261106-007) instead of leaving
+ * the trip stranded until searching_expires_at.
  */
 export const DISPATCH_STATUS_OFFER_CREATE_BLOCKED = "offer_create_blocked" as const;
 export const OFFER_CREATE_UNIQUE_COLLISION_REASON = "OFFER_CREATE_UNIQUE_COLLISION" as const;
@@ -30,6 +31,11 @@ export function isRideOfferBroadcastRoundUniqueViolation(error: unknown): boolea
   return /23505/.test(text) && /broadcast_round/i.test(text);
 }
 
+/**
+ * @deprecated MK-261106-007 — unique collision is transient; use
+ * tripPatchAfterTransientOfferCreateFailure from dispatchWaveCommitResumeSSOT.
+ * Kept for source-lock string matches / rollback readability.
+ */
 export function tripPatchAfterPermanentOfferCreateError(nowIso: string): {
   dispatch_status: typeof DISPATCH_STATUS_OFFER_CREATE_BLOCKED;
   updated_at: string;
@@ -45,6 +51,10 @@ export type StaleTripRebroadcastCandidate = {
   current_broadcast_round: number | null;
   max_broadcast_rounds: number | null;
   pending_offer_count: number;
+  /** Max ride_offers.broadcast_round when known — unstrands round=0 after convert. */
+  max_existing_offer_round?: number | null;
+  searching_expires_at?: string | null;
+  nowMs?: number;
 };
 
 /**
@@ -66,18 +76,41 @@ export function dispatchStatusAfterNoDriversWaitNextRound(
  */
 export const DEFAULT_MAX_BROADCAST_SEQUENCES = 9;
 
-/** Predicate mirrored by expire-offers stale trip rebroadcast scan. */
+/**
+ * Predicate mirrored by expire-offers stale trip rebroadcast scan.
+ * MK-261106-007: recover stranded round=0 + offer history, and legacy
+ * offer_create_blocked, while search TTL remains and sequences remain.
+ */
 export function isStaleTripRebroadcastCandidate(
   trip: StaleTripRebroadcastCandidate,
 ): boolean {
-  const currentRound = trip.current_broadcast_round ?? 0;
+  // Local import avoided — keep logic inline to prevent circular deps with resume SSOT.
+  if (trip.pending_offer_count !== 0) return false;
+
+  const status = String(trip.dispatch_status ?? "");
+  const resumable =
+    status === STALE_TRIP_REBROADCAST_DISPATCH_STATUS
+    || status === DISPATCH_STATUS_OFFER_CREATE_BLOCKED;
+  if (!resumable) return false;
+
+  const rawDeadline = trip.searching_expires_at;
+  if (rawDeadline != null && String(rawDeadline).trim() !== "") {
+    const deadline = Date.parse(String(rawDeadline));
+    if (Number.isFinite(deadline)) {
+      const now = typeof trip.nowMs === "number" ? trip.nowMs : Date.now();
+      if (deadline <= now) return false;
+    }
+  }
+
   const maxRounds = trip.max_broadcast_rounds ?? DEFAULT_MAX_BROADCAST_SEQUENCES;
-  return (
-    trip.dispatch_status === STALE_TRIP_REBROADCAST_DISPATCH_STATUS
-    && trip.pending_offer_count === 0
-    && currentRound > 0
-    && currentRound < maxRounds
-  );
+  const stored = Math.max(0, Math.floor(Number(trip.current_broadcast_round) || 0));
+  const existing = Math.max(0, Math.floor(Number(trip.max_existing_offer_round) || 0));
+  const effective = Math.max(stored, existing);
+
+  if (effective >= maxRounds) return false;
+  // Stranded convert/collision: round stamp 0 but offers already exist → resume.
+  if (effective <= 0) return false;
+  return true;
 }
 export const VEHICLE_TYPE_SELECTED_STUCK_TRIGGER_REASON =
   "vehicle_type_selected_stuck_recovery" as const;

@@ -16,7 +16,6 @@ import { finalizeNegotiationFailureAndRebroadcast, notifyCustomerNegotiationRema
 import {
   buildRebroadcastInvocations,
   buildVehicleTypeSelectedStuckInvocations,
-  DISPATCH_STATUS_OFFER_CREATE_BLOCKED,
   filterTripIdsWithNoPendingOffers,
   findStuckVehicleTypeSelectedTrips,
   isOfferExpiryWaveEnabled,
@@ -643,9 +642,10 @@ Deno.serve(async (req) => {
     // Scan & Go retired (trips.scan_go dropped 20260903121500) — do not SELECT or branch on it.
     const { data: staleTrips, error: tripsError } = await supabase
       .from("trips")
-      .select("id, current_broadcast_round, max_broadcast_rounds, broadcast_enabled, status, scheduled_status, dispatch_status, dispatch_mode, is_scheduled, scheduled_at, passenger_id")
+      .select("id, current_broadcast_round, max_broadcast_rounds, broadcast_enabled, status, scheduled_status, dispatch_status, dispatch_mode, is_scheduled, scheduled_at, passenger_id, searching_expires_at")
       .in("status", ["searching", "searching_new_driver", "offered", "pending", "broadcasting"])
-      .eq("dispatch_status", "broadcasting");
+      // Include legacy offer_create_blocked so MK-261106-007 stranded converts can resume.
+      .in("dispatch_status", ["broadcasting", "offer_create_blocked"]);
 
     if (tripsError) {
       console.error("[expire-offers] Error fetching trips:", tripsError);
@@ -681,10 +681,15 @@ Deno.serve(async (req) => {
         // trips.max_broadcast_rounds is absolute sequences (cycles × 3).
         const maxRounds = trip.max_broadcast_rounds || DEFAULT_MAX_BROADCAST_SEQUENCES;
 
-        // Permanent offer-create block must not loop via stale_trip_no_pending.
-        if (String(trip.dispatch_status ?? "") === DISPATCH_STATUS_OFFER_CREATE_BLOCKED) {
-          continue;
-        }
+        // Offer history unstrands current_broadcast_round=0 after convert/collision.
+        const { data: maxRoundRow } = await supabase
+          .from("ride_offers")
+          .select("broadcast_round")
+          .eq("trip_id", trip.id)
+          .order("broadcast_round", { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        const maxExistingOfferRound = Number(maxRoundRow?.broadcast_round ?? 0);
 
         if (
           isStaleTripRebroadcastCandidate({
@@ -692,10 +697,15 @@ Deno.serve(async (req) => {
             current_broadcast_round: currentRound,
             max_broadcast_rounds: maxRounds,
             pending_offer_count: 0,
+            max_existing_offer_round: Number.isFinite(maxExistingOfferRound)
+              ? maxExistingOfferRound
+              : 0,
+            searching_expires_at:
+              (trip as { searching_expires_at?: string | null }).searching_expires_at ?? null,
           })
         ) {
           tripsToRebroadcast.push(trip.id);
-        } else if (currentRound >= maxRounds) {
+        } else if (currentRound >= maxRounds || maxExistingOfferRound >= maxRounds) {
           // SSOT: expire_trip_when_search_exhausted. Scheduled handover must not
           // use instant created_at TTL even if waves look exhausted.
           if (isScheduledInstantConversionPending(trip)) {
