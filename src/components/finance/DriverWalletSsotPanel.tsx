@@ -214,11 +214,12 @@ export function DriverWalletSsotPanel({
                 ) : null}
                 {rows.map((row) => {
                   const missingStamps = hasMissingEntitlementStamps(row);
+                  // Missing stamps: verified-only — never fall back to full-period totals.
                   const expectedDisplay = missingStamps
-                    ? row.verified_expected_payable_pence ?? row.expected_payable_pence
+                    ? row.verified_expected_payable_pence ?? null
                     : row.expected_payable_pence;
                   const walletDisplay = missingStamps
-                    ? row.verified_wallet_credits_pence ?? row.actual_wallet_trip_credits_pence
+                    ? row.verified_wallet_credits_pence ?? null
                     : row.actual_wallet_trip_credits_pence;
                   const unverifiedPence = row.unverified_wallet_credits_pence ?? 0;
                   return (

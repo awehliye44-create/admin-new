@@ -363,7 +363,8 @@ function expectedActualForIssue(type: FrIssueType, row: FrIssueTripRow): {
       return {
         expected: row.expected_driver_credit_pence ?? null,
         actual: row.actual_driver_credit_pence ?? null,
-        difference: row.credit_difference_pence ?? row.wallet_variance_pence ?? null,
+        // Never substitute wallet_variance into Credit Diff.
+        difference: row.credit_difference_pence ?? null,
       };
     case 'payout':
       return {
@@ -374,8 +375,10 @@ function expectedActualForIssue(type: FrIssueType, row: FrIssueTripRow): {
     case 'wallet_mismatch':
       return {
         expected: row.expected_driver_credit_pence ?? null,
-        actual: row.actual_driver_credit_pence ?? row.captured_pence ?? null,
-        difference: row.wallet_variance_pence ?? row.credit_difference_pence ?? null,
+        // Never substitute captured into wallet actual.
+        actual: row.actual_driver_credit_pence ?? null,
+        // Never substitute credit_difference into Wallet Variance.
+        difference: row.wallet_variance_pence ?? null,
       };
     case 'capture_mismatch':
       return {

@@ -949,8 +949,27 @@ export async function listAdminPaymentSessions(
         provider_fees_total_pence: money.provider_fees_total_pence,
       };
     } catch (err) {
-      console.error("[admin-payment-sessions] money aggregation failed; page-slice totals kept", err);
+      // Never keep page-slice money as if it were the filtered scope total.
+      console.error("[admin-payment-sessions] money aggregation failed; money chips → null", err);
+      mergedSummary = {
+        ...mergedSummary,
+        total_customer_revenue_captured_pence: null,
+        provider_captured_total_pence: null,
+        released_buffer_total_pence: null,
+        refunded_total_pence: null,
+        provider_fees_total_pence: null,
+      };
     }
+  } else {
+    // Non-aggregatable filters: page-slice revenue must not masquerade as Captured total.
+    mergedSummary = {
+      ...mergedSummary,
+      total_customer_revenue_captured_pence: null,
+      provider_captured_total_pence: null,
+      released_buffer_total_pence: null,
+      refunded_total_pence: null,
+      provider_fees_total_pence: null,
+    };
   }
 
   const limit = request.limit ?? 100;

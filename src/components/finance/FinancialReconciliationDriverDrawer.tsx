@@ -222,8 +222,8 @@ export function FinancialReconciliationDriverDrawer({
   const perDriver = perDriverData?.finance_reconciliation_driver_ssot;
   const missingStampCount = driver?.missing_stamp_trip_count ?? 0;
   const unverifiedWalletCredits = driver?.unverified_wallet_credits_pence ?? 0;
-  const verifiedExpected = driver?.verified_expected_payable_pence ?? driver?.expected_payable_pence ?? null;
-  const verifiedWallet = driver?.verified_wallet_credits_pence ?? driver?.actual_wallet_trip_credits_pence ?? null;
+  const verifiedExpected = driver?.verified_expected_payable_pence ?? null;
+  const verifiedWallet = driver?.verified_wallet_credits_pence ?? null;
   const walletVariance = driver?.wallet_variance_pence ?? null;
   const driverCreditStatus = driver?.driver_credit_status ?? driver?.reconciliation_status ?? null;
   const payoutStatus = driver?.payout_status ?? null;
@@ -240,7 +240,10 @@ export function FinancialReconciliationDriverDrawer({
   const providerFee = perDriver?.digital_provider_processing_fee_pence ?? null;
   const variance = perDriver?.reconciliation_variance_pence ?? null;
   const paidOut = perDriver?.provider_paid_out_total_pence ?? driver?.provider_paid_out_total_pence ?? null;
-  const eligiblePayout = perDriver?.eligible_payout_pence ?? perDriver?.driver_available_now_pence ?? null;
+  // Eligibility Available only — never a differently labelled "available now" substitute alone.
+  const eligiblePayout = perDriver?.eligible_payout_pence
+    ?? driver?.available_for_payout_pence
+    ?? null;
   const pendingBatch = perDriver?.included_in_payout_batch_pence ?? driver?.included_in_payout_batch_amount_pence ?? null;
   const walletBalance = perDriver?.driver_wallet_balance_pence ?? driver?.wallet_balance_pence ?? null;
   const remainingLiability = perDriver?.driver_remaining_liability_pence ?? null;

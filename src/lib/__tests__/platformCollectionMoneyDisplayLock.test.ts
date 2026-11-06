@@ -165,4 +165,31 @@ describe('platform collection money display lock', () => {
     expect(nav).toContain('capture_failed_count');
     expect(nav).not.toMatch(/verifiedActive > 0 && releaseNeeded === 0/);
   });
+
+  it('14. PS money chips fail closed when scope is not fully aggregatable', () => {
+    const src = read('../supabase/functions/_shared/adminPaymentSessionsListSSOT.ts');
+    expect(src).toContain('page-slice revenue must not masquerade as Captured total');
+    expect(src).toContain('money aggregation failed; money chips → null');
+    expect(src).not.toContain('page-slice totals kept');
+  });
+
+  it('15. FR Issues Difference never coalesces wallet↔credit↔capture fields', () => {
+    const src = read('../shared/frIssuesSSOT.ts');
+    const displayFn = src.slice(
+      src.indexOf('function expectedActualForIssue'),
+      src.indexOf('function isCriticalIssue'),
+    );
+    expect(displayFn).not.toMatch(/credit_difference_pence\s*\?\?\s*row\.wallet_variance_pence/);
+    expect(displayFn).not.toMatch(/wallet_variance_pence\s*\?\?\s*row\.credit_difference_pence/);
+    expect(displayFn).not.toMatch(/actual_driver_credit_pence\s*\?\?\s*row\.captured_pence/);
+  });
+
+  it('16. FR Drivers missing-stamps columns stay verified-only', () => {
+    const panel = read('components/finance/DriverWalletSsotPanel.tsx');
+    expect(panel).toContain('verified_expected_payable_pence ?? null');
+    expect(panel).toContain('verified_wallet_credits_pence ?? null');
+    expect(panel).not.toMatch(
+      /verified_expected_payable_pence\s*\?\?\s*row\.expected_payable_pence/,
+    );
+  });
 });
