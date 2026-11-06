@@ -4307,6 +4307,76 @@ export type Database = {
           },
         ]
       }
+      customer_payment_failure_notices: {
+        Row: {
+          client_action_id: string | null
+          created_at: string
+          customer_acknowledged_at: string | null
+          dedupe_key: string
+          id: string
+          kind: string
+          message: string
+          passenger_id: string
+          payment_session_id: string | null
+          provider_order_id: string | null
+          push_dispatched_at: string | null
+          title: string
+          trip_id: string | null
+        }
+        Insert: {
+          client_action_id?: string | null
+          created_at?: string
+          customer_acknowledged_at?: string | null
+          dedupe_key: string
+          id?: string
+          kind: string
+          message: string
+          passenger_id: string
+          payment_session_id?: string | null
+          provider_order_id?: string | null
+          push_dispatched_at?: string | null
+          title: string
+          trip_id?: string | null
+        }
+        Update: {
+          client_action_id?: string | null
+          created_at?: string
+          customer_acknowledged_at?: string | null
+          dedupe_key?: string
+          id?: string
+          kind?: string
+          message?: string
+          passenger_id?: string
+          payment_session_id?: string | null
+          provider_order_id?: string | null
+          push_dispatched_at?: string | null
+          title?: string
+          trip_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "customer_payment_failure_notices_passenger_id_fkey"
+            columns: ["passenger_id"]
+            isOneToOne: false
+            referencedRelation: "admin_customer_code_audit"
+            referencedColumns: ["customer_id"]
+          },
+          {
+            foreignKeyName: "customer_payment_failure_notices_passenger_id_fkey"
+            columns: ["passenger_id"]
+            isOneToOne: false
+            referencedRelation: "admin_riders_with_trip_stats"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "customer_payment_failure_notices_passenger_id_fkey"
+            columns: ["passenger_id"]
+            isOneToOne: false
+            referencedRelation: "customers"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       customer_personal_vouchers: {
         Row: {
           code: string
@@ -4652,6 +4722,83 @@ export type Database = {
           {
             foreignKeyName: "customer_receivables_source_trip_id_fkey"
             columns: ["source_trip_id"]
+            isOneToOne: false
+            referencedRelation: "v_payment_lifecycle_audit"
+            referencedColumns: ["trip_id"]
+          },
+        ]
+      }
+      customer_refund_notification_deliveries: {
+        Row: {
+          amount_pence: number
+          channel: string
+          created_at: string
+          error_message: string | null
+          id: string
+          metadata: Json
+          payment_session_id: string | null
+          provider_message_id: string | null
+          provider_refund_id: string
+          skipped_reason: string | null
+          status: string
+          trip_id: string | null
+          updated_at: string
+        }
+        Insert: {
+          amount_pence: number
+          channel: string
+          created_at?: string
+          error_message?: string | null
+          id?: string
+          metadata?: Json
+          payment_session_id?: string | null
+          provider_message_id?: string | null
+          provider_refund_id: string
+          skipped_reason?: string | null
+          status: string
+          trip_id?: string | null
+          updated_at?: string
+        }
+        Update: {
+          amount_pence?: number
+          channel?: string
+          created_at?: string
+          error_message?: string | null
+          id?: string
+          metadata?: Json
+          payment_session_id?: string | null
+          provider_message_id?: string | null
+          provider_refund_id?: string
+          skipped_reason?: string | null
+          status?: string
+          trip_id?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "customer_refund_notification_deliveries_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "admin_trip_lifecycle_fees"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "customer_refund_notification_deliveries_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "available_scheduled_jobs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "customer_refund_notification_deliveries_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "trips"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "customer_refund_notification_deliveries_trip_id_fkey"
+            columns: ["trip_id"]
             isOneToOne: false
             referencedRelation: "v_payment_lifecycle_audit"
             referencedColumns: ["trip_id"]
@@ -29400,6 +29547,10 @@ export type Database = {
       }
       ack_timeout_sweep: { Args: never; Returns: undefined }
       ack_timeout_sweep_has_work: { Args: never; Returns: boolean }
+      acknowledge_customer_payment_failure_notice: {
+        Args: { p_id: string }
+        Returns: boolean
+      }
       acquire_invoice_smoke_send_slot: {
         Args: { p_smoke_run_id: string }
         Returns: Json
@@ -29932,6 +30083,10 @@ export type Database = {
         Args: { p_trip_id: string }
         Returns: Json
       }
+      assert_trip_modification_hold_coverage: {
+        Args: { p_required_payable_pence: number; p_trip_id: string }
+        Returns: Json
+      }
       assign_trip_number: {
         Args: { p_service_area_id: string; p_trip_id: string }
         Returns: Json
@@ -30088,6 +30243,10 @@ export type Database = {
           p_payout_item_id: string
           p_source_account_id: string
         }
+        Returns: Json
+      }
+      claim_payment_session_tripless_release: {
+        Args: { p_reason?: string; p_session_id: string; p_source?: string }
         Returns: Json
       }
       claim_reconcile_payout_items: {
@@ -31895,6 +32054,18 @@ export type Database = {
         Returns: Json
       }
       list_enabled_otp_country_codes: { Args: never; Returns: Json }
+      list_pending_customer_payment_failure_notices: {
+        Args: never
+        Returns: {
+          client_action_id: string
+          created_at: string
+          id: string
+          kind: string
+          message: string
+          title: string
+          trip_id: string
+        }[]
+      }
       list_pending_driver_tip_thanks: {
         Args: never
         Returns: {
@@ -33199,6 +33370,20 @@ export type Database = {
           p_updated_at?: string
         }
         Returns: undefined
+      }
+      upsert_customer_payment_failure_notice: {
+        Args: {
+          p_client_action_id?: string
+          p_dedupe_key: string
+          p_kind: string
+          p_message: string
+          p_passenger_id: string
+          p_payment_session_id?: string
+          p_provider_order_id?: string
+          p_title: string
+          p_trip_id?: string
+        }
+        Returns: string
       }
       upsert_driver_live_location: {
         Args: {
