@@ -24,7 +24,7 @@ describe('FR driver scope ownership UI', () => {
     expect(panel).toContain('Expected earnings (selected period)');
     expect(panel).toContain('Wallet credited (selected period)');
     expect(panel).toContain('Paid out (execution date within period)');
-    expect(panel).toContain('Available (current live balance)');
+    expect(panel).toContain('Available for payout (live eligibility)');
     expect(panel).toContain('Difference (period credits minus expected earnings)');
     expect(panel).toContain('Live payout eligibility (not period-scoped)');
     expect(panel).toContain('expected_payable_pence');

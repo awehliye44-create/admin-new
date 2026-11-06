@@ -85,8 +85,16 @@ describe('paymentSessionsNavigationSSOT', () => {
       recovery_pending_count: 2,
       red: 1,
     } as never);
-    expect(releaseChips.map((c) => c.id)).toEqual(['release_pending', 'release_failed', 'recovery_required']);
+    // Active holds must still show while releases are pending (not mutually exclusive).
+    expect(releaseChips.map((c) => c.id)).toEqual([
+      'release_pending',
+      'active_holds',
+      'release_failed',
+      'recovery_required',
+    ]);
     expect(releaseChips.find((c) => c.id === 'release_pending')?.label).toBe('Active releases');
+    expect(releaseChips.find((c) => c.id === 'active_holds')?.count).toBe(5);
+    expect(releaseChips.find((c) => c.id === 'recovery_required')?.count).toBe(2);
 
     const holdChips = buildPaymentSessionsOperationalChips({
       actionable_release_pending_count: 0,
@@ -95,10 +103,26 @@ describe('paymentSessionsNavigationSSOT', () => {
       active_action_required_count: 0,
       manual_recovery_required_count: 0,
       recovery_pending_count: 0,
+      failed_recovery_count: 0,
       red: 0,
     } as never);
     expect(holdChips.map((c) => c.id)).toEqual(['active_holds']);
     expect(holdChips[0]?.label).toBe('Active holds');
+
+    const refundChips = buildPaymentSessionsOperationalChips({
+      capture_failed_count: 4,
+      failed_recovery_count: 1,
+      manual_recovery_required_count: 2,
+      recovery_pending_count: 2,
+      actionable_release_pending_count: 0,
+      verified_active_hold_count: 0,
+      active_hold_count: 0,
+      red: 0,
+    } as never);
+    expect(refundChips.map((c) => c.id)).toEqual(['refund_failed', 'recovery_required']);
+    expect(refundChips.find((c) => c.id === 'refund_failed')?.count).toBe(4);
+    // Recovery chip matches tab total (manual + failed).
+    expect(refundChips.find((c) => c.id === 'recovery_required')?.count).toBe(3);
   });
 
   it('normalizes legacy URLs', () => {

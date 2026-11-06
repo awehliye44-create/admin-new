@@ -19,6 +19,8 @@
 - Underprotected company funds → UNAVAILABLE (never £0.00 Before Reserve / Real Available)
 - Batch `eligible_driver_count` never falls through to `total_drivers`
 - DWL history chips never coalesce lifetime KPI / provider_paid / period adjustments into primary fields
+- FR Paid out / Credit Diff: missing evidence → —; never wallet_variance or provider_paid substitute
+- PS: Released **buffer** labelled as such; Active holds chip independent of release-pending; refund_failed chip emitted when capture_failed_count > 0
 
 ## Lock tests
 

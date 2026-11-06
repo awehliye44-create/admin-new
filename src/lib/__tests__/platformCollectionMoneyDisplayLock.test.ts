@@ -33,7 +33,8 @@ describe('platform collection money display lock', () => {
     const src = read('components/finance/FinancialReconciliationOverviewTab.tsx');
     expect(src).toContain('driver_tips_total_pence ?? null');
     expect(src).not.toMatch(/driver_tips_total_pence\s*\?\?\s*0/);
-    expect(src).toContain('driverFareNet != null && o!.driver_tips_total_pence != null');
+    expect(src).toContain('o!.airport_charges_total_pence != null');
+    expect(src).not.toMatch(/airport_charges_total_pence\s*\?\?\s*0/);
     expect(src).not.toMatch(/\(driverFareNet \?\? 0\) \+ \(driverTips \?\? 0\)/);
   });
 
@@ -141,5 +142,27 @@ describe('platform collection money display lock', () => {
     const src = read('components/finance/DriverWalletFleetOverviewCards.tsx');
     expect(src).toContain('Total Pending (settlement)');
     expect(src).not.toMatch(/label="Total Pending"/);
+  });
+
+  it('12. FR Paid-out evidence missing → null (never £0); Credit Diff never wallet coalesce', () => {
+    const ssot = read('../supabase/functions/_shared/frDriverReconciliationSSOT.ts');
+    const trips = read('components/finance/FinancialReconciliationTripsTab.tsx');
+    const drawer = read('components/finance/FinancialReconciliationDriverDrawer.tsx');
+    expect(ssot).toContain('payout_ledger_completed_pence: null');
+    expect(ssot).not.toMatch(/payout_ledger_completed_pence:\s*0,/);
+    expect(trips).not.toMatch(/credit_difference_pence\s*\?\?\s*row\.wallet_variance_pence/);
+    expect(drawer).not.toMatch(/payout_ledger_completed_pence\s*\?\?\s*paidOut/);
+    expect(drawer).toContain('Available for payout (live eligibility)');
+  });
+
+  it('13. PS Released/fees labels and chips do not hide holds or invent released £0', () => {
+    const cards = read('components/finance/PaymentSessionsSummaryCards.tsx');
+    const list = read('components/finance/PaymentSessionsListPanel.tsx');
+    const nav = read('../supabase/functions/_shared/paymentSessionsNavigationSSOT.ts');
+    expect(cards).toContain('Released buffer total');
+    expect(cards).toContain('Provider fees (actual)');
+    expect(list).not.toMatch(/captured >= authorised[\s\S]*formatNullablePence\(0\)/);
+    expect(nav).toContain('capture_failed_count');
+    expect(nav).not.toMatch(/verifiedActive > 0 && releaseNeeded === 0/);
   });
 });

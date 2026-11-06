@@ -133,17 +133,19 @@ export function FinancialReconciliationOverviewTab({
     ? (o!.driver_entitlement_total_pence != null
       ? o!.driver_entitlement_total_pence
       : (
-        driverFareNet != null && o!.driver_tips_total_pence != null
-          ? driverFareNet
-            + o!.driver_tips_total_pence
-            + (o!.airport_charges_total_pence ?? 0)
+        driverFareNet != null
+          && o!.driver_tips_total_pence != null
+          && o!.airport_charges_total_pence != null
+          ? driverFareNet + o!.driver_tips_total_pence + o!.airport_charges_total_pence
           : null
       ))
     : null;
 
   const openIssues = openIssueCount > 0
     ? openIssueCount
-    : (useAuditKpis ? (o?.unresolved_mismatches_count ?? 0) : 0);
+    : (useAuditKpis
+      ? (o?.unresolved_mismatches_count ?? null)
+      : null);
 
   return (
     <div className="space-y-4">
@@ -241,7 +243,7 @@ export function FinancialReconciliationOverviewTab({
               {receivablePosition ? (
                 <>
                   <span className="block">
-                    Outstanding (all time): {fmt(receivablePosition.outstanding_pence + receivablePosition.manual_review_pence)}
+                    Outstanding + manual review: {fmt(receivablePosition.outstanding_pence + receivablePosition.manual_review_pence)}
                   </span>
                   <span className="block">Recovered: {fmt(receivablePosition.recovered_pence)}</span>
                   <span
@@ -268,10 +270,10 @@ export function FinancialReconciliationOverviewTab({
         />
         <KpiCard
           label="Open issues"
-          value={openIssues}
+          value={openIssues == null ? '—' : openIssues}
           subtitle={(
             <>
-              {!useAuditKpis && openIssues === 0 ? (
+              {openIssues == null ? (
                 <span className="block">Open Issues tab to load period counts.</span>
               ) : null}
               <Link to={financialReconciliationIssuesTabUrl()} className="underline">

@@ -36,9 +36,9 @@ export function PaymentSessionsSummaryCards({
   return (
     <div className="grid gap-2 grid-cols-2 lg:grid-cols-4" data-testid="payment-sessions-summary-cards">
       <SummaryCard label="Captured total" value={fmt(capturedTotal)} />
-      <SummaryCard label="Released total" value={fmt(releasedTotal)} />
+      <SummaryCard label="Released buffer total" value={fmt(releasedTotal)} />
       <SummaryCard label="Refunded total" value={fmt(refundedTotal)} />
-      <SummaryCard label="Provider fees" value={fmt(feesTotal)} />
+      <SummaryCard label="Provider fees (actual)" value={fmt(feesTotal)} />
     </div>
   );
 }

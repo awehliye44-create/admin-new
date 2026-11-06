@@ -380,9 +380,12 @@ export function countPaymentSessionsOpChip(
         ? 1
         : 0;
     case 'refund_failed':
-      return null;
-    case 'recovery_required':
-      return summary.manual_recovery_required_count ?? summary.recovery_pending_count ?? 0;
+      return summary.capture_failed_count ?? null;
+    case 'recovery_required': {
+      const manual = summary.manual_recovery_required_count ?? summary.recovery_pending_count ?? 0;
+      const failed = summary.failed_recovery_count ?? 0;
+      return manual + failed;
+    }
     default:
       return null;
   }
@@ -414,8 +417,9 @@ export function buildPaymentSessionsOperationalChips(
     });
   }
 
+  // Independent of release-pending — concurrent holds must still surface.
   const verifiedActive = summary.verified_active_hold_count ?? summary.active_hold_count ?? 0;
-  if (verifiedActive > 0 && releaseNeeded === 0) {
+  if (verifiedActive > 0) {
     chips.push({
       id: 'active_holds',
       label: PAYMENT_SESSIONS_OP_CHIP_LABELS.active_holds,
@@ -434,7 +438,27 @@ export function buildPaymentSessionsOperationalChips(
     });
   }
 
-  const recoveryRequired = summary.manual_recovery_required_count ?? 0;
+  const refundFailed = summary.capture_failed_count ?? 0;
+  if (refundFailed > 0) {
+    chips.push({
+      id: 'refund_failed',
+      label: PAYMENT_SESSIONS_OP_CHIP_LABELS.refund_failed,
+      count: refundFailed,
+      navTab: 'recovery',
+    });
+  }
+
+  const refundPending = countPaymentSessionsOpChip('refund_pending', summary) ?? 0;
+  if (refundPending > 0) {
+    chips.push({
+      id: 'refund_pending',
+      label: PAYMENT_SESSIONS_OP_CHIP_LABELS.refund_pending,
+      count: refundPending,
+      navTab: 'refunded',
+    });
+  }
+
+  const recoveryRequired = countPaymentSessionsOpChip('recovery_required', summary) ?? 0;
   if (recoveryRequired > 0) {
     chips.push({
       id: 'recovery_required',

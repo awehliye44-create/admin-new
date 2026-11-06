@@ -1196,6 +1196,7 @@ function buildPaymentSessionsSummary(
     recovery_pending_count: recoveryPending.length,
     manual_recovery_required_count: recoveryPending.length,
     release_failed_count: releaseFailedRows.length,
+    capture_failed_count: captureFailed.length,
     operational_chip_audit: chipAudits,
     provider_fees_pending_count: feesPending.length,
     total_customer_revenue_captured_pence: revenue,

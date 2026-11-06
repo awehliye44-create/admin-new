@@ -407,7 +407,7 @@ export function FinancialReconciliationTripsTab({
                       {formatNullablePence(row.capture_variance_pence, ccy)}
                     </TableCell>
                     <TableCell className="text-right text-xs whitespace-nowrap">
-                      {formatNullablePence(row.credit_difference_pence ?? row.wallet_variance_pence, ccy)}
+                      {formatNullablePence(row.credit_difference_pence, ccy)}
                     </TableCell>
                     <TableCell className="text-right text-xs whitespace-nowrap">
                       {formatNullablePence(row.wallet_variance_pence, ccy)}
@@ -620,7 +620,7 @@ export function FinancialReconciliationTripsTab({
                   <div>
                     <span className="text-muted-foreground">Difference:</span>{' '}
                     {formatSignedStoredPenceOrUnknown(
-                      drawerTrip.credit_difference_pence ?? drawerTrip.wallet_variance_pence,
+                      drawerTrip.credit_difference_pence,
                       drawerTrip.currency_code ?? 'GBP',
                     )}
                   </div>

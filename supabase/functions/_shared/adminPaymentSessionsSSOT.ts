@@ -301,6 +301,8 @@ export type AdminPaymentSessionsSummary = {
   manual_recovery_required_count?: number;
   /** Active queue release-failed rows (operational chip SSOT). */
   release_failed_count?: number;
+  /** Capture/refund-failed rows (operational chip SSOT — refund_failed). */
+  capture_failed_count?: number;
   /** Row-level audit for operational chips (active queue only). */
   operational_chip_audit?: {
     release_pending: Array<{

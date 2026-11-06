@@ -196,7 +196,7 @@ export function DriverWalletSsotPanel({
                     Paid out (execution date within period)
                   </TableHead>
                   <TableHead className="text-right" title="Live payout eligibility (not period-scoped)">
-                    Available (current live balance)
+                    Available for payout (live eligibility)
                   </TableHead>
                   <TableHead className="text-right" title="Period credits minus expected earnings">
                     Difference (period credits minus expected earnings)

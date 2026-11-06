@@ -411,10 +411,10 @@ export function FinancialReconciliationDriverDrawer({
                   />
                   <OverviewMetric label="Reconciliation variance" value={fmt(variance)} />
                   <OverviewMetric label="Pending settlement" value={fmt(pendingBatch)} hint="In payout batch" />
-                  <OverviewMetric label="Available (current live balance)" value={fmt(eligiblePayout)} hint="Live payout eligibility (not period-scoped)" />
+                  <OverviewMetric label="Available for payout (live eligibility)" value={fmt(eligiblePayout)} hint="Live payout eligibility (not period-scoped)" />
                   <OverviewMetric
                     label="Paid out (execution date within period)"
-                    value={fmt(driver?.payout_ledger_completed_pence ?? paidOut)}
+                    value={fmt(driver?.payout_ledger_completed_pence)}
                     hint="Completed Payout Ledger items executed in the selected period"
                   />
                   <OverviewMetric label="Wallet balance" value={fmt(walletBalance)} hint="Live ledger SSOT" />
@@ -521,9 +521,9 @@ export function FinancialReconciliationDriverDrawer({
                   left={pendingBatch}
                   right={paidOut}
                   diff={
-                    pendingBatch == null && paidOut == null
-                      ? null
-                      : (pendingBatch ?? 0) - (paidOut ?? 0)
+                    pendingBatch != null && paidOut != null
+                      ? pendingBatch - paidOut
+                      : null
                   }
                   fmt={(p) => fmt(p)}
                 />

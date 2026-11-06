@@ -239,8 +239,8 @@ export type FrDriverReconciliationRow = {
   debt_recovery_pence: number;
   /** Lifetime wallet payout debits incl. fees — not the Paid out column. */
   payouts_debited_pence: number;
-  /** Completed Payout Ledger items — Paid out column SSOT. */
-  payout_ledger_completed_pence: number;
+  /** Completed Payout Ledger items — Paid out column SSOT. Null when evidence unavailable. */
+  payout_ledger_completed_pence: number | null;
   current_wallet_balance_pence: number | null;
   available_for_payout_pence: number | null;
   pending_balance_pence: number | null;
@@ -544,7 +544,7 @@ export function computeFrDriverReconciliation(
       wallet_adjustments_pence: 0,
       debt_recovery_pence: 0,
       payouts_debited_pence: 0,
-      payout_ledger_completed_pence: 0,
+      payout_ledger_completed_pence: null,
       current_wallet_balance_pence: null,
       available_for_payout_pence: null,
       pending_balance_pence: null,
@@ -570,7 +570,7 @@ export function computeFrDriverReconciliation(
       wallet_adjustments_pence: 0,
       debt_recovery_pence: 0,
       payouts_debited_pence: 0,
-      payout_ledger_completed_pence: 0,
+      payout_ledger_completed_pence: null,
       current_wallet_balance_pence: null,
       available_for_payout_pence: null,
       pending_balance_pence: null,
