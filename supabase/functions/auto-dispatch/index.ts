@@ -1206,7 +1206,8 @@ Deno.serve(async (req) => {
     //   - drivers.driver_status = 'active'            (driver_status_not_active)
     //   - drivers.documents_approved = true           (documents_not_approved)
     //   - drivers.current_trip_id IS NULL             (busy_on_trip)
-    //   - last_heartbeat_at within 45s                (stale_heartbeat)
+    //   - last_heartbeat_at within presence_max_age   (stale_heartbeat = HARD reject;
+    //     MK-261106-007: never degradable — push-gate revoke flashed iOS NRO cards)
     //   - last_location_at within 45s                 (stale_location)
     //   - driver_presence.lat/lng present             (no_location)
     //   - driver_presence.status = 'online'           (presence_not_online)

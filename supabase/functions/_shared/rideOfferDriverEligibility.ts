@@ -408,7 +408,7 @@ export async function evaluateRideOfferPushGate(
     return {
       ok: false,
       reason: eligibility.reason,
-      revoke: true,
+      revoke: shouldRevokeOnRideOfferPushGateSkip(eligibility.reason),
       offerId: offer.id,
       tripId: offer.trip_id,
     };
@@ -462,6 +462,16 @@ export async function evaluateRideOfferPushGate(
   }
 
   return { ok: true, eligibility, offer };
+}
+
+/**
+ * Whether a failed push-gate should revoke the pending offer.
+ * MK-261106-007: stale_heartbeat → skip push only (Realtime card must keep TTL).
+ */
+export function shouldRevokeOnRideOfferPushGateSkip(
+  reason: RideOfferPushGateSkipReason,
+): boolean {
+  return reason !== "stale_heartbeat";
 }
 
 /**

@@ -232,9 +232,14 @@ export const DISPATCHABLE_DEGRADED = "dispatchable_degraded";
 /**
  * Health/posture reasons that must NOT hard-exclude when driver is intentionally online
  * with a registered push token. Offers are created with lower dispatch priority.
+ *
+ * MK-261106-007: stale_heartbeat is NOT degradable. Auto-dispatch used to create
+ * offers for GPS-gated frozen heartbeats, Realtime painted the card, then
+ * send-driver-notification push-gate revoked with ineligible_before_push:stale_heartbeat
+ * (~1–2s flash on iOS). Align selection with evaluateRideOfferDriverEligibility.
+ * location_frozen with a *fresh* heartbeat remains degradable (MK-260904-003).
  */
 export const DEGRADABLE_HEALTH_REJECT_REASONS = new Set<string>([
-  "stale_heartbeat",
   "lost_connection",
   "location_frozen",
   "presence_degraded",
@@ -252,7 +257,8 @@ export type DispatchableReadiness = {
 
 /**
  * Connection/presence degradation must not block dispatch when the driver is intentionally
- * online and has a push token. Hard gates (offline, no token, no coords) still apply.
+ * online and has a push token. Hard gates (offline, no token, no coords, stale_heartbeat)
+ * still apply — stale_heartbeat is never degradable (MK-261106-007).
  */
 export function evaluateDispatchableReadiness(args: {
   healthIssuesRaw: string[];
