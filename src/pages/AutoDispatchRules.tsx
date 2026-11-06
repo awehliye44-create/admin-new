@@ -443,7 +443,7 @@ export default function AutoDispatchRules() {
         throw new Error('Booking dispatch radius did not persist');
       }
 
-      // Keep legacy dispatch_settings aligned for older SQL readers.
+      // Keep legacy dispatch_settings aligned for older SQL readers (incl. distance_penalty_per_km).
       await supabase
         .from('dispatch_settings')
         .update({
@@ -455,6 +455,11 @@ export default function AutoDispatchRules() {
           wave1_size: settings.wave1Size,
           wave2_size: settings.wave2Size,
           wave3_size: settings.wave3Size,
+          distance_penalty_per_km: savedSettings.distancePenaltyPerKm,
+          waiting_bonus_per_minute: savedSettings.waitingBonusPerMinute,
+          max_waiting_bonus_minutes: savedSettings.maxWaitingBonusMinutes,
+          fairness_idle_minutes: savedSettings.fairnessIdleMinutes,
+          fairness_boost_score: savedSettings.fairnessBoostScore,
           search_radius_start_km: savedSettings.bookingWave1RadiusMeters / 1000,
           search_radius_expand_km: savedSettings.bookingWave2RadiusMeters / 1000,
           search_radius_max_km: savedSettings.bookingWave3RadiusMeters / 1000,

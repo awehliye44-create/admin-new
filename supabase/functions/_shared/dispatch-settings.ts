@@ -339,15 +339,22 @@ export type DispatchScoreDriver = {
   last_seen_at?: string | null;
 };
 
-/** Resolve distance penalty km factor from dispatch_settings or global overlay (per_meter → per_km). */
+/**
+ * Resolve distance penalty as a per-km factor.
+ *
+ * Admin Auto-Dispatch Rules SSOT is `global_dispatch_settings.distance_penalty_per_meter`
+ * (overlaid onto settings). Prefer per_meter when present so Admin Distance Penalty is LIVE.
+ * Legacy `dispatch_settings.distance_penalty_per_km` is fallback only — never let the schema
+ * default 2.0 hide a real Admin per_meter overlay.
+ */
 export function resolveDistancePenaltyPerKm(settings: Record<string, unknown>): number {
-  const perKm = settings.distance_penalty_per_km;
-  if (perKm !== null && perKm !== undefined) {
-    return coerceNonNegativeNumber(perKm, 2);
-  }
   const perMeter = settings.distance_penalty_per_meter;
   if (perMeter !== null && perMeter !== undefined) {
     return coerceNonNegativeNumber(perMeter, 0.002) * 1000;
+  }
+  const perKm = settings.distance_penalty_per_km;
+  if (perKm !== null && perKm !== undefined) {
+    return coerceNonNegativeNumber(perKm, 2);
   }
   return 2;
 }
@@ -526,6 +533,11 @@ export function overlayGlobalDispatchSettings(
     if (value !== null && value !== undefined) {
       merged[key] = value;
     }
+  }
+  // Keep legacy per_km aligned with Admin per_meter so any reader of per_km matches scoring.
+  const overlaidPerMeter = merged.distance_penalty_per_meter;
+  if (overlaidPerMeter !== null && overlaidPerMeter !== undefined) {
+    merged.distance_penalty_per_km = coerceNonNegativeNumber(overlaidPerMeter, 0.002) * 1000;
   }
   for (const key of GLOBAL_BOOKING_RADIUS_FIELDS) {
     const value = globalRow[key];
