@@ -157,7 +157,7 @@ async function loadReservedDriverPayoutPence(
       return { amount_pence: null, error_code: "RESERVED_DRIVER_PAYOUTS_QUERY_FAILED" };
     }
     let reservedRows = rows ?? [];
-    if (service_area_id || (allowed_service_area_ids && allowed_service_area_ids.length >= 0)) {
+    if (service_area_id || (allowed_service_area_ids && allowed_service_area_ids.length > 0)) {
       const allowed = new Set(await resolvePlatformCollectedDriverIds(supabase, {
         service_area_id: service_area_id ?? null,
         allowed_service_area_ids: allowed_service_area_ids ?? [],
@@ -246,7 +246,7 @@ async function loadCompletedDriverPayoutMonthPence(
   }
 
   let scoped = executions;
-  if (service_area_id || (allowed_service_area_ids && allowed_service_area_ids.length >= 0)) {
+  if (service_area_id || (allowed_service_area_ids && allowed_service_area_ids.length > 0)) {
     const allowed = new Set(await resolvePlatformCollectedDriverIds(supabase, {
       service_area_id: service_area_id ?? null,
       allowed_service_area_ids: allowed_service_area_ids ?? [],

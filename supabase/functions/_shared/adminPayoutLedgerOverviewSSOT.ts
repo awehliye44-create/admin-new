@@ -32,7 +32,8 @@ const SCHEDULED = new Set(["pending", "scheduled", "queued", "on_hold", "ready"]
 const COMPLETED = new Set(["completed", "paid", "succeeded"]);
 const FAILED = new Set(["failed", "error", "ledger_sync_failed", "failed_duplicate"]);
 
-const DRIVER_SECTION_BUDGET_MS = 8_000;
+/** Eligibility batch + ledger rollup — must finish; null Available with live wallet is worse. */
+const DRIVER_SECTION_BUDGET_MS = 20_000;
 const PROTECTED_LIABILITIES_BUDGET_MS = 20_000;
 const COMPANY_BALANCE_BUDGET_MS = 6_000;
 
@@ -270,7 +271,7 @@ async function loadActiveReservedDriverPayoutPence(
   const { data: rows, error } = await query;
   if (error) throw error;
   let reservedRows = rows ?? [];
-  if ((service_area_id || (allowed_service_area_ids && allowed_service_area_ids.length >= 0)) && reservedRows.length > 0) {
+  if ((service_area_id || (allowed_service_area_ids && allowed_service_area_ids.length > 0)) && reservedRows.length > 0) {
     const platformDriverIds = await resolvePlatformCollectedDriverIds(supabase, {
       service_area_id,
       allowed_service_area_ids: allowed_service_area_ids ?? [],
@@ -307,7 +308,7 @@ async function loadPayoutItemSection(
   if (itemsErr) throw itemsErr;
 
   let rows = items ?? [];
-  if (service_area_id || (allowed_service_area_ids && allowed_service_area_ids.length >= 0)) {
+  if (service_area_id || (allowed_service_area_ids && allowed_service_area_ids.length > 0)) {
     const platformDriverIds = await resolvePlatformCollectedDriverIds(supabase, {
       service_area_id,
       allowed_service_area_ids: allowed_service_area_ids ?? [],

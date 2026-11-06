@@ -356,7 +356,7 @@ export async function buildPayoutLedgerAccountsOverview(
       let ctx;
       let sql;
       let gateAllowed = false;
-      try {
+      const loadEligibility = async () => {
         const [ctxRes, sqlRes, gateRes] = await Promise.all([
           fetchDriverPayoutEligibilityContext(supabase, {
             driver_id: d.id,
@@ -365,15 +365,26 @@ export async function buildPayoutLedgerAccountsOverview(
           fetchDriverWalletEligibilityBalancesRpc(supabase, String(d.id)),
           supabase.rpc("driver_effective_payout_allowed", { p_driver_id: d.id }),
         ]);
-        ctx = ctxRes;
-        sql = sqlRes;
-        gateAllowed = !gateRes.error && gateRes.data === true;
+        return {
+          ctx: ctxRes,
+          sql: sqlRes,
+          gateAllowed: !gateRes.error && gateRes.data === true,
+        };
+      };
+      try {
+        ({ ctx, sql, gateAllowed } = await loadEligibility());
       } catch (eligErr) {
-        console.warn("[admin-payout-ledger] eligibility failed", {
-          driver_id: d.id,
-          error: eligErr instanceof Error ? eligErr.message : String(eligErr),
-        });
-        return;
+        // One retry — silent skip understates Available / Next Batch while Live exists.
+        try {
+          ({ ctx, sql, gateAllowed } = await loadEligibility());
+        } catch (retryErr) {
+          console.error("[admin-payout-ledger] eligibility failed after retry", {
+            driver_id: d.id,
+            error: retryErr instanceof Error ? retryErr.message : String(retryErr),
+            first: eligErr instanceof Error ? eligErr.message : String(eligErr),
+          });
+          throw new Error(`ACCOUNTS_OVERVIEW_ELIGIBILITY_INCOMPLETE:${d.id}`);
+        }
       }
       const pausedAccount = d.payout_operational_paused === true;
       const composition = resolvePayoutAccountComposition({

@@ -36,21 +36,45 @@ export async function fetchDriverWalletEligibilityBalancesRpc(
   return parseRpcRow(row as Record<string, unknown> | null | undefined);
 }
 
+/**
+ * Batch eligibility balances. Never silently omit a driver — Overview Live is
+ * summed from the ledger, and omitting Available would show Live money with
+ * £0 Available / Next Batch (unacceptable on live payouts).
+ */
 export async function loadDriverWalletEligibilityBalancesBatchRpc(
   supabase: SupabaseClient,
   driverIds: readonly string[],
 ): Promise<Map<string, DriverWalletEligibilityBalancesRow>> {
   const out = new Map<string, DriverWalletEligibilityBalancesRow>();
+  if (driverIds.length === 0) return out;
+
   const batchSize = 8;
+  const failures: string[] = [];
+
   for (let i = 0; i < driverIds.length; i += batchSize) {
     const batch = driverIds.slice(i, i + batchSize);
     await Promise.all(batch.map(async (driverId) => {
       try {
         out.set(driverId, await fetchDriverWalletEligibilityBalancesRpc(supabase, driverId));
+        return;
       } catch {
-        // omit — caller fail-closed when totals incomplete if needed
+        // one retry — transient PostgREST blips must not blank Available
+      }
+      try {
+        out.set(driverId, await fetchDriverWalletEligibilityBalancesRpc(supabase, driverId));
+      } catch {
+        failures.push(driverId);
       }
     }));
+  }
+
+  if (failures.length > 0) {
+    throw new Error(`DRIVER_WALLET_ELIGIBILITY_BATCH_INCOMPLETE:${failures.length}`);
+  }
+  if (out.size !== driverIds.length) {
+    throw new Error(
+      `DRIVER_WALLET_ELIGIBILITY_BATCH_INCOMPLETE:expected_${driverIds.length}_got_${out.size}`,
+    );
   }
   return out;
 }

@@ -256,9 +256,10 @@ export function PayoutLedgerOverviewPanel({
     ? `Includes ${formatNullablePence(liabilityBreakdown.pending_clearing_pence)} pending clearing.`
     : null;
   // Canonical reserved = ACTIVE driver_payout_reservations (same as Driver Payouts tab).
-  const reservedPence = overview.driver_reserved_pence
-    ?? snap?.driver_payout_reserved_pence
-    ?? null;
+  // Prefer overview even when 0 — never coalesce a real £0.00 into company-snap null/"—".
+  const reservedPence = overview.driver_reserved_pence != null
+    ? overview.driver_reserved_pence
+    : (snap?.driver_payout_reserved_pence ?? null);
   const reserved = moneyOrUnavailable(
     reservedPence,
     snap?.sections?.reserved_driver_payouts?.reason_code
