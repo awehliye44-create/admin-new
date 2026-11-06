@@ -80,13 +80,16 @@ Deno.test("driver payouts fleet never paints unknown held count as 0", async () 
   assertEquals(src.includes("held_driver_count ?? 0"), false);
   assertStringIncludes(src, "held_driver_count ?? '—'");
   assertStringIncludes(src, "eligible_driver_count ?? '—'");
+  assertEquals(src.includes("scheduled_payouts_count ?? 0"), false);
+  assertEquals(src.includes("eligible_driver_count ?? b.total_drivers"), false);
+  assertStringIncludes(src, "scheduled_payouts_count ?? '—'");
 });
 
 Deno.test("DWL fleet Reserved uses WIP only (no included_in_payout_batch coalesce)", async () => {
   const src = await Deno.readTextFile(
     new URL("../../../src/lib/driverWalletFleetOverviewSSOT.ts", import.meta.url),
   );
-  assertStringIncludes(src, "withdrawal_in_progress_pence ?? 0");
+  assertStringIncludes(src, "withdrawal_in_progress_pence == null");
   // Input type may still declare included_in_payout_batch — reservedPence must not read it.
   const reservedFn = src.slice(src.indexOf("function reservedPence"), src.indexOf("export function buildDriverWalletFleetOverview"));
   assertEquals(reservedFn.includes("included_in_payout_batch_amount_pence"), false);

@@ -34,7 +34,7 @@ function MetricSkeleton({ label }: { label: string }) {
 
 const METRIC_LABELS = [
   'Total Drivers',
-  'Total Pending',
+  'Total Pending (settlement)',
   'Total Available',
   'Total Reserved',
   'Processing exceptions',
@@ -106,7 +106,7 @@ export function DriverWalletFleetOverviewCards({
         ) : (
           <>
             <Metric label="Total Drivers" value={String(overview.total_drivers)} />
-            <Metric label="Total Pending" value={fmt(overview.total_pending_balance_pence)} />
+            <Metric label="Total Pending (settlement)" value={fmt(overview.total_pending_balance_pence)} />
             <Metric label="Total Available" value={fmt(overview.total_available_balance_pence)} />
             <Metric label="Total Reserved" value={fmt(overview.total_reserved_pence)} />
             <Metric label="Processing exceptions" value={fmt(overview.total_processing_exception_pence)} />

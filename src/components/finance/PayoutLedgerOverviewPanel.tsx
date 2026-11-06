@@ -46,6 +46,7 @@ type OverviewExtras = {
 type CompanyBalanceExtras = {
   company_funds_underprotected?: boolean;
   company_funds_underprotected_message?: string | null;
+  company_funds_underprotected_reason_code?: string | null;
 };
 
 function shortDate(value: string | null | undefined): string {
@@ -281,12 +282,15 @@ export function PayoutLedgerOverviewPanel({
     snap?.sections?.operational_reserve?.reason_code
       ?? (reserveConfigured ? null : 'OPERATIONAL_RESERVE_NOT_CONFIGURED'),
   );
+  const underprotectedReason =
+    snap?.company_funds_underprotected_reason_code
+    ?? 'DRIVER_LIABILITIES_EXCEED_REVOLUT_SOURCE';
   const beforeReserve = moneyOrUnavailable(
     underprotected
-      ? 0
+      ? null
       : snap?.company_available_before_operational_reserve_pence ?? null,
     underprotected
-      ? null
+      ? underprotectedReason
       : snap?.company_available_before_operational_reserve_pence == null
         ? 'BEFORE_RESERVE_UNAVAILABLE'
         : null,
@@ -303,7 +307,7 @@ export function PayoutLedgerOverviewPanel({
   const onecabFunds = moneyOrUnavailable(
     realAvailablePence,
     underprotected
-      ? null
+      ? underprotectedReason
       : !reserveConfigured
         ? 'OPERATIONAL_RESERVE_NOT_CONFIGURED'
         : realAvailablePence == null
@@ -363,7 +367,7 @@ export function PayoutLedgerOverviewPanel({
             title="Held / Unbacked"
             value={formatNullablePence(overview.driver_held_or_unbacked_pence)}
             source={driverSource}
-            tooltip="Live balance that is not Available, Pending, or Reserved — held credits and unbacked remainder. Never paid in the next batch."
+            tooltip="Combined held credits + unbacked remainder (Live − Available − Pending − Reserved). Driver Payouts tab splits Held vs Unbacked. Never paid in the next batch."
           />
           <MetricCard title="Total Outstanding Debt" value={formatNullablePence(overview.driver_debt_pence)} source={driverSource} />
           <MetricCard title="Paid Today" value={formatNullablePence(overview.payout_paid_today_pence)} source={payoutSource} />

@@ -48,7 +48,8 @@ export function computePayoutLedgerRealAvailableFundsPence(args: {
   provider_available_balance_pence: number | null | undefined;
   company_funds_underprotected?: boolean;
 }): number | null {
-  if (args.company_funds_underprotected) return 0;
+  // Underprotected: spendable math is invalid — never paint £0.00 as residual cash.
+  if (args.company_funds_underprotected) return null;
   if (args.company_available_before_operational_reserve_pence == null) return null;
   if (!args.operational_reserve_configured || args.operational_reserve_pence == null) {
     return null;

@@ -31,10 +31,10 @@ function isOnHold(status: string | null | undefined): boolean {
   return s === 'FROZEN' || s === 'RESTRICTED' || s === 'ON_HOLD' || s === 'HOLD';
 }
 
-function reservedPence(row: DriverWalletFleetOverviewInput): number {
-  // ACTIVE reservation WIP only — never fall through to included_in_payout_batch
-  // (different semantic; coalescing inflated Total Reserved when WIP was null).
-  return Math.max(0, Math.round(Number(row.withdrawal_in_progress_pence ?? 0)));
+function reservedPence(row: DriverWalletFleetOverviewInput): number | null {
+  // ACTIVE reservation WIP only — null stays unknown (do not invent £0 in the sum).
+  if (row.withdrawal_in_progress_pence == null) return null;
+  return Math.max(0, Math.round(Number(row.withdrawal_in_progress_pence)));
 }
 
 /** Aggregate active fleet overview cards from driver SSOT rows (backend or mirror). */
@@ -49,14 +49,21 @@ export function buildDriverWalletFleetOverview(
   let onHold = 0;
 
   for (const row of rows) {
-    // Never substitute cashout_limit or period KPI for Available / Pending.
-    available += Math.max(0, Math.round(Number(row.available_for_payout_pence ?? 0)));
-    pending += Math.max(0, Math.round(Number(row.pending_balance_pence ?? 0)));
-    reserved += reservedPence(row);
-    processingException += Math.max(
-      0,
-      Math.round(Number(row.failed_payout_stuck_processing_pence ?? 0)),
-    );
+    // Never substitute cashout_limit or period KPI; skip null (unknown ≠ £0).
+    if (row.available_for_payout_pence != null) {
+      available += Math.max(0, Math.round(Number(row.available_for_payout_pence)));
+    }
+    if (row.pending_balance_pence != null) {
+      pending += Math.max(0, Math.round(Number(row.pending_balance_pence)));
+    }
+    const reservedRow = reservedPence(row);
+    if (reservedRow != null) reserved += reservedRow;
+    if (row.failed_payout_stuck_processing_pence != null) {
+      processingException += Math.max(
+        0,
+        Math.round(Number(row.failed_payout_stuck_processing_pence)),
+      );
+    }
 
     const status = String(row.wallet_status ?? '').toUpperCase();
     if (status === 'ACTIVE') active += 1;

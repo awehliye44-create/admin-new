@@ -47,13 +47,13 @@ export function DriverWalletHistorySummary({
         <div className="grid gap-3 grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
           <Metric
             label="Lifetime credited"
-            value={fmt(driver.verified_wallet_credits_pence ?? kpis?.lifetime_earnings_pence)}
-            hint="Verified trip credits on wallet ledger"
+            value={fmt(driver.verified_wallet_credits_pence)}
+            hint="Verified trip credits on wallet ledger — never lifetime KPI substitute"
           />
           <Metric
             label="Completed payouts"
-            value={fmt(driver.payout_ledger_completed_pence ?? driver.provider_paid_out_total_pence)}
-            hint="See Payout Ledger history tab"
+            value={fmt(driver.payout_ledger_completed_pence)}
+            hint="Payout Ledger completed items — never provider_paid_out substitute"
           />
           <Metric
             label="Cashout fees"
@@ -62,7 +62,8 @@ export function DriverWalletHistorySummary({
           />
           <Metric
             label="Adjustments"
-            value={fmt(driver.wallet_adjustments_pence ?? kpis?.total_adjustments_pence)}
+            value={fmt(driver.wallet_adjustments_pence)}
+            hint="Wallet ledger adjustments — never period KPI substitute"
           />
           <Metric
             label="Provider reference"

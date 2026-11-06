@@ -601,7 +601,7 @@ export default function PayoutLedger() {
                       batch_id: b.id,
                       execution_time: b.created_at,
                       occurrence: b.schedule_occurrence_key ?? b.scheduled_local_at ?? null,
-                      eligible_drivers: b.eligible_driver_count ?? b.total_drivers,
+                      eligible_drivers: b.eligible_driver_count ?? '—',
                       transfer_count: b.total_drivers,
                       success_count: b.paid_claim === false ? 0 : b.successful_payouts,
                       failed_count: b.failed_payouts,
@@ -675,7 +675,7 @@ export default function PayoutLedger() {
                         <TableCell className="text-xs font-mono max-w-[220px] truncate" title={b.schedule_occurrence_key ?? undefined}>
                           {b.schedule_occurrence_key ?? b.scheduled_local_at ?? '—'}
                         </TableCell>
-                        <TableCell className="text-xs">{b.eligible_driver_count ?? b.total_drivers ?? '—'}</TableCell>
+                        <TableCell className="text-xs">{b.eligible_driver_count ?? '—'}</TableCell>
                         <TableCell className="text-xs">{formatNullablePence(b.total_amount_pence)}</TableCell>
                         <TableCell><BatchKindCell kind={b.kind} /></TableCell>
                         <TableCell className="text-xs">{b.paid_claim ? 'Yes' : 'No'}</TableCell>
@@ -794,9 +794,9 @@ export default function PayoutLedger() {
                 <Card><CardHeader className="pb-2"><CardTitle className="text-sm">Next Batch Amount</CardTitle></CardHeader><CardContent className="text-xl font-semibold tabular-nums">{formatNullablePence(fleet.next_batch_amount_pence)}</CardContent></Card>
                 <Card><CardHeader className="pb-2"><CardTitle className="text-sm">Eligible Driver Count</CardTitle></CardHeader><CardContent className="text-xl font-semibold tabular-nums">{fleet.eligible_driver_count ?? '—'}</CardContent></Card>
                 <Card><CardHeader className="pb-2"><CardTitle className="text-sm">Held Driver Count</CardTitle></CardHeader><CardContent className="text-xl font-semibold tabular-nums">{fleet.held_driver_count ?? '—'}</CardContent></Card>
-                <Card><CardHeader className="pb-2"><CardTitle className="text-sm">Scheduled Payouts</CardTitle></CardHeader><CardContent className="text-xl font-semibold tabular-nums">{fleet.scheduled_payouts_count ?? 0} · {formatNullablePence(fleet.total_scheduled_pence)}</CardContent></Card>
-                <Card><CardHeader className="pb-2"><CardTitle className="text-sm">Processing Payouts</CardTitle></CardHeader><CardContent className="text-xl font-semibold tabular-nums">{fleet.processing_payouts_count ?? 0} · {formatNullablePence(fleet.total_processing_pence)}</CardContent></Card>
-                <Card><CardHeader className="pb-2"><CardTitle className="text-sm">Completed Payouts</CardTitle></CardHeader><CardContent className="text-xl font-semibold tabular-nums">{fleet.completed_payouts_count ?? 0}</CardContent></Card>
+                <Card><CardHeader className="pb-2"><CardTitle className="text-sm">Scheduled Payouts</CardTitle></CardHeader><CardContent className="text-xl font-semibold tabular-nums">{fleet.scheduled_payouts_count ?? '—'} · {formatNullablePence(fleet.total_scheduled_pence)}</CardContent></Card>
+                <Card><CardHeader className="pb-2"><CardTitle className="text-sm">Processing Payouts</CardTitle></CardHeader><CardContent className="text-xl font-semibold tabular-nums">{fleet.processing_payouts_count ?? '—'} · {formatNullablePence(fleet.total_processing_pence)}</CardContent></Card>
+                <Card><CardHeader className="pb-2"><CardTitle className="text-sm">Completed Payouts</CardTitle></CardHeader><CardContent className="text-xl font-semibold tabular-nums">{fleet.completed_payouts_count ?? '—'}</CardContent></Card>
                 <Card><CardHeader className="pb-2"><CardTitle className="text-sm">Paid Today</CardTitle></CardHeader><CardContent className="text-xl font-semibold tabular-nums">{formatNullablePence(fleet.paid_today_pence)}</CardContent></Card>
                 <Card><CardHeader className="pb-2"><CardTitle className="text-sm">Paid This Week</CardTitle></CardHeader><CardContent className="text-xl font-semibold tabular-nums">{formatNullablePence(fleet.paid_week_pence)}</CardContent></Card>
                 <Card><CardHeader className="pb-2"><CardTitle className="text-sm">Paid This Month</CardTitle></CardHeader><CardContent className="text-xl font-semibold tabular-nums">{formatNullablePence(fleet.paid_month_pence)}</CardContent></Card>
@@ -867,7 +867,7 @@ export default function PayoutLedger() {
                           </TableCell>
                           <TableCell><BatchKindCell kind={b.kind} /></TableCell>
                           <TableCell className="text-xs"><Badge variant="outline">{batchStatusDisplay(b)}</Badge></TableCell>
-                          <TableCell className="text-xs">{b.eligible_driver_count ?? b.total_drivers ?? '—'}</TableCell>
+                          <TableCell className="text-xs">{b.eligible_driver_count ?? '—'}</TableCell>
                           <TableCell className="text-xs">{formatNullablePence(b.total_amount_pence)}</TableCell>
                         </TableRow>
                       ))}
@@ -950,8 +950,8 @@ export default function PayoutLedger() {
                           {row.unavailable_reason ?? '—'}
                         </TableCell>
                         <TableCell className="text-xs tabular-nums">
-                          {row.eligible_entry_count ?? 0}
-                          {(row.held_entry_count ?? 0) > 0 ? (
+                          {row.eligible_entry_count ?? '—'}
+                          {row.held_entry_count != null && row.held_entry_count > 0 ? (
                             <span className="text-muted-foreground"> ({row.held_entry_count} held)</span>
                           ) : null}
                         </TableCell>
@@ -1034,8 +1034,10 @@ export default function PayoutLedger() {
                     </div>
                     <div>Payout Status: {account?.payout_status ?? '—'}</div>
                     <div>
-                      Eligible Entries: {account?.eligible_entry_count ?? 0}
-                      {(account?.held_entry_count ?? 0) > 0 ? ` (${account?.held_entry_count} held)` : ''}
+                      Eligible Entries: {account?.eligible_entry_count ?? '—'}
+                      {account?.held_entry_count != null && account.held_entry_count > 0
+                        ? ` (${account.held_entry_count} held)`
+                        : ''}
                     </div>
                     <div>Live Wallet: {formatNullablePence(account?.live_balance_pence ?? null)}</div>
                     <div>Wallet Available: {formatNullablePence(account?.available_balance_pence ?? null)}</div>
@@ -1196,7 +1198,7 @@ export default function PayoutLedger() {
                                 </TableCell>
                                 <TableCell><BatchKindCell kind={b.kind} /></TableCell>
                                 <TableCell className="text-xs"><Badge variant="outline">{batchStatusDisplay(b)}</Badge></TableCell>
-                                <TableCell className="text-xs">{b.eligible_driver_count ?? b.total_drivers ?? '—'}</TableCell>
+                                <TableCell className="text-xs">{b.eligible_driver_count ?? '—'}</TableCell>
                                 <TableCell className="text-xs">{formatNullablePence(b.total_amount_pence)}</TableCell>
                               </TableRow>
                             ))}

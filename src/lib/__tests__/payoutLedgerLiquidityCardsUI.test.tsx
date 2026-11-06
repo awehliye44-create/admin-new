@@ -160,6 +160,14 @@ describe('payoutLedgerLiquidityCardsSSOT', () => {
       operational_reserve_configured: false,
       provider_available_balance_pence: 2176,
     })).toBeNull();
+    // Underprotected must never render as £0.00 residual cash.
+    expect(computePayoutLedgerRealAvailableFundsPence({
+      company_available_before_operational_reserve_pence: 0,
+      operational_reserve_pence: 111,
+      operational_reserve_configured: true,
+      provider_available_balance_pence: 2176,
+      company_funds_underprotected: true,
+    })).toBeNull();
     // Commission pence must not influence the helper (not an input).
     expect(COMMISSION_PENCE).toBe(5173);
   });

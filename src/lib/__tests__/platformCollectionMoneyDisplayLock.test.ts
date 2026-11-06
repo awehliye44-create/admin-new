@@ -55,7 +55,8 @@ describe('platform collection money display lock', () => {
     expect(balances).not.toContain('period_kpis?.pending_earnings_pence');
 
     const fleet = read('lib/driverWalletFleetOverviewSSOT.ts');
-    expect(fleet).toContain('available_for_payout_pence ?? 0');
+    expect(fleet).toContain('available_for_payout_pence != null');
+    expect(fleet).toContain('pending_balance_pence != null');
     expect(fleet).not.toMatch(/available_for_payout_pence\s*\?\?\s*row\.cashout_limit/);
     expect(fleet).not.toMatch(/pending_balance_pence\s*\?\?\s*row\.period_kpis/);
 
@@ -108,5 +109,37 @@ describe('platform collection money display lock', () => {
     expect(src).not.toMatch(
       /completed_company_transfers_month_pence\s*\?\?\s*0/,
     );
+  });
+
+  it('8. Underprotected company funds never paint Before Reserve / Real Available as £0', () => {
+    const ssot = read('lib/payoutLedgerLiquidityCardsSSOT.ts');
+    const panel = read('components/finance/PayoutLedgerOverviewPanel.tsx');
+    expect(ssot).toMatch(/company_funds_underprotected\) return null/);
+    expect(ssot).not.toMatch(/company_funds_underprotected\) return 0/);
+    expect(panel).toContain('underprotected\n      ? null');
+    expect(panel).toContain('underprotectedReason');
+  });
+
+  it('9. Batch eligible count never falls through to total_drivers', () => {
+    const src = read('pages/PayoutLedger.tsx');
+    expect(src).not.toMatch(/eligible_driver_count\s*\?\?\s*b\.total_drivers/);
+    expect(src).not.toMatch(/eligible_driver_count\s*\?\?\s*total_drivers/);
+    expect(src).toContain("eligible_driver_count ?? '—'");
+  });
+
+  it('10. DWL history never coalesces different money semantics', () => {
+    const src = read('components/finance/DriverWalletHistorySummary.tsx');
+    expect(src).toContain('fmt(driver.verified_wallet_credits_pence)');
+    expect(src).toContain('fmt(driver.payout_ledger_completed_pence)');
+    expect(src).toContain('fmt(driver.wallet_adjustments_pence)');
+    expect(src).not.toMatch(/verified_wallet_credits_pence\s*\?\?\s*kpis/);
+    expect(src).not.toMatch(/payout_ledger_completed_pence\s*\?\?\s*driver\.provider_paid/);
+    expect(src).not.toMatch(/wallet_adjustments_pence\s*\?\?\s*kpis/);
+  });
+
+  it('11. Fleet Pending label matches Payout settlement wording', () => {
+    const src = read('components/finance/DriverWalletFleetOverviewCards.tsx');
+    expect(src).toContain('Total Pending (settlement)');
+    expect(src).not.toMatch(/label="Total Pending"/);
   });
 });

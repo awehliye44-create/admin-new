@@ -22,9 +22,10 @@ function Metric({ label, value, hint }: { label: string; value: string; hint?: s
   );
 }
 
-function reservedPence(row: DriverWalletSsotRow): number {
-  // ACTIVE reservation WIP only — never coalesce included_in_payout_batch.
-  return Math.max(0, Math.round(Number(row.withdrawal_in_progress_pence ?? 0)));
+function reservedPence(row: DriverWalletSsotRow): number | null {
+  // ACTIVE reservation WIP only — null stays unknown (never paint £0).
+  if (row.withdrawal_in_progress_pence == null) return null;
+  return Math.max(0, Math.round(Number(row.withdrawal_in_progress_pence)));
 }
 
 function openDifferencePence(row: DriverWalletSsotRow): number | null {
@@ -89,11 +90,13 @@ export function DriverWalletActivePositionCards({
         <Metric label="Live wallet" value={fmt(balances.livePence)} hint="Available + Pending + Reserved + Held + Unbacked" />
         <Metric label="Pending" value={fmt(balances.pendingPence)} hint="Not yet payout-cleared" />
         <Metric label="Available" value={fmt(balances.availablePence)} hint="Eligible for payout" />
-        <Metric label="Reserved" value={fmt(reservedPence(driver))} hint="Withdrawal / batch reservation" />
-        {(driver.unbacked_wallet_pence ?? 0) > 0 ? (
+        <Metric label="Reserved" value={fmt(reservedPence(driver))} hint="ACTIVE withdrawal reservation only" />
+        {driver.unbacked_wallet_pence == null ? (
+          <Metric label="Unbacked" value="—" hint="Unknown — never invent £0" />
+        ) : driver.unbacked_wallet_pence > 0 ? (
           <Metric
             label="Unbacked"
-            value={fmt(driver.unbacked_wallet_pence ?? 0)}
+            value={fmt(driver.unbacked_wallet_pence)}
             hint={`${unbackedWalletReasonLabel(driver.unbacked_wallet_reason) ?? 'Review'} — never paid out`}
           />
         ) : null}

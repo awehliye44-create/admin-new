@@ -42,9 +42,10 @@ function walletStatusVariant(status: string | null | undefined): 'default' | 'se
   return 'destructive';
 }
 
-function reservedPence(row: DriverWalletSsotRow): number {
-  // ACTIVE reservation WIP only — never coalesce included_in_payout_batch.
-  return Math.max(0, Math.round(Number(row.withdrawal_in_progress_pence ?? 0)));
+function reservedPence(row: DriverWalletSsotRow): number | null {
+  // ACTIVE reservation WIP only — null stays unknown (never paint £0).
+  if (row.withdrawal_in_progress_pence == null) return null;
+  return Math.max(0, Math.round(Number(row.withdrawal_in_progress_pence)));
 }
 
 function openDifferencePence(row: DriverWalletSsotRow): number | null {
