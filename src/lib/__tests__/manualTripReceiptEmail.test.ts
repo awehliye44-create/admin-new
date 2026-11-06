@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
+  assertManualReceiptEmailOpts,
   coveringAuthorisedHoldPence,
   normalizeReceiptEmail,
   receiptEmailBadgeLabel,
@@ -83,6 +84,39 @@ describe('manual trip receipt email', () => {
     })).toBe('send');
   });
 
+  it('requires explicit destination, sender, and customer/admin source before emailing', () => {
+    expect(assertManualReceiptEmailOpts({
+      toEmail: 'Ada@Onecab.net',
+      sentBy: 'user-1',
+      source: 'customer_app',
+    })).toEqual({
+      ok: true,
+      toEmail: 'ada@onecab.net',
+      sentBy: 'user-1',
+      source: 'customer_app',
+    });
+    expect(assertManualReceiptEmailOpts({
+      toEmail: 'ada@onecab.net',
+      sentBy: 'admin-1',
+      source: 'admin_panel',
+    }).ok).toBe(true);
+    expect(assertManualReceiptEmailOpts({
+      toEmail: 'ada@onecab.net',
+      sentBy: 'user-1',
+      source: 'legacy',
+    }).ok).toBe(false);
+    expect(assertManualReceiptEmailOpts({
+      toEmail: null,
+      sentBy: 'user-1',
+      source: 'customer_app',
+    }).ok).toBe(false);
+    expect(assertManualReceiptEmailOpts({
+      toEmail: 'ada@onecab.net',
+      sentBy: '',
+      source: 'customer_app',
+    }).ok).toBe(false);
+  });
+
   it('does not email from completion, capture, sweep, or generate', () => {
     const trigger = read('supabase/functions/_shared/tripInvoiceTrigger.ts');
     const process = read('supabase/functions/trip-invoice-process/index.ts');
@@ -99,6 +133,8 @@ describe('manual trip receipt email', () => {
     expect(process).not.toContain('handleTripInvoiceAction(supabase, row.id as string, "generate")');
     expect(invoice).toContain('Receipt email is send-trip-receipt only');
     expect(invoice).toContain('const shouldEmail = false');
+    expect(invoice).toContain('assertManualReceiptEmailOpts');
+    expect(invoice).not.toContain('opts.toEmail?.trim() || await resolveCustomerEmail');
     expect(invoice).not.toContain('action === "generate" && !updated.invoice_email_sent');
     expect(service).toContain('Receipt email is sent only after a manual request');
     expect(service).not.toContain('return sendInvoiceEmail(supabase, updated, false)');
@@ -109,6 +145,9 @@ describe('manual trip receipt email', () => {
     expect(sql).not.toContain("'generate')");
     expect(sweep).not.toContain('maybeInvokeAutoTripInvoice');
     expect(endpoint).toContain('token === serviceKey');
+    expect(endpoint).toContain('Receipts can only be sent to your account email address');
+    expect(endpoint).toContain('Receipts can only be sent to the rider\'s email on file');
+    expect(endpoint).not.toContain('customers").select("id, user_id, email")');
     expect(process).toContain('Receipt email requires a manual customer or admin action');
     expect(sender).toContain('fetchTrip(supabase, args.tripId)');
     expect(sender).not.toContain('.eq("stacked_trip_id"');

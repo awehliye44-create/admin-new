@@ -15,6 +15,7 @@ import {
   type TripInvoicePaymentState,
 } from "./tripInvoicePaymentStateSSOT.ts";
 import { isTipWindowClosedForInvoice } from "./tripInvoiceEligibility.ts";
+import { assertManualReceiptEmailOpts } from "./manualTripReceiptSSOT.ts";
 import {
   invoiceTipPenceFromConfirmedCapture,
   tipPenceRemainingAfterRefund,
@@ -687,29 +688,25 @@ export async function ensureTripInvoicePdf(
   return { trip: { ...trip, ...patch } as TripInvoiceRow, url, path };
 }
 
-/** Email the invoice PDF. Address override is required for a manual customer/admin send. */
+/** Email the invoice PDF. Manual customer/admin send only — never auto-resolve a passenger email. */
 export async function sendTripInvoiceEmail(
   supabase: SupabaseClient,
   trip: TripInvoiceRow,
   pdfPath: string,
   paymentState: TripInvoicePaymentState,
   opts: {
-    toEmail?: string;
-    sentBy?: string | null;
-    source?: "customer_app" | "admin_panel";
+    toEmail: string;
+    sentBy: string;
+    source: "customer_app" | "admin_panel";
     authorisedHoldPence?: number;
-  } = {},
+  },
 ): Promise<{ ok: boolean; error?: string; email?: string }> {
-  const email = opts.toEmail?.trim() || await resolveCustomerEmail(supabase, trip.passenger_id);
-  if (!email) {
-    const message = "No email address on the passenger account";
-    await supabase
-      .from("trips")
-      .update({ invoice_email_status: "skipped_no_email", invoice_email_error: message })
-      .eq("id", trip.id);
-    await logEvent(supabase, trip.id, "email", "skipped", message);
-    return { ok: false, error: message };
+  const gate = assertManualReceiptEmailOpts(opts);
+  if (!gate.ok) {
+    await logEvent(supabase, trip.id, "email", "blocked", gate.error);
+    return { ok: false, error: gate.error };
   }
+  const email = gate.toEmail;
 
   const { data: download, error: downloadError } = await supabase.storage.from(BUCKET).download(pdfPath);
   if (downloadError || !download) {
@@ -758,29 +755,25 @@ export async function sendTripInvoiceEmail(
     return { ok: false, error: result.message, email };
   }
 
-  await supabase
+  const { error: sentError } = await supabase
     .from("trips")
     .update({
       invoice_email_sent: true,
       invoice_email_sent_at: nowIso,
       invoice_email_status: "sent",
       invoice_email_error: null,
+      invoice_email_recipient: email,
+      invoice_email_sent_by: gate.sentBy,
+      invoice_email_source: gate.source,
     })
     .eq("id", trip.id);
-  if (opts.source) {
-    const { error: auditError } = await supabase.from("trips").update({
-      invoice_email_recipient: email,
-      invoice_email_sent_by: opts.sentBy ?? null,
-      invoice_email_source: opts.source,
-    }).eq("id", trip.id);
-    if (auditError) {
-      console.warn("[TRIP_INVOICE] receipt_audit_write_failed", auditError.message);
-    }
+  if (sentError) {
+    console.warn("[TRIP_INVOICE] receipt_sent_write_failed", sentError.message);
   }
   await logEvent(supabase, trip.id, "email", "sent", email, {
     provider_id: result.id,
-    source: opts.source ?? "legacy",
-    sent_by: opts.sentBy ?? null,
+    source: gate.source,
+    sent_by: gate.sentBy,
   });
 
   return { ok: true, email };

@@ -2,6 +2,11 @@
  * Manual trip receipt email.
  * Authenticated customer (own completed trip) or admin/staff.
  * Never invoked by trip completion, capture, or a payment webhook.
+ *
+ * Recipient lock (privacy):
+ * - Customer → only their auth account email
+ * - Admin/staff → only the rider's auth account email on file
+ * Free-typed / third-party addresses are rejected.
  */
 import { createClient } from "npm:@supabase/supabase-js@2.57.2";
 import { corsHeaders } from "../_shared/security.ts";
@@ -76,38 +81,38 @@ Deno.serve(async (req) => {
     if (!isAdmin) {
       const { data: customerRow } = await userClient
         .from("customers")
-        .select("id, user_id, email")
+        .select("id, user_id")
         .eq("user_id", userId)
         .maybeSingle();
       const ownsTrip = trip.passenger_id === userId
         || (customerRow?.id && trip.passenger_id === customerRow.id);
       if (!ownsTrip) return errorResponse("Forbidden", 403);
-      // Customers may only send receipts to their own account email.
-      const ownEmails = [authData.user.email, (customerRow as { email?: string | null } | null)?.email]
-        .map((e) => normalizeReceiptEmail(e ?? undefined))
-        .filter((e): e is string => Boolean(e));
-      if (!ownEmails.includes(email)) {
-        return validationErrorResponse({ email: "Receipts can only be sent to your account email address" });
+
+      // Customers may only send receipts to their own auth account email.
+      // Never invent a destination from free-typed third-party addresses.
+      const ownEmail = normalizeReceiptEmail(authData.user.email ?? undefined);
+      if (!ownEmail || ownEmail !== email) {
+        return validationErrorResponse({
+          email: "Receipts can only be sent to your account email address",
+        });
       }
     } else {
-      // Staff may only send receipts to the rider's email on file.
+      // Staff may only send receipts to the rider's auth email on file.
       if (!trip.passenger_id) {
         return validationErrorResponse({ email: "This trip has no rider email on file" });
       }
       const { data: customer } = await service
         .from("customers")
-        .select("user_id, email")
+        .select("user_id")
         .or(`id.eq.${trip.passenger_id},user_id.eq.${trip.passenger_id}`)
         .maybeSingle();
       recipientUserId = (customer?.user_id as string | null) ?? (trip.passenger_id as string);
-      const allowed: string[] = [];
-      const custEmail = normalizeReceiptEmail((customer?.email as string | null) ?? undefined);
-      if (custEmail) allowed.push(custEmail);
       const { data: riderAuth } = await service.auth.admin.getUserById(recipientUserId);
-      const authEmail = normalizeReceiptEmail(riderAuth?.user?.email ?? undefined);
-      if (authEmail) allowed.push(authEmail);
-      if (!allowed.includes(email)) {
-        return validationErrorResponse({ email: "Receipts can only be sent to the rider's email on file" });
+      const riderEmail = normalizeReceiptEmail(riderAuth?.user?.email ?? undefined);
+      if (!riderEmail || riderEmail !== email) {
+        return validationErrorResponse({
+          email: "Receipts can only be sent to the rider's email on file",
+        });
       }
     }
 

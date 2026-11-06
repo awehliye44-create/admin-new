@@ -10,6 +10,30 @@ export type ReceiptEmailSource = (typeof RECEIPT_EMAIL_SOURCES)[number];
 
 export const MANUAL_TRIP_RECEIPT_EMAIL_TYPE = "customer_trip_receipt_manual" as const;
 
+/**
+ * Hard gate for any code that emails a trip invoice PDF.
+ * Auto / cron / capture / completion must never call the sender without this.
+ */
+export function assertManualReceiptEmailOpts(opts: {
+  toEmail?: string | null;
+  sentBy?: string | null;
+  source?: string | null;
+}): { ok: true; toEmail: string; sentBy: string; source: ReceiptEmailSource } | { ok: false; error: string } {
+  const toEmail = normalizeReceiptEmail(opts.toEmail);
+  if (!toEmail) {
+    return { ok: false, error: "Receipt email requires an explicit destination address" };
+  }
+  const sentBy = (opts.sentBy ?? "").trim();
+  if (!sentBy) {
+    return { ok: false, error: "Receipt email requires an authenticated sender" };
+  }
+  const source = (opts.source ?? "").trim();
+  if (source !== "customer_app" && source !== "admin_panel") {
+    return { ok: false, error: "Receipt email requires a manual customer or admin source" };
+  }
+  return { ok: true, toEmail, sentBy, source };
+}
+
 /** Second tap of the same address inside this window returns the first result. */
 export const RECEIPT_SEND_IDEMPOTENCY_MS = 45_000;
 

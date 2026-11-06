@@ -1,0 +1,32 @@
+# Manual trip receipt email lock
+
+## Canonical rule
+
+Customer trip invoice / receipt email is **manual only**.
+
+Allowed senders:
+
+- Authenticated **customer** for their own completed trip → own auth account email only
+- Authenticated **admin/staff** → rider auth email on file only
+
+## Never remove or “simplify away”
+
+- `send-trip-receipt` rejects service-role / cron tokens
+- Customer destination must equal `auth.user.email` (no free-typed third party)
+- Admin destination must equal the rider auth email on file
+- `sendTripInvoiceEmail` requires `assertManualReceiptEmailOpts` (`toEmail` + `sentBy` + `customer_app|admin_panel`)
+- Completion / capture / tip-window / sweep store PDF only (`generate_only`) — never email
+- `trip-invoice-process` rejects `send_email` / `resend_email`
+
+## Why
+
+Production once accepted any typed destination after trip ownership checks, so a demo / store-review login could email invoice PDFs (fare, addresses) to arbitrary addresses — a privacy leak.
+
+Lock tests: `src/lib/__tests__/manualTripReceiptEmail.test.ts`
+
+## Do not
+
+- Auto-email on trip complete or payment capture
+- Fall back to `resolveCustomerEmail` inside the invoice sender
+- Select a non-existent `customers.email` column for the recipient gate
+- Allow service role to invoke `send-trip-receipt`
