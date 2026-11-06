@@ -54,3 +54,40 @@ Deno.test("overview Reserved chip prefers explicit 0 over snap null coalesce", a
     false,
   );
 });
+
+Deno.test("overview chips: Pending label is settlement-only; Held/Unbacked is separate", async () => {
+  const panel = await Deno.readTextFile(
+    new URL("../../../src/components/finance/PayoutLedgerOverviewPanel.tsx", import.meta.url),
+  );
+  const overview = await Deno.readTextFile(
+    new URL("../../functions/_shared/adminPayoutLedgerOverviewSSOT.ts", import.meta.url),
+  );
+  const dto = await Deno.readTextFile(
+    new URL("../../functions/_shared/payoutLedgerOverviewSSOT.ts", import.meta.url),
+  );
+  assertStringIncludes(panel, 'title="Pending (settlement)"');
+  assertEquals(panel.includes("Other Pending / Held"), false);
+  assertStringIncludes(panel, 'title="Held / Unbacked"');
+  assertStringIncludes(dto, "driver_held_or_unbacked_pence");
+  assertStringIncludes(overview, "driver_held_or_unbacked_pence");
+  assertStringIncludes(overview, "driver_effective_payout_allowed");
+});
+
+Deno.test("driver payouts fleet never paints unknown held count as 0", async () => {
+  const src = await Deno.readTextFile(
+    new URL("../../../src/pages/PayoutLedger.tsx", import.meta.url),
+  );
+  assertEquals(src.includes("held_driver_count ?? 0"), false);
+  assertStringIncludes(src, "held_driver_count ?? '—'");
+  assertStringIncludes(src, "eligible_driver_count ?? '—'");
+});
+
+Deno.test("DWL fleet Reserved uses WIP only (no included_in_payout_batch coalesce)", async () => {
+  const src = await Deno.readTextFile(
+    new URL("../../../src/lib/driverWalletFleetOverviewSSOT.ts", import.meta.url),
+  );
+  assertStringIncludes(src, "withdrawal_in_progress_pence ?? 0");
+  // Input type may still declare included_in_payout_batch — reservedPence must not read it.
+  const reservedFn = src.slice(src.indexOf("function reservedPence"), src.indexOf("export function buildDriverWalletFleetOverview"));
+  assertEquals(reservedFn.includes("included_in_payout_batch_amount_pence"), false);
+});

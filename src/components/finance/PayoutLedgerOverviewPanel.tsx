@@ -354,10 +354,16 @@ export function PayoutLedgerOverviewPanel({
             source={reservedSource}
           />
           <MetricCard
-            title="Other Pending / Held"
+            title="Pending (settlement)"
             value={formatNullablePence(overview.driver_pending_pence)}
             source={driverSource}
-            tooltip="Non-reservation holds only. Active payout reservations are counted under Reserved Driver Payouts."
+            tooltip="Captured, not yet cleared. Excludes ACTIVE payout reservations and held/unbacked balances."
+          />
+          <MetricCard
+            title="Held / Unbacked"
+            value={formatNullablePence(overview.driver_held_or_unbacked_pence)}
+            source={driverSource}
+            tooltip="Live balance that is not Available, Pending, or Reserved — held credits and unbacked remainder. Never paid in the next batch."
           />
           <MetricCard title="Total Outstanding Debt" value={formatNullablePence(overview.driver_debt_pence)} source={driverSource} />
           <MetricCard title="Paid Today" value={formatNullablePence(overview.payout_paid_today_pence)} source={payoutSource} />
@@ -366,7 +372,7 @@ export function PayoutLedgerOverviewPanel({
             title="Held Drivers"
             value={String(overview.held_driver_count ?? '—')}
             source={driverSource}
-            tooltip="Drivers whose available payout is currently held by an active payout reservation or another valid payout hold."
+            tooltip="Drivers with live wallet balance who are not included in the next batch (gate, destination, deleted/held status, or Available £0)."
           />
           <MetricCard title="Next Batch Amount" value={formatNullablePence(overview.next_driver_batch_amount_pence)} source={driverSource} />
           <MetricCard title="Next Batch Drivers" value={String(overview.next_driver_batch_count ?? '—')} source={driverSource} />

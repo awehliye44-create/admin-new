@@ -32,16 +32,9 @@ function isOnHold(status: string | null | undefined): boolean {
 }
 
 function reservedPence(row: DriverWalletFleetOverviewInput): number {
-  return Math.max(
-    0,
-    Math.round(
-      Number(
-        row.withdrawal_in_progress_pence
-          ?? row.included_in_payout_batch_amount_pence
-          ?? 0,
-      ),
-    ),
-  );
+  // ACTIVE reservation WIP only — never fall through to included_in_payout_batch
+  // (different semantic; coalescing inflated Total Reserved when WIP was null).
+  return Math.max(0, Math.round(Number(row.withdrawal_in_progress_pence ?? 0)));
 }
 
 /** Aggregate active fleet overview cards from driver SSOT rows (backend or mirror). */

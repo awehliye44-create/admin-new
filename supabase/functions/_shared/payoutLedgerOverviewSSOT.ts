@@ -31,8 +31,13 @@ export type PayoutLedgerOverviewDto = {
   driver_available_pence: number | null;
   /** ACTIVE driver_payout_reservations — not a permanent debit. */
   driver_reserved_pence: number | null;
-  /** Other non-reservation pending/holds only (excludes ACTIVE reservations). */
+  /** Settlement pending only (captured, not yet cleared). Excludes ACTIVE reservations. */
   driver_pending_pence: number | null;
+  /**
+   * Live − Available − Pending − WIP reservation.
+   * Held credits + unbacked remainder — never payable in the next batch.
+   */
+  driver_held_or_unbacked_pence: number | null;
   driver_debt_pence: number | null;
   eligible_driver_count: number | null;
   held_driver_count: number | null;
@@ -97,6 +102,7 @@ export function emptyPayoutLedgerOverviewDto(args?: {
     driver_available_pence: null,
     driver_reserved_pence: null,
     driver_pending_pence: null,
+    driver_held_or_unbacked_pence: null,
     driver_debt_pence: null,
     eligible_driver_count: null,
     held_driver_count: null,

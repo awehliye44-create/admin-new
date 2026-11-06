@@ -12,7 +12,7 @@ import {
   finalisePayoutLedgerOverviewStatus,
   PAYOUT_LEDGER_ERROR,
 } from "./payoutLedgerOverviewSSOT.ts";
-import { computeCashCommissionOutstanding, computeLedgerWalletBalancePence } from "./onecabFinanceLedger.ts";
+import { computeCashCommissionOutstanding } from "./onecabFinanceLedger.ts";
 import { loadDriverWalletEligibilityBalancesBatchRpc } from "./driverWalletEligibilityBalancesRpc.ts";
 import { loadPayoutControlCentreSettings } from "./payoutControlCentreSettingsSSOT.ts";
 import { buildPayoutScheduleDto } from "./payoutScheduleSSOT.ts";
@@ -129,6 +129,7 @@ async function loadDriverOverviewSection(
   driver_wallet_total_pence: number;
   driver_available_pence: number;
   driver_pending_pence: number;
+  driver_held_or_unbacked_pence: number;
   driver_debt_pence: number;
   eligible_driver_count: number;
   held_driver_count: number;
@@ -137,9 +138,21 @@ async function loadDriverOverviewSection(
 }> {
   let driverQuery = supabase
     .from("drivers")
-    .select("id, payouts_enabled, payout_operational_paused")
+    .select("id, payouts_enabled, payout_operational_paused, deleted_at, driver_status")
     .order("created_at", { ascending: false })
     .limit(500);
+
+  const emptyDriverSection = () => ({
+    driver_wallet_total_pence: 0,
+    driver_available_pence: 0,
+    driver_pending_pence: 0,
+    driver_held_or_unbacked_pence: 0,
+    driver_debt_pence: 0,
+    eligible_driver_count: 0,
+    held_driver_count: 0,
+    next_driver_batch_amount_pence: 0,
+    next_driver_batch_count: 0,
+  });
 
   const platformDriverIds = await resolvePlatformCollectedDriverIds(supabase, {
     service_area_id: args.service_area_id,
@@ -147,29 +160,11 @@ async function loadDriverOverviewSection(
   });
   // All-Services without PLATFORM SAs → empty. Never fall through to global drivers.
   if (!args.service_area_id && (args.allowed_service_area_ids?.length ?? 0) === 0) {
-    return {
-      driver_wallet_total_pence: 0,
-      driver_available_pence: 0,
-      driver_pending_pence: 0,
-      driver_debt_pence: 0,
-      eligible_driver_count: 0,
-      held_driver_count: 0,
-      next_driver_batch_amount_pence: 0,
-      next_driver_batch_count: 0,
-    };
+    return emptyDriverSection();
   }
   if (args.service_area_id || (args.allowed_service_area_ids && args.allowed_service_area_ids.length > 0)) {
     if (platformDriverIds.length === 0) {
-      return {
-        driver_wallet_total_pence: 0,
-        driver_available_pence: 0,
-        driver_pending_pence: 0,
-        driver_debt_pence: 0,
-        eligible_driver_count: 0,
-        held_driver_count: 0,
-        next_driver_batch_amount_pence: 0,
-        next_driver_batch_count: 0,
-      };
+      return emptyDriverSection();
     }
     driverQuery = driverQuery.in("id", platformDriverIds);
   }
@@ -178,16 +173,7 @@ async function loadDriverOverviewSection(
   if (error) throw error;
   const driverIds = (drivers ?? []).map((d: { id: string }) => String(d.id)).filter(Boolean);
   if (driverIds.length === 0) {
-    return {
-      driver_wallet_total_pence: 0,
-      driver_available_pence: 0,
-      driver_pending_pence: 0,
-      driver_debt_pence: 0,
-      eligible_driver_count: 0,
-      held_driver_count: 0,
-      next_driver_batch_amount_pence: 0,
-      next_driver_batch_count: 0,
-    };
+    return emptyDriverSection();
   }
 
   const { data: ledgerRows } = await supabase
@@ -204,51 +190,93 @@ async function loadDriverOverviewSection(
     byDriver.set(id, list);
   }
 
-  let liveTotal = 0;
   let debtTotal = 0;
   for (const d of drivers ?? []) {
     const id = String(d.id);
     const rows = byDriver.get(id) ?? [];
-    const live = computeLedgerWalletBalancePence(
-      rows as Parameters<typeof computeLedgerWalletBalancePence>[0],
-    );
     const debt = computeCashCommissionOutstanding(
       rows as Parameters<typeof computeCashCommissionOutstanding>[0],
     );
-    liveTotal += Math.max(0, live);
     debtTotal += Math.max(0, debt);
   }
 
   let available = 0;
   let pending = 0;
+  let heldOrUnbacked = 0;
   let eligible = 0;
   let held = 0;
   let nextBatch = 0;
   let nextDrivers = 0;
 
+  const driverById = new Map(
+    (drivers ?? []).map((d: { id: string }) => [String(d.id), d as Record<string, unknown>]),
+  );
   const eligibilityByDriver = await loadDriverWalletEligibilityBalancesBatchRpc(supabase, driverIds);
+
+  // Gate only candidates with payable Available > 0 — same inclusion rule as accounts_overview.
+  const HELD_DRIVER_STATUSES = new Set([
+    "disabled", "suspended", "banned", "blocked", "inactive", "held",
+  ]);
+  const nextBatchCandidates: string[] = [];
   for (const driverId of driverIds) {
     const elig = eligibilityByDriver.get(driverId);
     if (!elig) continue;
-    const avail = elig.available_balance_pence;
+    const row = driverById.get(driverId);
+    const status = String(row?.driver_status ?? "").trim().toLowerCase();
+    const identityHold = Boolean(row?.deleted_at)
+      || status === "deleted"
+      || HELD_DRIVER_STATUSES.has(status);
+    // Match resolvePayoutAccountComposition: identity hold → Available £0.
+    const avail = identityHold ? 0 : elig.available_balance_pence;
     const pend = elig.pending_balance_pence;
-    const live = elig.live_balance_pence;
+    const live = Math.max(0, elig.live_balance_pence);
+    const wip = Math.max(0, elig.withdrawal_in_progress_pence);
     available += avail;
     pending += pend;
-    const paused = (drivers ?? []).find((d: { id: string }) => String(d.id) === driverId)?.payout_operational_paused === true;
-    if (avail > 0 && !paused) {
-      eligible += 1;
-      nextBatch += avail;
-      nextDrivers += 1;
+    heldOrUnbacked += Math.max(0, live - avail - pend - wip);
+    const paused = row?.payout_operational_paused === true;
+    if (avail > 0 && !paused && !identityHold) {
+      nextBatchCandidates.push(driverId);
     } else if (live > 0 && avail <= 0) {
       held += 1;
     }
   }
 
+  if (nextBatchCandidates.length > 0) {
+    const gateAllowed = new Set<string>();
+    const GATE_BATCH = 8;
+    for (let i = 0; i < nextBatchCandidates.length; i += GATE_BATCH) {
+      const batch = nextBatchCandidates.slice(i, i + GATE_BATCH);
+      await Promise.all(batch.map(async (driverId) => {
+        const { data, error: gateErr } = await supabase.rpc("driver_effective_payout_allowed", {
+          p_driver_id: driverId,
+        });
+        if (!gateErr && data === true) gateAllowed.add(driverId);
+      }));
+    }
+    for (const driverId of nextBatchCandidates) {
+      if (!gateAllowed.has(driverId)) {
+        held += 1;
+        continue;
+      }
+      const avail = eligibilityByDriver.get(driverId)?.available_balance_pence ?? 0;
+      eligible += 1;
+      nextBatch += avail;
+      nextDrivers += 1;
+    }
+  }
+
+  let liveFromElig = 0;
+  for (const driverId of driverIds) {
+    liveFromElig += Math.max(0, eligibilityByDriver.get(driverId)?.live_balance_pence ?? 0);
+  }
+
   return {
-    driver_wallet_total_pence: liveTotal,
+    // Eligibility live so chips reconcile: Live = Available + Pending + WIP + Held/Unbacked.
+    driver_wallet_total_pence: liveFromElig,
     driver_available_pence: available,
     driver_pending_pence: pending,
+    driver_held_or_unbacked_pence: heldOrUnbacked,
     driver_debt_pence: debtTotal,
     eligible_driver_count: eligible,
     held_driver_count: held,
@@ -391,6 +419,10 @@ export async function buildPayoutLedgerOverview(
     dto.held_driver_count = driverSection.held_driver_count;
     dto.next_driver_batch_amount_pence = driverSection.next_driver_batch_amount_pence;
     dto.next_driver_batch_count = driverSection.next_driver_batch_count;
+    dto.driver_held_or_unbacked_pence = Math.max(
+      0,
+      driverSection.driver_held_or_unbacked_pence,
+    );
 
     // Reservations are reported separately from settlement Pending.
     let reserved = 0;

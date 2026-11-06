@@ -27,7 +27,8 @@ describe('buildDriverWalletFleetOverview', () => {
     expect(overview.total_drivers).toBe(3);
     expect(overview.total_available_balance_pence).toBe(0);
     expect(overview.total_pending_balance_pence).toBe(100);
-    expect(overview.total_reserved_pence).toBe(250);
+    // WIP only — included_in_payout_batch must not inflate Reserved when WIP is absent.
+    expect(overview.total_reserved_pence).toBe(200);
     expect(overview.total_processing_exception_pence).toBe(25);
     expect(overview.wallets_active).toBe(2);
     expect(overview.wallets_on_hold).toBe(1);

@@ -28,6 +28,7 @@ function baseOverview(
     driver_available_pence: 0,
     driver_reserved_pence: 0,
     driver_pending_pence: 0,
+    driver_held_or_unbacked_pence: 0,
     driver_debt_pence: 0,
     eligible_driver_count: 0,
     held_driver_count: 0,
