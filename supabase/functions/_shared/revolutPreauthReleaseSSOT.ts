@@ -11,6 +11,7 @@ import {
 } from "./revolutOrders.ts";
 import { resolveRevolutMerchantContext } from "./revolutMerchantContext.ts";
 import { markPaymentSessionReleased } from "./paymentSessionSSOT.ts";
+import { assertFareCaptureAllowedAtProvider } from "./scheduledFareCaptureGateSSOT.ts";
 
 export type RevolutHoldReconciliationStatus =
   | "authorised_hold"
@@ -97,6 +98,18 @@ export async function releaseRevolutPreauthForTrip(
     if (feePence > 0 && CANCELABLE_HOLD_STATES.has(state)) {
       const captureAmount = Math.min(feePence, authorisedPence);
       if (captureAmount > 0) {
+        const { data: feeTrip } = await supabase
+          .from("trips")
+          .select("status")
+          .eq("id", args.tripId)
+          .maybeSingle();
+        const feeGate = assertFareCaptureAllowedAtProvider({
+          tripStatus: feeTrip?.status,
+          captureKind: "terminal_fee",
+        });
+        if (!feeGate.ok) {
+          return { released: false, status: "fee_capture_blocked", error: feeGate.error };
+        }
         await captureRevolutOrder(
           merchant.environment,
           merchant.secretKey,

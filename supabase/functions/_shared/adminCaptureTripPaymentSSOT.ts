@@ -24,6 +24,7 @@ import {
   retrieveRevolutOrder,
   revolutProviderAuthorisedTotalPence,
 } from "./revolutOrders.ts";
+import { assertFareCaptureAllowedAtProvider } from "./scheduledFareCaptureGateSSOT.ts";
 import { resolveRevolutMerchantContext } from "./revolutMerchantContext.ts";
 import {
   persistConfirmedProviderCapture,
@@ -330,6 +331,20 @@ export async function executeAdminCaptureTripPayment(args: {
           success: false,
           error_code: "FINAL_CAPTURE_AMOUNT_CONFLICT",
           error: "Final capture already confirmed; different amount refused",
+          payment_session_id: paymentSessionId,
+          provider_order_id: orderId,
+        });
+        return earlyFail;
+      }
+      const fareGate = assertFareCaptureAllowedAtProvider({
+        tripStatus: args.trip.status,
+        captureKind: "fare",
+      });
+      if (!fareGate.ok) {
+        earlyFail = fail({
+          success: false,
+          error_code: "TRIP_NOT_COMPLETED",
+          error: fareGate.error,
           payment_session_id: paymentSessionId,
           provider_order_id: orderId,
         });

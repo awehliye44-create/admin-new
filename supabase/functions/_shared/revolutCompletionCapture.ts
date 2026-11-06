@@ -16,6 +16,7 @@ import {
   retrieveRevolutOrder,
   revolutProviderAuthorisedTotalPence,
 } from "./revolutOrders.ts";
+import { assertFareCaptureAllowedAtProvider } from "./scheduledFareCaptureGateSSOT.ts";
 import { executeSameOrderIncrement } from "./executeSameOrderIncrementSSOT.ts";
 import { safeCaptureAfterIncrementDecline } from "./paymentRecoveryGuardSSOT.ts";
 import {
@@ -202,13 +203,18 @@ export async function executeRevolutTripCompletionCapture(args: {
     };
   }
 
-  if (tripStatus !== "completed") {
+  // Shared provider-call gate (MK-261106-004): fare capture only after completed.
+  const fareGate = assertFareCaptureAllowedAtProvider({
+    tripStatus,
+    captureKind: "fare",
+  });
+  if (!fareGate.ok) {
     return {
       success: false,
       status: "trip_not_completed",
       capture_amount_pence: 0,
       provider_order_id: orderId,
-      error: "Cannot capture Revolut hold before trip is completed",
+      error: fareGate.error,
     };
   }
 
@@ -837,6 +843,19 @@ export async function executeRevolutTripCompletionCapture(args: {
       try {
         const blockedSafe = await refuseDifferentFinalCapture(safe.capturePence);
         if (blockedSafe) return blockedSafe;
+        const gateSafe = assertFareCaptureAllowedAtProvider({
+          tripStatus,
+          captureKind: "fare",
+        });
+        if (!gateSafe.ok) {
+          return {
+            success: false,
+            status: "trip_not_completed",
+            capture_amount_pence: 0,
+            provider_order_id: orderId,
+            error: gateSafe.error,
+          };
+        }
         const capturedSafe = await captureRevolutOrder(
           merchant.environment,
           merchant.secretKey,
@@ -1291,6 +1310,19 @@ export async function executeRevolutTripCompletionCapture(args: {
 
       const blockedLocked = await refuseDifferentFinalCapture(decision.captureAmountPence);
       if (blockedLocked) return blockedLocked;
+      const gateLocked = assertFareCaptureAllowedAtProvider({
+        tripStatus,
+        captureKind: "fare",
+      });
+      if (!gateLocked.ok) {
+        return {
+          success: false,
+          status: "trip_not_completed",
+          capture_amount_pence: 0,
+          provider_order_id: orderId,
+          error: gateLocked.error,
+        };
+      }
       const capturedLocked = await captureRevolutOrder(
         merchant.environment,
         merchant.secretKey,
@@ -1450,6 +1482,19 @@ export async function executeRevolutTripCompletionCapture(args: {
 
   const blockedUnguarded = await refuseDifferentFinalCapture(amountToCapture);
   if (blockedUnguarded) return blockedUnguarded;
+  const gateUnguarded = assertFareCaptureAllowedAtProvider({
+    tripStatus,
+    captureKind: "fare",
+  });
+  if (!gateUnguarded.ok) {
+    return {
+      success: false,
+      status: "trip_not_completed",
+      capture_amount_pence: 0,
+      provider_order_id: orderId,
+      error: gateUnguarded.error,
+    };
+  }
   const captured = await captureRevolutOrder(
     merchant.environment,
     merchant.secretKey,

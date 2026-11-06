@@ -39,6 +39,13 @@ import { resolvePaymentSessionCaptureAdvanceExtras } from "../_shared/paymentSes
 import { transitionPaymentSession } from "../_shared/paymentSessionTransitionFacade.ts";
 import { persistProviderFeeAndMaybeResumeTerminalSettlement } from "../_shared/terminalFeeSettlementResumptionSSOT.ts";
 import { mapSavedCardProviderOrderToReconcileState } from "../_shared/savedCardPaymentReconcileSSOT.ts";
+import {
+  shouldMirrorRideBookingProviderCapture,
+} from "../_shared/scheduledFareCaptureGateSSOT.ts";
+import {
+  handleRevolutPaymentInvariantViolation,
+  isRevolutWrongCaptureBeforeTripComplete,
+} from "../_shared/revolutPreauthReleaseSSOT.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -565,6 +572,30 @@ Deno.serve(async (req) => {
         let statusAdvanceExtras: Record<string, unknown> = {};
         let ignoredTerminalAfterAuthorised = false;
 
+        let tripFinancialModel: string | null = null;
+        let tripStatusForCaptureGate: string | null = null;
+        if (session.trip_id) {
+          const { data: tripRow } = await supabase
+            .from("trips")
+            .select("financial_model, status")
+            .eq("id", session.trip_id)
+            .maybeSingle();
+          tripFinancialModel = (tripRow?.financial_model as string | null) ?? null;
+          tripStatusForCaptureGate = (tripRow?.status as string | null) ?? null;
+        }
+
+        // MK-261106-004: webhook COMPLETED is a mirror, not a capture request.
+        const providerReportsCapture = ["COMPLETED", "CAPTURED"].includes(effectiveStateUpper);
+        const mayMirrorCapture = shouldMirrorRideBookingProviderCapture({
+          tripStatus: tripStatusForCaptureGate,
+          purpose: session.purpose as string | null,
+        });
+        const refusePrematureCaptureMirror =
+          providerReportsCapture
+          && Boolean(session.trip_id)
+          && String(session.purpose ?? "").toUpperCase() === "RIDE_BOOKING"
+          && !mayMirrorCapture;
+
         if (incomingIsRegression) {
           // Do not regress provider_state — still log structured lifecycle skip below.
           delete providerEvidencePatch.provider_state;
@@ -581,7 +612,7 @@ Deno.serve(async (req) => {
             statusAdvanceExtras.authorised_at = nowIso;
             statusAdvanceExtras.failure_reason = null;
           }
-          if (["COMPLETED", "CAPTURED"].includes(effectiveStateUpper)) {
+          if (providerReportsCapture && !refusePrematureCaptureMirror) {
             const captureAmt = eventCaptured ?? (
               Number(session.captured_amount_pence ?? 0) > 0
                 ? Math.round(Number(session.captured_amount_pence))
@@ -615,15 +646,36 @@ Deno.serve(async (req) => {
           }
         }
 
-        let tripFinancialModel: string | null = null;
-        if (session.trip_id) {
-          const { data: tripRow } = await supabase
-            .from("trips")
-            .select("financial_model")
-            .eq("id", session.trip_id)
-            .maybeSingle();
-          tripFinancialModel = (tripRow?.financial_model as string | null) ?? null;
+        if (refusePrematureCaptureMirror) {
+          console.warn("[revolut-webhook] refusing local capture mirror before trip completed", {
+            trip_id: session.trip_id,
+            trip_status: tripStatusForCaptureGate,
+            provider_state: effectiveStateUpper,
+            session_id: session.id,
+          });
+          if (isRevolutWrongCaptureBeforeTripComplete(effectiveStateUpper)) {
+            try {
+              await handleRevolutPaymentInvariantViolation(supabase, {
+                providerOrderId: orderId,
+                tripId: String(session.trip_id),
+                clientActionId: (session as { client_action_id?: string | null }).client_action_id ?? null,
+                stage: "revolut-webhook",
+                reason: "capture_before_trip_completion",
+              });
+            } catch (invErr) {
+              console.error("[revolut-webhook] wrong-capture invariant handler failed", {
+                trip_id: session.trip_id,
+                error: invErr instanceof Error ? invErr.message : String(invErr),
+              });
+            }
+          }
         }
+
+        // When refusing premature capture mirror, resolve lifecycle as AUTHORISED so
+        // session status does not ADVANCE to captured; evidence still stores COMPLETED.
+        const lifecycleProviderState = refusePrematureCaptureMirror
+          ? (priorProvider && priorProvider.length > 0 ? priorProvider : "AUTHORISED")
+          : effectiveStateUpper;
 
         const lifecycleResult = await applyPaymentSessionWebhookLifecycleUpdate({
           supabase,
@@ -642,8 +694,8 @@ Deno.serve(async (req) => {
             storedProviderOrderId: session.provider_order_id,
             priorProviderState: priorProvider,
           },
-          providerState: effectiveStateUpper,
-          incomingCapturedAmountPence: eventCaptured,
+          providerState: lifecycleProviderState,
+          incomingCapturedAmountPence: refusePrematureCaptureMirror ? null : eventCaptured,
           providerEvidencePatch: incomingIsRegression
             ? {
               provider_state_verified_at: nowIso,
@@ -652,7 +704,13 @@ Deno.serve(async (req) => {
               metadata: providerEvidencePatch.metadata,
             }
             : providerEvidencePatch,
-          statusAdvanceExtras,
+          statusAdvanceExtras: refusePrematureCaptureMirror
+            ? Object.fromEntries(
+              Object.entries(statusAdvanceExtras).filter(([k]) =>
+                !["captured_amount_pence", "captured_at", "provider_capture_id"].includes(k)
+              ),
+            )
+            : statusAdvanceExtras,
         });
 
         if (lifecycleResult.error_message) {
@@ -888,6 +946,28 @@ Deno.serve(async (req) => {
       }
     }
 
+    // MK-261106-004: never stamp trips.payment_status=captured while the ride
+    // is still pre-completion (webhook mirror ≠ fare capture request).
+    if (effectiveStatus === "captured") {
+      const { data: tripForCaptureGate } = await supabase
+        .from("trips")
+        .select("status")
+        .eq("id", tripId)
+        .maybeSingle();
+      if (
+        !shouldMirrorRideBookingProviderCapture({
+          tripStatus: tripForCaptureGate?.status,
+          purpose: "RIDE_BOOKING",
+        })
+      ) {
+        console.warn("[revolut-webhook] skip trip payment_status=captured before completion", {
+          trip_id: tripId,
+          trip_status: tripForCaptureGate?.status ?? null,
+        });
+        effectiveStatus = "authorized";
+      }
+    }
+
     const update: Record<string, unknown> = {
       payment_status: effectiveStatus,
       updated_at: new Date().toISOString(),
@@ -906,8 +986,21 @@ Deno.serve(async (req) => {
 
   // On capture: hydrate provider processing fee from Revolut order details.
   // Writes payment_sessions.provider_processing_fee_pence + trips.provider_fee_pence.
+  // MK-261106-004: skip fee hydration when trip is still pre-completion (mirror refuse).
   let feeMinor: number | null = null;
-  if (nextStatus === "captured" && orderId) {
+  let allowCaptureFeeHydration = nextStatus === "captured" && Boolean(orderId);
+  if (allowCaptureFeeHydration && tripId) {
+    const { data: feeTrip } = await supabase
+      .from("trips")
+      .select("status")
+      .eq("id", tripId)
+      .maybeSingle();
+    allowCaptureFeeHydration = shouldMirrorRideBookingProviderCapture({
+      tripStatus: feeTrip?.status,
+      purpose: "RIDE_BOOKING",
+    });
+  }
+  if (allowCaptureFeeHydration && orderId) {
     try {
       const secretKey = Deno.env.get("REVOLUT_MERCHANT_SECRET_KEY")
         ?? Deno.env.get("REVOLUT_SECRET_KEY");

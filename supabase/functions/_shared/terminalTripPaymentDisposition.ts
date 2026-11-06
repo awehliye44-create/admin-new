@@ -40,6 +40,7 @@ import {
   releasePaymentSessionFinancialLock,
 } from "./paymentSessionFinancialLockSSOT.ts";
 import { shouldBlockPrematureScheduledSearchHoldRelease } from "./scheduledHandoverHoldLock.ts";
+import { assertFareCaptureAllowedAtProvider } from "./scheduledFareCaptureGateSSOT.ts";
 import { transitionPaymentSession } from "./paymentSessionTransitionFacade.ts";
 import { reconcileReceivablesOnAbandonOrCancel } from "./customerReceivableLifecycle.ts";
 import {
@@ -1029,6 +1030,20 @@ export async function disposeTerminalTripPayment(
     ) {
       const fee = Math.min(feePence, authPence);
       if (fee > 0) {
+        const feeGate = assertFareCaptureAllowedAtProvider({
+          tripStatus: trip.status,
+          captureKind: "terminal_fee",
+        });
+        if (!feeGate.ok) {
+          return {
+            outcome: "SKIPPED_SAFETY_CHECK",
+            trip_id: args.tripId,
+            disposition_key: dispositionKey,
+            decision,
+            message: feeGate.error,
+            provider_order_id_mask: maskOrderId(orderId),
+          };
+        }
         await captureRevolutOrder(environment, secretKey, orderId, fee);
         const afterCap = await retrieveRevolutOrder(environment, secretKey, orderId);
         const stateAfterCap = String(afterCap.state ?? "").toUpperCase();
