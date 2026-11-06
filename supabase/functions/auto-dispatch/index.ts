@@ -58,6 +58,7 @@ import {
   DISPATCHABLE_DEGRADED,
   evaluateDispatchableReadiness,
   isDispatchRecheckableReason,
+  isPresenceLivenessFresh,
 } from "../_shared/dispatchEligibilityPolicy.ts";
 import { reconcileTripServiceAreaFromPickup } from "../_shared/resolveTripServiceArea.ts";
 import {
@@ -185,10 +186,35 @@ function timestampAtOrAfterCutoff(ts: string | null | undefined, cutoffIso: stri
  * push-token registration before dispatch may consider them.
  */
 function heartbeatFreshEnough(
-  presence: { last_heartbeat_at?: string | null },
-  driverRow: { last_seen_at?: string | null },
+  presence: {
+    last_heartbeat_at?: string | null;
+    last_gps_sample_at?: string | null;
+    last_location_at?: string | null;
+  },
+  driverRow: {
+    last_seen_at?: string | null;
+    last_location_updated_at?: string | null;
+    last_gps_sample_at?: string | null;
+  },
   cutoffIso: string,
+  presenceMaxAgeSeconds: number,
+  nowMs: number = Date.now(),
 ): boolean {
+  // Prefer shared SSOT (HB OR fresh GPS/seen) — iOS GPS-gated ping can lag HB.
+  if (
+    isPresenceLivenessFresh({
+      lastHeartbeatAt: presence.last_heartbeat_at ?? null,
+      lastGpsSampleAt:
+        presence.last_gps_sample_at ?? driverRow.last_gps_sample_at ?? null,
+      lastLocationAt:
+        presence.last_location_at ?? driverRow.last_location_updated_at ?? null,
+      lastSeenAt: driverRow.last_seen_at ?? null,
+      presenceMaxAgeSeconds,
+      nowMs,
+    })
+  ) {
+    return true;
+  }
   return (
     timestampAtOrAfterCutoff(presence.last_heartbeat_at ?? null, cutoffIso) ||
     timestampAtOrAfterCutoff(driverRow.last_seen_at ?? null, cutoffIso)
@@ -1470,7 +1496,12 @@ Deno.serve(async (req) => {
         continue;
       }
 
-      const heartbeatOkCombined = heartbeatFreshEnough(presence, d, heartbeatCutoffIso);
+      const heartbeatOkCombined = heartbeatFreshEnough(
+        presence,
+        d,
+        heartbeatCutoffIso,
+        heartbeatMaxAgeSeconds,
+      );
       const locationOkCombined = locationFreshEnough(presence, d, locationCutoffIso);
       const coordsPair = coordsForDispatch(presence, d);
       const registeredPushTokens = pushTokenMap.get(d.id) || [];
@@ -1815,7 +1846,14 @@ Deno.serve(async (req) => {
             });
             continue;
           }
-          if (!heartbeatFreshEnough(sp, driver, heartbeatCutoffIso)) {
+          if (
+            !heartbeatFreshEnough(
+              sp,
+              driver,
+              heartbeatCutoffIso,
+              heartbeatMaxAgeSeconds,
+            )
+          ) {
             logEligibility(driver.id, false, "stacked_stale_heartbeat", { stacked_gate: true });
             continue;
           }

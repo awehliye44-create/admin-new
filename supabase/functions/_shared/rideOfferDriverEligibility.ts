@@ -8,6 +8,7 @@
  * - Delivery miss / ACK timeout is not a decline (handled elsewhere).
  */
 
+import { isPresenceLivenessFresh } from "./dispatchEligibilityPolicy.ts";
 import { computeDriverLocationState } from "./driverLocationState.ts";
 
 export type RideOfferEligibilityReason =
@@ -82,10 +83,6 @@ export interface RideOfferEligibilityResult {
   presenceAppState: string | null;
 }
 
-function heartbeatCutoffIso(presenceMaxAgeSeconds: number, nowMs: number): string {
-  return new Date(nowMs - presenceMaxAgeSeconds * 1000).toISOString();
-}
-
 /**
  * Authoritative online/operational eligibility for creating or pushing a ride offer.
  */
@@ -138,14 +135,22 @@ export function evaluateRideOfferDriverEligibility(
     return empty("presence_not_online");
   }
 
-  const cutoff = heartbeatCutoffIso(input.presenceMaxAgeSeconds, nowMs);
-  const heartbeatStale =
-    !presence.last_heartbeat_at ||
-    (presence.last_heartbeat_at as string) < cutoff;
+  const livenessFresh = isPresenceLivenessFresh({
+    lastHeartbeatAt: presence.last_heartbeat_at ?? null,
+    lastGpsSampleAt: presence.last_gps_sample_at ?? d.last_gps_sample_at ?? null,
+    lastSeenAt: null,
+    presenceMaxAgeSeconds: input.presenceMaxAgeSeconds,
+    nowMs,
+  });
   const ageMs = presence.last_heartbeat_at
     ? nowMs - new Date(presence.last_heartbeat_at).getTime()
+    : presence.last_gps_sample_at
+    ? nowMs - new Date(presence.last_gps_sample_at).getTime()
     : null;
 
+  // Fresh GPS counts as liveness even when GPS-gated ping left last_heartbeat_at
+  // frozen — still hard-reject when both HB and GPS are outside max age.
+  const heartbeatStale = !livenessFresh;
   if (heartbeatStale) {
     return {
       ...empty("stale_heartbeat"),

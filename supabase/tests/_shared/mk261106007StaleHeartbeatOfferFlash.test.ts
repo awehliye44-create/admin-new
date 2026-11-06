@@ -15,6 +15,7 @@ import { assertEquals } from "https://deno.land/std@0.224.0/assert/mod.ts";
 import {
   DEGRADABLE_HEALTH_REJECT_REASONS,
   evaluateDispatchableReadiness,
+  isPresenceLivenessFresh,
 } from "../../functions/_shared/dispatchEligibilityPolicy.ts";
 import {
   evaluateRideOfferDriverEligibility,
@@ -96,4 +97,57 @@ Deno.test("MK-261106-007: push-gate skip must not revoke for stale_heartbeat", (
   assertEquals(shouldRevokeOnRideOfferPushGateSkip("stale_heartbeat"), false);
   assertEquals(shouldRevokeOnRideOfferPushGateSkip("driver_offline"), true);
   assertEquals(shouldRevokeOnRideOfferPushGateSkip("no_active_push_token"), true);
+});
+
+Deno.test("offerability: fresh GPS counts as liveness when heartbeat field is frozen", () => {
+  const nowMs = OFFER_AT.getTime();
+  assertEquals(
+    isPresenceLivenessFresh({
+      lastHeartbeatAt: STALE_HB,
+      lastGpsSampleAt: "2026-11-06T11:23:50.000Z",
+      presenceMaxAgeSeconds: 45,
+      nowMs,
+    }),
+    true,
+  );
+  assertEquals(
+    isPresenceLivenessFresh({
+      lastHeartbeatAt: STALE_HB,
+      lastGpsSampleAt: STALE_GPS,
+      presenceMaxAgeSeconds: 45,
+      nowMs,
+    }),
+    false,
+  );
+
+  const eligible = evaluateRideOfferDriverEligibility({
+    driver: {
+      id: "ios-fresh-gps",
+      driver_status: "active",
+      approval_status: "approved",
+      documents_approved: true,
+      is_online: true,
+      driver_online_intent: true,
+      current_trip_id: null,
+      current_lat: 52.04,
+      current_lng: -0.76,
+      last_gps_sample_at: "2026-11-06T11:23:50.000Z",
+      speed: 0,
+    },
+    presence: {
+      status: "online",
+      lat: 52.04,
+      lng: -0.76,
+      last_heartbeat_at: STALE_HB,
+      last_gps_sample_at: "2026-11-06T11:23:50.000Z",
+      speed: 0,
+      socket_connected: true,
+      app_state: "background",
+      push_token: "tok",
+    },
+    hasActivePushToken: true,
+    presenceMaxAgeSeconds: 45,
+    nowMs,
+  });
+  assertEquals(eligible.eligible, true);
 });

@@ -344,5 +344,36 @@ export function evaluateDispatchableReadiness(args: {
   return { eligible: true, degraded: false, hardRejectReason: null, degradedHealthReasons: [] };
 }
 
+/**
+ * Dispatch / push-gate liveness: fresh heartbeat OR fresh GPS / location / seen.
+ * GPS-gated pings can leave last_heartbeat_at frozen while a real sample is
+ * still inside presence_max_age — still offerable (helps iOS get offers).
+ * Hours-stale GPS+HB still fails (MK-261106-007 / MK-260928).
+ */
+export function isPresenceLivenessFresh(args: {
+  lastHeartbeatAt?: string | null;
+  lastGpsSampleAt?: string | null;
+  lastLocationAt?: string | null;
+  lastSeenAt?: string | null;
+  presenceMaxAgeSeconds: number;
+  nowMs?: number;
+}): boolean {
+  const nowMs = args.nowMs ?? Date.now();
+  const maxAge = args.presenceMaxAgeSeconds;
+  if (!Number.isFinite(maxAge) || maxAge <= 0) return false;
+  const cutoffMs = nowMs - maxAge * 1000;
+  const fresh = (iso?: string | null): boolean => {
+    if (!iso || typeof iso !== "string") return false;
+    const t = Date.parse(iso);
+    return Number.isFinite(t) && t >= cutoffMs;
+  };
+  return (
+    fresh(args.lastHeartbeatAt) ||
+    fresh(args.lastGpsSampleAt) ||
+    fresh(args.lastLocationAt) ||
+    fresh(args.lastSeenAt)
+  );
+}
+
 /** Active offer statuses that block creating another offer for the same trip. */
 export const ACTIVE_OFFER_BLOCKING_STATUSES = ["pending", "accepted", "countered"] as const;
