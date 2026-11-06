@@ -22,7 +22,6 @@ import {
   isOfferExpiryWaveEnabled,
   isStaleTripRebroadcastCandidate,
   DEFAULT_MAX_BROADCAST_SEQUENCES,
-  OFFER_EXPIRED_TRIGGER_REASON,
   sweepExpiredOffers,
 } from "../_shared/sweepExpiredOffers.ts";
 import {
@@ -45,6 +44,10 @@ import {
   invokeAutoDispatchWithServiceRole,
   type DispatchTripContext,
 } from "../_shared/invokeAutoDispatchServiceRole.ts";
+import {
+  resolveExpireOffersRebroadcastConcurrency,
+  runExpireOffersRebroadcastBatch,
+} from "../_shared/expireOffersRebroadcastRunner.ts";
 import { assertCronOrServiceRoleAuth } from "../_shared/cronEdgeAuth.ts";
 
 // Rate limit: 60 requests per minute (for cron jobs)
@@ -754,86 +757,18 @@ Deno.serve(async (req) => {
       stuckVehicleTypeSelectedTripIds.filter((tripId) => !coveredTripIds.has(tripId)),
     );
     const allRebroadcastInvocations = [...rebroadcastInvocations, ...stuckInvocations];
+    const rebroadcastConcurrency = resolveExpireOffersRebroadcastConcurrency();
 
-    const rebroadcastResults: {
-      trip_id: string;
-      success: boolean;
-      trigger_reason?: string;
-      outcome?: string;
-      http_status?: number | null;
-      error?: string;
-    }[] = [];
-
-    for (const { tripId, body } of allRebroadcastInvocations) {
-      const rebroadcastSource =
-        body.trigger_reason === "offer_expired"
-          ? "expire-offers:offer_expired_sweep"
-          : body.trigger_reason === "search_window_recheck"
-          ? "expire-offers:search_window_recheck"
-          : body.trigger_reason === "vehicle_type_selected_stuck_recovery"
-          ? "expire-offers:vehicle_type_selected_stuck_recovery"
-          : "expire-offers:stale_trip_scan";
-
-      try {
-        const allowed = await assertGlobalRebroadcastAllowed(supabase, tripId, rebroadcastSource);
-        if (!allowed) continue;
-
-        const tripContext = await loadDispatchTripContext(supabase, tripId);
-        const dispatchResult = await invokeAutoDispatchWithServiceRole({
-          supabaseUrl,
-          serviceRoleKey: supabaseKey,
-          body,
-          source: EXPIRE_OFFERS_AUTO_DISPATCH_SOURCE,
-          tripContext,
-        });
-
-        if (!dispatchResult.ok) {
-          console.error("[expire-offers] auto-dispatch non-2xx", dispatchResult.logPayload);
-          rebroadcastResults.push({
-            trip_id: tripId,
-            success: false,
-            trigger_reason: body.trigger_reason,
-            outcome: dispatchResult.outcome,
-            http_status: dispatchResult.httpStatus,
-            error: dispatchResult.errorCode ?? "non-2xx",
-          });
-        } else {
-          const isOfferExpiredWave =
-            body.trigger_reason === OFFER_EXPIRED_TRIGGER_REASON;
-          if (isOfferExpiredWave) {
-            console.log("[expire-offers] next_wave_started", {
-              trip_id: tripId,
-              reason_for_next_wave: body.reason_for_next_wave ?? OFFER_EXPIRED_TRIGGER_REASON,
-              outcome: dispatchResult.outcome,
-              http_status: dispatchResult.httpStatus,
-              dispatchResult: dispatchResult.responseBody,
-            });
-          }
-          console.log("[expire-offers] Rebroadcast success for", tripId, {
-            trigger_reason: body.trigger_reason,
-            reason_for_next_wave: body.reason_for_next_wave ?? null,
-            outcome: dispatchResult.outcome,
-            http_status: dispatchResult.httpStatus,
-            dispatchResult: dispatchResult.responseBody,
-          });
-          rebroadcastResults.push({
-            trip_id: tripId,
-            success: true,
-            trigger_reason: body.trigger_reason,
-            outcome: dispatchResult.outcome,
-            http_status: dispatchResult.httpStatus,
-          });
-        }
-      } catch (err) {
-        console.error("[expire-offers] Rebroadcast exception for", tripId, err);
-        rebroadcastResults.push({
-          trip_id: tripId,
-          success: false,
-          trigger_reason: body.trigger_reason,
-          error: String(err),
-        });
-      }
-    }
+    // Bounded parallel next-wave invokes (default 8). Same per-trip policy +
+    // service-role body as the previous serial loop — only drain latency changes.
+    const rebroadcastResults = await runExpireOffersRebroadcastBatch({
+      supabase,
+      supabaseUrl,
+      serviceRoleKey: supabaseKey,
+      invocations: allRebroadcastInvocations,
+      concurrency: rebroadcastConcurrency,
+      loadDispatchTripContext,
+    });
 
     return successResponse({
       success: true,
@@ -841,6 +776,7 @@ Deno.serve(async (req) => {
       trips_rebroadcast: rebroadcastResults.filter(r => r.success).length,
       trips_expired: (staleTrips || []).length - tripsToRebroadcast.length,
       details: {
+        rebroadcast_concurrency: rebroadcastConcurrency,
         rebroadcast_results: rebroadcastResults,
         stuck_vehicle_type_selected_trips: stuckVehicleTypeSelectedTripIds,
       },

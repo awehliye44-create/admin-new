@@ -6,13 +6,18 @@ import {
   handleCORSPreflight,
   checkRateLimit,
   rateLimitResponse,
-  getClientIP,
   successResponse,
   errorResponse,
   isValidUUID,
   validationErrorResponse,
 } from "../_shared/security.ts";
 import { coercePositiveInt, realtimeFresh, REALTIME_FRESH_MAX_AGE_SECONDS } from "../_shared/dispatchGates.ts";
+import {
+  AUTO_DISPATCH_PER_TRIP_RATE_LIMIT,
+  AUTO_DISPATCH_SERVICE_GLOBAL_RATE_LIMIT,
+  AUTO_DISPATCH_SERVICE_GLOBAL_RL_ID,
+  autoDispatchTripRateLimitId,
+} from "../_shared/autoDispatchRateLimitSSOT.ts";
 import {
   attachDriverCategoryPriority,
   bookingDispatchWaveRadiiMeters,
@@ -121,8 +126,7 @@ declare const EdgeRuntime:
   | { waitUntil?: (promise: Promise<unknown>) => void }
   | undefined;
 
-// Rate limit: 100 requests per minute
-const RATE_LIMIT_CONFIG = { limit: 100, windowMs: 60000, keyPrefix: 'auto-dispatch' };
+// Rate limits: per-trip + service-global (see autoDispatchRateLimitSSOT).
 
 interface DispatchRequest {
   trip_id: string;
@@ -387,15 +391,8 @@ Deno.serve(async (req) => {
     return handleCORSPreflight();
   }
 
-  // Rate limiting
-  const clientIP = getClientIP(req);
-  const rateLimitResult = checkRateLimit(clientIP, RATE_LIMIT_CONFIG);
-  if (!rateLimitResult.allowed) {
-    console.warn("[auto-dispatch] Rate limit exceeded for IP:", clientIP);
-    return rateLimitResponse(rateLimitResult);
-  }
-
-  // Auth check
+  // Auth first — auto-dispatch is service-role only. Do not rate-limit by shared
+  // egress IP (expire-offers parallel rebroadcast would share one bucket).
   const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
   const auth = await requireServiceRole(req, supabaseKey);
   if (!auth.ok) {
@@ -414,6 +411,23 @@ Deno.serve(async (req) => {
 
     const body: DispatchRequest = await req.json();
     const { trip_id, force_rebroadcast = false, trigger_reason, declined_driver_id } = body;
+
+    const tripRl = checkRateLimit(
+      autoDispatchTripRateLimitId(trip_id),
+      AUTO_DISPATCH_PER_TRIP_RATE_LIMIT,
+    );
+    if (!tripRl.allowed) {
+      console.warn("[auto-dispatch] Rate limit exceeded for trip:", trip_id);
+      return rateLimitResponse(tripRl);
+    }
+    const globalRl = checkRateLimit(
+      AUTO_DISPATCH_SERVICE_GLOBAL_RL_ID,
+      AUTO_DISPATCH_SERVICE_GLOBAL_RATE_LIMIT,
+    );
+    if (!globalRl.allowed) {
+      console.warn("[auto-dispatch] Service-global rate limit exceeded");
+      return rateLimitResponse(globalRl);
+    }
     auditTripId = trip_id ?? null;
     const triggerReasonResolved =
       trigger_reason ?? (force_rebroadcast ? "force_rebroadcast" : "initial_dispatch");
