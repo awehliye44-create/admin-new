@@ -29800,6 +29800,7 @@ export type Database = {
           auth_phone_confirmed_at: string
           created_at: string
           email: string
+          email_verified: boolean
           email_verified_at: string
           expires_at: string
           first_name: string
@@ -29807,12 +29808,14 @@ export type Database = {
           last_name: string
           legacy_customer_code: string
           phone: string
+          phone_verified: boolean
           phone_verified_at: string
           record_type: string
           signup_source: string
           status: string
           updated_at: string
           user_id: string
+          verification_stage: string
         }[]
       }
       admin_live_chat_driver_identity: {
