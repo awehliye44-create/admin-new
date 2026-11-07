@@ -724,11 +724,21 @@ export async function executeFareIncreaseModificationPayment(
   };
 }
 
-/** Completion / capture fail-closed gate (race-safe via DB FOR UPDATE). */
+/**
+ * Completion payment gate (race-safe via DB FOR UPDATE).
+ * Driver Complete (stop-workflow) soft-allows on !ok / paymentUnresolved.
+ * Capture/admin may still treat !ok as settle-blocked.
+ */
 export async function assertPlatformCollectedCompletionPaymentGate(
   supabase: SupabaseClient,
   tripId: string,
-): Promise<{ ok: true; protectedPence?: number; requiredPence?: number } | {
+): Promise<{
+  ok: true;
+  protectedPence?: number;
+  requiredPence?: number;
+  paymentUnresolved?: boolean;
+  reason?: string;
+} | {
   ok: false;
   code: string;
   message: string;
@@ -740,8 +750,8 @@ export async function assertPlatformCollectedCompletionPaymentGate(
     { p_trip_id: tripId },
   );
   if (error) {
-    // Fail closed if completion gate RPC is unavailable — never soft-skip
-    // protected >= committed (MK-260916-030).
+    // Transport/RPC failure: callers that must not strand the driver (stop-workflow)
+    // soft-allow. Capture/admin keep fail-closed on !ok.
     console.error("assert_trip_completion_customer_payment_gate failed", error);
     return {
       ok: false,
@@ -755,6 +765,8 @@ export async function assertPlatformCollectedCompletionPaymentGate(
       ok: true,
       protectedPence: Number(row.protected_pence ?? 0) || undefined,
       requiredPence: Number(row.required_pence ?? 0) || undefined,
+      paymentUnresolved: row.payment_unresolved === true,
+      reason: typeof row.reason === "string" ? row.reason : undefined,
     };
   }
   return {

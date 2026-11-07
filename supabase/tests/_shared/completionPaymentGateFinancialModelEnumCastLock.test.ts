@@ -28,7 +28,6 @@ Deno.test("completion gate lock migration casts financial_model::text before COA
   assertEquals(sql.includes("COALESCE(v_trip.financial_model, '')"), false);
   assertEquals(sql.includes("v_trip.metadata"), false);
   assertStringIncludes(sql, "FOR UPDATE");
-  assertStringIncludes(sql, "CUSTOMER_PAYMENT_INCREMENT_UNRESOLVED");
   assertStringIncludes(sql, "mid_trip_payment_auth_lost_recovery");
   assertStringIncludes(sql, "payment_hold_status");
 });

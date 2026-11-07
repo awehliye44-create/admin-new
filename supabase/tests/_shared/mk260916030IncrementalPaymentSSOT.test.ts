@@ -251,7 +251,7 @@ Deno.test("atomic migration serializes claim with FOR UPDATE", async () => {
   assertStringIncludes(broaden, "payment_status");
 });
 
-Deno.test("completion gate migration locks trip and requires protected >= committed", async () => {
+Deno.test("completion gate historical migration locked protected >= committed (superseded for driver)", async () => {
   const sql = await Deno.readTextFile(
     new URL(
       "../../migrations/20261112180500_completion_payment_gate_lock.sql",
@@ -264,6 +264,16 @@ Deno.test("completion gate migration locks trip and requires protected >= commit
   assertStringIncludes(sql, "PLATFORM_COLLECTED");
   assertStringIncludes(sql, "protected_pence");
   assertStringIncludes(sql, "required_pence");
+
+  // Current SSOT: driver Complete is never blocked — recovery stamp instead.
+  const current = await Deno.readTextFile(
+    new URL(
+      "../../migrations/20261230170000_completion_payment_gate_never_block_driver.sql",
+      import.meta.url,
+    ),
+  );
+  assertStringIncludes(current, "under_protected_allow_complete");
+  assertStringIncludes(current, "payment_unresolved");
 });
 
 Deno.test("DB apply guard blocks unpaid PLATFORM approved/applied increases", async () => {

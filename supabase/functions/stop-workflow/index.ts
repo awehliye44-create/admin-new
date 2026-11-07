@@ -3829,24 +3829,30 @@ Deno.serve(async (req) => {
           return await respondOk({ success: true, idempotent: true, message: "Trip already completed" });
         }
 
-        // Fail-closed: unresolved positive increment OR under-protected committed
-        // payable blocks completion (MK-260916-030). Race-safe via FOR UPDATE RPC.
+        // Payment gate is advisory for driver Complete: shortfalls/unresolved
+        // increments stamp recovery_required inside the RPC and must NEVER
+        // block drop-off (driver calls support otherwise). Capture/admin still
+        // chase money. Race-safe via FOR UPDATE RPC. Transport/RPC errors also
+        // soft-allow — never Action-unavailable the driver here.
         {
           const gateResult = await assertPlatformCollectedCompletionPaymentGate(
             supabase,
             trip_id,
           );
           if (!gateResult.ok) {
-            console.error("[stop-workflow]", gateResult.code, {
+            console.error("[stop-workflow] completion_payment_gate_soft_allow", {
               trip_id,
+              code: gateResult.code,
               protected: gateResult.protectedPence,
               required: gateResult.requiredPence,
             });
-            return errorResponse(
-              gateResult.code,
-              gateResult.message,
-              gateResult.code === "UNRESOLVED_MODIFICATION_CHECK_FAILED" ? 503 : 409,
-            );
+          } else if (gateResult.paymentUnresolved) {
+            console.warn("[stop-workflow] completion_payment_unresolved_allow", {
+              trip_id,
+              reason: gateResult.reason ?? null,
+              protected: gateResult.protectedPence,
+              required: gateResult.requiredPence,
+            });
           }
         }
 
