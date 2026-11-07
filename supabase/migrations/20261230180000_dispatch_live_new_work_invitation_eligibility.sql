@@ -20,8 +20,8 @@ BEGIN
   END IF;
 
   SELECT
-    lower(COALESCE(d.approval_status, '')),
-    lower(COALESCE(d.driver_status, '')),
+    lower(COALESCE(d.approval_status::text, '')),
+    lower(COALESCE(d.driver_status::text, '')),
     d.deleted_at
   INTO v_approval, v_status, v_deleted
   FROM public.drivers d

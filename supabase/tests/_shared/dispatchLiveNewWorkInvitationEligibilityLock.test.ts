@@ -20,6 +20,9 @@ Deno.test("migration defines driver_eligible_for_new_work_invitation with live d
   assertStringIncludes(sql, "check_driver_documents_approved");
   assertStringIncludes(sql, "deleted_at");
   assertStringIncludes(sql, "suspended");
+  // Enum-safe casts — bare COALESCE(..., '') raises 22P02 on driver_status.
+  assertStringIncludes(sql, "approval_status::text");
+  assertStringIncludes(sql, "driver_status::text");
   // Must not gate invitation eligibility on online/presence inside the helper.
   const helperMatch = sql.match(
     /CREATE OR REPLACE FUNCTION public\.driver_eligible_for_new_work_invitation[\s\S]*?\$function\$;/,
