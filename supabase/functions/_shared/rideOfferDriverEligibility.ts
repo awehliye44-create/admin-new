@@ -10,12 +10,21 @@
 
 import { isPresenceLivenessFresh } from "./dispatchEligibilityPolicy.ts";
 import { computeDriverLocationState } from "./driverLocationState.ts";
+import { evaluateDriverDocumentState } from "./driverDocumentEligibility.ts";
+import {
+  evaluateNewWorkInvitationAccountEligibility,
+  mapDocumentStateToNewWorkDenyReason,
+} from "./newWorkInvitationEligibilitySSOT.ts";
 
 export type RideOfferEligibilityReason =
   | "eligible"
   | "driver_status_not_active"
   | "not_approved"
   | "documents_not_approved"
+  | "documents_expired"
+  | "documents_missing"
+  | "documents_rejected"
+  | "documents_pending_review"
   | "driver_offline"
   | "online_intent_false"
   | "already_on_trip"
@@ -347,7 +356,7 @@ export async function evaluateRideOfferPushGate(
   const { data: driver } = await supabase
     .from("drivers")
     .select(
-      "id, current_lat, current_lng, current_trip_id, is_online, driver_online_intent, approval_status, driver_status, documents_approved, last_gps_sample_at, speed",
+      "id, current_lat, current_lng, current_trip_id, is_online, driver_online_intent, approval_status, driver_status, documents_approved, deleted_at, last_gps_sample_at, speed",
     )
     .eq("id", args.driverId)
     .maybeSingle();
@@ -356,6 +365,50 @@ export async function evaluateRideOfferPushGate(
     return {
       ok: false,
       reason: "driver_offline",
+      revoke: true,
+      offerId: offer.id,
+      tripId: offer.trip_id,
+    };
+  }
+
+  // Shared new-work account gate (active / approved / not deleted) before
+  // online+presence rules. Live Europe/London docs — never cache alone.
+  const accountGate = evaluateNewWorkInvitationAccountEligibility(driver);
+  if (!accountGate.ok) {
+    const accountReason: RideOfferPushGateSkipReason =
+      accountGate.reason === "not_approved"
+        ? "not_approved"
+        : accountGate.reason === "driver_status_not_active" ||
+            accountGate.reason === "driver_suspended" ||
+            accountGate.reason === "driver_deleted" ||
+            accountGate.reason === "driver_disabled"
+        ? "driver_status_not_active"
+        : "driver_status_not_active";
+    return {
+      ok: false,
+      reason: accountReason,
+      revoke: true,
+      offerId: offer.id,
+      tripId: offer.trip_id,
+    };
+  }
+
+  const liveDocs = await evaluateDriverDocumentState(supabase as any, args.driverId);
+  if (!liveDocs.allowed) {
+    const deny = mapDocumentStateToNewWorkDenyReason(liveDocs);
+    const docReason: RideOfferPushGateSkipReason =
+      deny === "documents_expired"
+        ? "documents_expired"
+        : deny === "documents_missing"
+        ? "documents_missing"
+        : deny === "documents_rejected"
+        ? "documents_rejected"
+        : deny === "documents_pending_review"
+        ? "documents_pending_review"
+        : "documents_not_approved";
+    return {
+      ok: false,
+      reason: docReason,
       revoke: true,
       offerId: offer.id,
       tripId: offer.trip_id,
@@ -399,13 +452,15 @@ export async function evaluateRideOfferPushGate(
   }
 
   const eligibility = evaluateRideOfferDriverEligibility({
-    driver,
+    // Live docs already passed — do not re-block on a stale cached false.
+    driver: { ...driver, documents_approved: true },
     presence,
     hasActivePushToken: true,
     presenceMaxAgeSeconds,
     nowMs,
     allowOnTrip: !!offer.is_stacked,
     // Push path: delivery channel already satisfied by active token.
+    // Instant offers still require online/presence via evaluateRideOfferDriverEligibility.
     requireDeliveryChannel: false,
   });
 

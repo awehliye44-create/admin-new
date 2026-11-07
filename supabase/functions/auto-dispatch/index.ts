@@ -119,7 +119,7 @@ import {
 import {
   evaluateStackedProximityRadiusGate,
 } from "../_shared/stackedRideMatching.ts";
-import { evaluateDriverDocumentState } from "../_shared/driverDocumentEligibility.ts";
+import { evaluateDriverNewWorkInvitationEligibility } from "../_shared/newWorkInvitationEligibilitySSOT.ts";
 import {
   loadActiveTripDriverIds,
   resolveDriverActiveTripId,
@@ -1435,26 +1435,15 @@ Deno.serve(async (req) => {
     candidateDriverCount = (allDrivers || []).length;
 
     for (const d of allDrivers || []) {
-      if (d.driver_status !== "active") {
-        logEligibility(d.id, false, "driver_status_not_active", { driver_status: d.driver_status });
-        continue;
-      }
-      if (d.approval_status !== "approved") {
-        logEligibility(d.id, false, "not_approved", { approval_status: d.approval_status });
-        continue;
-      }
-      if (d.documents_approved !== true) {
-        logEligibility(d.id, false, "documents_not_approved");
-        continue;
-      }
-      const docCompliance = await evaluateDriverDocumentState(supabase, d.id);
-      if (!docCompliance.allowed) {
-        const docReject = docCompliance.document_state === "documents_expired"
-          ? "documents_expired"
-          : "documents_not_approved";
-        logEligibility(d.id, false, docReject, {
-          document_state: docCompliance.document_state,
-          expired_documents: docCompliance.expired_documents,
+      // Shared new-work invitation gate (live Europe/London docs + account).
+      // Instant path still requires online/presence below — marketplace does not.
+      const inviteGate = await evaluateDriverNewWorkInvitationEligibility(
+        supabase,
+        d.id,
+      );
+      if (!inviteGate.ok) {
+        logEligibility(d.id, false, inviteGate.reason, {
+          document_state: inviteGate.document_state ?? null,
         });
         continue;
       }

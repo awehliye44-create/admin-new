@@ -362,7 +362,7 @@ Deno.serve(async (req) => {
         const { data: tripRow, error: tripErr } = await supabase
           .from("trips")
           .select(
-            "id, service_area_id, pickup_address, scheduled_at, trip_code, trip_number, scheduled_status, scheduled_broadcast_at, confirmed_driver_id, driver_id",
+            "id, service_area_id, pickup_address, scheduled_at, trip_code, trip_number, scheduled_status, scheduled_broadcast_at, confirmed_driver_id, driver_id, dispatch_mode, status",
           )
           .eq("id", notifyTripId)
           .maybeSingle();
@@ -731,7 +731,7 @@ Deno.serve(async (req) => {
             const { data: jobsTrip } = await supabase
               .from("trips")
               .select(
-                "id, service_area_id, pickup_address, scheduled_at, trip_code, trip_number",
+                "id, service_area_id, pickup_address, scheduled_at, trip_code, trip_number, scheduled_status, scheduled_broadcast_at, confirmed_driver_id, driver_id, dispatch_mode, status",
               )
               .eq("id", trip.id)
               .maybeSingle();
@@ -741,6 +741,7 @@ Deno.serve(async (req) => {
                   console.log("SCHEDULED_MARKETPLACE_NOTIFY", {
                     trip_id: trip.id,
                     notified: r.notified,
+                    suppressed: r.suppressed,
                     via: "pending_jobs_at",
                   });
                 }),

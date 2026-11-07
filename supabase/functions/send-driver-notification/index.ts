@@ -21,6 +21,10 @@ import {
   evaluateRideOfferPushGate,
   revokeRideOfferNonDriverFault,
 } from "../_shared/rideOfferDriverEligibility.ts";
+import {
+  evaluateScheduledMarketplaceInviteSendGate,
+  newWorkInvitationSuppressionLogFields,
+} from "../_shared/newWorkInvitationEligibilitySSOT.ts";
 import { buildTokenDeactivatePatch } from "../_shared/driverPushToken.ts";
 import { resolveDriverAuthoritativeToken } from "../_shared/authoritativeDevicePush.ts";
 import {
@@ -282,6 +286,7 @@ Deno.serve(async (req) => {
     const isRideOffer = payload.type === 'RIDE_OFFER';
     const isRideStop = payload.type === 'RIDE_STOP';
     const isNegotiationUpdate = payload.type === 'NEGOTIATION_UPDATE';
+    const isScheduledMarketplaceInvite = payload.type === 'SCHEDULED_RIDE_REQUEST';
     const incomingDataType = String(
       payload.data?.type || payload.data?.notification_type || "",
     ).toLowerCase();
@@ -311,6 +316,37 @@ Deno.serve(async (req) => {
       (eventRaw === "trip_cancelled" ||
         eventRaw === "trip_canceled" ||
         CANCEL_STOP_REASONS.has(stopReasonRaw));
+
+    // ── SCHEDULED_RIDE_REQUEST: recheck new-work invitation + open booking ──
+    // Applies to primary sends, queued retries, and remotes that re-invoke this edge.
+    // Does NOT require online/presence (marketplace may reach eligible offline drivers).
+    if (isScheduledMarketplaceInvite) {
+      const tripId =
+        payload.data?.trip_id ||
+        payload.data?.tripId ||
+        null;
+      const gate = await evaluateScheduledMarketplaceInviteSendGate(supabase, {
+        driverId: payload.driverId,
+        tripId,
+      });
+      if (!gate.ok) {
+        console.warn(
+          "[send-driver-notification] scheduled_marketplace_invite_skip",
+          newWorkInvitationSuppressionLogFields({
+            layer: "send_driver_notification_scheduled_invite",
+            reason: gate.reason,
+            driverId: payload.driverId,
+            tripId: typeof tripId === "string" ? tripId : null,
+          }),
+        );
+        return errorResponse(
+          "DRIVER_INELIGIBLE",
+          `Scheduled marketplace invite blocked: ${gate.reason}`,
+          409,
+          { sent: 0, reason: gate.reason },
+        );
+      }
+    }
 
     // ── RIDE_OFFER: revalidate committed offer + driver before every push ──
     // Never trust presence.app_state=foreground to skip OS notification.

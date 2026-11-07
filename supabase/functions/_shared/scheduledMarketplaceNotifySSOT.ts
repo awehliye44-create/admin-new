@@ -2,7 +2,18 @@
  * Make Available → Scheduled Jobs marketplace alert.
  * List-only (not NRO). Fan-out to drivers in the trip service area via
  * send-driver-notification (authoritative device only inside that edge).
+ *
+ * MK-261105-002 / MK0009: recipients must pass shared new-work invitation
+ * eligibility (live docs + active/approved). Offline drivers may still be
+ * invited. Send path re-checks in send-driver-notification.
  */
+
+import {
+  evaluateDriverNewWorkInvitationEligibility,
+  isScheduledMarketplaceBookingOpenForInvitation,
+  newWorkInvitationSuppressionLogFields,
+  type NewWorkInvitationDenyReason,
+} from "./newWorkInvitationEligibilitySSOT.ts";
 
 export type ScheduledMarketplaceNotifyTrip = {
   id: string;
@@ -11,6 +22,12 @@ export type ScheduledMarketplaceNotifyTrip = {
   scheduled_at?: string | null;
   trip_code?: string | null;
   trip_number?: string | null;
+  dispatch_mode?: string | null;
+  scheduled_status?: string | null;
+  status?: string | null;
+  scheduled_broadcast_at?: string | null;
+  driver_id?: string | null;
+  confirmed_driver_id?: string | null;
 };
 
 type AnySupabase = {
@@ -55,6 +72,33 @@ export function buildScheduledMarketplacePushPayload(trip: ScheduledMarketplaceN
   };
 }
 
+async function filterEligibleMarketplaceRecipients(
+  supabase: AnySupabase,
+  candidateIds: string[],
+): Promise<{ eligibleIds: string[]; suppressed: Array<{ driverId: string; reason: NewWorkInvitationDenyReason }> }> {
+  const eligibleIds: string[] = [];
+  const suppressed: Array<{ driverId: string; reason: NewWorkInvitationDenyReason }> = [];
+
+  for (const driverId of candidateIds) {
+    const gate = await evaluateDriverNewWorkInvitationEligibility(supabase, driverId);
+    if (!gate.ok) {
+      suppressed.push({ driverId, reason: gate.reason });
+      console.warn(
+        "[scheduledMarketplaceNotify] recipient_suppressed",
+        newWorkInvitationSuppressionLogFields({
+          layer: "marketplace_recipient_select",
+          reason: gate.reason,
+          driverId,
+        }),
+      );
+      continue;
+    }
+    eligibleIds.push(driverId);
+  }
+
+  return { eligibleIds, suppressed };
+}
+
 /**
  * Notify eligible drivers that a scheduled job is on the Requested tab.
  * Never creates ride_offers / NRO.
@@ -62,18 +106,32 @@ export function buildScheduledMarketplacePushPayload(trip: ScheduledMarketplaceN
 export async function notifyScheduledMarketplaceOpen(
   supabase: AnySupabase,
   trip: ScheduledMarketplaceNotifyTrip,
-): Promise<{ notified: number; driverIds: string[] }> {
-  const serviceAreaId = trip.service_area_id ? String(trip.service_area_id).trim() : "";
-  if (!serviceAreaId) {
-    return { notified: 0, driverIds: [] };
+): Promise<{ notified: number; driverIds: string[]; suppressed: number }> {
+  const booking = isScheduledMarketplaceBookingOpenForInvitation(trip);
+  if (!booking.open) {
+    console.warn(
+      "[scheduledMarketplaceNotify] booking_not_open",
+      newWorkInvitationSuppressionLogFields({
+        layer: "marketplace_booking_gate",
+        reason: booking.reason,
+        tripId: trip.id,
+      }),
+    );
+    return { notified: 0, driverIds: [], suppressed: 0 };
   }
 
+  const serviceAreaId = trip.service_area_id ? String(trip.service_area_id).trim() : "";
+  if (!serviceAreaId) {
+    return { notified: 0, driverIds: [], suppressed: 0 };
+  }
+
+  // Broad candidate pool — eligibility applied after union (primary + junction).
+  // Do not filter only on approval_status here; shared gate is authoritative.
   const { data: primaryRows, error: primaryErr } = await supabase
     .from("drivers")
     .select("id")
     .eq("service_area_id", serviceAreaId)
-    .eq("approval_status", "approved")
-    .limit(SCHEDULED_MARKETPLACE_NOTIFY_DRIVER_CAP);
+    .limit(SCHEDULED_MARKETPLACE_NOTIFY_DRIVER_CAP * 2);
 
   if (primaryErr) {
     console.warn("[scheduledMarketplaceNotify] primary drivers query failed:", primaryErr);
@@ -83,7 +141,7 @@ export async function notifyScheduledMarketplaceOpen(
     .from("driver_service_areas")
     .select("driver_id")
     .eq("service_area_id", serviceAreaId)
-    .limit(SCHEDULED_MARKETPLACE_NOTIFY_DRIVER_CAP);
+    .limit(SCHEDULED_MARKETPLACE_NOTIFY_DRIVER_CAP * 2);
 
   if (junctionErr) {
     console.warn("[scheduledMarketplaceNotify] junction drivers query failed:", junctionErr);
@@ -99,14 +157,34 @@ export async function notifyScheduledMarketplaceOpen(
     if (id) ids.add(id);
   }
 
-  const driverIds = [...ids].slice(0, SCHEDULED_MARKETPLACE_NOTIFY_DRIVER_CAP);
+  const candidateIds = [...ids].slice(0, SCHEDULED_MARKETPLACE_NOTIFY_DRIVER_CAP * 2);
+  const { eligibleIds, suppressed } = await filterEligibleMarketplaceRecipients(
+    supabase,
+    candidateIds,
+  );
+  const driverIds = eligibleIds.slice(0, SCHEDULED_MARKETPLACE_NOTIFY_DRIVER_CAP);
   if (driverIds.length === 0) {
-    return { notified: 0, driverIds: [] };
+    return { notified: 0, driverIds: [], suppressed: suppressed.length };
   }
 
   const push = buildScheduledMarketplacePushPayload(trip);
   let notified = 0;
   for (const driverId of driverIds) {
+    // Immediate pre-send recheck (eligibility may change after selection).
+    const recheck = await evaluateDriverNewWorkInvitationEligibility(supabase, driverId);
+    if (!recheck.ok) {
+      console.warn(
+        "[scheduledMarketplaceNotify] pre_send_suppressed",
+        newWorkInvitationSuppressionLogFields({
+          layer: "marketplace_pre_send",
+          reason: recheck.reason,
+          driverId,
+          tripId: trip.id,
+        }),
+      );
+      continue;
+    }
+
     try {
       const result = await supabase.functions.invoke("send-driver-notification", {
         body: {
@@ -131,5 +209,5 @@ export async function notifyScheduledMarketplaceOpen(
     }
   }
 
-  return { notified, driverIds };
+  return { notified, driverIds, suppressed: suppressed.length };
 }
