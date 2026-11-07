@@ -17,6 +17,12 @@ import {
   UserPlus, Loader2, Search, RefreshCw, Mail, Phone, Clock, AlertCircle,
 } from 'lucide-react';
 import { format, formatDistanceToNow, isPast } from 'date-fns';
+import {
+  countPendingSignupStages,
+  PENDING_SIGNUP_STAGE_LABELS,
+  resolvePendingSignupStage,
+  type ResolvedPendingSignupStage,
+} from '@/lib/pendingSignupStage';
 
 interface PendingSignup {
   id: string;
@@ -36,15 +42,36 @@ interface PendingSignup {
   auth_phone_confirmed_at: string | null;
   record_type: string;
   legacy_customer_code: string | null;
+  email_verified: boolean;
+  phone_verified: boolean;
+  verification_stage: string | null;
 }
 
-type StatusFilter = 'all' | 'pending' | 'email_verified' | 'legacy_ghost';
+type StageFilter = 'all' | Exclude<ResolvedPendingSignupStage, 'unknown'>;
+
+const STAGE_FILTERS: StageFilter[] = [
+  'all',
+  'pending_email',
+  'pending_phone',
+  'pending_email_and_phone',
+  'awaiting_activation',
+  'legacy_ghost',
+];
+
+const STAGE_BADGE_VARIANT: Record<ResolvedPendingSignupStage, 'default' | 'secondary' | 'outline' | 'destructive'> = {
+  pending_email: 'secondary',
+  pending_phone: 'secondary',
+  pending_email_and_phone: 'outline',
+  awaiting_activation: 'default',
+  legacy_ghost: 'outline',
+  unknown: 'destructive',
+};
 
 export default function PendingCustomerSignups() {
   usePageLoadTelemetry('PendingCustomerSignupsPage');
   const queryClient = useQueryClient();
   const [searchQuery, setSearchQuery] = useState('');
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
+  const [stageFilter, setStageFilter] = useState<StageFilter>('all');
 
   const { data: signups = [], isLoading, error } = useQuery({
     queryKey: ['pending-customer-signups'],
@@ -72,14 +99,9 @@ export default function PendingCustomerSignups() {
     return first + last || '?';
   };
 
-  const getStatusBadge = (row: PendingSignup) => {
-    if (row.record_type === 'legacy_ghost' || row.status === 'legacy_ghost') {
-      return <Badge className="bg-amber-500/10 text-amber-700 border-amber-500/30">Legacy ghost</Badge>;
-    }
-    if (row.status === 'email_verified') {
-      return <Badge className="bg-blue-500/10 text-blue-600 border-blue-500/30">Email verified</Badge>;
-    }
-    return <Badge className="bg-slate-500/10 text-slate-600 border-slate-500/30">Pending email</Badge>;
+  const getStageBadge = (row: PendingSignup) => {
+    const stage = resolvePendingSignupStage(row.verification_stage);
+    return <Badge variant={STAGE_BADGE_VARIANT[stage]}>{PENDING_SIGNUP_STAGE_LABELS[stage]}</Badge>;
   };
 
   const filtered = signups.filter((row) => {
@@ -90,20 +112,15 @@ export default function PendingCustomerSignups() {
     const legacy = row.legacy_customer_code?.toLowerCase() ?? '';
     const matchesSearch = !query || name.includes(query) || email.includes(query) || phone.includes(query) || legacy.includes(query);
 
-    const matchesStatus =
-      statusFilter === 'all'
-      || (statusFilter === 'legacy_ghost' && (row.record_type === 'legacy_ghost' || row.status === 'legacy_ghost'))
-      || (statusFilter !== 'legacy_ghost' && row.status === statusFilter);
+    const matchesStage =
+      stageFilter === 'all' || resolvePendingSignupStage(row.verification_stage) === stageFilter;
 
-    return matchesSearch && matchesStatus;
+    return matchesSearch && matchesStage;
   });
 
-  const counts = {
-    all: signups.length,
-    pending: signups.filter((r) => r.status === 'pending').length,
-    email_verified: signups.filter((r) => r.status === 'email_verified').length,
-    legacy_ghost: signups.filter((r) => r.record_type === 'legacy_ghost' || r.status === 'legacy_ghost').length,
-  };
+  const counts = countPendingSignupStages(signups);
+  const stageFilterLabel = (filter: StageFilter) =>
+    filter === 'all' ? 'All' : PENDING_SIGNUP_STAGE_LABELS[filter];
 
   return (
     <AdminLayout
@@ -120,39 +137,26 @@ export default function PendingCustomerSignups() {
         shows only completed, active customers.
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
-        <Card>
-          <CardContent className="pt-6">
-            <p className="text-sm text-muted-foreground">Total incomplete</p>
-            <p className="text-2xl font-bold">{counts.all}</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="pt-6">
-            <p className="text-sm text-muted-foreground">Awaiting email</p>
-            <p className="text-2xl font-bold text-slate-600">{counts.pending}</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="pt-6">
-            <p className="text-sm text-muted-foreground">Awaiting phone OTP</p>
-            <p className="text-2xl font-bold text-blue-600">{counts.email_verified}</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="pt-6">
-            <p className="text-sm text-muted-foreground">Legacy ghosts</p>
-            <p className="text-2xl font-bold text-amber-600">{counts.legacy_ghost}</p>
-          </CardContent>
-        </Card>
+      <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-4 mb-6">
+        {STAGE_FILTERS.map((filter) => (
+          <Card key={filter}>
+            <CardContent className="pt-6">
+              <p className="text-sm text-muted-foreground">
+                {filter === 'all' ? 'Total incomplete' : stageFilterLabel(filter)}
+              </p>
+              <p className="text-2xl font-bold">{counts[filter]}</p>
+            </CardContent>
+          </Card>
+        ))}
       </div>
 
-      <Tabs value={statusFilter} onValueChange={(v) => setStatusFilter(v as StatusFilter)} className="mb-4">
-        <TabsList>
-          <TabsTrigger value="all">All ({counts.all})</TabsTrigger>
-          <TabsTrigger value="pending">Pending email ({counts.pending})</TabsTrigger>
-          <TabsTrigger value="email_verified">Email done ({counts.email_verified})</TabsTrigger>
-          <TabsTrigger value="legacy_ghost">Legacy ({counts.legacy_ghost})</TabsTrigger>
+      <Tabs value={stageFilter} onValueChange={(v) => setStageFilter(v as StageFilter)} className="mb-4">
+        <TabsList className="flex-wrap h-auto">
+          {STAGE_FILTERS.map((filter) => (
+            <TabsTrigger key={filter} value={filter}>
+              {stageFilterLabel(filter)} ({counts[filter]})
+            </TabsTrigger>
+          ))}
         </TabsList>
       </Tabs>
 
@@ -231,7 +235,7 @@ export default function PendingCustomerSignups() {
                       <div className="flex items-center gap-1 text-sm">
                         <Mail className="h-3 w-3 text-muted-foreground" />
                         <span>{row.email ?? '—'}</span>
-                        {(row.auth_email_confirmed_at || row.email_verified_at) && (
+                        {row.email_verified && (
                           <Badge variant="outline" className="text-xs ml-1">✓</Badge>
                         )}
                       </div>
@@ -240,12 +244,12 @@ export default function PendingCustomerSignups() {
                       <div className="flex items-center gap-1 text-sm">
                         <Phone className="h-3 w-3 text-muted-foreground" />
                         <span>{row.phone ?? '—'}</span>
-                        {(row.auth_phone_confirmed_at || row.phone_verified_at) && (
+                        {row.phone_verified && (
                           <Badge variant="outline" className="text-xs ml-1">✓</Badge>
                         )}
                       </div>
                     </TableCell>
-                    <TableCell>{getStatusBadge(row)}</TableCell>
+                    <TableCell>{getStageBadge(row)}</TableCell>
                     <TableCell>
                       <span className="text-sm text-muted-foreground">{row.signup_source ?? '—'}</span>
                     </TableCell>

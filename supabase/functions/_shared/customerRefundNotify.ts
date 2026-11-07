@@ -170,7 +170,7 @@ async function sendEmail(args: {
     text: args.body,
     tag: "customer_refund_confirmation",
   });
-  if (!result.ok) {
+  if (result.ok === false) {
     return { ok: false, error: result.message ?? "email_send_failed" };
   }
   return { ok: true, messageId: result.id ?? undefined };
@@ -268,7 +268,7 @@ export async function notifyCustomerConfirmedRefund(
       paymentSessionId: args.paymentSessionId ?? null,
       amountPence,
     });
-    if (!claim.ok) {
+    if (claim.ok === false) {
       results[channel] = claim.status === "sent"
         ? "already_sent"
         : claim.status === "skipped"
@@ -310,7 +310,7 @@ export async function notifyCustomerConfirmedRefund(
         } else {
           await markDelivery(supabase, claim.deliveryId, {
             status: "failed",
-            error_message: "ok" in pushResult && !pushResult.ok ? pushResult.error : "push_failed",
+            error_message: "ok" in pushResult && pushResult.ok === false ? pushResult.error : "push_failed",
           });
           results[channel] = "failed";
         }
@@ -328,7 +328,7 @@ export async function notifyCustomerConfirmedRefund(
           subject: copy.subject,
           body: copy.body,
         });
-        if (emailResult.ok) {
+        if (emailResult.ok === true) {
           await markDelivery(supabase, claim.deliveryId, {
             status: "sent",
             provider_message_id: emailResult.messageId ?? null,
@@ -337,7 +337,7 @@ export async function notifyCustomerConfirmedRefund(
         } else {
           await markDelivery(supabase, claim.deliveryId, {
             status: "failed",
-            error_message: emailResult.error,
+            error_message: emailResult.ok === false ? emailResult.error : "email_send_failed",
           });
           results[channel] = "failed";
         }
@@ -366,7 +366,7 @@ export async function notifyCustomerConfirmedRefund(
         } else {
           await markDelivery(supabase, claim.deliveryId, {
             status: "failed",
-            error_message: "ok" in smsResult && !smsResult.ok ? smsResult.error : "sms_failed",
+            error_message: "ok" in smsResult && smsResult.ok === false ? smsResult.error : "sms_failed",
           });
           results[channel] = "failed";
         }

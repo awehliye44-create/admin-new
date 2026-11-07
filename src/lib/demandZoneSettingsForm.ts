@@ -114,7 +114,9 @@ export function mapDemandZoneSettingsRowToForm(
 
     if (COLOUR_KEYS.has(key)) {
       const text = typeof raw === 'string' ? raw.trim() : String(raw ?? '');
-      out[key] = isValidHexColour(text) ? normaliseHexColour(text) : text;
+      (out as unknown as Record<string, unknown>)[key] = isValidHexColour(text)
+        ? normaliseHexColour(text)
+        : text;
       continue;
     }
 
