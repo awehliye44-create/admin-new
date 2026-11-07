@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
+import type { Json } from '@/integrations/supabase/types';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -208,10 +209,9 @@ export function DemandZoneSettingsDialog({
             formDirty: true,
           })
         ) {
+          const updatedAt = (settings as unknown as { updated_at?: unknown }).updated_at;
           const fingerprint =
-            typeof (settings as { updated_at?: unknown }).updated_at === 'string'
-              ? String((settings as { updated_at: string }).updated_at)
-              : JSON.stringify(incoming);
+            typeof updatedAt === 'string' ? updatedAt : JSON.stringify(incoming);
           if (conflictDismissedFor !== fingerprint) {
             setServerConflict(true);
           }
@@ -278,7 +278,7 @@ export function DemandZoneSettingsDialog({
       const payload = buildDemandZoneSettingsSavePayload(form);
       const { data, error } = await supabase.rpc('admin_save_demand_zone_settings', {
         _service_area_id: serviceAreaId,
-        _settings: payload,
+        _settings: payload as unknown as Json,
       });
       if (error) throw error;
       const saved = data as unknown as DemandZoneSettings | null;
@@ -371,9 +371,12 @@ export function DemandZoneSettingsDialog({
   };
 
   const keepEditingDespiteConflict = () => {
+    const updatedAt = settings
+      ? (settings as unknown as { updated_at?: unknown }).updated_at
+      : undefined;
     const fingerprint =
-      settings && typeof (settings as { updated_at?: unknown }).updated_at === 'string'
-        ? String((settings as { updated_at: string }).updated_at)
+      typeof updatedAt === 'string'
+        ? updatedAt
         : settings
           ? JSON.stringify(mapDemandZoneSettingsRowToForm(settings))
           : 'unknown';
