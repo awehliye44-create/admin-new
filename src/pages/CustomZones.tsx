@@ -349,18 +349,18 @@ export default function CustomZones() {
         </div>
 
         <Tabs defaultValue="zones" className="w-full">
-          <TabsList>
-            <TabsTrigger value="zones"><DollarSign className="h-4 w-4 mr-2" />Pricing Zones</TabsTrigger>
-            <TabsTrigger value="routes"><Route className="h-4 w-4 mr-2" />Route Pricing</TabsTrigger>
+          <TabsList className="flex h-auto w-full flex-wrap justify-start gap-1 sm:w-auto">
+            <TabsTrigger value="zones" className="flex-1 sm:flex-none"><DollarSign className="h-4 w-4 mr-2" />Pricing Zones</TabsTrigger>
+            <TabsTrigger value="routes" className="flex-1 sm:flex-none"><Route className="h-4 w-4 mr-2" />Route Pricing</TabsTrigger>
           </TabsList>
 
           <TabsContent value="zones" className="space-y-6 mt-4">
-        <div className="flex items-center justify-end gap-2">
-            <Button variant="outline" size="sm" onClick={() => refetch()}>
+        <div className="flex flex-col-reverse gap-2 sm:flex-row sm:items-center sm:justify-end">
+            <Button variant="outline" size="sm" onClick={() => refetch()} className="w-full sm:w-auto">
               <RefreshCw className="h-4 w-4 mr-2" />
               Refresh
             </Button>
-            <Button onClick={openCreateDialog}>
+            <Button onClick={openCreateDialog} className="w-full sm:w-auto">
               <Plus className="mr-2 h-4 w-4" />
               Add Pricing Zone
             </Button>
@@ -411,27 +411,27 @@ export default function CustomZones() {
           <CardContent>
             <div className="space-y-4">
               {/* Filters */}
-              <div className="flex flex-col gap-4 md:flex-row md:items-center flex-wrap">
-                <div className="relative flex-1 min-w-[200px]">
+              <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center">
+                <div className="relative min-w-0 flex-1 sm:min-w-[200px]">
                   <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                   <Input placeholder="Search zones..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="pl-10" />
                 </div>
                 <Select value={regionFilter} onValueChange={setRegionFilter}>
-                  <SelectTrigger className="w-[160px]"><Map className="mr-2 h-4 w-4" /><SelectValue placeholder="Region" /></SelectTrigger>
+                  <SelectTrigger className="w-full sm:w-[160px]"><Map className="mr-2 h-4 w-4" /><SelectValue placeholder="Region" /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="all">All Regions</SelectItem>
                     {regions.map((r) => <SelectItem key={r.id} value={r.id}>{r.name}</SelectItem>)}
                   </SelectContent>
                 </Select>
                 <Select value={serviceAreaFilter} onValueChange={setServiceAreaFilter}>
-                  <SelectTrigger className="w-[180px]"><Target className="mr-2 h-4 w-4" /><SelectValue placeholder="Service Area" /></SelectTrigger>
+                  <SelectTrigger className="w-full sm:w-[180px]"><Target className="mr-2 h-4 w-4" /><SelectValue placeholder="Service Area" /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="all">All Service Areas</SelectItem>
                     {serviceAreas.map((sa) => <SelectItem key={sa.id} value={sa.id}>{sa.name}</SelectItem>)}
                   </SelectContent>
                 </Select>
                 <Select value={statusFilter} onValueChange={setStatusFilter}>
-                  <SelectTrigger className="w-[130px]"><SelectValue placeholder="Status" /></SelectTrigger>
+                  <SelectTrigger className="w-full sm:w-[130px]"><SelectValue placeholder="Status" /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="all">All Status</SelectItem>
                     <SelectItem value="active">Active</SelectItem>
@@ -452,7 +452,7 @@ export default function CustomZones() {
                   <p className="text-sm mt-1">Create a zone to get started</p>
                 </div>
               ) : (
-                <div className="rounded-md border">
+                <div className="overflow-x-auto rounded-md border">
                   <Table>
                     <TableHeader>
                       <TableRow>
@@ -524,19 +524,31 @@ export default function CustomZones() {
           </CardContent>
         </Card>
 
-        {/* Create/Edit Dialog — near full-screen so the map is drawable */}
+        {/* Create/Edit Dialog — responsive: scroll on phone/tablet, side-by-side on desktop */}
         <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-          <DialogContent className="max-w-[98vw] w-[98vw] h-[96vh] flex flex-col gap-3 overflow-hidden p-4 sm:rounded-lg">
+          <DialogContent
+            className={[
+              'flex w-[calc(100%-1rem)] max-w-6xl flex-col gap-3 overflow-y-auto p-3 sm:p-5 sm:rounded-lg',
+              'max-h-[min(92dvh,100%)]',
+              'lg:h-[min(90dvh,880px)] lg:max-h-[90dvh] lg:w-[min(96vw,1120px)] lg:overflow-hidden',
+            ].join(' ')}
+          >
             <form onSubmit={handleSubmit} className="flex min-h-0 flex-1 flex-col gap-3">
-              <DialogHeader className="shrink-0 space-y-1 pr-8">
+              <DialogHeader className="shrink-0 space-y-1 pr-8 text-left">
                 <DialogTitle>{editingZone ? "Edit Pricing Zone" : "Create Pricing Zone"}</DialogTitle>
-                <DialogDescription>Draw the zone on the large map, then set pricing rules on the left.</DialogDescription>
+                <DialogDescription>
+                  Set the zone details, draw the boundary on the map, then add pricing rules.
+                </DialogDescription>
               </DialogHeader>
 
-              <div className="grid min-h-0 flex-1 gap-4 overflow-hidden lg:grid-cols-[minmax(300px,380px)_minmax(0,1fr)]">
-                {/* Form fields */}
-                <div className="min-h-0 space-y-4 overflow-y-auto pr-1">
-                  <div className="grid grid-cols-2 gap-4">
+              {/*
+                Mobile/tablet: basics → map → pricing (single column, dialog scrolls).
+                Desktop (lg+): basics + pricing in left column; map fills the right.
+              */}
+              <div className="grid min-h-0 flex-1 grid-cols-1 gap-4 lg:grid-cols-[minmax(260px,340px)_minmax(0,1fr)] lg:grid-rows-[auto_minmax(0,1fr)] lg:overflow-hidden">
+                {/* Basics */}
+                <div className="space-y-4 lg:col-start-1 lg:row-start-1">
+                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                     <div className="grid gap-2">
                       <Label htmlFor="name">Zone Name *</Label>
                       <Input id="name" value={formData.name} onChange={(e) => setFormData({ ...formData, name: e.target.value })} placeholder="e.g., Airport Terminal 1" required />
@@ -569,7 +581,7 @@ export default function CustomZones() {
                     <Textarea id="description" value={formData.description} onChange={(e) => setFormData({ ...formData, description: e.target.value })} placeholder="Describe this zone..." rows={2} />
                   </div>
 
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                     <div className="grid gap-2">
                       <Label>Priority</Label>
                       <Input type="number" value={formData.priority} onChange={(e) => setFormData({ ...formData, priority: parseInt(e.target.value) || 0 })} min={0} max={100} />
@@ -579,14 +591,40 @@ export default function CustomZones() {
                       <Label>Color</Label>
                       <div className="flex flex-wrap gap-1">
                         {PRESET_COLORS.slice(0, 7).map((c) => (
-                          <button key={c} type="button" className={`h-6 w-6 rounded-full border-2 transition-transform ${formData.color === c ? 'border-foreground scale-110' : 'border-transparent'}`} style={{ backgroundColor: c }} onClick={() => setFormData({ ...formData, color: c })} />
+                          <button key={c} type="button" className={`h-7 w-7 rounded-full border-2 transition-transform sm:h-6 sm:w-6 ${formData.color === c ? 'border-foreground scale-110' : 'border-transparent'}`} style={{ backgroundColor: c }} onClick={() => setFormData({ ...formData, color: c })} />
                         ))}
                       </div>
                     </div>
                   </div>
+                </div>
 
-                  <Separator />
+                {/* Map — after basics on small screens; right column on desktop */}
+                <div className="flex h-[min(52dvh,440px)] min-h-[240px] flex-col lg:col-start-2 lg:row-span-2 lg:row-start-1 lg:h-auto lg:min-h-0 lg:overflow-hidden">
+                  <Label className="mb-2 shrink-0 text-base font-medium">Zone Boundary *</Label>
+                  {!formData.service_area_id ? (
+                    <div className="flex flex-1 items-center justify-center gap-2 rounded-lg border border-dashed border-muted-foreground/30 bg-muted/30 p-4 text-center sm:p-6">
+                      <Map className="h-5 w-5 shrink-0 text-muted-foreground" />
+                      <p className="text-sm text-muted-foreground">Select a service area above to enable map drawing</p>
+                    </div>
+                  ) : (
+                    <ZoneBoundaryMap
+                      shapeType={formData.shape_type}
+                      existingPolygon={formData.geo_boundary}
+                      existingCircle={{ center_lat: formData.center_lat, center_lng: formData.center_lng, radius_meters: formData.radius_meters }}
+                      region={getSelectedServiceArea()}
+                      color={formData.color}
+                      onPolygonChange={handlePolygonChange}
+                      onCircleChange={handleCircleChange}
+                      onShapeTypeChange={handleShapeTypeChange}
+                      fillContainer
+                      className="min-h-0 flex-1"
+                    />
+                  )}
+                </div>
 
+                {/* Pricing — after map on small screens; under basics on desktop */}
+                <div className="space-y-4 lg:col-start-1 lg:row-start-2 lg:min-h-0 lg:overflow-y-auto lg:pr-1">
+                  <Separator className="lg:hidden" />
                   <div className="space-y-4">
                     <Label className="text-base font-medium">Pricing Rules</Label>
 
@@ -637,7 +675,7 @@ export default function CustomZones() {
 
                     <Separator />
 
-                    <div className="grid grid-cols-2 gap-4">
+                    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                       <div className="grid gap-2">
                         <Label>Fare Override Mode</Label>
                         <Select value={formData.metadata.fare_override_mode || "NONE"} onValueChange={(value) => setFormData({ ...formData, metadata: { ...formData.metadata, fare_override_mode: value as any, fare_override_value: value === 'NONE' ? undefined : formData.metadata.fare_override_value } })}>
@@ -666,43 +704,19 @@ export default function CustomZones() {
                     </div>
                   </div>
 
-                  <div className="flex items-center justify-between rounded-lg border p-3">
-                    <div>
+                  <div className="flex items-center justify-between gap-3 rounded-lg border p-3">
+                    <div className="min-w-0">
                       <Label>Active Status</Label>
                       <p className="text-xs text-muted-foreground">Zone will be used for fare calculations</p>
                     </div>
                     <Switch checked={formData.is_active} onCheckedChange={(checked) => setFormData({ ...formData, is_active: checked })} />
                   </div>
                 </div>
-
-                {/* Large map pane */}
-                <div className="flex min-h-[50vh] flex-col overflow-hidden lg:min-h-0">
-                  <Label className="mb-2 shrink-0 text-base font-medium">Zone Boundary *</Label>
-                  {!formData.service_area_id ? (
-                    <div className="flex flex-1 items-center justify-center gap-2 rounded-lg border border-dashed border-muted-foreground/30 bg-muted/30 p-6">
-                      <Map className="h-5 w-5 text-muted-foreground" />
-                      <p className="text-sm text-muted-foreground">Select a service area on the left to enable map drawing</p>
-                    </div>
-                  ) : (
-                    <ZoneBoundaryMap
-                      shapeType={formData.shape_type}
-                      existingPolygon={formData.geo_boundary}
-                      existingCircle={{ center_lat: formData.center_lat, center_lng: formData.center_lng, radius_meters: formData.radius_meters }}
-                      region={getSelectedServiceArea()}
-                      color={formData.color}
-                      onPolygonChange={handlePolygonChange}
-                      onCircleChange={handleCircleChange}
-                      onShapeTypeChange={handleShapeTypeChange}
-                      fillContainer
-                      className="min-h-0 flex-1"
-                    />
-                  )}
-                </div>
               </div>
 
-              <DialogFooter className="shrink-0 border-t pt-3">
-                <Button type="button" variant="outline" onClick={resetForm}>Cancel</Button>
-                <Button type="submit" disabled={createMutation.isPending || updateMutation.isPending}>
+              <DialogFooter className="shrink-0 gap-2 border-t pt-3 sm:gap-0">
+                <Button type="button" variant="outline" onClick={resetForm} className="w-full sm:w-auto">Cancel</Button>
+                <Button type="submit" disabled={createMutation.isPending || updateMutation.isPending} className="w-full sm:w-auto">
                   {(createMutation.isPending || updateMutation.isPending) && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
                   {editingZone ? "Update Zone" : "Create Zone"}
                 </Button>

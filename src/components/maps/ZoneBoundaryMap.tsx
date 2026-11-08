@@ -335,9 +335,9 @@ export function ZoneBoundaryMap({
 
   return (
     <div className={cn('space-y-4', fillContainer && 'h-full min-h-0 flex flex-col', className)}>
-      <div className="flex items-center gap-2 shrink-0">
+      <div className="flex shrink-0 flex-col gap-2 sm:flex-row sm:items-center">
         <Label className="text-sm font-medium">Shape Type:</Label>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           <Button type="button" variant={shapeType === 'polygon' ? 'default' : 'outline'} size="sm"
             onClick={() => { handleClear(); onShapeTypeChange('polygon'); }} className="gap-2">
             <Hexagon className="h-4 w-4" /> Polygon
@@ -371,7 +371,7 @@ export function ZoneBoundaryMap({
         </div>
       )}
 
-      <div className="flex flex-col gap-3 p-4 bg-muted/50 rounded-lg shrink-0">
+      <div className="flex shrink-0 flex-col gap-3 rounded-lg bg-muted/50 p-3 sm:p-4">
         <div className="text-sm text-muted-foreground">
           {shapeType === 'polygon' ? (
             isDrawing ? (
