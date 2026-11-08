@@ -30,6 +30,8 @@ import {
   isFailedPaymentState,
   latestFailedPaymentDeclineReason,
 } from "../_shared/googlePaySubmitOutcome.ts";
+import { resolveGooglePayCardholderName } from "../_shared/googlePayCardholderName.ts";
+import { releaseHoldForPaymentSession } from "../_shared/holdReleaseSSOT.ts";
 
 const RATE_LIMIT_CONFIG = { limit: 15, windowMs: 60 * 1000 };
 
@@ -221,7 +223,6 @@ serve(async (req) => {
         "VALIDATION_MISSING_FIELD",
       );
     }
-    const resolvedCardholderName = cardholderName || "Cardholder";
     if (!billingAddress) {
       return errorResponse(
         "billing_address with country_code and postcode is required",
@@ -261,6 +262,21 @@ serve(async (req) => {
     if (ps.user_id !== user.id) {
       return errorResponse("Forbidden", 403, undefined, "AUTH_INVALID");
     }
+
+    // Revolut rejects sanitised names shorter than 6 chars (wallet given-name
+    // alone often fails). Prefer wallet → profile full name → "Cardholder".
+    const { data: customerRow } = await supabase
+      .from("customers")
+      .select("first_name, last_name")
+      .eq("user_id", user.id)
+      .limit(1)
+      .maybeSingle();
+    const cardholderResolved = resolveGooglePayCardholderName({
+      walletName: cardholderName || null,
+      profileFirstName: customerRow?.first_name ?? null,
+      profileLastName: customerRow?.last_name ?? null,
+    });
+    const resolvedCardholderName = cardholderResolved.name;
 
     const provState = String(ps.provider_state ?? "").toUpperCase();
     const status = String(ps.status ?? "").toLowerCase();
@@ -373,10 +389,37 @@ serve(async (req) => {
           decline_reason: failure.decline_reason,
           failure_code: failure.code,
           response_status: failure.status,
+          cardholder_source: cardholderResolved.source,
         },
         ipAddress: clientIP,
         userAgent,
       });
+      // Definitive Revolut 4xx (e.g. cardholderName length) never created a
+      // payment — cancel the PENDING order so sessions do not stick forever.
+      if (
+        revolutStatus != null &&
+        revolutStatus >= 400 &&
+        revolutStatus < 500
+      ) {
+        try {
+          await releaseHoldForPaymentSession(supabase, {
+            providerOrderId,
+            clientActionId:
+              (typeof ps.client_action_id === "string" ? ps.client_action_id : null) ||
+              clientActionId ||
+              null,
+            terminalReason: "google_pay_submit_rejected",
+            source: "submit-revolut-google-pay",
+            idempotencyKey: `gpay_reject_${ps.id}`,
+            session: ps as Record<string, unknown>,
+          });
+        } catch (releaseErr) {
+          console.error(
+            "[submit-revolut-google-pay] reject cleanup failed",
+            releaseErr instanceof Error ? releaseErr.message : releaseErr,
+          );
+        }
+      }
       return errorResponse(
         failure.message,
         failure.status,
@@ -415,6 +458,24 @@ serve(async (req) => {
         declineReason: revolutResult.decline_reason ?? null,
         providerRejected: true,
       });
+      try {
+        await releaseHoldForPaymentSession(supabase, {
+          providerOrderId,
+          clientActionId:
+            (typeof ps.client_action_id === "string" ? ps.client_action_id : null) ||
+            clientActionId ||
+            null,
+          terminalReason: "google_pay_submit_rejected",
+          source: "submit-revolut-google-pay",
+          idempotencyKey: `gpay_reject_${ps.id}`,
+          session: ps as Record<string, unknown>,
+        });
+      } catch (releaseErr) {
+        console.error(
+          "[submit-revolut-google-pay] declined cleanup failed",
+          releaseErr instanceof Error ? releaseErr.message : releaseErr,
+        );
+      }
       return errorResponse(
         failure.message,
         failure.status,
