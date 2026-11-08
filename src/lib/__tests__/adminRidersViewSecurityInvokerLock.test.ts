@@ -15,7 +15,7 @@ import { describe, expect, it } from 'vitest';
 const ROOT = path.join(__dirname, '../../..');
 const MIGRATIONS_DIR = path.join(ROOT, 'supabase/migrations');
 const CANONICAL =
-  'supabase/migrations/20261107120000_admin_riders_view_security_invoker_lock.sql';
+  'supabase/migrations/20261108092835_6b89ec70-76af-40de-a113-87b5d25d9d5a.sql';
 const VIEW = 'admin_riders_with_trip_stats';
 
 const REQUIRED_COLUMNS = [
@@ -93,6 +93,13 @@ describe('adminRidersViewSecurityInvokerLock', () => {
     for (const col of REQUIRED_COLUMNS) {
       expect(sql.toLowerCase()).toContain(col);
     }
+  });
+
+  it('Riders "Trips" count includes completed trips only', () => {
+    const { body } = latestViewTouchMigration();
+    const sub = body.slice(body.indexOf('FROM public.trips t'), body.indexOf('GROUP BY t.passenger_id'));
+    expect(sub).toMatch(/t\.status\s*=\s*'completed'/i);
+    expect(sub).not.toMatch(/'cancelled'|'customer_cancelled'|'expired'|'no_show'/i);
   });
 
   it('chronologically last view CREATE keeps security_invoker + admin gate', () => {

@@ -510,7 +510,7 @@ export function RiderDetailsDialog({ open, onOpenChange, rider, onRiderUpdate }:
                 <div className="flex items-center gap-3 p-3 bg-muted/50 rounded-lg">
                   <Car className="h-5 w-5 text-muted-foreground" />
                   <div>
-                    <p className="text-xs text-muted-foreground">Total Trips</p>
+                    <p className="text-xs text-muted-foreground">Completed Trips</p>
                     <p className="text-sm font-medium">{rider.trip_count || 0}</p>
                   </div>
                 </div>
