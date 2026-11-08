@@ -474,7 +474,10 @@ export default function TripHistory() {
 
   // Use shared cached hooks for regions/service areas
   const { data: sharedRegions = [] } = useRegions();
-  const { data: sharedServiceAreas = [] } = useSharedServiceAreas({ activeOnly: true });
+  const { data: sharedServiceAreas = [] } = useSharedServiceAreas({
+    pageSlug: 'trip-history',
+    activeOnly: true,
+  });
 
   const regions = sharedRegions as any[];
   const serviceAreas = sharedServiceAreas as any[];
