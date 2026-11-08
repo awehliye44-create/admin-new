@@ -483,6 +483,12 @@ async function driverMarkFound(req: Request) {
   const driverId = await getDriverId(auth.userId);
   if (!driverId) return errorResp("Driver profile not found", 403);
 
+  const checkedPhotos = validateCasePhotoPaths(found_item_photos, String(case_id));
+  if (!checkedPhotos.ok) return errorResp(checkedPhotos.error);
+  if (checkedPhotos.paths.length === 0) {
+    return errorResp("At least one photo is required when marking item as found");
+  }
+
   const sb = getServiceClient();
   const { data: lpc } = await sb
     .from("lost_property_cases")
@@ -500,7 +506,7 @@ async function driverMarkFound(req: Request) {
     .from("lost_property_cases")
     .update({
       status: "AWAITING_CUSTOMER_CONFIRMATION",
-      found_item_photos,
+      found_item_photos: checkedPhotos.paths,
       driver_responded_at: new Date().toISOString(),
       item_found_at: new Date().toISOString(),
     })
@@ -1127,7 +1133,12 @@ async function cleanupPhotos(_req: Request) {
 
   let cleaned = 0;
   for (const c of cases) {
-    const allPhotos = [...(c.customer_photos || []), ...(c.found_item_photos || [])];
+    // Only delete files inside this case's own folder, whatever the stored paths say.
+    const caseId = String(c.case_id);
+    const allPhotos = [
+      ...filterCasePhotoPaths(c.customer_photos, caseId),
+      ...filterCasePhotoPaths(c.found_item_photos, caseId),
+    ];
 
     // Delete from storage
     if (allPhotos.length > 0) {
