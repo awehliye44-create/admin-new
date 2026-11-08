@@ -323,7 +323,7 @@ export function AdminSidebar() {
           {/* OPERATIONS & DISPATCH */}
           <PermissionSection canAccess={canAccessPage} collapsed={isCollapsed}
             label="Operations & Dispatch"
-            slugs={['fleet-tracking','active-trips','auto-dispatch','scheduled-rides','missed-cancelled','trip-history','manual-trip','dispatch-metrics','driver-demand-zones','staff-work-patterns']}
+            slugs={['fleet-tracking','active-trips','auto-dispatch','scheduled-rides','missed-cancelled','trip-history','manual-trip','dispatch','dispatch-metrics','driver-demand-zones','staff-work-patterns']}
           >
             <PermissionNavItem canAccess={canAccessPage} pageSlug="fleet-tracking" to="/fleet-tracking" icon={<Send className="h-4 w-4" />} label="Live Fleet Tracking" active={currentPath === '/fleet-tracking'} collapsed={isCollapsed} />
             <PermissionNavItem canAccess={canAccessPage} pageSlug="active-trips" to="/active-trips" icon={<Radio className="h-4 w-4" />} label="Active Trips (Real-time)" active={currentPath === '/active-trips'} badge={counts.activeTrips > 0 ? counts.activeTrips : undefined} collapsed={isCollapsed} />
@@ -332,6 +332,7 @@ export function AdminSidebar() {
             <PermissionNavItem canAccess={canAccessPage} pageSlug="missed-cancelled" to="/missed-cancelled" icon={<XCircle className="h-4 w-4" />} label="Missed & Canceled" active={currentPath === '/missed-cancelled'} collapsed={isCollapsed} />
             <PermissionNavItem canAccess={canAccessPage} pageSlug="trip-history" to="/trip-history" icon={<History className="h-4 w-4" />} label="Trip History" active={currentPath === '/trip-history'} collapsed={isCollapsed} />
             <PermissionNavItem canAccess={canAccessPage} pageSlug="manual-trip" to="/manual-trip" icon={<Plus className="h-4 w-4" />} label="Manual Trip Creation" active={currentPath === '/manual-trip'} collapsed={isCollapsed} />
+            <PermissionNavItem canAccess={canAccessPage} pageSlug="dispatch" to="/dispatch" icon={<Navigation className="h-4 w-4" />} label="Dispatch Console" active={currentPath === '/dispatch'} collapsed={isCollapsed} />
             <PermissionNavItem canAccess={canAccessPage} pageSlug="dispatch-metrics" to="/dispatch-metrics" icon={<Activity className="h-4 w-4" />} label="Dispatch Metrics" active={currentPath === '/dispatch-metrics'} collapsed={isCollapsed} />
             <PermissionNavItem canAccess={canAccessPage} pageSlug="driver-demand-zones" to="/driver-demand-zones" icon={<Flame className="h-4 w-4" />} label="Driver Demand Zones" active={currentPath === '/driver-demand-zones'} collapsed={isCollapsed} />
             <PermissionNavItem canAccess={canAccessPage} pageSlug="staff-work-patterns" to="/staff-work-patterns" icon={<Calendar className="h-4 w-4" />} label="Staff Work Patterns" active={currentPath === '/staff-work-patterns'} collapsed={isCollapsed} />
@@ -348,9 +349,10 @@ export function AdminSidebar() {
 
 
           {/* SERVICE AREAS */}
-          <PermissionSection canAccess={canAccessPage} collapsed={isCollapsed} label="Service Areas" slugs={['regions','services']}>
+          <PermissionSection canAccess={canAccessPage} collapsed={isCollapsed} label="Service Areas" slugs={['regions','services','service-area-pricing']}>
             <PermissionNavItem canAccess={canAccessPage} pageSlug="regions" to="/regions" icon={<MapPin className="h-4 w-4" />} label="Regions" active={currentPath === '/regions'} collapsed={isCollapsed} />
             <PermissionNavItem canAccess={canAccessPage} pageSlug="services" to="/services" icon={<Map className="h-4 w-4" />} label="Services" active={currentPath === '/services'} collapsed={isCollapsed} />
+            <PermissionNavItem canAccess={canAccessPage} pageSlug="service-area-pricing" to="/service-area-pricing" icon={<CircleDollarSign className="h-4 w-4" />} label="Service Area Pricing" active={currentPath === '/service-area-pricing'} collapsed={isCollapsed} />
           </PermissionSection>
 
           {/* PRICING & FARES */}
@@ -390,9 +392,9 @@ export function AdminSidebar() {
           </PermissionSection>
 
           {/* PAYMENTS & TRANSACTIONS (SSOT) */}
-          <PermissionSection canAccess={canAccessPage} collapsed={isCollapsed} label="Payments & Transactions" slugs={['payment-sessions','financial-reconciliation','driver-wallet-ledger','commission-wallet','payout-ledger']}>
+          <PermissionSection canAccess={canAccessPage} collapsed={isCollapsed} label="Payments & Transactions" slugs={['payment-sessions','customer-receivables','financial-reconciliation','driver-wallet-ledger','commission-wallet','payout-ledger']}>
             <PermissionNavItem canAccess={canAccessPage} pageSlug="payment-sessions" to="/payment-sessions" icon={<CreditCard className="h-4 w-4" />} label="Payment Sessions (SSOT)" active={currentPath === '/payment-sessions'} collapsed={isCollapsed} />
-            <PermissionNavItem canAccess={canAccessPage} pageSlug="financial-reconciliation" to="/customer-receivables" icon={<Receipt className="h-4 w-4" />} label="Customer Receivables" active={currentPath === '/customer-receivables'} collapsed={isCollapsed} />
+            <PermissionNavItem canAccess={canAccessPage} pageSlug="customer-receivables" to="/customer-receivables" icon={<Receipt className="h-4 w-4" />} label="Customer Receivables" active={currentPath === '/customer-receivables'} collapsed={isCollapsed} />
             <PermissionNavItem canAccess={canAccessPage} pageSlug="financial-reconciliation" to="/financial-reconciliation" icon={<Calculator className="h-4 w-4" />} label="Financial Reconciliation (SSOT)" active={currentPath === '/financial-reconciliation'} collapsed={isCollapsed} />
             <PermissionNavItem canAccess={canAccessPage} pageSlug="driver-wallet-ledger" to="/driver-wallet-ledger" icon={<Wallet className="h-4 w-4" />} label="Driver Wallet Ledger (SSOT)" active={currentPath === '/driver-wallet-ledger'} collapsed={isCollapsed} />
             <PermissionNavItem canAccess={canAccessPage} pageSlug="commission-wallet" to="/commission-wallet" icon={<CircleDollarSign className="h-4 w-4" />} label="Commission Wallet (Driver-Collected)" active={currentPath === '/commission-wallet'} collapsed={isCollapsed} />

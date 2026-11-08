@@ -1,5 +1,6 @@
 import { useLocation } from 'react-router-dom';
 import { useStaffProfile } from '@/hooks/useStaffProfile';
+import { resolvePermissionSlugFromPath } from '../../../shared/adminPageCatalogSSOT';
 import { Lock } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -7,12 +8,14 @@ import { Button } from '@/components/ui/button';
 /**
  * Page-level permission gate inside AdminShell main content.
  * Must NOT live in ProtectedRoute — that would unmount the sidebar on route change.
+ *
+ * Path segments are normalized via the page catalog (legacy redirects → canonical slug)
+ * before the exact-slug permission check.
  */
 export function AdminPageAccessGate({ children }: { children: React.ReactNode }) {
   const location = useLocation();
   const { canAccessPage } = useStaffProfile();
-  const rawSlug = location.pathname.replace(/^\//, '') || 'dashboard';
-  const pageSlug = rawSlug.split('/')[0] || 'dashboard';
+  const pageSlug = resolvePermissionSlugFromPath(location.pathname);
 
   if (!canAccessPage(pageSlug)) {
     return (

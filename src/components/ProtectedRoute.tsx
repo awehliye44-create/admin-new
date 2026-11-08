@@ -12,14 +12,17 @@ interface ProtectedRouteProps {
 }
 
 /**
- * Auth / admin gate only.
+ * Auth / admin / staff-profile gate.
  * Page-level permissions are enforced inside AdminShell (AdminPageAccessGate)
  * so the sidebar never unmounts on navigation.
+ *
+ * Fail closed: authenticated admins without a staff profile, inactive staff,
+ * or a failed staff/permission fetch never enter the admin shell.
  */
 export function ProtectedRoute({ children }: ProtectedRouteProps) {
   const { user, isAdmin, adminCheckUnavailable, recheckAdmin, isAuthReady, signOut } = useAuth();
   const [isRetrying, setIsRetrying] = useState(false);
-  const { isStaffLoading } = useStaffProfile();
+  const { isStaffLoading, staffAccessStatus, staffAccessError, refetch } = useStaffProfile();
   const location = useLocation();
   const [authGateTimedOut, setAuthGateTimedOut] = useState(false);
 
@@ -116,6 +119,110 @@ export function ProtectedRoute({ children }: ProtectedRouteProps) {
             </p>
             <p className="text-sm text-muted-foreground">
               Please wait for an administrator to approve your access.
+            </p>
+            <Button onClick={signOut} variant="outline" className="w-full">
+              Sign Out
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  if (staffAccessStatus === 'fetch_error') {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-sidebar p-4">
+        <Card className="w-full max-w-md bg-card border-sidebar-border">
+          <CardHeader className="text-center">
+            <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-primary/20">
+              <WifiOff className="h-8 w-8 text-primary" />
+            </div>
+            <CardTitle className="text-2xl font-bold">Could not load permissions</CardTitle>
+            <CardDescription>
+              We could not load your staff role or page permissions. Access is blocked until this
+              succeeds.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="text-center space-y-4">
+            <p className="text-sm text-muted-foreground">
+              Signed in as: <span className="font-medium">{user.email}</span>
+            </p>
+            {staffAccessError ? (
+              <p className="text-xs text-muted-foreground break-words">{staffAccessError}</p>
+            ) : null}
+            <Button
+              onClick={async () => {
+                setIsRetrying(true);
+                try {
+                  await refetch();
+                } finally {
+                  setIsRetrying(false);
+                }
+              }}
+              disabled={isRetrying}
+              className="w-full"
+            >
+              {isRetrying ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Retrying…
+                </>
+              ) : (
+                'Try again'
+              )}
+            </Button>
+            <Button onClick={signOut} variant="outline" className="w-full">
+              Sign Out
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  if (staffAccessStatus === 'missing_profile') {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-sidebar p-4">
+        <Card className="w-full max-w-md bg-card border-sidebar-border">
+          <CardHeader className="text-center">
+            <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-destructive/20">
+              <ShieldAlert className="h-8 w-8 text-destructive" />
+            </div>
+            <CardTitle className="text-2xl font-bold">Staff profile required</CardTitle>
+            <CardDescription>
+              Your login is an admin account, but it is not linked to a staff profile with a role.
+              Page access cannot be granted until an Owner adds you in Roles & Permissions.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="text-center space-y-4">
+            <p className="text-sm text-muted-foreground">
+              Logged in as: <span className="font-medium">{user.email}</span>
+            </p>
+            <Button onClick={signOut} variant="outline" className="w-full">
+              Sign Out
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  if (staffAccessStatus === 'inactive') {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-sidebar p-4">
+        <Card className="w-full max-w-md bg-card border-sidebar-border">
+          <CardHeader className="text-center">
+            <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-destructive/20">
+              <ShieldAlert className="h-8 w-8 text-destructive" />
+            </div>
+            <CardTitle className="text-2xl font-bold">Staff access suspended</CardTitle>
+            <CardDescription>
+              Your staff profile is inactive. Contact an Owner to restore access.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="text-center space-y-4">
+            <p className="text-sm text-muted-foreground">
+              Logged in as: <span className="font-medium">{user.email}</span>
             </p>
             <Button onClick={signOut} variant="outline" className="w-full">
               Sign Out
