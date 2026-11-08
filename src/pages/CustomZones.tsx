@@ -1,6 +1,7 @@
 import { useState, useCallback } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
+import { adminServiceAreasLookup } from '@/lib/adminPageGatedData';
 import { AdminLayout } from "@/components/layout/AdminLayout";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -132,18 +133,18 @@ export default function CustomZones() {
   const { data: serviceAreas = [] } = useQuery({
     queryKey: ['service-areas-for-zones', regionFilter],
     queryFn: async () => {
-      let query = supabase
-        .from('service_areas')
-        .select('id, name, region_id, geo_boundary, is_active')
-        .eq('is_active', true)
-        .is('archived_at', null)
-        .order('name');
-      if (regionFilter && regionFilter !== 'all') {
-        query = query.eq('region_id', regionFilter);
-      }
-      const { data, error } = await query;
-      if (error) throw error;
-      return data as ServiceArea[];
+      const { rows } = await adminServiceAreasLookup<{
+        id: string;
+        name: string;
+        region_id: string;
+        geo_boundary: unknown;
+        is_active: boolean;
+      }>('custom-zones', { active_only: true });
+      const filtered =
+        regionFilter && regionFilter !== 'all'
+          ? rows.filter((r) => r.region_id === regionFilter)
+          : rows;
+      return filtered as ServiceArea[];
     },
   });
 

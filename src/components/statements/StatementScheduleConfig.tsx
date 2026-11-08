@@ -82,7 +82,7 @@ function ordinalSuffix(n: number): string {
 export default function StatementScheduleConfig() {
   const queryClient = useQueryClient();
   const { data: regions = [] } = useRegions();
-  const { data: serviceAreas = [] } = useServiceAreas();
+  const { data: serviceAreas = [] } = useServiceAreas({ pageSlug: 'statement-runs' });
 
   const { data: savedConfig, isLoading } = useQuery({
     queryKey: ["statement-schedule-config"],

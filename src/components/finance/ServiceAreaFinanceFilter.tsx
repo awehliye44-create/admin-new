@@ -30,6 +30,8 @@ interface ServiceAreaFinanceFilterProps {
   onChange: (selection: ServiceAreaFinanceSelection) => void;
   /** Required: which financial pipeline this page belongs to. */
   financialModel: ServiceAreaFilterScope;
+  /** Exact page grant for admin_service_areas_lookup. */
+  pageSlug: string;
   className?: string;
   /** When false, parent must set initial scope before finance SSOT queries run. */
   autoSelectFirstArea?: boolean;
@@ -39,10 +41,11 @@ export function ServiceAreaFinanceFilter({
   value,
   onChange,
   financialModel,
+  pageSlug,
   className,
   autoSelectFirstArea = true,
 }: ServiceAreaFinanceFilterProps) {
-  const { data: allAreas = [], isLoading } = useServiceAreas({ activeOnly: true });
+  const { data: allAreas = [], isLoading } = useServiceAreas({ pageSlug, activeOnly: true });
   const didAutoSelectRef = useRef(false);
 
   // Fail-closed: only the two concrete pipelines scope the dropdown.

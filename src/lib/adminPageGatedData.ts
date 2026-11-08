@@ -1,10 +1,9 @@
 /**
  * Admin page-gated data access (client).
  *
- * Non-Owner UI must use these helpers instead of direct
- * supabase.from('trips'|'drivers'|'customers'|'documents'|'vehicles').
- * RPCs live in 20261231130000_assigned_page_rbac_helpers_and_page_rpcs.sql (unapplied).
- * Restrictive RLS: 20261231140000 (clear tables) then 20261231150000 (shared fail-closed).
+ * Non-Owner UI must use these helpers instead of direct JWT on gated tables.
+ * Shared-table RPCs: 20261231130000. Restrictive RLS: 20261231140000 + 20261231150000.
+ * Catalog: 20261231160000 in-use RPC, 20261231170000 page RPCs, 20261231180000 fail-closed RLS.
  *
  * Owner still works via RPCs (staff_has_page_access treats Owner as all pages)
  * and, after shared fail-closed, via direct table RLS as well.
@@ -17,7 +16,16 @@ export type AdminSharedTable =
   | 'drivers'
   | 'customers'
   | 'documents'
-  | 'vehicles';
+  | 'vehicles'
+  | 'driver_service_areas'
+  | 'fare_pricing_settings'
+  | 'corporate_fare_rules'
+  | 'document_types'
+  | 'service_area_document_rules'
+  | 'stop_waiting_settings'
+  | 'dispatch_settings'
+  | 'service_area_cancellation_fees'
+  | 'service_area_vehicle_pricing';
 
 export type AdminPageFilterOp =
   | 'eq'
@@ -210,6 +218,37 @@ export async function adminSidebarBadgeCountsRpc(): Promise<{
     pendingDrivers: d.pendingDrivers ?? 0,
     pendingVehicleChanges: d.pendingVehicleChanges ?? 0,
   };
+}
+
+/**
+ * document-management only: whether any documents row references this type
+ * (by document_type_id or legacy document_type slug). Server asserts page grant;
+ * does not weaken documents Owner-only RLS.
+ */
+export async function adminDocumentTypeInUse(documentTypeId: string): Promise<boolean> {
+  const { data, error } = await rpcClient().rpc('admin_document_type_in_use', {
+    p_document_type_id: documentTypeId,
+  });
+  if (error) throw error;
+  return data === true;
+}
+
+/** Page-gated service_areas label/filter lookup (region currency join). */
+export async function adminServiceAreasLookup<T = Record<string, unknown>>(
+  pageSlug: string,
+  args: {
+    active_only?: boolean;
+    include_archived?: boolean;
+    ids?: string[];
+    limit?: number;
+  } = {},
+): Promise<AdminPageSelectResult<T>> {
+  const { data, error } = await rpcClient().rpc('admin_service_areas_lookup', {
+    p_page_slug: pageSlug,
+    p_args: args,
+  });
+  if (error) throw error;
+  return asRows<T>(data);
 }
 
 /** Convert a simple PostgREST-ish `.in('status', vals)` style list to filters. */

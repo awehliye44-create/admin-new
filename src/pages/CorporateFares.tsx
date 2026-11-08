@@ -1,7 +1,10 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
+import { adminPageMutate, adminPageSelect } from "@/lib/adminPageGatedData";
 import { AdminLayout } from "@/components/layout/AdminLayout";
+
+const PAGE = "corporate-fares" as const;
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -88,13 +91,17 @@ export default function CorporateFares() {
   const { data: rules = [], isLoading } = useQuery({
     queryKey: ['corporate-fare-rules'],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from('corporate_fare_rules')
-        .select('id, name, description, corporate_account_id, rule_type, discount_percentage, fixed_rate, fare_cap, applies_to_vehicle_types, applies_to_regions, time_restrictions, booking_restrictions, priority, is_active, valid_from, valid_until, created_at, updated_at')
-        .order('priority', { ascending: false })
-        .limit(500);
-      if (error) throw error;
-      return data as CorporateFareRule[];
+      const { rows } = await adminPageSelect<CorporateFareRule>(PAGE, 'corporate_fare_rules', {
+        columns: [
+          'id', 'name', 'description', 'corporate_account_id', 'rule_type', 'discount_percentage',
+          'fixed_rate', 'fare_cap', 'applies_to_vehicle_types', 'applies_to_regions',
+          'time_restrictions', 'booking_restrictions', 'priority', 'is_active',
+          'valid_from', 'valid_until', 'created_at', 'updated_at',
+        ],
+        order: [{ col: 'priority', asc: false }],
+        limit: 500,
+      });
+      return rows;
     },
   });
 
@@ -125,22 +132,23 @@ export default function CorporateFares() {
 
   const createMutation = useMutation({
     mutationFn: async (data: typeof formData) => {
-      const { error } = await supabase.from('corporate_fare_rules').insert({
-        name: data.name,
-        description: data.description || null,
-        rule_type: data.rule_type,
-        discount_percentage: data.rule_type === 'discount' ? data.discount_percentage : null,
-        fixed_rate: data.rule_type === 'fixed_rate' ? data.fixed_rate : null,
-        fare_cap: data.rule_type === 'cap' ? data.fare_cap : null,
-        applies_to_vehicle_types: data.applies_to_vehicle_types.length > 0 ? data.applies_to_vehicle_types : null,
-        applies_to_regions: data.applies_to_regions.length > 0 ? data.applies_to_regions : null,
-        booking_restrictions: data.booking_restrictions,
-        priority: data.priority,
-        is_active: data.is_active,
-        valid_from: data.valid_from || null,
-        valid_until: data.valid_until || null,
+      await adminPageMutate(PAGE, 'corporate_fare_rules', 'insert', {
+        patch: {
+          name: data.name,
+          description: data.description || null,
+          rule_type: data.rule_type,
+          discount_percentage: data.rule_type === 'discount' ? data.discount_percentage : null,
+          fixed_rate: data.rule_type === 'fixed_rate' ? data.fixed_rate : null,
+          fare_cap: data.rule_type === 'cap' ? data.fare_cap : null,
+          applies_to_vehicle_types: data.applies_to_vehicle_types.length > 0 ? data.applies_to_vehicle_types : null,
+          applies_to_regions: data.applies_to_regions.length > 0 ? data.applies_to_regions : null,
+          booking_restrictions: data.booking_restrictions,
+          priority: data.priority,
+          is_active: data.is_active,
+          valid_from: data.valid_from || null,
+          valid_until: data.valid_until || null,
+        },
       });
-      if (error) throw error;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['corporate-fare-rules'] });
@@ -154,22 +162,24 @@ export default function CorporateFares() {
 
   const updateMutation = useMutation({
     mutationFn: async ({ id, data }: { id: string; data: typeof formData }) => {
-      const { error } = await supabase.from('corporate_fare_rules').update({
-        name: data.name,
-        description: data.description || null,
-        rule_type: data.rule_type,
-        discount_percentage: data.rule_type === 'discount' ? data.discount_percentage : null,
-        fixed_rate: data.rule_type === 'fixed_rate' ? data.fixed_rate : null,
-        fare_cap: data.rule_type === 'cap' ? data.fare_cap : null,
-        applies_to_vehicle_types: data.applies_to_vehicle_types.length > 0 ? data.applies_to_vehicle_types : null,
-        applies_to_regions: data.applies_to_regions.length > 0 ? data.applies_to_regions : null,
-        booking_restrictions: data.booking_restrictions,
-        priority: data.priority,
-        is_active: data.is_active,
-        valid_from: data.valid_from || null,
-        valid_until: data.valid_until || null,
-      }).eq('id', id);
-      if (error) throw error;
+      await adminPageMutate(PAGE, 'corporate_fare_rules', 'update', {
+        id,
+        patch: {
+          name: data.name,
+          description: data.description || null,
+          rule_type: data.rule_type,
+          discount_percentage: data.rule_type === 'discount' ? data.discount_percentage : null,
+          fixed_rate: data.rule_type === 'fixed_rate' ? data.fixed_rate : null,
+          fare_cap: data.rule_type === 'cap' ? data.fare_cap : null,
+          applies_to_vehicle_types: data.applies_to_vehicle_types.length > 0 ? data.applies_to_vehicle_types : null,
+          applies_to_regions: data.applies_to_regions.length > 0 ? data.applies_to_regions : null,
+          booking_restrictions: data.booking_restrictions,
+          priority: data.priority,
+          is_active: data.is_active,
+          valid_from: data.valid_from || null,
+          valid_until: data.valid_until || null,
+        },
+      });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['corporate-fare-rules'] });
@@ -183,8 +193,7 @@ export default function CorporateFares() {
 
   const deleteMutation = useMutation({
     mutationFn: async (id: string) => {
-      const { error } = await supabase.from('corporate_fare_rules').delete().eq('id', id);
-      if (error) throw error;
+      await adminPageMutate(PAGE, 'corporate_fare_rules', 'delete', { ids: [id] });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['corporate-fare-rules'] });
@@ -197,8 +206,10 @@ export default function CorporateFares() {
 
   const toggleStatusMutation = useMutation({
     mutationFn: async ({ id, is_active }: { id: string; is_active: boolean }) => {
-      const { error } = await supabase.from('corporate_fare_rules').update({ is_active }).eq('id', id);
-      if (error) throw error;
+      await adminPageMutate(PAGE, 'corporate_fare_rules', 'update', {
+        id,
+        patch: { is_active },
+      });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['corporate-fare-rules'] });

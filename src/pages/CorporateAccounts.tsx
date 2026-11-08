@@ -81,7 +81,7 @@ export default function CorporateAccounts() {
   const [formData, setFormData] = useState(defaultFormData);
 
   const { data: regions = [] } = useRegions();
-  const { data: serviceAreas = [] } = useServiceAreas();
+  const { data: serviceAreas = [] } = useServiceAreas({ pageSlug: 'corporate-accounts' });
 
   const filteredServiceAreas = serviceAreas.filter(
     (sa) => regionFilter === 'all' || sa.region_id === regionFilter

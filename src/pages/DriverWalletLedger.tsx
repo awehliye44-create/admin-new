@@ -29,6 +29,7 @@ import { useDriverWalletSsotDetail } from '@/hooks/useDriverWalletSsot';
 import { parseDriverWalletLedgerTab, type DriverWalletLedgerTab } from '@/lib/driverWalletLedgerRoutes';
 import { ServiceAreaGatewayStatusFetcher } from '@/components/finance/ServiceAreaGatewayStatusFetcher';
 import { supabase } from '@/integrations/supabase/client';
+import { adminServiceAreasLookup } from '@/lib/adminPageGatedData';
 import { startAdminPerformanceStep } from '@/lib/recordAdminPerformanceStep';
 import { paymentSessionsUrl } from '../../shared/adminPaymentSessionsSSOT';
 import { payoutLedgerUrl } from '../../shared/adminPayoutLedgerSSOT';
@@ -175,13 +176,16 @@ export default function DriverWalletLedger() {
     queryKey: ['service-area-payout-gateway', serviceFilter.serviceAreaId],
     queryFn: async () => {
       if (!serviceFilter.serviceAreaId) return null;
-      const { data, error } = await supabase
-        .from('service_areas')
-        .select('payment_provider, driver_payout_gateway, customer_payment_gateway')
-        .eq('id', serviceFilter.serviceAreaId)
-        .maybeSingle();
-      if (error) throw error;
-      return data;
+      const { rows } = await adminServiceAreasLookup<{
+        payment_provider?: string | null;
+        driver_payout_gateway?: string | null;
+        customer_payment_gateway?: string | null;
+      }>('driver-wallet-ledger', {
+        ids: [serviceFilter.serviceAreaId],
+        include_archived: true,
+        limit: 1,
+      });
+      return rows[0] ?? null;
     },
     enabled: Boolean(serviceFilter.serviceAreaId),
     staleTime: 60_000,
@@ -333,7 +337,7 @@ export default function DriverWalletLedger() {
             </Link>
           </div>
           <div className="flex flex-wrap items-center gap-3">
-            <ServiceAreaFinanceFilter financialModel="PLATFORM_COLLECTED" value={serviceFilter} onChange={setServiceFilter} />
+            <ServiceAreaFinanceFilter pageSlug="driver-wallet-ledger" financialModel="PLATFORM_COLLECTED" value={serviceFilter} onChange={setServiceFilter} />
             {driverId && showReviewRepair ? (
               <Button
                 variant="outline"

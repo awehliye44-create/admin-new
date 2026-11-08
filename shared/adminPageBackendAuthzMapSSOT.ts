@@ -528,12 +528,14 @@ export const EXACT_PAGE_OPERATION_MAP: readonly string[] = [
 
 /** Still open after Admin UI cutover (not Phase D blockers for shared-table JWT). */
 export const REMAINING_OPEN_PATHS: readonly string[] = [
-  'Admin UI src/: ZERO remaining .from(trips|drivers|customers|documents|vehicles) callers (re-scanned). Deploy of that UI is Phase B — not done.',
-  'payment_sessions: authenticated still denied; UI must keep using gated Edges only.',
-  'vehicles: NOT in Phase D fail-closed; SELECT page-gated via RPC; table RLS becomes page-gated only in Phase C (vehicles|drivers).',
-  'driver_service_areas / profiles / service_areas / fare tables: not Phase D shared tables — still direct JWT where used (survive C+D).',
-  'Edge requirePageAccess: app-level; deploy in Phase B. Do not apply Phase C catalog RLS before Edge+UI that expect own-role-only catalog reads.',
-  'SA002 Owner + Roles & Permissions Owner-only: keep; do not broaden Roles mutations.',
+  '20261231160000/170000/180000 catalog RPCs+RLS: LOCAL/UNAPPLIED. Apply 170000+UI before 180000.',
+  'service_areas READS: cut over to admin_service_areas_lookup. JWT leftovers are MUTATES only (Services + pricing/CW/gateway/payout toggles). Mutate RLS = staff_has_page_access(services) — pricing-page writers need services grant or a later page-scoped mutate RPC.',
+  'fare_audit_logs: INTENTIONAL Owner-only staff access in 31180000; Edge stop-workflow service_role inserts; no Admin UI callers.',
+  'stop_waiting_settings / dispatch_settings / service_area_cancellation_fees / service_area_vehicle_pricing: UI cut over to page RPCs; 31180000 drops has_role(admin).',
+  'profiles.delete in RolesPermissions: UI Owner-gated (canRemoveStaff/isOwner); 31180000 Owner-only RLS.',
+  'vehicles SELECT: policy Staff with vehicles|drivers page can read vehicles. ALSO still Admins can manage vehicles (has_role admin ALL) — admin-role-wide write/bypass remains outside 31180000.',
+  'payment_sessions: authenticated denied; Edges only.',
+  'SA002 Owner + Roles Owner-only: keep.',
 ] as const;
 
 /** Unresolved / deferred page→data mappings (product) + apply-time risks. */

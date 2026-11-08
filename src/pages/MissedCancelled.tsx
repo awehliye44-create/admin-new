@@ -34,6 +34,7 @@ import {
   adminLookupByIds,
   adminPageSelect,
   type AdminPageFilter,
+  adminServiceAreasLookup,
 } from '@/lib/adminPageGatedData';
 import { ADMIN_MISSED_CANCELLED_PAGE_SIZE, ADMIN_MISSED_CANCELLED_STATS_ROW_CAP } from '@/lib/adminQueryBounds';
 import {
@@ -207,12 +208,13 @@ export default function MissedCancelled() {
   }, [searchQuery]);
 
   const fetchRegionServiceAreaIds = useCallback(async (regionId: string): Promise<string[]> => {
-    const { data, error } = await supabase
-      .from('service_areas')
-      .select('id')
-      .eq('region_id', regionId);
-    if (error) throw error;
-    return (data || []).map((r) => r.id as string);
+    const { rows } = await adminServiceAreasLookup<{ id: string; region_id: string | null }>(
+      'missed-cancelled',
+      { include_archived: true },
+    );
+    return rows
+      .filter((r) => r.region_id === regionId)
+      .map((r) => r.id);
   }, []);
 
   const { data: missedPage, isLoading, isError, error, refetch } = useQuery({
@@ -293,14 +295,20 @@ export default function MissedCancelled() {
       const saIds = rawRows
         .map((r) => r.service_area_id as string | null)
         .filter((id): id is string => Boolean(id));
-      const saRes = saIds.length > 0
-        ? await supabase
-            .from('service_areas')
-            .select('id, name, region_id, region:regions(currency_code)')
-            .in('id', saIds)
-        : { data: [] as any[], error: null };
-      if (saRes.error) throw saRes.error;
-      const saById = new Map((saRes.data ?? []).map((sa: any) => [sa.id, sa]));
+      const { rows: saRows } = saIds.length > 0
+        ? await adminServiceAreasLookup<{
+            id: string;
+            name: string;
+            region_id: string | null;
+            region?: { currency_code?: string | null } | null;
+          }>('missed-cancelled', { ids: saIds, include_archived: true })
+        : { rows: [] as Array<{
+            id: string;
+            name: string;
+            region_id: string | null;
+            region?: { currency_code?: string | null } | null;
+          }> };
+      const saById = new Map(saRows.map((sa) => [sa.id, sa]));
 
       const rows = rawRows.map((r) => ({
         ...r,
@@ -381,14 +389,13 @@ export default function MissedCancelled() {
       const fareSaIds = farePage.rows
         .map((r) => r.service_area_id as string | null)
         .filter((id): id is string => Boolean(id));
-      const fareSaRes = fareSaIds.length > 0
-        ? await supabase
-            .from('service_areas')
-            .select('id, region:regions(currency_code)')
-            .in('id', fareSaIds)
-        : { data: [] as any[], error: null };
-      if (fareSaRes.error) throw fareSaRes.error;
-      const fareSaById = new Map((fareSaRes.data ?? []).map((sa: any) => [sa.id, sa]));
+      const { rows: fareSaRows } = fareSaIds.length > 0
+        ? await adminServiceAreasLookup<{
+            id: string;
+            region?: { currency_code?: string | null } | null;
+          }>('missed-cancelled', { ids: fareSaIds, include_archived: true })
+        : { rows: [] as Array<{ id: string; region?: { currency_code?: string | null } | null }> };
+      const fareSaById = new Map(fareSaRows.map((sa) => [sa.id, sa]));
       const fareRes = {
         data: farePage.rows.map((r) => ({
           ...r,
@@ -489,7 +496,7 @@ export default function MissedCancelled() {
     >
       {/* Service Area Filter */}
       <div className="flex items-center gap-3 mb-6">
-        <ServiceAreaFinanceFilter financialModel="ALL_OPERATIONAL" value={serviceFilter} onChange={(v) => { setServiceFilter(v); setListPage(0); }} />
+        <ServiceAreaFinanceFilter pageSlug="missed-cancelled" financialModel="ALL_OPERATIONAL" value={serviceFilter} onChange={(v) => { setServiceFilter(v); setListPage(0); }} />
         {isMixedCurrency && (
           <Badge variant="outline" className="text-amber-600 border-amber-300">
             <AlertTriangle className="h-3 w-3 mr-1" /> Mixed currencies — select a service for totals

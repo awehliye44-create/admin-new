@@ -12,6 +12,7 @@ import {
 } from '@/components/ui/select';
 import { Loader2, CreditCard, AlertTriangle, ArrowRightLeft } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
+import { adminServiceAreasLookup } from '@/lib/adminPageGatedData';
 import { toast } from 'sonner';
 import { invokePaymentProviders } from '@/hooks/usePaymentProviders';
 import {
@@ -128,18 +129,22 @@ export function ServiceAreaPaymentGatewayConfig({
   const load = useCallback(async () => {
     setIsLoading(true);
     try {
-      const [providersRes, areaRes, statusRes] = await Promise.all([
+      const [providersRes, areaLookup, statusRes] = await Promise.all([
         supabase
           .from('payment_provider_configs')
           .select(
             'provider, display_name, is_enabled, status, supports_customer_payments, supports_driver_payouts',
           )
           .order('display_name'),
-        supabase
-          .from('service_areas')
-          .select('payment_provider, customer_payment_gateway, driver_payout_gateway')
-          .eq('id', serviceAreaId)
-          .maybeSingle(),
+        adminServiceAreasLookup<{
+          payment_provider?: string | null;
+          customer_payment_gateway?: string | null;
+          driver_payout_gateway?: string | null;
+        }>('service-area-pricing', {
+          ids: [serviceAreaId],
+          include_archived: true,
+          limit: 1,
+        }),
         invokePaymentProviders('GET', {
           action: 'service-area-gateways',
           service_area_id: serviceAreaId,
@@ -152,9 +157,8 @@ export function ServiceAreaPaymentGatewayConfig({
       ]);
 
       if (providersRes.error) throw providersRes.error;
-      if (areaRes.error) throw areaRes.error;
 
-      const area = areaRes.data as {
+      const area = (areaLookup.rows[0] ?? null) as {
         payment_provider?: string | null;
       } | null;
 

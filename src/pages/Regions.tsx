@@ -49,6 +49,7 @@ import {
 import { RegionBoundaryMap } from '@/components/maps/RegionBoundaryMap';
 import { AdminBoundaryWorkspace } from '@/components/maps/AdminBoundaryWorkspace';
 import { supabase } from '@/integrations/supabase/client';
+import { adminServiceAreasLookup } from '@/lib/adminPageGatedData';
 import { validateBoundaryGeometry } from '@/lib/adminBoundaryGeometry';
 import { normalizeLatLngRing } from '../../shared/adminBoundaryEditorSSOT';
 import { 
@@ -224,14 +225,14 @@ export default function Regions() {
             filters: [{ op: 'in', col: 'region_id', val: regionIds }],
             limit: 10000,
           }),
-          supabase.from('service_areas').select('region_id').in('region_id', regionIds).is('archived_at', null),
+          adminServiceAreasLookup<{ region_id: string | null }>('regions', {}),
         ]);
-        
+
         const stats: Record<string, RegionStats> = {};
         for (const region of parsedData) {
           stats[region.id] = {
             drivers: driversRes.rows.filter((d) => d.region_id === region.id).length || 0,
-            serviceAreas: areasRes.data?.filter(a => a.region_id === region.id).length || 0,
+            serviceAreas: areasRes.rows.filter((a) => a.region_id === region.id).length || 0,
           };
         }
         setRegionStats(stats);

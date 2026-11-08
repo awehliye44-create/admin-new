@@ -8,7 +8,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { toast } from 'sonner';
 import { supabase } from '@/integrations/supabase/client';
-import { adminPageSelect } from '@/lib/adminPageGatedData';
+import { adminPageSelect, adminServiceAreasLookup} from '@/lib/adminPageGatedData';
 import { useQuery } from '@tanstack/react-query';
 import { useRegions } from '@/hooks/useRegions';
 import { getCurrencySymbol } from '@/lib/regionSettings';
@@ -59,11 +59,15 @@ export default function CorporateReports() {
   const { data: serviceAreas = [] } = useQuery({
     queryKey: ['service-areas-corp-reports', regionFilter],
     queryFn: async () => {
-      let query = supabase.from('service_areas').select('id, name, region_id').order('name');
+      const { rows } = await adminServiceAreasLookup<{ id: string; name: string; region_id: string }>(
+        'corporate-reports',
+        {},
+      );
+      let data = rows;
       if (regionFilter !== 'all') {
-        query = query.eq('region_id', regionFilter);
+        data = data.filter((r) => r.region_id === regionFilter);
       }
-      const { data, error } = await query;
+      const error = null;
       if (error) throw error;
       return data || [];
     },

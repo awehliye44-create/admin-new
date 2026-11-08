@@ -51,6 +51,7 @@ import {
   adminLookupByIds,
   adminPageSelect,
   inFilter,
+  adminServiceAreasLookup,
 } from '@/lib/adminPageGatedData';
 import {
   isAdminDocumentVisible,
@@ -327,7 +328,7 @@ export default function ActiveTrips() {
         .map((t) => t.service_area_id as string | null | undefined)
         .filter((id): id is string => Boolean(id));
 
-      const [driverRows, saRes] = await Promise.all([
+      const [driverRows, saLookup] = await Promise.all([
         adminLookupByIds<{
           id: string;
           first_name: string | null;
@@ -335,16 +336,21 @@ export default function ActiveTrips() {
           phone: string | null;
         }>('active-trips', 'drivers', driverIds, ['id', 'first_name', 'last_name', 'phone']),
         saIds.length > 0
-          ? supabase
-              .from('service_areas')
-              .select('id, region:regions(currency_code, distance_unit)')
-              .in('id', saIds)
-          : Promise.resolve({ data: [] as any[], error: null }),
+          ? adminServiceAreasLookup<{
+              id: string;
+              region?: { currency_code?: string | null; distance_unit?: string | null } | null;
+            }>('active-trips', { ids: saIds, include_archived: true })
+          : Promise.resolve({
+              rows: [] as Array<{
+                id: string;
+                region?: { currency_code?: string | null; distance_unit?: string | null } | null;
+              }>,
+              count: 0,
+            }),
       ]);
-      if (saRes.error) throw saRes.error;
 
       const driverById = new Map(driverRows.map((d) => [d.id, d]));
-      const saById = new Map((saRes.data ?? []).map((sa: any) => [sa.id, sa]));
+      const saById = new Map(saLookup.rows.map((sa) => [sa.id, sa]));
 
       const hydratedTrips = flatTrips.map((t) => ({
         ...t,

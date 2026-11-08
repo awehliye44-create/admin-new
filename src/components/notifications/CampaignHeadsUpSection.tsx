@@ -196,7 +196,7 @@ const emptyForm = {
 export function CampaignHeadsUpSection() {
   const queryClient = useQueryClient();
   const { data: regions = [] } = useRegions();
-  const { data: serviceAreas = [] } = useServiceAreas({ activeOnly: true });
+  const { data: serviceAreas = [] } = useServiceAreas({ pageSlug: 'notifications', activeOnly: true });
   const [form, setForm] = useState(emptyForm);
   const [isSaving, setIsSaving] = useState(false);
 

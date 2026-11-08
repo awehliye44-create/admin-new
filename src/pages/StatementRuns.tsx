@@ -35,7 +35,7 @@ export default function StatementRuns() {
   const initialTab = searchParams.get("tab") === "schedule" ? "schedule" : "runs";
   const queryClient = useQueryClient();
   const { data: regions = [] } = useRegions();
-  const { data: serviceAreas = [] } = useServiceAreas();
+  const { data: serviceAreas = [] } = useServiceAreas({ pageSlug: 'statement-runs' });
   const [createOpen, setCreateOpen] = useState(false);
 
   const prevMonth = subMonths(new Date(), 1);
@@ -98,12 +98,18 @@ export default function StatementRuns() {
 
       // If specific service area selected, filter to drivers assigned to it
       if (saId) {
-        const { data: saDrivers } = await supabase
-          .from("driver_service_areas")
-          .select("driver_id")
-          .eq("service_area_id", saId);
-        const saDriverSet = new Set((saDrivers || []).map((d: any) => d.driver_id));
-        uniqueDriverIds = uniqueDriverIds.filter(id => saDriverSet.has(id));
+        const { adminPageSelect } = await import("@/lib/adminPageGatedData");
+        const { rows: saDrivers } = await adminPageSelect<{ driver_id: string }>(
+          "statement-runs",
+          "driver_service_areas",
+          {
+            columns: ["driver_id"],
+            filters: [{ op: "eq", col: "service_area_id", val: saId }],
+            limit: 5000,
+          },
+        );
+        const saDriverSet = new Set(saDrivers.map((d) => d.driver_id));
+        uniqueDriverIds = uniqueDriverIds.filter((id) => saDriverSet.has(id));
       }
 
       if (uniqueDriverIds.length === 0) {

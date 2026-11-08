@@ -221,12 +221,16 @@ export function ServiceAreaCommunicationConfig({
         .filter(Boolean) as string[];
       const customerNameById = new Map<string, string>();
       if (voipCustomerIds.length > 0) {
-        const { data: profiles } = await supabase
-          .from('profiles')
-          .select('user_id, full_name')
-          .in('user_id', voipCustomerIds);
-        for (const profile of profiles ?? []) {
-          customerNameById.set(profile.user_id, profile.full_name ?? 'Customer');
+        // Page-gated customers lookup — no admin-wide profiles JWT.
+        const { adminLookupByIds: lookupCustomers } = await import('@/lib/adminPageGatedData');
+        const customers = await lookupCustomers<{
+          id: string;
+          first_name: string | null;
+          last_name: string | null;
+        }>('service-area-pricing', 'customers', voipCustomerIds, ['id', 'first_name', 'last_name']);
+        for (const c of customers) {
+          const name = `${c.first_name ?? ''} ${c.last_name ?? ''}`.trim();
+          customerNameById.set(c.id, name || 'Customer');
         }
       }
 

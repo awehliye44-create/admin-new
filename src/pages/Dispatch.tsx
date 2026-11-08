@@ -11,8 +11,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { supabase } from '@/integrations/supabase/client';
-import { adminLookupByIds, adminPageSelect } from '@/lib/adminPageGatedData';
+import { adminLookupByIds, adminPageSelect, adminServiceAreasLookup } from '@/lib/adminPageGatedData';
 import { Navigation, Loader2, MapPin } from 'lucide-react';
 import { format } from 'date-fns';
 import { getCurrencySymbol } from '@/lib/regionSettings';
@@ -64,7 +63,7 @@ export default function Dispatch() {
         const saIds = rows
           .map((r) => r.service_area_id as string | null | undefined)
           .filter((id): id is string => Boolean(id));
-        const [drivers, saRes] = await Promise.all([
+        const [drivers, saLookup] = await Promise.all([
           adminLookupByIds<{
             id: string;
             first_name: string;
@@ -72,15 +71,17 @@ export default function Dispatch() {
             driver_code: string | null;
           }>('dispatch', 'drivers', driverIds, ['id', 'first_name', 'last_name', 'driver_code']),
           saIds.length > 0
-            ? supabase
-                .from('service_areas')
-                .select('id, region:regions(currency_code)')
-                .in('id', saIds)
-            : Promise.resolve({ data: [] as any[], error: null }),
+            ? adminServiceAreasLookup<{
+                id: string;
+                region?: { currency_code?: string | null } | null;
+              }>('dispatch', { ids: saIds, include_archived: true })
+            : Promise.resolve({
+                rows: [] as Array<{ id: string; region?: { currency_code?: string | null } | null }>,
+                count: 0,
+              }),
         ]);
-        if (saRes.error) throw saRes.error;
         const driverById = new Map(drivers.map((d) => [d.id, d]));
-        const saById = new Map((saRes.data ?? []).map((sa: any) => [sa.id, sa]));
+        const saById = new Map(saLookup.rows.map((sa) => [sa.id, sa]));
         setTrips(
           rows.map((r) => ({
             ...r,

@@ -1,6 +1,7 @@
 import { useState, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
+import { adminPageSelect, adminServiceAreasLookup } from '@/lib/adminPageGatedData';
 import { AdminLayout } from "@/components/layout/AdminLayout";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -120,14 +121,12 @@ export default function FareSimulator() {
   const { data: serviceAreas = [] } = useQuery({
     queryKey: ['service-areas'],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from('service_areas')
-        .select('id, name, region_id')
-        .eq('is_active', true)
-        .is('archived_at', null)
-        .order('name');
-      if (error) throw error;
-      return data as ServiceArea[];
+      const { rows } = await adminServiceAreasLookup<{
+        id: string;
+        name: string;
+        region_id: string;
+      }>('fare-simulator', { active_only: true });
+      return rows as ServiceArea[];
     },
   });
 
@@ -161,13 +160,20 @@ export default function FareSimulator() {
     queryKey: ['assigned-vt', formData.service_area_id],
     queryFn: async () => {
       if (!formData.service_area_id) return [];
-      const { data: assignments } = await supabase
-        .from('service_area_vehicle_pricing')
-        .select('vehicle_type_id')
-        .eq('service_area_id', formData.service_area_id)
-        .eq('is_enabled', true);
-      if (!assignments || assignments.length === 0) return [];
-      const vtIds = assignments.map((a: any) => a.vehicle_type_id);
+      const { rows: assignments } = await adminPageSelect<{ vehicle_type_id: string }>(
+        'fare-simulator',
+        'service_area_vehicle_pricing',
+        {
+          columns: ['vehicle_type_id'],
+          filters: [
+            { op: 'eq', col: 'service_area_id', val: formData.service_area_id },
+            { op: 'eq', col: 'is_enabled', val: true },
+          ],
+          limit: 500,
+        },
+      );
+      if (assignments.length === 0) return [];
+      const vtIds = assignments.map((a) => a.vehicle_type_id);
       const { data: vtData } = await supabase
         .from('vehicle_types')
         .select('id, name, slug')
@@ -184,25 +190,35 @@ export default function FareSimulator() {
     queryFn: async () => {
       if (!formData.service_area_id) return null;
 
-      // Try vehicle-type-specific config first
+      const cols = [
+        'id', 'service_area_id', 'vehicle_type_id', 'pricing_mode', 'currency_code',
+        'base_fare_pence', 'per_km_rate_pence', 'per_min_rate_pence', 'booking_fee_pence',
+        'minimum_fare_pence', 'free_waiting_minutes', 'waiting_per_minute_pence',
+        'extra_stop_flat_fee_pence', 'recalculate_on_waiting', 'recalculate_on_stop_added',
+        'recalculate_on_dropoff_changed', 'enable_surge', 'surge_multiplier_default',
+        'peak_hour_multiplier', 'zone_multiplier', 'traffic_multiplier',
+        'demand_supply_multiplier', 'distance_pricing_bands',
+      ];
       if (formData.vehicle_type_id) {
-        const { data } = await supabase
-          .from('fare_pricing_settings')
-          .select('id, service_area_id, vehicle_type_id, pricing_mode, currency_code, base_fare_pence, per_km_rate_pence, per_min_rate_pence, booking_fee_pence, minimum_fare_pence, free_waiting_minutes, waiting_per_minute_pence, extra_stop_flat_fee_pence, recalculate_on_waiting, recalculate_on_stop_added, recalculate_on_dropoff_changed, enable_surge, surge_multiplier_default, peak_hour_multiplier, zone_multiplier, traffic_multiplier, demand_supply_multiplier, distance_pricing_bands')
-          .eq('service_area_id', formData.service_area_id)
-          .eq('vehicle_type_id', formData.vehicle_type_id)
-          .maybeSingle();
-        if (data) return data as unknown as FarePricingSettings;
+        const { rows } = await adminPageSelect<FarePricingSettings>('fare-simulator', 'fare_pricing_settings', {
+          columns: cols,
+          filters: [
+            { op: 'eq', col: 'service_area_id', val: formData.service_area_id },
+            { op: 'eq', col: 'vehicle_type_id', val: formData.vehicle_type_id },
+          ],
+          limit: 1,
+        });
+        if (rows[0]) return rows[0];
       }
-
-      // Fall back to default (vehicle_type_id IS NULL)
-      const { data } = await supabase
-        .from('fare_pricing_settings')
-        .select('id, service_area_id, vehicle_type_id, pricing_mode, currency_code, base_fare_pence, per_km_rate_pence, per_min_rate_pence, booking_fee_pence, minimum_fare_pence, free_waiting_minutes, waiting_per_minute_pence, extra_stop_flat_fee_pence, recalculate_on_waiting, recalculate_on_stop_added, recalculate_on_dropoff_changed, enable_surge, surge_multiplier_default, peak_hour_multiplier, zone_multiplier, traffic_multiplier, demand_supply_multiplier, distance_pricing_bands')
-        .eq('service_area_id', formData.service_area_id)
-        .is('vehicle_type_id', null)
-        .maybeSingle();
-      return data as unknown as FarePricingSettings | null;
+      const { rows } = await adminPageSelect<FarePricingSettings>('fare-simulator', 'fare_pricing_settings', {
+        columns: cols,
+        filters: [
+          { op: 'eq', col: 'service_area_id', val: formData.service_area_id },
+          { op: 'is_null', col: 'vehicle_type_id' },
+        ],
+        limit: 1,
+      });
+      return rows[0] ?? null;
     },
     enabled: !!formData.service_area_id,
   });

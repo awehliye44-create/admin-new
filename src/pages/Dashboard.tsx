@@ -374,7 +374,7 @@ export default function Dashboard() {
   }, [mapboxReady]);
 
   // Fetch service areas — use shared cached hook
-  const { data: sharedServiceAreas } = useServiceAreas({ activeOnly: true });
+  const { data: sharedServiceAreas } = useServiceAreas({ pageSlug: 'dashboard', activeOnly: true });
   const serviceAreas = useMemo(() => (sharedServiceAreas || []) as DashboardServiceArea[], [sharedServiceAreas]);
 
   // Calculate date ranges (memoized)

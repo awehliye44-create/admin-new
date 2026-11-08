@@ -109,7 +109,7 @@ function FinancialReconciliationPage() {
   const [recoverTripId, setRecoverTripId] = useState<string | null>(null);
   const [recoverTripCode, setRecoverTripCode] = useState<string | null>(null);
 
-  const { data: serviceAreas = [], isLoading: serviceAreasLoading } = useServiceAreas({ activeOnly: true });
+  const { data: serviceAreas = [], isLoading: serviceAreasLoading } = useServiceAreas({ pageSlug: 'financial-reconciliation', activeOnly: true });
 
   useEffect(() => {
     if (financeScopeReady || serviceAreasLoading) return;
@@ -450,7 +450,7 @@ function FinancialReconciliationPage() {
         <div className="space-y-4">
           <div className="flex flex-wrap items-center gap-2">
             <FinanceSSOTBadge badge="UNAVAILABLE" />
-            <ServiceAreaFinanceFilter financialModel="PLATFORM_COLLECTED" value={filter} onChange={setFilter} autoSelectFirstArea={false} />
+            <ServiceAreaFinanceFilter pageSlug="financial-reconciliation" financialModel="PLATFORM_COLLECTED" value={filter} onChange={setFilter} autoSelectFirstArea={false} />
             <Input type="date" value={from} onChange={(e) => setFrom(e.target.value)} className="w-[150px]" />
             <Input type="date" value={to} onChange={(e) => setTo(e.target.value)} className="w-[150px]" />
           </div>
@@ -530,7 +530,7 @@ function FinancialReconciliationPage() {
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <ServiceAreaFinanceFilter financialModel="PLATFORM_COLLECTED" value={filter} onChange={setFilter} autoSelectFirstArea={false} />
+            <ServiceAreaFinanceFilter pageSlug="financial-reconciliation" financialModel="PLATFORM_COLLECTED" value={filter} onChange={setFilter} autoSelectFirstArea={false} />
             <Input type="date" value={from} onChange={(e) => setFrom(e.target.value)} className="w-[150px]" />
             <Input type="date" value={to} onChange={(e) => setTo(e.target.value)} className="w-[150px]" />
             <Button variant="outline" size="sm" onClick={() => void handleRefreshFinance()} disabled={isFinanceRefreshing}>

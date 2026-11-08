@@ -10,6 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Textarea } from '@/components/ui/textarea';
 import { toast } from 'sonner';
 import { supabase } from '@/integrations/supabase/client';
+import { adminServiceAreasLookup } from '@/lib/adminPageGatedData';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { 
   Settings, 
@@ -156,11 +157,13 @@ export default function CorporateSettings() {
   const { data: serviceAreas = [] } = useQuery({
     queryKey: ['service-areas', regionFilter],
     queryFn: async () => {
-      let query = supabase.from('service_areas').select('id, name, region_id').is('archived_at', null).order('name');
-      if (regionFilter !== 'all') {
-        query = query.eq('region_id', regionFilter);
-      }
-      const { data, error } = await query;
+      const { rows: saRows } = await adminServiceAreasLookup<{ id: string; name: string; region_id: string }>(
+        'corporate-settings',
+        { active_only: false },
+      );
+      let data = saRows;
+      const error = null;
+      // region filter applied below if needed
       if (error) throw error;
       return data as ServiceArea[];
     },

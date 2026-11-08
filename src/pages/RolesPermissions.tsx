@@ -46,6 +46,7 @@ import {
   PowerOff,
 } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
+import { adminServiceAreasLookup } from '@/lib/adminPageGatedData';
 import { useAuth } from '@/hooks/useAuth';
 import { useStaffProfile, StaffRole, ROLE_LABELS, ROLE_PREFIXES } from '@/hooks/useStaffProfile';
 import { useRoleCapabilities } from '@/hooks/useRoleCapabilities';
@@ -247,13 +248,8 @@ export default function RolesPermissions() {
   }, []);
 
   const fetchServiceAreas = useCallback(async () => {
-    const { data } = await supabase
-      .from('service_areas')
-      .select('id, name')
-      .eq('is_active', true)
-      .is('archived_at', null)
-      .order('name');
-    setServiceAreas(data || []);
+    const { rows } = await adminServiceAreasLookup<{ id: string; name: string }>('roles', { active_only: true });
+    setServiceAreas(rows);
   }, []);
 
   const [roles, setRoles] = useState<CatalogRole[]>([]);

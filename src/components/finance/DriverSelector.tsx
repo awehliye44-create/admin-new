@@ -26,6 +26,7 @@ export function driverOptionLabel(d: Pick<DriverOption, 'id' | 'driver_code' | '
 export function DriverSelector({
   value,
   onChange,
+  pageSlug,
   regionId,
   serviceAreaId,
   financialModel,
@@ -34,6 +35,8 @@ export function DriverSelector({
 }: {
   value: string | null;
   onChange: (driverId: string | null, driver?: DriverOption | null) => void;
+  /** Exact page grant for DSA / service_areas lookups. */
+  pageSlug: string;
   regionId?: string | null;
   serviceAreaId?: string | null;
   /** When set, only list drivers in that financial-model pipeline. */
@@ -53,7 +56,7 @@ export function DriverSelector({
     isError,
     error,
     refetch,
-  } = useAdminDriverOptions({ regionId, serviceAreaId, financialModel });
+  } = useAdminDriverOptions({ pageSlug, regionId, serviceAreaId, financialModel });
 
   useEffect(() => {
     if (!open) return;

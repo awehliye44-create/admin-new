@@ -122,7 +122,7 @@ function OfferDialog({
   const save = useSaveSpecialOffer(audience);
   const { data: categories = [] } = useSpecialOfferCategories(audience);
   const { data: tiers = [] } = useDriverTierNames(isDriver);
-  const { data: areas = [] } = useServiceAreas({ activeOnly: true });
+  const { data: areas = [] } = useServiceAreas({ pageSlug: 'offers', activeOnly: true });
   const { data: regions = [] } = useRegions();
 
   const regionName = (id: string | null) => regions.find((r) => r.id === id)?.name ?? null;
@@ -536,7 +536,7 @@ export default function SpecialOffersAdminPage({ audience }: { audience: OfferAu
   const isDriver = audience === 'driver';
   const { data: offers = [], isLoading } = useSpecialOffersAdmin(audience);
   const { data: categories = [] } = useSpecialOfferCategories(audience);
-  const { data: areas = [] } = useServiceAreas();
+  const { data: areas = [] } = useServiceAreas({ pageSlug: 'offers' });
   const { data: regions = [] } = useRegions();
   const saveCategory = useSaveSpecialOfferCategory(audience);
   const deleteOffer = useDeleteSpecialOffer(audience);

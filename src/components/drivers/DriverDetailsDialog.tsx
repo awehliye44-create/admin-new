@@ -208,12 +208,16 @@ export function DriverDetailsDialog({
   }, [open, driver?.id]);
 
   const fetchDocumentComplianceData = async (driverId: string) => {
+    const { adminServiceAreasLookup } = await import('@/lib/adminPageGatedData');
     const [typesRes, docsRes, driverRes] = await Promise.all([
-      supabase
-        .from('document_types')
-        .select('id, slug, name, has_expiry, is_required')
-        .eq('is_active', true)
-        .order('display_order'),
+      adminPageSelect<{
+        id: string; slug: string; name: string; has_expiry: boolean; is_required: boolean;
+      }>('drivers', 'document_types', {
+        columns: ['id', 'slug', 'name', 'has_expiry', 'is_required'],
+        filters: [{ op: 'eq', col: 'is_active', val: true }],
+        order: [{ col: 'display_order', asc: true }],
+        limit: 500,
+      }),
       adminPageSelect('drivers', 'documents', {
         columns: [
           'id', 'document_type', 'document_name', 'status', 'expiry_date', 'file_url',
@@ -232,18 +236,17 @@ export function DriverDetailsDialog({
       }),
     ]);
 
-    const allTypes = (typesRes.data || []) as { id: string; slug: string; name: string; has_expiry: boolean; is_required: boolean }[];
+    const allTypes = typesRes.rows;
     const docsPage = docsRes as Awaited<ReturnType<typeof adminPageSelect>>;
     const driverPage = driverRes as Awaited<ReturnType<typeof adminPageSelect>>;
     const assignedServiceAreaId = (driverPage.rows[0]?.service_area_id as string | null) ?? null;
     let assignedServiceAreaName: string | null = null;
     if (assignedServiceAreaId) {
-      const { data: saRow } = await supabase
-        .from('service_areas')
-        .select('name')
-        .eq('id', assignedServiceAreaId)
-        .maybeSingle();
-      assignedServiceAreaName = (saRow?.name as string | null) ?? null;
+      const { rows: saRows } = await adminServiceAreasLookup<{ name: string }>(
+        'drivers',
+        { ids: [assignedServiceAreaId], include_archived: true, limit: 1 },
+      );
+      assignedServiceAreaName = saRows[0]?.name ?? null;
     }
 
     let saRules: {
@@ -255,11 +258,20 @@ export function DriverDetailsDialog({
     }[] = [];
 
     if (assignedServiceAreaId) {
-      const { data: rulesData } = await supabase
-        .from('service_area_document_rules')
-        .select('doc_type_id, mandatory, is_active, expiry_required, display_in_driver_app')
-        .eq('service_area_id', assignedServiceAreaId);
-      saRules = (rulesData || []) as any;
+      const { rows: rulesData } = await adminPageSelect<{
+        doc_type_id: string;
+        mandatory: boolean;
+        is_active: boolean;
+        expiry_required: boolean;
+        display_in_driver_app: boolean;
+      }>('drivers', 'service_area_document_rules', {
+        columns: [
+          'doc_type_id', 'mandatory', 'is_active', 'expiry_required', 'display_in_driver_app',
+        ],
+        filters: [{ op: 'eq', col: 'service_area_id', val: assignedServiceAreaId }],
+        limit: 500,
+      });
+      saRules = rulesData;
     }
 
     // Assigned SA only — no global is_required fallback, no multi-SA union.

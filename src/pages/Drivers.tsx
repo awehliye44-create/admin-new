@@ -153,7 +153,7 @@ export default function Drivers() {
   usePageLoadTelemetry('DriversPage');
   // Shared cached reference data — no duplicate fetches
   const { data: regionsList = [], isLoading: regionsLoading } = useRegions();
-  const { data: serviceAreasList = [], isLoading: serviceAreasLoading } = useServiceAreas();
+  const { data: serviceAreasList = [], isLoading: serviceAreasLoading } = useServiceAreas({ pageSlug: 'drivers' });
 
   // Build regions lookup map
   const regions: Record<string, { id: string; name: string }> = {};
@@ -256,12 +256,16 @@ export default function Drivers() {
       }
 
       if (selectedServiceAreaFilter !== 'all') {
-        const { data: dsaRows, error: dsaErr } = await supabase
-          .from('driver_service_areas')
-          .select('driver_id')
-          .eq('service_area_id', selectedServiceAreaFilter);
-        if (dsaErr) throw dsaErr;
-        const saIds = Array.from(new Set((dsaRows || []).map((r) => r.driver_id)));
+        const { rows: dsaRows } = await adminPageSelect<{ driver_id: string }>(
+          'drivers',
+          'driver_service_areas',
+          {
+            columns: ['driver_id'],
+            filters: [{ op: 'eq', col: 'service_area_id', val: selectedServiceAreaFilter }],
+            limit: 500,
+          },
+        );
+        const saIds = Array.from(new Set(dsaRows.map((r) => r.driver_id)));
         if (saIds.length === 0) {
           setDrivers([]);
           setTotalCount(0);
@@ -320,10 +324,15 @@ export default function Drivers() {
             filters: [{ op: 'in', col: 'driver_id', val: driverIds }],
             limit: Math.min(driverIds.length * 5, 500),
           }),
-          supabase
-            .from('driver_service_areas')
-            .select('driver_id, service_area_id')
-            .in('driver_id', driverIds),
+          adminPageSelect<{ driver_id: string; service_area_id: string }>(
+            'drivers',
+            'driver_service_areas',
+            {
+              columns: ['driver_id', 'service_area_id'],
+              filters: [{ op: 'in', col: 'driver_id', val: driverIds }],
+              limit: Math.min(driverIds.length * 10, 500),
+            },
+          ),
         ]);
         
         if (vehiclesPage.rows) {
@@ -340,7 +349,7 @@ export default function Drivers() {
           setVehicles(vehiclesMap);
         }
 
-        if (driverServiceAreasRes.data) {
+        if (driverServiceAreasRes.rows) {
           const dsaMap: Record<string, string[]> = {};
 
           data.forEach((driver) => {
@@ -349,7 +358,7 @@ export default function Drivers() {
           }
           });
 
-          driverServiceAreasRes.data.forEach(dsa => {
+          driverServiceAreasRes.rows.forEach(dsa => {
             const existing = new Set(dsaMap[dsa.driver_id] || []);
             existing.add(dsa.service_area_id);
             dsaMap[dsa.driver_id] = Array.from(existing);
@@ -778,20 +787,22 @@ export default function Drivers() {
     setIsSavingServiceAreas(true);
     
     try {
-      // Fetch current service areas for this driver
-      const { data, error } = await supabase
-        .from('driver_service_areas')
-        .select('id, driver_id, service_area_id')
-        .eq('driver_id', driver.id);
+      const { rows } = await adminPageSelect<{ id: string; driver_id: string; service_area_id: string }>(
+        'drivers',
+        'driver_service_areas',
+        {
+          columns: ['id', 'driver_id', 'service_area_id'],
+          filters: [{ op: 'eq', col: 'driver_id', val: driver.id }],
+          limit: 100,
+        },
+      );
 
-      if (error) throw error;
-
-      setDriverServiceAreas(data || []);
+      setDriverServiceAreas(rows);
       setSelectedServiceAreas(
         Array.from(
           new Set([
             ...(driver.service_area_id ? [driver.service_area_id] : []),
-            ...(data || []).map(d => d.service_area_id),
+            ...rows.map(d => d.service_area_id),
           ]),
         ),
       );
@@ -839,29 +850,19 @@ export default function Drivers() {
         throw primaryUpdateError;
       }
 
-      // Remove unselected
       if (toRemove.length > 0) {
-        const { error: deleteError } = await supabase
-          .from('driver_service_areas')
-          .delete()
-          .eq('driver_id', selectedDriver.id)
-          .in('service_area_id', toRemove);
-
-        if (deleteError) throw deleteError;
+        await adminPageMutate('drivers', 'driver_service_areas', 'delete', {
+          filters: [
+            { op: 'eq', col: 'driver_id', val: selectedDriver.id },
+            { op: 'in', col: 'service_area_id', val: toRemove },
+          ],
+        });
       }
 
-      // Add new selections
-      if (toAdd.length > 0) {
-        const newAssignments = toAdd.map(service_area_id => ({
-          driver_id: selectedDriver.id,
-          service_area_id,
-        }));
-
-        const { error: insertError } = await supabase
-          .from('driver_service_areas')
-          .insert(newAssignments);
-
-        if (insertError) throw insertError;
+      for (const service_area_id of toAdd) {
+        await adminPageMutate('drivers', 'driver_service_areas', 'insert', {
+          patch: { driver_id: selectedDriver.id, service_area_id },
+        });
       }
 
       setDrivers(prev =>

@@ -12,7 +12,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { supabase } from '@/integrations/supabase/client';
-import { adminPageSelect, inFilter } from '@/lib/adminPageGatedData';
+import { adminPageSelect, inFilter, adminServiceAreasLookup } from '@/lib/adminPageGatedData';
 import { isAdminPageLiveActive, subscribeAdminPageLiveActive } from '@/lib/adminPageVisibility';
 import { 
   MapPin, Loader2, Search, RefreshCw, Car, Users, Circle, 
@@ -296,7 +296,7 @@ export default function FleetTracking() {
       if (!isBackground) setIsLoading(true);
       
       // Fetch all data in parallel instead of sequentially
-      const [driversPage, regionsRes, serviceAreasRes, tripsPage] = await Promise.all([
+      const [driversPage, regionsRes, serviceAreasPage, tripsPage] = await Promise.all([
         adminPageSelect<Record<string, unknown>>('fleet-tracking', 'drivers', {
           columns: [
             'id', 'first_name', 'last_name', 'driver_code', 'is_online', 'approval_status',
@@ -315,11 +315,10 @@ export default function FleetTracking() {
           .from('regions')
           .select('id, name, geo_boundary')
           .eq('status', 'active'),
-        supabase
-          .from('service_areas')
-          .select('id, name, region_id')
-          .eq('is_active', true)
-          .is('archived_at', null),
+        adminServiceAreasLookup<{ id: string; name: string; region_id: string }>(
+          'fleet-tracking',
+          { active_only: true },
+        ),
         adminPageSelect<{
           id: string;
           driver_id: string | null;
@@ -335,10 +334,10 @@ export default function FleetTracking() {
 
       if (regionsRes.error) throw regionsRes.error;
 
-      const serviceAreasData: ServiceArea[] = (serviceAreasRes.data || []).map((sa: any) => ({
-        id: sa.id as string,
-        name: sa.name as string,
-        region_id: sa.region_id as string
+      const serviceAreasData: ServiceArea[] = (serviceAreasPage.rows || []).map((sa) => ({
+        id: sa.id,
+        name: sa.name,
+        region_id: sa.region_id,
       }));
 
       const regionIds = [...new Set(
@@ -366,14 +365,19 @@ export default function FleetTracking() {
       // Fetch driver service area assignments
       const driverIds = driversWithTrips.map(d => d.id);
       if (driverIds.length > 0) {
-        const { data: dsaData } = await supabase
-          .from('driver_service_areas')
-          .select('driver_id, service_area_id')
-          .in('driver_id', driverIds);
-        
-        if (dsaData) {
+        const { adminPageSelect } = await import('@/lib/adminPageGatedData');
+        const { rows: dsaData } = await adminPageSelect<{ driver_id: string; service_area_id: string }>(
+          'fleet-tracking',
+          'driver_service_areas',
+          {
+            columns: ['driver_id', 'service_area_id'],
+            filters: [{ op: 'in', col: 'driver_id', val: driverIds }],
+            limit: Math.min(driverIds.length * 10, 500),
+          },
+        );
+        if (dsaData.length > 0) {
           const mapping: Record<string, string[]> = {};
-          dsaData.forEach(item => {
+          dsaData.forEach((item) => {
             if (!mapping[item.driver_id]) {
               mapping[item.driver_id] = [];
             }

@@ -11,6 +11,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { toast } from 'sonner';
 import { supabase } from '@/integrations/supabase/client';
+import { adminServiceAreasLookup } from '@/lib/adminPageGatedData';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { 
   Search, 
@@ -79,9 +80,15 @@ export default function AccountRequests() {
   const { data: serviceAreas = [] } = useQuery({
     queryKey: ['service-areas', regionFilter],
     queryFn: async () => {
-      let query = supabase.from('service_areas').select('id, name, region_id').is('archived_at', null).order('name');
-      if (regionFilter !== 'all') query = query.eq('region_id', regionFilter);
-      const { data, error } = await query;
+      const { rows } = await adminServiceAreasLookup<{ id: string; name: string; region_id: string }>(
+        'account-requests',
+        {},
+      );
+      let data = rows;
+      if (regionFilter !== 'all') {
+        data = data.filter((r) => r.region_id === regionFilter);
+      }
+      const error = null;
       if (error) throw error;
       return data;
     },

@@ -52,22 +52,30 @@ export function DriverPayoutPanel({
   const { data, isLoading } = useQuery({
     queryKey: ["driver-payout-panel", driverId],
     queryFn: async () => {
-      const { data: dsaRow } = await supabase
-        .from("driver_service_areas")
-        .select("service_area_id")
-        .eq("driver_id", driverId)
-        .limit(1)
-        .maybeSingle();
+      const { adminPageSelect, adminServiceAreasLookup } = await import("@/lib/adminPageGatedData");
+      const { rows: dsaRows } = await adminPageSelect<{ service_area_id: string }>(
+        "drivers",
+        "driver_service_areas",
+        {
+          columns: ["service_area_id"],
+          filters: [{ op: "eq", col: "driver_id", val: driverId }],
+          limit: 1,
+        },
+      );
+      const dsaRow = dsaRows[0];
 
       const resolvedServiceAreaId = serviceAreaId ?? dsaRow?.service_area_id ?? null;
 
       const [areaRes, regionRes, destinationRes, auditRes] = await Promise.all([
         resolvedServiceAreaId
-          ? supabase
-            .from("service_areas")
-            .select("name, payment_provider, driver_payout_gateway, customer_payment_gateway")
-            .eq("id", resolvedServiceAreaId)
-            .maybeSingle()
+          ? adminServiceAreasLookup<{
+              name: string;
+              payment_provider?: string | null;
+              driver_payout_gateway?: string | null;
+              customer_payment_gateway?: string | null;
+            }>("drivers", { ids: [resolvedServiceAreaId], include_archived: true, limit: 1 }).then(
+              (r) => ({ data: r.rows[0] ?? null }),
+            )
           : Promise.resolve({ data: null }),
         regionId
           ? supabase

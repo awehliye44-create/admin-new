@@ -33,7 +33,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { supabase } from '@/integrations/supabase/client';
-import { adminPageSelect } from '@/lib/adminPageGatedData';
+import { adminPageSelect, adminServiceAreasLookup } from '@/lib/adminPageGatedData';
 import { useRegions } from '@/hooks/useRegions';
 import { useServiceAreas as useSharedServiceAreas } from '@/hooks/useServiceAreas';
 import { 
@@ -661,19 +661,19 @@ export default function TripHistory() {
 
   const fetchServiceAreaForTrip = async (regionId: string) => {
     try {
-      const { data, error } = await supabase
-        .from('service_areas')
-        .select(`
-          id,
-          name,
-          region_id,
-          region:regions(name, currency_code, distance_unit)
-        `)
-        .eq('region_id', regionId)
-        .limit(1)
-        .maybeSingle();
+      const { rows } = await adminServiceAreasLookup<{
+        id: string;
+        name: string;
+        region_id: string;
+        region?: {
+          name?: string | null;
+          currency_code?: string | null;
+          distance_unit?: string | null;
+        } | null;
+      }>('trip-history', { include_archived: true });
+      const data = rows.find((r) => r.region_id === regionId) ?? null;
 
-      if (error || !data) {
+      if (!data) {
         // Fallback: try to get region directly
         const { data: regionData } = await supabase
           .from('regions')

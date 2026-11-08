@@ -4,6 +4,7 @@ import {
   adminPageSelect,
   type AdminPageFilter,
   type AdminPageSelectArgs,
+  adminServiceAreasLookup,
 } from '@/lib/adminPageGatedData';
 import { fetchPassengerDirectory, hydratePassengerIdentity } from '@/lib/tripPassengerDisplay';
 import {
@@ -290,11 +291,14 @@ async function tripHistoryLocationFilters(
     return { filters: [{ op: 'eq', col: 'service_area_id', val: args.serviceAreaId }] };
   }
   if (args.regionId && args.regionId !== 'all') {
-    const { data: areas } = await supabase
-      .from('service_areas')
-      .select('id')
-      .eq('region_id', args.regionId);
-    const areaIds = (areas ?? []).map((row: any) => row.id as string).filter(Boolean);
+    const { rows: areas } = await adminServiceAreasLookup<{ id: string; region_id: string | null }>(
+      'trip-history',
+      { include_archived: true },
+    );
+    const areaIds = areas
+      .filter((row) => row.region_id === args.regionId)
+      .map((row) => row.id)
+      .filter(Boolean);
     if (areaIds.length > 0) {
       return {
         filters: [],

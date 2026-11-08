@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { AdminLayout } from '@/components/layout/AdminLayout';
 import { supabase } from '@/integrations/supabase/client';
+import { adminServiceAreasLookup } from '@/lib/adminPageGatedData';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -142,13 +143,13 @@ export default function DriverDemandZones() {
   const { data: serviceAreas = [] } = useQuery({
     queryKey: ['driver-demand-service-areas'],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from('service_areas')
-        .select('id, name, region_id, geo_boundary')
-        .eq('is_active', true)
-        .order('name');
-      if (error) throw error;
-      return (data ?? []).map((row) => ({
+      const { rows } = await adminServiceAreasLookup<{
+        id: string;
+        name: string;
+        region_id: string;
+        geo_boundary: unknown;
+      }>('driver-demand-zones', { active_only: true });
+      return rows.map((row) => ({
         ...row,
         geo_boundary: parseGeoBoundary(row.geo_boundary),
       })) as ServiceArea[];

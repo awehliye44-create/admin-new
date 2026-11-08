@@ -53,6 +53,7 @@ import {
   adminPageMutate,
   adminPageSelect,
   type AdminPageFilter,
+  adminServiceAreasLookup,
 } from '@/lib/adminPageGatedData';
 import {
   ADMIN_SCHEDULED_RIDES_CAP,
@@ -275,14 +276,18 @@ export default function ScheduledRides() {
       const saIds = tripsPage.rows
         .map((t) => t.service_area_id as string | null)
         .filter((id): id is string => Boolean(id));
-      const saRes = saIds.length > 0
-        ? await supabase
-            .from('service_areas')
-            .select('id, name, region:regions(currency_code, distance_unit)')
-            .in('id', saIds)
-        : { data: [] as any[], error: null };
-      if (saRes.error) throw saRes.error;
-      const saById = new Map((saRes.data ?? []).map((sa: any) => [sa.id, sa]));
+      const { rows: saRows } = saIds.length > 0
+        ? await adminServiceAreasLookup<{
+            id: string;
+            name: string;
+            region?: { currency_code?: string | null; distance_unit?: string | null } | null;
+          }>('scheduled-rides', { ids: saIds, include_archived: true })
+        : { rows: [] as Array<{
+            id: string;
+            name: string;
+            region?: { currency_code?: string | null; distance_unit?: string | null } | null;
+          }> };
+      const saById = new Map(saRows.map((sa) => [sa.id, sa]));
 
       const trips = tripsPage.rows.map((t) => ({
         ...t,

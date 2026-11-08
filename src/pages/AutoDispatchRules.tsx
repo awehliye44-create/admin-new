@@ -30,6 +30,7 @@ import {
 import { StackedRidesHelpPanel } from '@/components/dispatch/StackedRidesHelpPanel';
 import { toast } from 'sonner';
 import { supabase } from '@/integrations/supabase/client';
+import { adminPageMutate } from '@/lib/adminPageGatedData';
 // useServiceAreas removed — dispatch config is global
 import { useRegions } from '@/hooks/useRegions';
 import { convertDistance, convertToKm, getDistanceUnitShort } from '@/lib/regionSettings';
@@ -444,9 +445,9 @@ export default function AutoDispatchRules() {
       }
 
       // Keep legacy dispatch_settings aligned for older SQL readers (incl. distance_penalty_per_km).
-      await supabase
-        .from('dispatch_settings')
-        .update({
+      await adminPageMutate('auto-dispatch', 'dispatch_settings', 'update', {
+        filters: [{ op: 'not_null', col: 'id' }],
+        patch: {
           max_driver_find_time_minutes: settings.maxDriverFindTimeMinutes,
           stacked_rides_enabled: !!settings.stackedRidesEnabled,
           wave1_offer_expiry_seconds: settings.wave1OfferExpirySeconds,
@@ -464,8 +465,8 @@ export default function AutoDispatchRules() {
           search_radius_expand_km: savedSettings.bookingWave2RadiusMeters / 1000,
           search_radius_max_km: savedSettings.bookingWave3RadiusMeters / 1000,
           updated_at: new Date().toISOString(),
-        })
-        .not('id', 'is', null);
+        },
+      });
 
       setSettings(savedSettings);
       setHasChanges(false);

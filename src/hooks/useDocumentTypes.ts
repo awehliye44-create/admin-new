@@ -1,6 +1,12 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { supabase } from "@/integrations/supabase/client";
+import {
+  adminDocumentTypeInUse,
+  adminPageMutate,
+  adminPageSelect,
+} from "@/lib/adminPageGatedData";
 import { toast } from "sonner";
+
+const PAGE = "document-management" as const;
 
 export interface DocumentType {
   id: string;
@@ -21,15 +27,25 @@ export function useDocumentTypes() {
   return useQuery({
     queryKey: ["document-types"],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from("document_types")
-        .select(
-          "id, name, slug, description, is_required, has_expiry, show_in_driver_app, reminder_days_before_expiry, display_order, is_active, created_at, updated_at",
-        )
-        .order("display_order", { ascending: true });
-
-      if (error) throw error;
-      return data as DocumentType[];
+      const { rows } = await adminPageSelect<DocumentType>(PAGE, "document_types", {
+        columns: [
+          "id",
+          "name",
+          "slug",
+          "description",
+          "is_required",
+          "has_expiry",
+          "show_in_driver_app",
+          "reminder_days_before_expiry",
+          "display_order",
+          "is_active",
+          "created_at",
+          "updated_at",
+        ],
+        order: [{ col: "display_order", asc: true }],
+        limit: 500,
+      });
+      return rows;
     },
   });
 }
@@ -40,20 +56,16 @@ export function useUpdateDocumentType() {
   return useMutation({
     mutationFn: async (updates: Partial<DocumentType> & { id: string }) => {
       const { id, ...rest } = updates;
-      const { data, error } = await supabase
-        .from("document_types")
-        .update(rest)
-        .eq("id", id)
-        .select()
-        .maybeSingle();
-
-      if (error) throw error;
-      if (!data) {
+      const { row } = await adminPageMutate<DocumentType>(PAGE, "document_types", "update", {
+        id,
+        patch: rest as Record<string, unknown>,
+      });
+      if (!row) {
         throw new Error(
-          "Update blocked — your admin session cannot modify document types (FORBIDDEN / RLS).",
+          "Update blocked — your admin session cannot modify document types (FORBIDDEN / page grant).",
         );
       }
-      return data;
+      return row;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["document-types"] });
@@ -70,14 +82,11 @@ export function useCreateDocumentType() {
 
   return useMutation({
     mutationFn: async (docType: Omit<DocumentType, "id" | "created_at" | "updated_at">) => {
-      const { data, error } = await supabase
-        .from("document_types")
-        .insert(docType)
-        .select()
-        .single();
-
-      if (error) throw error;
-      return data;
+      const { row } = await adminPageMutate<DocumentType>(PAGE, "document_types", "insert", {
+        patch: docType as Record<string, unknown>,
+      });
+      if (!row) throw new Error("Create blocked — missing document-management page access.");
+      return row;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["document-types"] });
@@ -100,60 +109,42 @@ export function useDeleteDocumentType() {
 
   return useMutation({
     mutationFn: async (id: string) => {
-      const { data: typeRow, error: typeErr } = await supabase
-        .from("document_types")
-        .select("id, slug, name")
-        .eq("id", id)
-        .maybeSingle();
-      if (typeErr) throw typeErr;
+      const { rows } = await adminPageSelect<Pick<DocumentType, "id" | "slug" | "name">>(
+        PAGE,
+        "document_types",
+        {
+          columns: ["id", "slug", "name"],
+          filters: [{ op: "eq", col: "id", val: id }],
+          limit: 1,
+        },
+      );
+      const typeRow = rows[0];
       if (!typeRow) throw new Error("Document type not found.");
 
-      const [{ count: byIdCount, error: byIdErr }, { count: bySlugCount, error: bySlugErr }] =
-        await Promise.all([
-          supabase
-            .from("documents")
-            .select("id", { count: "exact", head: true })
-            .eq("document_type_id", id),
-          supabase
-            .from("documents")
-            .select("id", { count: "exact", head: true })
-            .eq("document_type", typeRow.slug),
-        ]);
-      if (byIdErr) throw byIdErr;
-      if (bySlugErr) throw bySlugErr;
-
-      const inUse = (byIdCount ?? 0) + (bySlugCount ?? 0) > 0;
+      // Page: document-management. Narrow DEFINER RPC — does not weaken documents Owner-only RLS.
+      const inUse = await adminDocumentTypeInUse(id);
       if (inUse) {
-        const { data, error } = await supabase
-          .from("document_types")
-          .update({
-            is_active: false,
-            show_in_driver_app: false,
-          })
-          .eq("id", id)
-          .select("id")
-          .maybeSingle();
-        if (error) throw error;
-        if (!data) {
+        const { row } = await adminPageMutate(PAGE, "document_types", "update", {
+          id,
+          patch: { is_active: false, show_in_driver_app: false },
+        });
+        if (!row) {
           throw new Error(
             "Deactivate blocked — your admin session cannot modify document types.",
           );
         }
-        await supabase
-          .from("service_area_document_rules")
-          .update({ is_active: false, display_in_driver_app: false })
-          .eq("doc_type_id", id);
+        await adminPageMutate(PAGE, "service_area_document_rules", "update", {
+          filters: [{ op: "eq", col: "doc_type_id", val: id }],
+          patch: { is_active: false, display_in_driver_app: false },
+        });
         return { mode: "deactivated" as const, name: typeRow.name };
       }
 
-      const { error } = await supabase.from("document_types").delete().eq("id", id);
-      if (error) {
-        // FK / RLS surfaces as FORBIDDEN or foreign key violation
-        throw new Error(
-          error.message === "FORBIDDEN"
-            ? "Delete blocked by server policy. Try again after refreshing Admin."
-            : error.message,
-        );
+      const { deleted } = await adminPageMutate(PAGE, "document_types", "delete", {
+        ids: [id],
+      });
+      if (!deleted) {
+        throw new Error("Delete blocked by server policy. Try again after refreshing Admin.");
       }
       return { mode: "deleted" as const, name: typeRow.name };
     },

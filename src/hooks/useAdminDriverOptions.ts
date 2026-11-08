@@ -28,8 +28,10 @@ function toDriverOption(row: AdminDriverRow): DriverOption {
   };
 }
 
-/** Admin driver list — uses admin_list_drivers RPC (bypasses RLS) with correct service-area junction filtering. */
-export function useAdminDriverOptions(args?: {
+/** Admin driver list — uses admin_list_drivers RPC with page-gated DSA / SA filters. */
+export function useAdminDriverOptions(args: {
+  /** Exact page grant for DSA / service_areas lookups. */
+  pageSlug: string;
   regionId?: string | null;
   serviceAreaId?: string | null;
   /** When true, only drivers with payouts enabled. */
@@ -40,45 +42,50 @@ export function useAdminDriverOptions(args?: {
    */
   financialModel?: FinancialModel | null;
 }) {
-  const regionId = args?.regionId ?? null;
-  const serviceAreaId = args?.serviceAreaId ?? null;
-  const payoutsEnabledOnly = args?.payoutsEnabledOnly ?? false;
-  const financialModel = args?.financialModel ?? null;
+  const pageSlug = args.pageSlug;
+  const regionId = args.regionId ?? null;
+  const serviceAreaId = args.serviceAreaId ?? null;
+  const payoutsEnabledOnly = args.payoutsEnabledOnly ?? false;
+  const financialModel = args.financialModel ?? null;
 
   return useQuery({
-    queryKey: ['admin-driver-options', regionId, serviceAreaId, payoutsEnabledOnly, financialModel],
+    queryKey: ['admin-driver-options', pageSlug, regionId, serviceAreaId, payoutsEnabledOnly, financialModel],
     queryFn: async (): Promise<DriverOption[]> => {
-      const [{ data: drivers, error: driversError }, junctionRes, areasRes] = await Promise.all([
+      const { adminPageSelect, adminServiceAreasLookup } = await import('@/lib/adminPageGatedData');
+      const [{ data: drivers, error: driversError }, junctionRows, areasRows] = await Promise.all([
         supabase.rpc('admin_list_drivers'),
-        serviceAreaId
-          ? supabase
-            .from('driver_service_areas')
-            .select('driver_id')
-            .eq('service_area_id', serviceAreaId)
-          : financialModel
-          ? supabase
-            .from('driver_service_areas')
-            .select('driver_id, service_area_id')
-          : Promise.resolve({ data: null, error: null }),
+        serviceAreaId || financialModel
+          ? adminPageSelect<{ driver_id: string; service_area_id?: string }>(
+              pageSlug,
+              'driver_service_areas',
+              {
+                columns: serviceAreaId ? ['driver_id'] : ['driver_id', 'service_area_id'],
+                filters: serviceAreaId
+                  ? [{ op: 'eq', col: 'service_area_id', val: serviceAreaId }]
+                  : undefined,
+                limit: 5000,
+              },
+            ).then((r) => r.rows)
+          : Promise.resolve([] as Array<{ driver_id: string; service_area_id?: string }>),
         financialModel
-          ? supabase.from('service_areas').select('id, financial_model')
-          : Promise.resolve({ data: null, error: null }),
+          ? adminServiceAreasLookup<{ id: string; financial_model?: unknown }>(pageSlug, {
+              include_archived: true,
+            }).then((r) => r.rows)
+          : Promise.resolve([] as Array<{ id: string; financial_model?: unknown }>),
       ]);
 
       if (driversError) throw driversError;
-      if (junctionRes.error) throw junctionRes.error;
-      if (areasRes.error) throw areasRes.error;
 
       const modelAllowedSaIds = financialModel
         ? new Set(
-          ((areasRes.data ?? []) as Array<{ id: string; financial_model?: unknown }>)
+          areasRows
             .filter((sa) => normaliseServiceAreaFinancialModel(sa.financial_model) === financialModel)
             .map((sa) => sa.id),
         )
         : null;
 
       const junctionIds = new Set(
-        ((junctionRes.data ?? []) as Array<{ driver_id: string; service_area_id?: string }>)
+        junctionRows
           .filter((row) => {
             if (!modelAllowedSaIds) return true;
             if (serviceAreaId) return true;

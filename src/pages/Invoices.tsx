@@ -132,7 +132,7 @@ function previousMonthRange(ref = new Date()) {
 export default function Invoices() {
   const queryClient = useQueryClient();
   const { data: regions = [] } = useRegions();
-  const { data: serviceAreas = [] } = useServiceAreas();
+  const { data: serviceAreas = [] } = useServiceAreas({ pageSlug: 'invoices' });
   const [statusFilter, setStatusFilter] = useState("all");
   const [regionFilter, setRegionFilter] = useState("all");
   const [serviceAreaFilter, setServiceAreaFilter] = useState("all");
