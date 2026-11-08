@@ -30753,6 +30753,10 @@ export type Database = {
           vehicle_type_id: string
         }[]
       }
+      driver_eligible_for_new_work_invitation: {
+        Args: { p_driver_id: string }
+        Returns: boolean
+      }
       driver_freshness_reason: {
         Args: {
           p_driver_id: string
