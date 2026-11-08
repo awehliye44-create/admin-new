@@ -45,9 +45,14 @@ export function useUpdateDocumentType() {
         .update(rest)
         .eq("id", id)
         .select()
-        .single();
+        .maybeSingle();
 
       if (error) throw error;
+      if (!data) {
+        throw new Error(
+          "Update blocked — your admin session cannot modify document types (FORBIDDEN / RLS).",
+        );
+      }
       return data;
     },
     onSuccess: () => {
@@ -84,21 +89,81 @@ export function useCreateDocumentType() {
   });
 }
 
+/**
+ * Remove a document type.
+ * - Unused types (no driver document rows): hard delete.
+ * - Types already uploaded by drivers: soft-deactivate (is_active=false)
+ *   because documents.document_type_id FK is NO ACTION.
+ */
 export function useDeleteDocumentType() {
   const queryClient = useQueryClient();
 
   return useMutation({
     mutationFn: async (id: string) => {
-      const { error } = await supabase
+      const { data: typeRow, error: typeErr } = await supabase
         .from("document_types")
-        .delete()
-        .eq("id", id);
+        .select("id, slug, name")
+        .eq("id", id)
+        .maybeSingle();
+      if (typeErr) throw typeErr;
+      if (!typeRow) throw new Error("Document type not found.");
 
-      if (error) throw error;
+      const [{ count: byIdCount, error: byIdErr }, { count: bySlugCount, error: bySlugErr }] =
+        await Promise.all([
+          supabase
+            .from("documents")
+            .select("id", { count: "exact", head: true })
+            .eq("document_type_id", id),
+          supabase
+            .from("documents")
+            .select("id", { count: "exact", head: true })
+            .eq("document_type", typeRow.slug),
+        ]);
+      if (byIdErr) throw byIdErr;
+      if (bySlugErr) throw bySlugErr;
+
+      const inUse = (byIdCount ?? 0) + (bySlugCount ?? 0) > 0;
+      if (inUse) {
+        const { data, error } = await supabase
+          .from("document_types")
+          .update({
+            is_active: false,
+            show_in_driver_app: false,
+          })
+          .eq("id", id)
+          .select("id")
+          .maybeSingle();
+        if (error) throw error;
+        if (!data) {
+          throw new Error(
+            "Deactivate blocked — your admin session cannot modify document types.",
+          );
+        }
+        await supabase
+          .from("service_area_document_rules")
+          .update({ is_active: false, display_in_driver_app: false })
+          .eq("doc_type_id", id);
+        return { mode: "deactivated" as const, name: typeRow.name };
+      }
+
+      const { error } = await supabase.from("document_types").delete().eq("id", id);
+      if (error) {
+        // FK / RLS surfaces as FORBIDDEN or foreign key violation
+        throw new Error(
+          error.message === "FORBIDDEN"
+            ? "Delete blocked by server policy. Try again after refreshing Admin."
+            : error.message,
+        );
+      }
+      return { mode: "deleted" as const, name: typeRow.name };
     },
-    onSuccess: () => {
+    onSuccess: (result) => {
       queryClient.invalidateQueries({ queryKey: ["document-types"] });
-      toast.success("Document type deleted");
+      toast.success(
+        result.mode === "deleted"
+          ? `"${result.name}" deleted`
+          : `"${result.name}" deactivated (drivers already uploaded this type)`,
+      );
     },
     onError: (error: Error) => {
       toast.error(error.message || "Failed to delete document type");

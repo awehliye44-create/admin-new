@@ -12,19 +12,28 @@ import {
 import {
   Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter,
 } from "@/components/ui/dialog";
-import { useDocumentTypes, useUpdateDocumentType, useCreateDocumentType, DocumentType } from "@/hooks/useDocumentTypes";
-import { Settings2, Calendar, Bell, Loader2, FileText, CheckCircle2, Plus, Eye, EyeOff } from "lucide-react";
+import {
+  useDocumentTypes,
+  useUpdateDocumentType,
+  useCreateDocumentType,
+  useDeleteDocumentType,
+  DocumentType,
+} from "@/hooks/useDocumentTypes";
+import { Settings2, Calendar, Bell, Loader2, FileText, CheckCircle2, Plus, Eye, EyeOff, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
 export function DocumentTypeConfig() {
   const { data: documentTypes, isLoading } = useDocumentTypes();
   const updateDocumentType = useUpdateDocumentType();
   const createDocumentType = useCreateDocumentType();
+  const deleteDocumentType = useDeleteDocumentType();
   
   const [isEditOpen, setIsEditOpen] = useState(false);
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [selectedType, setSelectedType] = useState<DocumentType | null>(null);
   const [formData, setFormData] = useState({
+    name: "",
+    description: "",
     has_expiry: false,
     is_required: true,
     show_in_driver_app: true,
@@ -44,6 +53,8 @@ export function DocumentTypeConfig() {
   const handleEdit = (docType: DocumentType) => {
     setSelectedType(docType);
     setFormData({
+      name: docType.name,
+      description: docType.description ?? "",
       has_expiry: docType.has_expiry,
       is_required: docType.is_required,
       show_in_driver_app: docType.show_in_driver_app,
@@ -54,6 +65,10 @@ export function DocumentTypeConfig() {
 
   const handleSave = () => {
     if (!selectedType) return;
+    if (!formData.name.trim()) {
+      toast.error("Please enter a document type name");
+      return;
+    }
 
     const reminderDays = formData.reminder_days
       .split(",")
@@ -69,10 +84,13 @@ export function DocumentTypeConfig() {
     updateDocumentType.mutate(
       {
         id: selectedType.id,
+        name: formData.name.trim(),
+        description: formData.description.trim() || null,
         has_expiry: formData.has_expiry,
         is_required: formData.is_required,
         show_in_driver_app: formData.show_in_driver_app,
         reminder_days_before_expiry: formData.has_expiry ? reminderDays : [],
+        is_active: true,
       },
       {
         onSuccess: () => {
@@ -81,6 +99,23 @@ export function DocumentTypeConfig() {
         },
       }
     );
+  };
+
+  const handleDelete = (docType: DocumentType) => {
+    const ok = window.confirm(
+      `Remove "${docType.name}"?\n\n` +
+        `If drivers have already uploaded this type it will be deactivated (hidden) instead of hard-deleted.`,
+    );
+    if (!ok) return;
+    deleteDocumentType.mutate(docType.id);
+  };
+
+  const handleRestore = (docType: DocumentType) => {
+    updateDocumentType.mutate({
+      id: docType.id,
+      is_active: true,
+      show_in_driver_app: true,
+    });
   };
 
   const handleCreate = () => {
@@ -183,10 +218,18 @@ export function DocumentTypeConfig() {
                     <div className="flex items-center gap-2">
                       <FileText className="h-4 w-4 text-muted-foreground" />
                       <div>
-                        <span className="font-medium">{docType.name}</span>
+                        <div className="flex items-center gap-2">
+                          <span className="font-medium">{docType.name}</span>
+                          {!docType.is_active && (
+                            <Badge variant="outline" className="bg-red-50 text-red-700">
+                              Inactive
+                            </Badge>
+                          )}
+                        </div>
                         {docType.description && (
                           <p className="text-xs text-muted-foreground">{docType.description}</p>
                         )}
+                        <p className="text-[11px] font-mono text-muted-foreground">{docType.slug}</p>
                       </div>
                     </div>
                   </TableCell>
@@ -246,9 +289,32 @@ export function DocumentTypeConfig() {
                     )}
                   </TableCell>
                   <TableCell className="text-right">
-                    <Button variant="outline" size="sm" onClick={() => handleEdit(docType)}>
-                      Configure
-                    </Button>
+                    <div className="inline-flex items-center gap-2">
+                      {!docType.is_active ? (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => handleRestore(docType)}
+                          disabled={updateDocumentType.isPending}
+                        >
+                          Restore
+                        </Button>
+                      ) : (
+                        <Button variant="outline" size="sm" onClick={() => handleEdit(docType)}>
+                          Edit / Rename
+                        </Button>
+                      )}
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="text-destructive border-destructive/30 hover:bg-destructive/10"
+                        onClick={() => handleDelete(docType)}
+                        disabled={deleteDocumentType.isPending}
+                        title="Delete or deactivate"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
                   </TableCell>
                 </TableRow>
               ))}
@@ -261,10 +327,36 @@ export function DocumentTypeConfig() {
       <Dialog open={isEditOpen} onOpenChange={setIsEditOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Configure Document Type</DialogTitle>
-            <DialogDescription>{selectedType?.name}</DialogDescription>
+            <DialogTitle>Edit / Rename Document Type</DialogTitle>
+            <DialogDescription>
+              Rename and reuse this type. Driver uploads stay linked via the internal slug.
+            </DialogDescription>
           </DialogHeader>
           <div className="space-y-6 py-4">
+            <div className="space-y-2">
+              <Label htmlFor="edit_name">Display name</Label>
+              <Input
+                id="edit_name"
+                value={formData.name}
+                onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                placeholder="e.g. Additional Insurance Document"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="edit_desc">Description</Label>
+              <Textarea
+                id="edit_desc"
+                value={formData.description}
+                onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+                rows={2}
+              />
+            </div>
+            {selectedType?.slug && (
+              <div className="space-y-1 rounded-md border bg-muted/40 px-3 py-2">
+                <Label className="text-xs text-muted-foreground">Internal slug (not renamed — keeps existing uploads)</Label>
+                <p className="font-mono text-sm">{selectedType.slug}</p>
+              </div>
+            )}
             <div className="flex items-center justify-between">
               <div className="space-y-0.5">
                 <Label>Required Document</Label>
@@ -336,7 +428,7 @@ export function DocumentTypeConfig() {
               {updateDocumentType.isPending && (
                 <Loader2 className="h-4 w-4 animate-spin mr-2" />
               )}
-              Save Changes
+              Save name & settings
             </Button>
           </DialogFooter>
         </DialogContent>
