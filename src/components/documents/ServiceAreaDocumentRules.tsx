@@ -2,9 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
-import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Badge } from '@/components/ui/badge';
 import {
   Select,
   SelectContent,
@@ -20,9 +18,15 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { supabase } from '@/integrations/supabase/client';
-import { Loader2, Save, MapPin, FileText, Settings2 } from 'lucide-react';
+import {
+  adminPageMutate,
+  adminPageSelect,
+  adminServiceAreasLookup,
+} from '@/lib/adminPageGatedData';
+import { Loader2, Save, MapPin, Settings2 } from 'lucide-react';
 import { toast } from 'sonner';
+
+const PAGE = 'document-management' as const;
 
 interface ServiceArea {
   id: string;
@@ -50,6 +54,7 @@ interface RuleRow {
   sort_order: number;
   is_active: boolean;
   existsInDb: boolean;
+  ruleId?: string;
   changed: boolean;
 }
 
@@ -61,38 +66,50 @@ export function ServiceAreaDocumentRules() {
   const [isLoading, setIsLoading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
 
-  // Fetch service areas and doc types on mount
   useEffect(() => {
     const fetchData = async () => {
       const [saRes, dtRes] = await Promise.all([
-        supabase.from('service_areas').select('id, name, is_active').is('archived_at', null).order('name'),
-        supabase.from('document_types').select('id, name, slug, description, is_required, has_expiry, show_in_driver_app, reminder_days_before_expiry, display_order, is_active, created_at, updated_at').eq('is_active', true).order('display_order'),
+        adminServiceAreasLookup<ServiceArea>(PAGE, {}),
+        adminPageSelect<DocType>(PAGE, 'document_types', {
+          columns: [
+            'id', 'name', 'slug', 'is_required', 'has_expiry', 'display_order', 'is_active',
+          ],
+          filters: [{ op: 'eq', col: 'is_active', val: true }],
+          order: [{ col: 'display_order', asc: true }],
+          limit: 500,
+        }),
       ]);
-      if (saRes.data) setServiceAreas(saRes.data);
-      if (dtRes.data) setDocTypes(dtRes.data);
+      setServiceAreas(saRes.rows);
+      setDocTypes(dtRes.rows);
     };
-    fetchData();
+    void fetchData();
   }, []);
 
-  // Load rules when service area changes
   const loadRules = useCallback(async (serviceAreaId: string) => {
     if (!serviceAreaId || docTypes.length === 0) return;
     setIsLoading(true);
     try {
-      const { data: existingRules, error } = await supabase
-        .from('service_area_document_rules')
-        .select(
-          'doc_type_id, display_in_driver_app, mandatory, expiry_required, sort_order, is_active',
-        )
-        .eq('service_area_id', serviceAreaId);
-      if (error) throw error;
+      const { rows: existingRules } = await adminPageSelect<{
+        id: string;
+        doc_type_id: string;
+        display_in_driver_app: boolean;
+        mandatory: boolean;
+        expiry_required: boolean;
+        sort_order: number;
+        is_active: boolean;
+      }>(PAGE, 'service_area_document_rules', {
+        columns: [
+          'id', 'doc_type_id', 'display_in_driver_app', 'mandatory',
+          'expiry_required', 'sort_order', 'is_active',
+        ],
+        filters: [{ op: 'eq', col: 'service_area_id', val: serviceAreaId }],
+        limit: 500,
+      });
 
-      const ruleMap = new Map(
-        (existingRules || []).map((r: any) => [r.doc_type_id, r])
-      );
+      const ruleMap = new Map(existingRules.map((r) => [r.doc_type_id, r]));
 
       const merged: RuleRow[] = docTypes.map((dt) => {
-        const existing = ruleMap.get(dt.id) as any;
+        const existing = ruleMap.get(dt.id);
         if (existing) {
           return {
             doc_type_id: dt.id,
@@ -104,6 +121,7 @@ export function ServiceAreaDocumentRules() {
             sort_order: existing.sort_order ?? 0,
             is_active: existing.is_active,
             existsInDb: true,
+            ruleId: existing.id,
             changed: false,
           };
         }
@@ -132,11 +150,11 @@ export function ServiceAreaDocumentRules() {
 
   useEffect(() => {
     if (selectedServiceArea) {
-      loadRules(selectedServiceArea);
+      void loadRules(selectedServiceArea);
     }
   }, [selectedServiceArea, loadRules]);
 
-  const updateRule = (docTypeId: string, field: keyof RuleRow, value: any) => {
+  const updateRule = (docTypeId: string, field: keyof RuleRow, value: unknown) => {
     setRules((prev) =>
       prev.map((r) =>
         r.doc_type_id === docTypeId ? { ...r, [field]: value, changed: true } : r
@@ -154,24 +172,33 @@ export function ServiceAreaDocumentRules() {
 
     setIsSaving(true);
     try {
-      const upsertData = changedRules.map((r) => ({
-        service_area_id: selectedServiceArea,
-        doc_type_id: r.doc_type_id,
-        display_in_driver_app: r.display_in_driver_app,
-        mandatory: r.mandatory,
-        expiry_required: r.expiry_required,
-        sort_order: r.sort_order,
-        is_active: r.is_active,
-      }));
-
-      const { error } = await supabase
-        .from('service_area_document_rules')
-        .upsert(upsertData, { onConflict: 'service_area_id,doc_type_id' });
-
-      if (error) throw error;
+      for (const r of changedRules) {
+        const patch = {
+          display_in_driver_app: r.display_in_driver_app,
+          mandatory: r.mandatory,
+          expiry_required: r.expiry_required,
+          sort_order: r.sort_order,
+          is_active: r.is_active,
+        };
+        if (r.existsInDb && r.ruleId) {
+          await adminPageMutate(PAGE, 'service_area_document_rules', 'update', {
+            id: r.ruleId,
+            patch,
+          });
+        } else {
+          await adminPageMutate(PAGE, 'service_area_document_rules', 'insert', {
+            patch: {
+              service_area_id: selectedServiceArea,
+              doc_type_id: r.doc_type_id,
+              ...patch,
+            },
+          });
+        }
+      }
 
       setRules((prev) => prev.map((r) => ({ ...r, changed: false, existsInDb: true })));
       toast.success(`Saved ${changedRules.length} rule(s) successfully`);
+      await loadRules(selectedServiceArea);
     } catch (err: any) {
       console.error('Error saving rules:', err);
       toast.error(err.message || 'Failed to save rules');
@@ -194,7 +221,6 @@ export function ServiceAreaDocumentRules() {
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
-        {/* Service Area Selector */}
         <div className="flex items-center gap-4">
           <div className="flex items-center gap-2">
             <MapPin className="h-4 w-4 text-muted-foreground" />
@@ -237,70 +263,36 @@ export function ServiceAreaDocumentRules() {
                 <TableHead className="text-center">Show in Driver App</TableHead>
                 <TableHead className="text-center">Mandatory</TableHead>
                 <TableHead className="text-center">Expiry Required</TableHead>
-                <TableHead className="text-center w-24">Sort Order</TableHead>
                 <TableHead className="text-center">Active</TableHead>
-                <TableHead className="text-center">Status</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {rules.map((rule) => (
-                <TableRow key={rule.doc_type_id} className={rule.changed ? 'bg-primary/5' : ''}>
-                  <TableCell>
-                    <div className="flex items-center gap-2">
-                      <FileText className="h-4 w-4 text-muted-foreground" />
-                      <div>
-                        <p className="font-medium text-sm">{rule.doc_name}</p>
-                        <p className="text-xs text-muted-foreground font-mono">{rule.doc_slug}</p>
-                      </div>
-                    </div>
-                  </TableCell>
+              {rules.map((r) => (
+                <TableRow key={r.doc_type_id}>
+                  <TableCell className="font-medium">{r.doc_name}</TableCell>
                   <TableCell className="text-center">
                     <Switch
-                      checked={rule.display_in_driver_app}
-                      onCheckedChange={(v) => updateRule(rule.doc_type_id, 'display_in_driver_app', v)}
+                      checked={r.display_in_driver_app}
+                      onCheckedChange={(v) => updateRule(r.doc_type_id, 'display_in_driver_app', v)}
                     />
                   </TableCell>
                   <TableCell className="text-center">
                     <Switch
-                      checked={rule.mandatory}
-                      onCheckedChange={(v) => updateRule(rule.doc_type_id, 'mandatory', v)}
+                      checked={r.mandatory}
+                      onCheckedChange={(v) => updateRule(r.doc_type_id, 'mandatory', v)}
                     />
                   </TableCell>
                   <TableCell className="text-center">
                     <Switch
-                      checked={rule.expiry_required}
-                      onCheckedChange={(v) => updateRule(rule.doc_type_id, 'expiry_required', v)}
-                    />
-                  </TableCell>
-                  <TableCell className="text-center">
-                    <Input
-                      type="number"
-                      min={0}
-                      value={rule.sort_order}
-                      onChange={(e) => updateRule(rule.doc_type_id, 'sort_order', parseInt(e.target.value) || 0)}
-                      className="w-20 h-8 text-center mx-auto"
+                      checked={r.expiry_required}
+                      onCheckedChange={(v) => updateRule(r.doc_type_id, 'expiry_required', v)}
                     />
                   </TableCell>
                   <TableCell className="text-center">
                     <Switch
-                      checked={rule.is_active}
-                      onCheckedChange={(v) => updateRule(rule.doc_type_id, 'is_active', v)}
+                      checked={r.is_active}
+                      onCheckedChange={(v) => updateRule(r.doc_type_id, 'is_active', v)}
                     />
-                  </TableCell>
-                  <TableCell className="text-center">
-                    {rule.changed ? (
-                      <Badge variant="outline" className="bg-amber-100 text-amber-700 border-amber-200">
-                        Unsaved
-                      </Badge>
-                    ) : rule.existsInDb ? (
-                      <Badge variant="outline" className="bg-green-100 text-green-700 border-green-200">
-                        Configured
-                      </Badge>
-                    ) : (
-                      <Badge variant="outline" className="text-muted-foreground">
-                        Default
-                      </Badge>
-                    )}
                   </TableCell>
                 </TableRow>
               ))}

@@ -39,7 +39,7 @@ export default function LostPropertyDetail() {
   const { data: messages = [], isLoading: msgsLoading } = useLostPropertyMessages(caseId);
   const { data: tripData } = useTripSummary(lpCase?.trip_id);
   const actions = useLostPropertyActions();
-  const { data: serviceAreas = [] } = useServiceAreas({ activeOnly: false });
+  const { data: serviceAreas = [] } = useServiceAreas({ pageSlug: 'lost-property', activeOnly: false });
   const saMap = new Map(serviceAreas.map(sa => [sa.id, sa.name]));
 
   useLostPropertyRealtime(caseId);

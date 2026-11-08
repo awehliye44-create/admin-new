@@ -272,7 +272,7 @@ export default function DispatchMetrics() {
   const [driverId, setDriverId] = useState<string>("");
 
   const { data: regions = [] } = useRegions();
-  const { data: serviceAreas = [] } = useServiceAreas({ activeOnly: true });
+  const { data: serviceAreas = [] } = useServiceAreas({ pageSlug: 'dispatch-metrics', activeOnly: true });
   const { start, end } = useMemo(() => rangeFromPreset(preset, customRange), [preset, customRange]);
 
   const { data, isLoading, refetch, isFetching, error } = useQuery({

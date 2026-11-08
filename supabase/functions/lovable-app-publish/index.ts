@@ -2,7 +2,7 @@
  * Customer/Driver Lovable app publish — production deploy trigger.
  * Requires authenticated admin (user_roles.admin). Never callable with anon key alone.
  */
-import { requireAdmin } from "../_shared/adminPaymentGate.ts";
+import { requireAdmin, requirePageAccess } from "../_shared/adminPaymentGate.ts";
 
 const CUSTOMER_PROJECT_ID = "746c3b88-398a-4cbd-a1cb-0b80d568baf9";
 const DRIVER_PROJECT_ID = "2543afda-4c39-4e1-a8c5-7385d68e9452";
@@ -45,7 +45,9 @@ Deno.serve(async (req) => {
     return new Response(null, { headers: corsHeaders });
   }
 
-  const gate = await requireAdmin(req);
+  const adminGate = await requireAdmin(req);
+  if (!adminGate.ok) return adminGate.response;
+  const gate = await requirePageAccess(adminGate, "system");
   if (!gate.ok) return gate.response;
 
   const token = Deno.env.get("LOVABLE_API_KEY");

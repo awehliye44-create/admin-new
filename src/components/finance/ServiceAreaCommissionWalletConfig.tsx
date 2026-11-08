@@ -15,6 +15,7 @@ import {
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Wallet, Info, Loader2, Save } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
+import { adminServiceAreasLookup } from '@/lib/adminPageGatedData';
 import { toast } from 'sonner';
 import {
   COMMISSION_WALLET_PHASE8_PILOT,
@@ -95,21 +96,32 @@ export function ServiceAreaCommissionWalletConfig({
     setIsLoading(true);
     setHasChanges(false);
     try {
-      const [{ data, error }, { data: rolloutRow, error: rolloutError }] = await Promise.all([
-        supabase
-          .from('service_areas')
-          .select(
-            'financial_model, commission_wallet_enabled, commission_reserve_enabled, commission_wallet_currency, commission_topup_provider, commission_wallet_topup_enabled, commission_wallet_minimum_balance_minor, customer_payment_policy, cash_upfront_policy_notice, welcome_credit_enabled, welcome_credit_amount_minor, welcome_credit_max_drivers',
-          )
-          .eq('id', serviceAreaId)
-          .maybeSingle(),
+      const [saLookup, { data: rolloutRow, error: rolloutError }] = await Promise.all([
+        adminServiceAreasLookup<{
+          financial_model?: string | null;
+          commission_wallet_enabled?: boolean | null;
+          commission_reserve_enabled?: boolean | null;
+          commission_wallet_currency?: string | null;
+          commission_topup_provider?: string | null;
+          commission_wallet_topup_enabled?: boolean | null;
+          commission_wallet_minimum_balance_minor?: number | null;
+          customer_payment_policy?: string | null;
+          cash_upfront_policy_notice?: string | null;
+          welcome_credit_enabled?: boolean | null;
+          welcome_credit_amount_minor?: number | null;
+          welcome_credit_max_drivers?: number | null;
+        }>('service-area-pricing', {
+          ids: [serviceAreaId],
+          include_archived: true,
+          limit: 1,
+        }),
         supabase
           .from('commission_wallet_rollout')
           .select('pilot_service_area_id, multi_sa_unlocked')
           .eq('id', true)
           .maybeSingle(),
       ]);
-      if (error) throw error;
+      const data = saLookup.rows[0] ?? null;
       if (rolloutError) {
         console.warn('[ServiceAreaCommissionWalletConfig] rollout', rolloutError);
         setRollout(null);

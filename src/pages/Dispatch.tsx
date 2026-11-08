@@ -11,7 +11,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { supabase } from '@/integrations/supabase/client';
+import { adminLookupByIds, adminPageSelect, adminServiceAreasLookup } from '@/lib/adminPageGatedData';
 import { Navigation, Loader2, MapPin } from 'lucide-react';
 import { format } from 'date-fns';
 import { getCurrencySymbol } from '@/lib/regionSettings';
@@ -49,21 +49,48 @@ export default function Dispatch() {
   useEffect(() => {
     async function fetchTrips() {
       try {
-        const { data, error } = await supabase
-          .from('trips')
-          .select(`
-            id, trip_code, pickup_address, dropoff_address, status, fare, estimated_fare, passenger_name, created_at, service_area_id, driver_id,
-            driver:drivers!trips_driver_id_fkey(first_name, last_name, driver_code),
-            service_area:service_areas!trips_service_area_id_fkey(region:regions(currency_code))
-          `)
-          .order('created_at', { ascending: false })
-          .limit(50);
-
-        if (error) {
-          throw error;
-        }
-
-        setTrips(data || []);
+        const { rows } = await adminPageSelect<Record<string, unknown>>('dispatch', 'trips', {
+          columns: [
+            'id', 'trip_code', 'pickup_address', 'dropoff_address', 'status', 'fare',
+            'estimated_fare', 'passenger_name', 'created_at', 'service_area_id', 'driver_id',
+          ],
+          order: [{ col: 'created_at', asc: false }],
+          limit: 50,
+        });
+        const driverIds = rows
+          .map((r) => r.driver_id as string | null | undefined)
+          .filter((id): id is string => Boolean(id));
+        const saIds = rows
+          .map((r) => r.service_area_id as string | null | undefined)
+          .filter((id): id is string => Boolean(id));
+        const [drivers, saLookup] = await Promise.all([
+          adminLookupByIds<{
+            id: string;
+            first_name: string;
+            last_name: string;
+            driver_code: string | null;
+          }>('dispatch', 'drivers', driverIds, ['id', 'first_name', 'last_name', 'driver_code']),
+          saIds.length > 0
+            ? adminServiceAreasLookup<{
+                id: string;
+                region?: { currency_code?: string | null } | null;
+              }>('dispatch', { ids: saIds, include_archived: true })
+            : Promise.resolve({
+                rows: [] as Array<{ id: string; region?: { currency_code?: string | null } | null }>,
+                count: 0,
+              }),
+        ]);
+        const driverById = new Map(drivers.map((d) => [d.id, d]));
+        const saById = new Map(saLookup.rows.map((sa) => [sa.id, sa]));
+        setTrips(
+          rows.map((r) => ({
+            ...r,
+            driver: r.driver_id ? driverById.get(r.driver_id as string) ?? null : null,
+            service_area: r.service_area_id
+              ? { region: (saById.get(r.service_area_id as string) as any)?.region ?? null }
+              : null,
+          })) as Trip[],
+        );
       } catch (err) {
         console.error('Error fetching trips:', err);
         setError('Failed to load trips. Please try again.');

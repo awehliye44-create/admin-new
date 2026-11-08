@@ -14,6 +14,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { supabase } from '@/integrations/supabase/client';
+import { adminPageMutate, adminPageSelect } from '@/lib/adminPageGatedData';
 import { 
   Save, Loader2, Calculator, Zap, Lock, 
   Settings2, AlertCircle, CheckCircle2, TrendingUp, Car
@@ -23,6 +24,8 @@ import { getCurrencySymbol } from '@/lib/regionSettings';
 import { FareSimulatorCard } from '@/components/pricing/FareSimulatorCard';
 import { TripLifecycleTimeline } from '@/components/pricing/TripLifecycleTimeline';
 import { DistanceBandsEditor } from '@/components/pricing/DistanceBandsEditor';
+
+const FARE_PAGE = 'service-area-pricing' as const;
 
 export interface DistanceBand {
   from: number;
@@ -181,15 +184,22 @@ export function FareEngineConfig({ serviceAreaId, regionCurrencyCode, regionDist
   }, [serviceAreaId, selectedVehicleTypeId]);
 
   const fetchAssignedVehicleTypes = async () => {
-    const { data: assignments } = await supabase
-      .from('service_area_vehicle_pricing')
-      .select('vehicle_type_id')
-      .eq('service_area_id', serviceAreaId)
-      .eq('is_enabled', true);
+    const { rows: assignments } = await adminPageSelect<{ vehicle_type_id: string }>(
+      FARE_PAGE,
+      'service_area_vehicle_pricing',
+      {
+        columns: ['vehicle_type_id'],
+        filters: [
+          { op: 'eq', col: 'service_area_id', val: serviceAreaId },
+          { op: 'eq', col: 'is_enabled', val: true },
+        ],
+        limit: 500,
+      },
+    );
 
     let vtList: VehicleType[] = [];
-    if (assignments && assignments.length > 0) {
-      const vtIds = assignments.map((a: any) => a.vehicle_type_id);
+    if (assignments.length > 0) {
+      const vtIds = assignments.map((a) => a.vehicle_type_id);
       const { data: vtData } = await supabase
         .from('vehicle_types')
         .select('id, name, slug')
@@ -205,14 +215,18 @@ export function FareEngineConfig({ serviceAreaId, regionCurrencyCode, regionDist
       return vtList[0]?.id ?? '';
     });
 
-    // Check which vehicle types already have fare configs
-    const { data: configs } = await supabase
-      .from('fare_pricing_settings')
-      .select('vehicle_type_id')
-      .eq('service_area_id', serviceAreaId);
+    const { rows: configs } = await adminPageSelect<{ vehicle_type_id: string | null }>(
+      FARE_PAGE,
+      'fare_pricing_settings',
+      {
+        columns: ['vehicle_type_id'],
+        filters: [{ op: 'eq', col: 'service_area_id', val: serviceAreaId }],
+        limit: 200,
+      },
+    );
 
     const ids = new Set<string>();
-    (configs || []).forEach((c: any) => {
+    configs.forEach((c) => {
       if (c.vehicle_type_id) ids.add(c.vehicle_type_id);
     });
     setConfiguredVtIds(ids);
@@ -222,31 +236,47 @@ export function FareEngineConfig({ serviceAreaId, regionCurrencyCode, regionDist
     setIsLoading(true);
     const vehicleTypeId = selectedVehicleTypeId || null;
 
-    let query = supabase
-      .from('fare_pricing_settings')
-      .select('id, service_area_id, vehicle_type_id, pricing_mode, currency_code, base_fare_pence, per_km_rate_pence, per_min_rate_pence, booking_fee_pence, minimum_fare_pence, free_waiting_minutes, waiting_per_minute_pence, extra_stop_flat_fee_pence, recalculate_on_waiting, recalculate_on_stop_added, recalculate_on_dropoff_changed, enable_surge, surge_multiplier_default, peak_hour_multiplier, zone_multiplier, traffic_multiplier, demand_supply_multiplier, distance_pricing_bands, cancellation_grace_period_minutes, cancellation_fee_pence, cancellation_apply_after_arrival_only, late_cancel_enabled, late_cancel_threshold_minutes, late_cancel_fee_pence, late_cancel_airport_protection_enabled, late_cancel_airport_fare_threshold_pence, late_cancel_airport_fee_type, late_cancel_airport_fee_percentage, late_cancel_airport_protection_trigger, no_show_wait_time_minutes, no_show_fee_pence, no_show_apply_after_arrival_only, arrival_cancellation_enabled, arrival_cancellation_fee_pence, arrival_cancellation_apply_after_free_waiting_expired, arrival_cancellation_after_arrival_only')
-      .eq('service_area_id', serviceAreaId);
-
-    if (vehicleTypeId) {
-      query = query.eq('vehicle_type_id', vehicleTypeId);
-    } else {
-      query = query.is('vehicle_type_id', null);
-    }
-
-    const { data } = await query.maybeSingle();
+    const filters = [
+      { op: 'eq' as const, col: 'service_area_id', val: serviceAreaId },
+      vehicleTypeId
+        ? { op: 'eq' as const, col: 'vehicle_type_id', val: vehicleTypeId }
+        : { op: 'is_null' as const, col: 'vehicle_type_id' },
+    ];
+    const { rows } = await adminPageSelect<FarePricingSettings>(FARE_PAGE, 'fare_pricing_settings', {
+      columns: [
+        'id', 'service_area_id', 'vehicle_type_id', 'pricing_mode', 'currency_code',
+        'base_fare_pence', 'per_km_rate_pence', 'per_min_rate_pence', 'booking_fee_pence',
+        'minimum_fare_pence', 'free_waiting_minutes', 'waiting_per_minute_pence',
+        'extra_stop_flat_fee_pence', 'recalculate_on_waiting', 'recalculate_on_stop_added',
+        'recalculate_on_dropoff_changed', 'enable_surge', 'surge_multiplier_default',
+        'peak_hour_multiplier', 'zone_multiplier', 'traffic_multiplier', 'demand_supply_multiplier',
+        'distance_pricing_bands', 'cancellation_grace_period_minutes', 'cancellation_fee_pence',
+        'cancellation_apply_after_arrival_only', 'late_cancel_enabled', 'late_cancel_threshold_minutes',
+        'late_cancel_fee_pence', 'late_cancel_airport_protection_enabled',
+        'late_cancel_airport_fare_threshold_pence', 'late_cancel_airport_fee_type',
+        'late_cancel_airport_fee_percentage', 'late_cancel_airport_protection_trigger',
+        'no_show_wait_time_minutes', 'no_show_fee_pence', 'no_show_apply_after_arrival_only',
+        'arrival_cancellation_enabled', 'arrival_cancellation_fee_pence',
+        'arrival_cancellation_apply_after_free_waiting_expired',
+        'arrival_cancellation_after_arrival_only',
+      ],
+      filters,
+      limit: 1,
+    });
+    const data = rows[0];
 
     if (data) {
       setSettings({
         ...DEFAULT_SETTINGS,
-        ...(data as unknown as FarePricingSettings),
+        ...data,
         service_area_id: serviceAreaId,
         vehicle_type_id: vehicleTypeId,
-        arrival_cancellation_enabled: (data as any).arrival_cancellation_enabled ?? true,
-        arrival_cancellation_fee_pence: (data as any).arrival_cancellation_fee_pence ?? 400,
+        arrival_cancellation_enabled: data.arrival_cancellation_enabled ?? true,
+        arrival_cancellation_fee_pence: data.arrival_cancellation_fee_pence ?? 400,
         arrival_cancellation_apply_after_free_waiting_expired:
-          (data as any).arrival_cancellation_apply_after_free_waiting_expired ?? true,
+          data.arrival_cancellation_apply_after_free_waiting_expired ?? true,
         arrival_cancellation_after_arrival_only:
-          (data as any).arrival_cancellation_after_arrival_only ?? true,
+          data.arrival_cancellation_after_arrival_only ?? true,
         late_cancel_airport_protection_enabled:
           (data as any).late_cancel_airport_protection_enabled ?? true,
         late_cancel_airport_fare_threshold_pence:
@@ -271,42 +301,56 @@ export function FareEngineConfig({ serviceAreaId, regionCurrencyCode, regionDist
   };
 
   const fetchStopWaitingSettings = async () => {
-    const [{ data }, { data: dispatchRow }] = await Promise.all([
-      supabase
-        .from('stop_waiting_settings')
-        .select(
-          'stop_radius_enabled, stop_radius_meters, stop_waiting_charge_interval_seconds, stop_waiting_grace_period_seconds, stop_waiting_rate_pence_per_minute, stop_waiting_max_minutes',
-        )
-        .eq('service_area_id', serviceAreaId)
-        .maybeSingle(),
-      supabase
-        .from('dispatch_settings')
-        .select('enable_stop_waiting_charge')
-        .eq('service_area_id', serviceAreaId)
-        .maybeSingle(),
+    const [{ rows: stopRows }, { rows: dispatchRows }] = await Promise.all([
+      adminPageSelect<{
+        stop_radius_enabled: boolean | null;
+        stop_radius_meters: number | null;
+        stop_waiting_charge_interval_seconds: number | null;
+        stop_waiting_grace_period_seconds: number | null;
+        stop_waiting_rate_pence_per_minute: number | null;
+        stop_waiting_max_minutes: number | null;
+      }>(FARE_PAGE, 'stop_waiting_settings', {
+        columns: [
+          'stop_radius_enabled',
+          'stop_radius_meters',
+          'stop_waiting_charge_interval_seconds',
+          'stop_waiting_grace_period_seconds',
+          'stop_waiting_rate_pence_per_minute',
+          'stop_waiting_max_minutes',
+        ],
+        filters: [{ op: 'eq', col: 'service_area_id', val: serviceAreaId }],
+        limit: 1,
+      }),
+      adminPageSelect<{ enable_stop_waiting_charge: boolean | null }>(FARE_PAGE, 'dispatch_settings', {
+        columns: ['enable_stop_waiting_charge'],
+        filters: [{ op: 'eq', col: 'service_area_id', val: serviceAreaId }],
+        limit: 1,
+      }),
     ]);
 
+    const data = stopRows[0];
+    const dispatchRow = dispatchRows[0];
+
     const enableStopWaitingCharge =
-      typeof (dispatchRow as { enable_stop_waiting_charge?: boolean } | null)?.enable_stop_waiting_charge ===
-      'boolean'
-        ? (dispatchRow as { enable_stop_waiting_charge: boolean }).enable_stop_waiting_charge
+      typeof dispatchRow?.enable_stop_waiting_charge === 'boolean'
+        ? dispatchRow.enable_stop_waiting_charge
         : true;
 
     if (data) {
       setStopWaiting({
-        stopRadiusEnabled: (data as any).stop_radius_enabled ?? false,
-        stopRadiusMeters: (data as any).stop_radius_meters ?? 100,
+        stopRadiusEnabled: data.stop_radius_enabled ?? false,
+        stopRadiusMeters: data.stop_radius_meters ?? 100,
         stopWaitingChargeIntervalSeconds:
-          typeof (data as any).stop_waiting_charge_interval_seconds === 'number' &&
-          (data as any).stop_waiting_charge_interval_seconds > 0
-            ? (data as any).stop_waiting_charge_interval_seconds
+          typeof data.stop_waiting_charge_interval_seconds === 'number' &&
+          data.stop_waiting_charge_interval_seconds > 0
+            ? data.stop_waiting_charge_interval_seconds
             : null,
         stopWaitingGracePeriodMinutes:
-          typeof (data as any).stop_waiting_grace_period_seconds === 'number'
-            ? (data as any).stop_waiting_grace_period_seconds / 60
+          typeof data.stop_waiting_grace_period_seconds === 'number'
+            ? data.stop_waiting_grace_period_seconds / 60
             : 1,
-        stopWaitingRatePencePerMinute: (data as any).stop_waiting_rate_pence_per_minute ?? 30,
-        stopWaitingMaxMinutes: (data as any).stop_waiting_max_minutes ?? null,
+        stopWaitingRatePencePerMinute: data.stop_waiting_rate_pence_per_minute ?? 30,
+        stopWaitingMaxMinutes: data.stop_waiting_max_minutes ?? null,
         enableStopWaitingCharge,
       });
     } else {
@@ -408,23 +452,24 @@ export function FareEngineConfig({ serviceAreaId, regionCurrencyCode, regionDist
       };
 
       if (settings.id) {
-        const { error } = await supabase
-          .from('fare_pricing_settings')
-          .update(payload)
-          .eq('id', settings.id);
-        if (error) throw error;
+        await adminPageMutate(FARE_PAGE, 'fare_pricing_settings', 'update', {
+          id: settings.id,
+          patch: payload,
+        });
       } else {
-        const { data, error } = await supabase
-          .from('fare_pricing_settings')
-          .insert({ 
-            service_area_id: serviceAreaId, 
-            vehicle_type_id: vehicleTypeId,
-            ...payload 
-          })
-          .select()
-          .single();
-        if (error) throw error;
-        if (data) setSettings(data as unknown as FarePricingSettings);
+        const { row } = await adminPageMutate<FarePricingSettings>(
+          FARE_PAGE,
+          'fare_pricing_settings',
+          'insert',
+          {
+            patch: {
+              service_area_id: serviceAreaId,
+              vehicle_type_id: vehicleTypeId,
+              ...payload,
+            },
+          },
+        );
+        if (row) setSettings(row);
       }
 
       // Save stop waiting settings to stop_waiting_settings if changed
@@ -447,32 +492,35 @@ export function FareEngineConfig({ serviceAreaId, regionCurrencyCode, regionDist
           stop_waiting_max_minutes: stopWaiting.stopWaitingMaxMinutes,
         };
 
-        const { data: existing } = await supabase
-          .from('stop_waiting_settings')
-          .select('id')
-          .eq('service_area_id', serviceAreaId)
-          .maybeSingle();
+        const { rows: existingStopRows } = await adminPageSelect<{ id: string }>(
+          FARE_PAGE,
+          'stop_waiting_settings',
+          {
+            columns: ['id'],
+            filters: [{ op: 'eq', col: 'service_area_id', val: serviceAreaId }],
+            limit: 1,
+          },
+        );
 
-        if (existing) {
-          await supabase
-            .from('stop_waiting_settings')
-            .update(stopPayload)
-            .eq('service_area_id', serviceAreaId);
+        if (existingStopRows[0]?.id) {
+          await adminPageMutate(FARE_PAGE, 'stop_waiting_settings', 'update', {
+            id: existingStopRows[0].id,
+            patch: stopPayload,
+          });
         } else {
-          await supabase
-            .from('stop_waiting_settings')
-            .insert(stopPayload);
+          await adminPageMutate(FARE_PAGE, 'stop_waiting_settings', 'insert', {
+            patch: stopPayload,
+          });
         }
 
         // Keep ALL fare_pricing_settings stop columns in sync for this SA (every VT).
-        // Customer restore must never show a different grace than stop_waiting_settings.
-        await supabase
-          .from('fare_pricing_settings')
-          .update({
+        await adminPageMutate(FARE_PAGE, 'fare_pricing_settings', 'update', {
+          filters: [{ op: 'eq', col: 'service_area_id', val: serviceAreaId }],
+          patch: {
             stop_waiting_grace_period_minutes: stopWaiting.stopWaitingGracePeriodMinutes,
             stop_waiting_rate_pence_per_minute: stopWaiting.stopWaitingRatePencePerMinute,
-          })
-          .eq('service_area_id', serviceAreaId);
+          },
+        });
 
         // Keep dispatch_settings projections + enable_stop_waiting_charge in sync.
         const dispatchRadiusPayload = {
@@ -485,20 +533,24 @@ export function FareEngineConfig({ serviceAreaId, regionCurrencyCode, regionDist
           enable_stop_waiting_charge: stopWaiting.enableStopWaitingCharge,
           updated_at: new Date().toISOString(),
         };
-        const { data: dispatchExisting } = await supabase
-          .from('dispatch_settings')
-          .select('id')
-          .eq('service_area_id', serviceAreaId)
-          .maybeSingle();
-        if (dispatchExisting?.id) {
-          await supabase
-            .from('dispatch_settings')
-            .update(dispatchRadiusPayload)
-            .eq('service_area_id', serviceAreaId);
+        const { rows: dispatchExistingRows } = await adminPageSelect<{ id: string }>(
+          FARE_PAGE,
+          'dispatch_settings',
+          {
+            columns: ['id'],
+            filters: [{ op: 'eq', col: 'service_area_id', val: serviceAreaId }],
+            limit: 1,
+          },
+        );
+        if (dispatchExistingRows[0]?.id) {
+          await adminPageMutate(FARE_PAGE, 'dispatch_settings', 'update', {
+            id: dispatchExistingRows[0].id,
+            patch: dispatchRadiusPayload,
+          });
         } else {
-          await supabase
-            .from('dispatch_settings')
-            .insert({ service_area_id: serviceAreaId, ...dispatchRadiusPayload });
+          await adminPageMutate(FARE_PAGE, 'dispatch_settings', 'insert', {
+            patch: { service_area_id: serviceAreaId, ...dispatchRadiusPayload },
+          });
         }
         console.log('WAITING_RADIUS_CACHE_INVALIDATED', {
           service_area_id: serviceAreaId,

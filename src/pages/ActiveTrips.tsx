@@ -48,6 +48,12 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { supabase } from '@/integrations/supabase/client';
 import {
+  adminLookupByIds,
+  adminPageSelect,
+  inFilter,
+  adminServiceAreasLookup,
+} from '@/lib/adminPageGatedData';
+import {
   isAdminDocumentVisible,
   isAdminTabLiveActive,
   subscribeAdminTabLiveActive,
@@ -63,7 +69,6 @@ import { getCurrencySymbol, getDistanceUnitShort, convertDistance } from '@/lib/
 import { getTripDisplayId } from '@/lib/tripUtils';
 import { ACTIVE_TRIP_DB_STATUSES } from '@/lib/activeTripStatuses';
 import { filterAdminActiveTrips, formatAdminActiveTripTimerLabel } from '@/lib/adminActiveTripFilter';
-import { adminActiveBoardScheduledExclusivityOrFilter } from '@/lib/adminScheduledBoardMembership';
 import {
   ADMIN_ACTIVE_TRIPS_CAP,
   ADMIN_ACTIVE_TRIPS_ONLINE_DRIVERS_CAP,
@@ -279,32 +284,84 @@ export default function ActiveTrips() {
     try {
       if (!isBackground) setIsLoading(true);
       
-      const [tripsRes, driversRes] = await Promise.all([
-        supabase
-          .from('trips')
-          .select(`
-            id, trip_code, trip_number, status, passenger_name, passenger_phone, pickup_address, dropoff_address, stops, total_stops, estimated_fare, fare, final_fare_pence, final_customer_fare_pence, locked_base_fare_pence, pickup_waiting_charge_pence, stop_waiting_charge_pence, stop_charge_total_pence, customer_modification_charge_pence, modification_delta_pence, modification_status, modified_dropoff_address, driver_tier_commission_percent, commission_pct, commission_pence, gross_fare_pence, offer_discount_pence, discount_pence, estimated_total_pence, capture_amount_pence, fare_snapshot_json, currency_code, created_at, searching_expires_at, started_at, driver_id, is_scheduled, pricing_mode, fare_locked, vehicle_type, vehicle_type_id, service_area_id,
-            driver:drivers!trips_driver_id_fkey(id, first_name, last_name, phone),
-            service_area:service_areas!trips_service_area_id_fkey(region:regions(currency_code, distance_unit))
-          `)
-          .in('status', [...ACTIVE_TRIP_DB_STATUSES])
-          // Scheduled open-lifecycle (Finding / Pre-confirm) stays on Scheduled Rides only.
-          .or(adminActiveBoardScheduledExclusivityOrFilter())
-          .order('created_at', { ascending: false })
-          .limit(ADMIN_ACTIVE_TRIPS_CAP),
-        supabase
-          .from('drivers')
-          .select('id, driver_code, first_name, last_name, phone, is_online, rating')
-          .eq('is_online', true)
-          .eq('approval_status', 'approved')
-          .limit(ADMIN_ACTIVE_TRIPS_ONLINE_DRIVERS_CAP),
+      const tripColumns = [
+        'id', 'trip_code', 'trip_number', 'status', 'passenger_name', 'passenger_phone',
+        'pickup_address', 'dropoff_address', 'stops', 'total_stops', 'estimated_fare', 'fare',
+        'final_fare_pence', 'final_customer_fare_pence', 'locked_base_fare_pence',
+        'pickup_waiting_charge_pence', 'stop_waiting_charge_pence', 'stop_charge_total_pence',
+        'customer_modification_charge_pence', 'modification_delta_pence', 'modification_status',
+        'modified_dropoff_address', 'driver_tier_commission_percent', 'commission_pct',
+        'commission_pence', 'gross_fare_pence', 'offer_discount_pence', 'discount_pence',
+        'estimated_total_pence', 'capture_amount_pence', 'fare_snapshot_json', 'currency_code',
+        'created_at', 'searching_expires_at', 'started_at', 'driver_id', 'is_scheduled',
+        'pricing_mode', 'fare_locked', 'vehicle_type', 'vehicle_type_id', 'service_area_id',
+      ];
+
+      const [tripsPage, driversPage] = await Promise.all([
+        adminPageSelect<Record<string, unknown>>('active-trips', 'trips', {
+          columns: tripColumns,
+          filters: [inFilter('status', [...ACTIVE_TRIP_DB_STATUSES])],
+          // Mirror adminActiveBoardScheduledExclusivityOrFilter
+          or_groups: [
+            [{ op: 'is_null', col: 'is_scheduled' }],
+            [{ op: 'eq', col: 'is_scheduled', val: false }],
+            [{ op: 'not_null', col: 'driver_id' }],
+          ],
+          order: [{ col: 'created_at', asc: false }],
+          limit: ADMIN_ACTIVE_TRIPS_CAP,
+        }),
+        adminPageSelect<Record<string, unknown>>('active-trips', 'drivers', {
+          columns: ['id', 'driver_code', 'first_name', 'last_name', 'phone', 'is_online', 'rating'],
+          filters: [
+            { op: 'eq', col: 'is_online', val: true },
+            { op: 'eq', col: 'approval_status', val: 'approved' },
+          ],
+          limit: ADMIN_ACTIVE_TRIPS_ONLINE_DRIVERS_CAP,
+        }),
       ]);
 
-      if (tripsRes.error) throw tripsRes.error;
-      if (driversRes.error) throw driversRes.error;
+      const flatTrips = tripsPage.rows.filter(Boolean);
+      const driverIds = flatTrips
+        .map((t) => t.driver_id as string | null | undefined)
+        .filter((id): id is string => Boolean(id));
+      const saIds = flatTrips
+        .map((t) => t.service_area_id as string | null | undefined)
+        .filter((id): id is string => Boolean(id));
+
+      const [driverRows, saLookup] = await Promise.all([
+        adminLookupByIds<{
+          id: string;
+          first_name: string | null;
+          last_name: string | null;
+          phone: string | null;
+        }>('active-trips', 'drivers', driverIds, ['id', 'first_name', 'last_name', 'phone']),
+        saIds.length > 0
+          ? adminServiceAreasLookup<{
+              id: string;
+              region?: { currency_code?: string | null; distance_unit?: string | null } | null;
+            }>('active-trips', { ids: saIds, include_archived: true })
+          : Promise.resolve({
+              rows: [] as Array<{
+                id: string;
+                region?: { currency_code?: string | null; distance_unit?: string | null } | null;
+              }>,
+              count: 0,
+            }),
+      ]);
+
+      const driverById = new Map(driverRows.map((d) => [d.id, d]));
+      const saById = new Map(saLookup.rows.map((sa) => [sa.id, sa]));
+
+      const hydratedTrips = flatTrips.map((t) => ({
+        ...t,
+        driver: t.driver_id ? driverById.get(t.driver_id as string) ?? null : null,
+        service_area: t.service_area_id
+          ? { region: (saById.get(t.service_area_id as string) as any)?.region ?? null }
+          : null,
+      }));
 
       const baseTrips = filterAdminActiveTrips(
-        (tripsRes.data ?? []).filter(Boolean) as unknown as Trip[],
+        hydratedTrips as unknown as Trip[],
       ) as Trip[];
       const tripIds = baseTrips.map((t) => t.id);
 
@@ -419,7 +476,7 @@ export default function ActiveTrips() {
       });
 
       setTrips(enriched);
-      setAvailableDrivers(driversRes.data || []);
+      setAvailableDrivers((driversPage.rows || []) as any[]);
       setLastRefresh(new Date());
     } catch (err) {
       console.error('Error fetching trips:', err);

@@ -28,6 +28,7 @@ import {
   Loader2,
   Car,
 } from 'lucide-react';
+import { adminLookupByIds } from '@/lib/adminPageGatedData';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { ADMIN_SUPPORT_TICKETS_PAGE_SIZE } from '@/lib/adminQueryBounds';
@@ -123,14 +124,17 @@ export default function Tickets() {
       const customerIds = [...new Set(rows.map((r) => r.customer_id).filter((id): id is string => !!id))];
       const customerMap: Record<string, { first_name: string | null; last_name: string | null }> = {};
       if (customerIds.length > 0) {
-        const { data: customers, error: customerErr } = await supabase
-          .from('customers')
-          .select('id, first_name, last_name')
-          .in('id', customerIds);
-        if (!customerErr) {
-          (customers || []).forEach((c) => {
+        try {
+          const customers = await adminLookupByIds<{
+            id: string;
+            first_name: string | null;
+            last_name: string | null;
+          }>('tickets', 'customers', customerIds, ['id', 'first_name', 'last_name']);
+          customers.forEach((c) => {
             customerMap[c.id] = c;
           });
+        } catch {
+          /* keep tickets without customer names */
         }
       }
       return {

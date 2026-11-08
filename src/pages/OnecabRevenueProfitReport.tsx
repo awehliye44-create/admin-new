@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { format } from 'date-fns';
 import { supabase } from '@/integrations/supabase/client';
+import { adminServiceAreasLookup } from '@/lib/adminPageGatedData';
 import { AdminLayout } from '@/components/layout/AdminLayout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -94,7 +95,8 @@ export default function OnecabRevenueProfitReport() {
   const { data: serviceAreas = [] } = useQuery({
     queryKey: ['orp-service-areas'],
     queryFn: async () => {
-      const { data, error } = await supabase.from('service_areas').select('id,name,region_id').is('archived_at', null).order('name');
+      const { rows: data } = await adminServiceAreasLookup<{id:string;name:string;region_id:string}>('onecab-revenue-profit', {});
+      const error = null;
       if (error) throw error;
       return (data ?? []) as ServiceAreaRow[];
     },

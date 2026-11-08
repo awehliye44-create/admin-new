@@ -132,7 +132,7 @@ function previousMonthRange(ref = new Date()) {
 export default function Invoices() {
   const queryClient = useQueryClient();
   const { data: regions = [] } = useRegions();
-  const { data: serviceAreas = [] } = useServiceAreas();
+  const { data: serviceAreas = [] } = useServiceAreas({ pageSlug: 'invoices' });
   const [statusFilter, setStatusFilter] = useState("all");
   const [regionFilter, setRegionFilter] = useState("all");
   const [serviceAreaFilter, setServiceAreaFilter] = useState("all");
@@ -278,12 +278,24 @@ export default function Invoices() {
     queryKey: ["invoice-driver-search", genDriverSearch],
     queryFn: async () => {
       if (genDriverSearch.length < 2) return [];
-      const { data } = await supabase
-        .from("drivers")
-        .select("id, first_name, last_name, driver_code, region_id")
-        .or(`first_name.ilike.%${genDriverSearch}%,last_name.ilike.%${genDriverSearch}%,driver_code.ilike.%${genDriverSearch}%`)
-        .limit(10);
-      return data || [];
+      const { adminPageSelect } = await import("@/lib/adminPageGatedData");
+      const needle = `%${genDriverSearch}%`;
+      const { rows } = await adminPageSelect<{
+        id: string;
+        first_name: string | null;
+        last_name: string | null;
+        driver_code: string | null;
+        region_id: string | null;
+      }>("invoices", "drivers", {
+        columns: ["id", "first_name", "last_name", "driver_code", "region_id"],
+        or_groups: [[
+          { op: "ilike", col: "first_name", val: needle },
+          { op: "ilike", col: "last_name", val: needle },
+          { op: "ilike", col: "driver_code", val: needle },
+        ]],
+        limit: 10,
+      });
+      return rows;
     },
     enabled: genDriverSearch.length >= 2 && !selectedDriverId,
   });

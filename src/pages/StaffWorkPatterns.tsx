@@ -35,6 +35,7 @@ import {
   Users,
 } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
+import { adminServiceAreasLookup } from '@/lib/adminPageGatedData';
 import { toast } from 'sonner';
 import { ROLE_LABELS, StaffRole } from '@/hooks/useStaffProfile';
 import {
@@ -163,7 +164,7 @@ export default function StaffWorkPatterns() {
           .order('leave_date', { ascending: false })
           .limit(100),
         supabase.from('regions').select('id, name').order('name'),
-        supabase.from('service_areas').select('id, name, region_id').is('archived_at', null).order('name'),
+        adminServiceAreasLookup<{id:string;name:string;region_id:string}>('staff-work-patterns', {}).then(r => ({ data: r.rows, error: null })),
       ]);
 
       if (patternsRes.error) throw patternsRes.error;

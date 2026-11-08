@@ -1,6 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "npm:@supabase/supabase-js@2.57.2";
-import { requireAdmin } from "../_shared/internalAuth.ts";
+import { requireAdmin, requirePageAccess } from "../_shared/adminPaymentGate.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -10,10 +10,11 @@ const corsHeaders = {
 serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response(null, { headers: corsHeaders });
 
-  // Admin-only: seeding and clearing demo ops data must never be reachable
-  // anonymously. Requires a valid JWT with admin/super_admin role.
-  const gate = await requireAdmin(req);
-  if (gate instanceof Response) return gate;
+  // Admin + system page: seeding/clearing demo ops data.
+  const adminGate = await requireAdmin(req);
+  if (!adminGate.ok) return adminGate.response;
+  const pageGate = await requirePageAccess(adminGate, "system");
+  if (!pageGate.ok) return pageGate.response;
 
   const supabase = createClient(
     Deno.env.get('SUPABASE_URL')!,

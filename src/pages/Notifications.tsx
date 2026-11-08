@@ -144,7 +144,7 @@ export default function Notifications() {
   
   // Use shared cached hooks for regions & service areas
   const { data: regions = [] } = useRegions();
-  const { data: serviceAreas = [] } = useServiceAreas({ activeOnly: true });
+  const { data: serviceAreas = [] } = useServiceAreas({ pageSlug: 'notifications', activeOnly: true });
   
   const queryClient = useQueryClient();
   const [isLoading, setIsLoading] = useState(true);

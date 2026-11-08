@@ -120,7 +120,7 @@ export default function PaymentSessions() {
   const [forceRefreshOpen, setForceRefreshOpen] = useState(false);
   const [listOffset, setListOffset] = useState(0);
 
-  const { data: serviceAreas = [], isLoading: serviceAreasLoading } = useServiceAreas({ activeOnly: true });
+  const { data: serviceAreas = [], isLoading: serviceAreasLoading } = useServiceAreas({ pageSlug: 'payment-sessions', activeOnly: true });
 
   // Never load unscoped — all-service-area list is slow and feels stuck on large fleets (FR SSOT).
   useEffect(() => {

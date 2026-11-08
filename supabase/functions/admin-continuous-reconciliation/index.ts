@@ -4,52 +4,11 @@
  */
 import { createClient } from "npm:@supabase/supabase-js@2.57.2";
 import { fetchDriverWalletPayoutSnapshot } from "../_shared/fetchDriverWalletPayoutSnapshot.ts";
-
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers":
-    "authorization, x-client-info, apikey, content-type",
-};
-
-async function requireAdmin(req: Request): Promise<Response | null> {
-  const authHeader = req.headers.get("Authorization");
-  if (!authHeader?.startsWith("Bearer ")) {
-    return new Response(JSON.stringify({ error: "Unauthorized" }), {
-      status: 401,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
-  }
-  const token = authHeader.replace("Bearer ", "");
-  const anon = createClient(
-    Deno.env.get("SUPABASE_URL")!,
-    Deno.env.get("SUPABASE_ANON_KEY")!,
-    { global: { headers: { Authorization: authHeader } } },
-  );
-  const { data, error } = await anon.auth.getUser(token);
-  if (error || !data?.user) {
-    return new Response(JSON.stringify({ error: "Unauthorized" }), {
-      status: 401,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
-  }
-  const svc = createClient(
-    Deno.env.get("SUPABASE_URL")!,
-    Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
-  );
-  const { data: role } = await svc
-    .from("user_roles")
-    .select("role")
-    .eq("user_id", data.user.id)
-    .eq("role", "admin")
-    .maybeSingle();
-  if (!role) {
-    return new Response(JSON.stringify({ error: "Forbidden — admin required" }), {
-      status: 403,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
-  }
-  return null;
-}
+import {
+  corsHeaders,
+  requireAdmin,
+  requirePageAccess,
+} from "../_shared/adminPaymentGate.ts";
 
 type ReconciliationRow = {
   driver_id: string;
@@ -66,8 +25,10 @@ Deno.serve(async (req) => {
     return new Response(null, { headers: corsHeaders });
   }
 
-  const gate = await requireAdmin(req);
-  if (gate) return gate;
+  const adminGate = await requireAdmin(req);
+  if (!adminGate.ok) return adminGate.response;
+  const pageGate = await requirePageAccess(adminGate, "financial-reconciliation");
+  if (!pageGate.ok) return pageGate.response;
 
   try {
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;

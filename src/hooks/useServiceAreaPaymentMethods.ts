@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '@/integrations/supabase/client';
+import { adminServiceAreasLookup } from '@/lib/adminPageGatedData';
 import type { MobileWalletMethodId } from '@/lib/customerPaymentWorkflow';
 
 export type DigitalPaymentMethodType = 'card' | 'wallet' | 'apple_pay' | 'google_pay';
@@ -57,25 +58,28 @@ export function useServiceAreaPaymentMethods(serviceAreaId?: string) {
       try {
         setIsLoading(true);
 
-        const [methodsRes, areaRes] = await Promise.all([
+        const [methodsRes, areaLookup] = await Promise.all([
           supabase
             .from('service_area_payment_methods')
             .select('service_area_id, card_enabled, wallet_enabled, apple_pay_enabled, google_pay_enabled, mobile_wallet_methods')
             .eq('service_area_id', serviceAreaId)
             .maybeSingle(),
-          supabase
-            .from('service_areas')
-            .select('payment_provider, customer_payment_gateway, driver_payout_gateway')
-            .eq('id', serviceAreaId)
-            .maybeSingle(),
+          adminServiceAreasLookup<{
+            payment_provider?: string | null;
+            customer_payment_gateway?: string | null;
+            driver_payout_gateway?: string | null;
+          }>('service-area-pricing', {
+            ids: [serviceAreaId],
+            include_archived: true,
+            limit: 1,
+          }),
         ]);
 
         if (methodsRes.error && methodsRes.error.code !== 'PGRST116') {
           throw methodsRes.error;
         }
-        if (areaRes.error) throw areaRes.error;
 
-        const area = areaRes.data as {
+        const area = (areaLookup.rows[0] ?? null) as {
           payment_provider?: string | null;
           customer_payment_gateway?: string | null;
           driver_payout_gateway?: string | null;

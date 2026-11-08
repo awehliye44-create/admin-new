@@ -50,7 +50,7 @@ const EMPTY = {
 
 export function OfferFormDialog({ open, onOpenChange, offer }: Props) {
   const qc = useQueryClient();
-  const { data: areas = [] } = useServiceAreas();
+  const { data: areas = [] } = useServiceAreas({ pageSlug: 'offers' });
   const [form, setForm] = useState(EMPTY);
   const [allAreas, setAllAreas] = useState(true);
 

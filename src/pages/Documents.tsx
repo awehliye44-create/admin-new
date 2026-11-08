@@ -39,6 +39,11 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { supabase } from '@/integrations/supabase/client';
+import {
+  adminLookupByIds,
+  adminPageMutate,
+  adminPageSelect,
+} from '@/lib/adminPageGatedData';
 import { 
   FileText, Loader2, Search, RefreshCw, MoreHorizontal, Eye, 
   CheckCircle2, XCircle, Clock, AlertTriangle, FileCheck, FileClock,
@@ -136,23 +141,40 @@ export default function Documents() {
     queryKey: ['documents-review', includeSuperseded],
     queryFn: async () => {
       // SSOT: default to current documents only. Superseded rows are historical.
-      let query = supabase
-        .from('documents')
-        .select(`
-          id, driver_id, document_type, document_type_id, document_name, file_url, status, expiry_date, notes, rejection_reason, reviewed_at, reviewed_by, created_at, updated_at, is_current, superseded_by, last_reminded_at, reminder_sent_days, submission_idempotency_key,
-          driver:drivers(id, first_name, last_name, phone, deleted_at)
-        `)
-        .order('expiry_date', { ascending: true, nullsFirst: false })
-        .order('created_at', { ascending: false })
-        .limit(500);
-
-      if (!includeSuperseded) {
-        query = query.eq('is_current', true);
-      }
-
-      const { data, error } = await query;
-      if (error) throw error;
-      return (data || []) as Document[];
+      const filters = !includeSuperseded
+        ? [{ op: 'eq' as const, col: 'is_current', val: true }]
+        : [];
+      const { rows } = await adminPageSelect<Record<string, unknown>>('documents', 'documents', {
+        columns: [
+          'id', 'driver_id', 'document_type', 'document_type_id', 'document_name', 'file_url',
+          'status', 'expiry_date', 'notes', 'rejection_reason', 'reviewed_at', 'reviewed_by',
+          'created_at', 'updated_at', 'is_current', 'superseded_by', 'last_reminded_at',
+          'reminder_sent_days', 'submission_idempotency_key',
+        ],
+        filters,
+        order: [
+          { col: 'expiry_date', asc: true },
+          { col: 'created_at', asc: false },
+        ],
+        limit: 500,
+      });
+      const driverIds = rows
+        .map((r) => r.driver_id as string | null | undefined)
+        .filter((id): id is string => Boolean(id));
+      const drivers = await adminLookupByIds<{
+        id: string;
+        first_name: string | null;
+        last_name: string | null;
+        phone: string | null;
+        deleted_at: string | null;
+      }>('documents', 'drivers', driverIds, [
+        'id', 'first_name', 'last_name', 'phone', 'deleted_at',
+      ]);
+      const byId = new Map(drivers.map((d) => [d.id, d]));
+      return rows.map((r) => ({
+        ...r,
+        driver: r.driver_id ? byId.get(r.driver_id as string) ?? null : null,
+      })) as Document[];
     },
     staleTime: 30_000,
   });
@@ -166,14 +188,21 @@ export default function Documents() {
 
     setIsPurging(true);
     try {
-      const { data: rows, error: loadErr } = await supabase
-        .from('documents')
-        .select('id, file_url')
-        .eq(scope === 'driver' ? 'driver_id' : 'id', scope === 'driver' ? doc.driver_id : doc.id);
+      const { rows } = await adminPageSelect<{ id: string; file_url: string | null }>(
+        'documents',
+        'documents',
+        {
+          columns: ['id', 'file_url'],
+          filters: [
+            scope === 'driver'
+              ? { op: 'eq', col: 'driver_id', val: doc.driver_id }
+              : { op: 'eq', col: 'id', val: doc.id },
+          ],
+          limit: 500,
+        },
+      );
 
-      if (loadErr) throw loadErr;
-
-      const targets = rows ?? [];
+      const targets = rows;
       const paths = targets
         .map((r) => extractDriverDocumentStoragePath(r.file_url))
         .filter((p): p is string => Boolean(p));
@@ -183,12 +212,9 @@ export default function Documents() {
         if (storageErr) throw storageErr;
       }
 
-      const { error: deleteErr } = await supabase
-        .from('documents')
-        .delete()
-        .in('id', targets.map((r) => r.id));
-
-      if (deleteErr) throw deleteErr;
+      await adminPageMutate('documents', 'documents', 'delete', {
+        ids: targets.map((r) => r.id),
+      });
 
       toast.success(
         scope === 'driver'
@@ -231,12 +257,10 @@ export default function Documents() {
         updatePayload.file_url = null;
       }
 
-      const { error } = await supabase
-        .from('documents')
-        .update(updatePayload as any)
-        .eq('id', selectedDocument.id);
-
-      if (error) throw error;
+      await adminPageMutate('documents', 'documents', 'update', {
+        id: selectedDocument.id,
+        patch: updatePayload,
+      });
 
       toast.success(
         isReReject

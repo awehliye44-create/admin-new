@@ -12,8 +12,10 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { VehicleChangeReviewDialog } from '@/components/vehicles/VehicleChangeReviewDialog';
+import { AdminVehicleEditDialog } from '@/components/vehicles/AdminVehicleEditDialog';
 import { supabase } from '@/integrations/supabase/client';
 import { Plus, CarTaxiFront, Loader2, ArrowRight, AlertTriangle, Clock, Archive } from 'lucide-react';
+import { toast } from 'sonner';
 
 interface Vehicle {
   id: string;
@@ -23,6 +25,9 @@ interface Vehicle {
   color: string;
   license_plate: string;
   is_primary: boolean;
+  capacity?: number | null;
+  vehicle_type_id?: string | null;
+  approval_status?: string | null;
   driver?: {
     first_name: string;
     last_name: string;
@@ -77,6 +82,7 @@ export default function Vehicles() {
 
   // Review dialog state
   const [reviewRequest, setReviewRequest] = useState<VehicleChangeRequest | null>(null);
+  const [editingVehicle, setEditingVehicle] = useState<Vehicle | null>(null);
   const [showArchived, setShowArchived] = useState(false);
 
   const fetchVehicles = async () => {
@@ -250,7 +256,12 @@ export default function Vehicles() {
                   ? `Show active (${activeVehicles.length})`
                   : `Archived (${archivedVehicles.length})`}
               </Button>
-              <Button>
+              <Button
+                variant="outline"
+                onClick={() =>
+                  toast.message('Add a vehicle from Drivers → open the driver → Vehicles tab.')
+                }
+              >
                 <Plus className="mr-2 h-4 w-4" />
                 Add Vehicle
               </Button>
@@ -318,7 +329,11 @@ export default function Vehicles() {
                         {showArchived ? (
                           <span className="text-xs text-muted-foreground">Read only</span>
                         ) : (
-                          <Button variant="ghost" size="sm">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => setEditingVehicle(vehicle)}
+                          >
                             Edit
                           </Button>
                         )}
@@ -406,6 +421,18 @@ export default function Vehicles() {
         }
         onClose={() => setReviewRequest(null)}
         onDecided={handleDecided}
+      />
+
+      <AdminVehicleEditDialog
+        vehicle={editingVehicle}
+        open={Boolean(editingVehicle)}
+        onClose={() => setEditingVehicle(null)}
+        onSaved={(updated) => {
+          setVehicles((prev) =>
+            prev.map((v) => (v.id === updated.id ? { ...v, ...updated, driver: v.driver } : v)),
+          );
+          setEditingVehicle(null);
+        }}
       />
     </AdminLayout>
   );

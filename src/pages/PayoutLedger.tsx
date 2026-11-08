@@ -231,7 +231,7 @@ export default function PayoutLedger() {
     DEFAULT_SERVICE_AREA_SELECTION,
   );
   const [financeScopeReady, setFinanceScopeReady] = useState(false);
-  const { isLoading: serviceAreasLoading } = useServiceAreas({ activeOnly: true });
+  const { isLoading: serviceAreasLoading } = useServiceAreas({ pageSlug: 'payout-ledger', activeOnly: true });
   const [payoutCreditExceptionsOnly, setPayoutCreditExceptionsOnly] = useState(
     searchParams.get('payoutCreditExceptions') === '1',
   );
@@ -459,7 +459,7 @@ export default function PayoutLedger() {
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <ServiceAreaFinanceFilter
+            <ServiceAreaFinanceFilter pageSlug="payout-ledger"
               financialModel="PLATFORM_COLLECTED"
               value={serviceFilter}
               onChange={setServiceFilter}

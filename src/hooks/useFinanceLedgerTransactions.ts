@@ -397,31 +397,43 @@ export function useFinanceLedgerTransactions(args: {
       }
 
       if (includeDiscounts) {
-        let discountQuery: any = (supabase as any)
-          .from('trips')
-          .select(`
-            id, trip_code, payment_method, completed_at, discount_pence, discount_source,
-            driver_id, passenger_id, passenger_name, region_id, financial_model, commission_wallet_enabled,
-            drivers(first_name, last_name)
-          `)
-          .eq('financial_model', 'PLATFORM_COLLECTED')
-          .gt('discount_pence', 0)
-          .order('completed_at', { ascending: false })
-          .limit(Math.min(limit, 100));
-
-        if (args.regionId) {
-          discountQuery = discountQuery.eq('region_id', args.regionId);
-        }
-        if (args.driverId) {
-          discountQuery = discountQuery.eq('driver_id', args.driverId);
-        }
-        if (args.from) discountQuery = discountQuery.gte('completed_at', args.from);
-        if (args.to) discountQuery = discountQuery.lte('completed_at', args.to);
-
-        const { data: discountData, error: discountError } = await discountQuery;
-        if (discountError) throw discountError;
-        for (const row of (discountData ?? []) as unknown as DiscountTripRow[]) {
-          rows.push(mapDiscountRow(row));
+        const { adminLookupByIds, adminPageSelect } = await import('@/lib/adminPageGatedData');
+        const filters: import('@/lib/adminPageGatedData').AdminPageFilter[] = [
+          { op: 'eq', col: 'financial_model', val: 'PLATFORM_COLLECTED' },
+          { op: 'gt', col: 'discount_pence', val: 0 },
+        ];
+        if (args.regionId) filters.push({ op: 'eq', col: 'region_id', val: args.regionId });
+        if (args.driverId) filters.push({ op: 'eq', col: 'driver_id', val: args.driverId });
+        if (args.from) filters.push({ op: 'gte', col: 'completed_at', val: args.from });
+        if (args.to) filters.push({ op: 'lte', col: 'completed_at', val: args.to });
+        const { rows: discountData } = await adminPageSelect<Record<string, unknown>>(
+          'driver-wallet-ledger',
+          'trips',
+          {
+            columns: [
+              'id', 'trip_code', 'payment_method', 'completed_at', 'discount_pence', 'discount_source',
+              'driver_id', 'passenger_id', 'passenger_name', 'region_id', 'financial_model',
+              'commission_wallet_enabled',
+            ],
+            filters,
+            order: [{ col: 'completed_at', asc: false }],
+            limit: Math.min(limit, 100),
+          },
+        );
+        const driverIds = discountData
+          .map((r) => r.driver_id as string | null)
+          .filter((id): id is string => Boolean(id));
+        const drivers = await adminLookupByIds<{
+          id: string;
+          first_name: string | null;
+          last_name: string | null;
+        }>('driver-wallet-ledger', 'drivers', driverIds, ['id', 'first_name', 'last_name']);
+        const driverById = new Map(drivers.map((d) => [d.id, d]));
+        for (const row of discountData) {
+          rows.push(mapDiscountRow({
+            ...row,
+            drivers: row.driver_id ? driverById.get(String(row.driver_id)) ?? null : null,
+          } as unknown as DiscountTripRow));
         }
       }
 

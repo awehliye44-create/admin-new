@@ -1,9 +1,11 @@
 import { useEffect, useState } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Switch } from '@/components/ui/switch';
-import { supabase } from '@/integrations/supabase/client';
+import { adminPageMutate, adminPageSelect } from '@/lib/adminPageGatedData';
 import { Car, CheckCircle2, XCircle } from 'lucide-react';
 import { toast } from 'sonner';
+
+const PAGE = 'service-area-pricing' as const;
 
 interface Props {
   serviceAreaId: string;
@@ -35,13 +37,15 @@ export function VehicleTypePricingRow({
 
   const load = async () => {
     setLoading(true);
-    const { data } = await supabase
-      .from('service_area_vehicle_pricing')
-      .select('id, is_enabled')
-      .eq('service_area_id', serviceAreaId)
-      .eq('vehicle_type_id', vehicleType.id)
-      .maybeSingle();
-    setRow((data as SavRow | null) ?? null);
+    const { rows } = await adminPageSelect<SavRow>(PAGE, 'service_area_vehicle_pricing', {
+      columns: ['id', 'is_enabled'],
+      filters: [
+        { op: 'eq', col: 'service_area_id', val: serviceAreaId },
+        { op: 'eq', col: 'vehicle_type_id', val: vehicleType.id },
+      ],
+      limit: 1,
+    });
+    setRow(rows[0] ?? null);
     setLoading(false);
   };
 
@@ -51,29 +55,31 @@ export function VehicleTypePricingRow({
     setSaving(true);
     try {
       if (!row) {
-        const { data, error } = await supabase
-          .from('service_area_vehicle_pricing')
-          .insert({
-            service_area_id: serviceAreaId,
-            vehicle_type_id: vehicleType.id,
-            currency_code: currencyCode,
-            is_enabled: next,
-            base_fare: 0,
-            minimum_fare: 0,
-            per_km_rate_pence: 0,
-            per_min_rate_pence: 0,
-            airport_charge_pence: 0,
-          })
-          .select('id, is_enabled')
-          .single();
-        if (error) throw error;
-        setRow(data as SavRow);
+        const { row: created } = await adminPageMutate<SavRow>(
+          PAGE,
+          'service_area_vehicle_pricing',
+          'insert',
+          {
+            patch: {
+              service_area_id: serviceAreaId,
+              vehicle_type_id: vehicleType.id,
+              currency_code: currencyCode,
+              is_enabled: next,
+              base_fare: 0,
+              minimum_fare: 0,
+              per_km_rate_pence: 0,
+              per_min_rate_pence: 0,
+              airport_charge_pence: 0,
+            },
+          },
+        );
+        if (!created?.id) throw new Error('Insert returned no row');
+        setRow({ id: created.id, is_enabled: created.is_enabled ?? next });
       } else {
-        const { error } = await supabase
-          .from('service_area_vehicle_pricing')
-          .update({ is_enabled: next, updated_at: new Date().toISOString() })
-          .eq('id', row.id);
-        if (error) throw error;
+        await adminPageMutate(PAGE, 'service_area_vehicle_pricing', 'update', {
+          id: row.id,
+          patch: { is_enabled: next, updated_at: new Date().toISOString() },
+        });
         setRow({ ...row, is_enabled: next });
       }
       toast.success(next ? `${vehicleType.name} enabled` : `${vehicleType.name} disabled`);

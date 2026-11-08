@@ -30,6 +30,12 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { supabase } from '@/integrations/supabase/client';
+import {
+  adminLookupByIds,
+  adminPageSelect,
+  type AdminPageFilter,
+  adminServiceAreasLookup,
+} from '@/lib/adminPageGatedData';
 import { ADMIN_MISSED_CANCELLED_PAGE_SIZE, ADMIN_MISSED_CANCELLED_STATS_ROW_CAP } from '@/lib/adminQueryBounds';
 import {
   ADMIN_TRIP_DATE_SORT_DEFAULT,
@@ -72,6 +78,7 @@ import {
 } from '@/lib/missedCancelledTerminalStats';
 import {
   applyMissedCancelledOwnership,
+  missedCancelledOwnershipAndOrGroups,
   MISSED_CANCELLED_CANCELLED_STATUSES,
   MISSED_CANCELLED_MISSED_STATUSES,
   missedCancelledStatusList,
@@ -201,12 +208,13 @@ export default function MissedCancelled() {
   }, [searchQuery]);
 
   const fetchRegionServiceAreaIds = useCallback(async (regionId: string): Promise<string[]> => {
-    const { data, error } = await supabase
-      .from('service_areas')
-      .select('id')
-      .eq('region_id', regionId);
-    if (error) throw error;
-    return (data || []).map((r) => r.id as string);
+    const { rows } = await adminServiceAreasLookup<{ id: string; region_id: string | null }>(
+      'missed-cancelled',
+      { include_archived: true },
+    );
+    return rows
+      .filter((r) => r.region_id === regionId)
+      .map((r) => r.id);
   }, []);
 
   const { data: missedPage, isLoading, isError, error, refetch } = useQuery({
@@ -214,55 +222,106 @@ export default function MissedCancelled() {
     queryFn: async () => {
       const { start, end } = getDateRange();
 
-      let query = supabase
-        .from('trips')
-        .select(`
-          id, trip_number, trip_code, status, passenger_id, passenger_name, passenger_phone,
-          pickup_address, dropoff_address, estimated_fare, fare,
-          final_fare_pence, final_customer_fare_pence, estimated_total_pence, gross_fare_pence,
-          offer_discount_pence, discount_pence, customer_modification_charge_pence,
-          currency_code, financial_outcome, no_show_charge_pence,
-          created_at, completed_at, special_instructions, driver_id, service_area_id,
-          arrived_at, pickup_waiting_started_at, cancelled_at, ${MISSED_CANCELLED_EVENT_AT_COLUMN}, cancellation_reason,
-          cancelled_by, cancelled_by_role, cancel_reason, cancellation_note,
-          arrival_cancellation_applied, arrival_cancellation_fee, arrival_cancellation_applied_at, arrival_cancellation_reason,
-          financial_model, cancellation_fee_pence, payment_status,
-          capture_amount_pence, provider_fee_pence, late_cancel_fee_pence, previous_driver_id,
-          driver:drivers!trips_driver_id_fkey(id, first_name, last_name, phone, region_id),
-          previous_driver:drivers!trips_previous_driver_id_fkey(id, first_name, last_name, phone, region_id),
-          service_area:service_areas!trips_service_area_id_fkey(id, name, region_id, region:regions(currency_code))
-        `, { count: 'exact' })
-        .gte('created_at', start.toISOString())
-        .lte('created_at', end.toISOString());
-
-      query = query.in('status', missedCancelledStatusList(statusFilter));
-      // Trip History owns canonical terminal outcomes; exclude them before count, range and order.
-      query = applyMissedCancelledOwnership(query);
-
+      const filters: AdminPageFilter[] = [
+        { op: 'gte', col: 'created_at', val: start.toISOString() },
+        { op: 'lte', col: 'created_at', val: end.toISOString() },
+        { op: 'in', col: 'status', val: missedCancelledStatusList(statusFilter) },
+      ];
       if (serviceFilter.regionId) {
         const saIds = await fetchRegionServiceAreaIds(serviceFilter.regionId);
         if (saIds.length === 0) return { rows: [] as CancelledTrip[], totalCount: 0 };
-        query = query.in('service_area_id', saIds);
+        filters.push({ op: 'in', col: 'service_area_id', val: saIds });
       }
 
       const term = debouncedSearch.replace(/[%(),.\\"]/g, ' ').trim();
-      if (term) {
-        const like = `%${term}%`;
-        query = query.or(
-          `trip_number.ilike.${like},trip_code.ilike.${like},passenger_name.ilike.${like},passenger_phone.ilike.${like},pickup_address.ilike.${like}`,
-        );
-      }
+      const orGroups: AdminPageFilter[][] | undefined = term
+        ? (() => {
+            const like = `%${term}%`;
+            return [
+              [{ op: 'ilike', col: 'trip_number', val: like }],
+              [{ op: 'ilike', col: 'trip_code', val: like }],
+              [{ op: 'ilike', col: 'passenger_name', val: like }],
+              [{ op: 'ilike', col: 'passenger_phone', val: like }],
+              [{ op: 'ilike', col: 'pickup_address', val: like }],
+            ];
+          })()
+        : undefined;
 
-      const { from, to } = missedCancelledPageRange(listPage, ADMIN_MISSED_CANCELLED_PAGE_SIZE);
+      const { from } = missedCancelledPageRange(listPage, ADMIN_MISSED_CANCELLED_PAGE_SIZE);
       const ascending = adminTripDateSortAscending(dateSort);
-      const { data, error, count } = await query
-        .order(MISSED_CANCELLED_EVENT_AT_COLUMN, { ascending })
-        .order('id', { ascending })
-        .range(from, to);
+      const { rows: rawRows, count } = await adminPageSelect<Record<string, unknown>>(
+        'missed-cancelled',
+        'trips',
+        {
+          columns: [
+            'id', 'trip_number', 'trip_code', 'status', 'passenger_id', 'passenger_name', 'passenger_phone',
+            'pickup_address', 'dropoff_address', 'estimated_fare', 'fare', 'final_fare_pence',
+            'final_customer_fare_pence', 'estimated_total_pence', 'gross_fare_pence', 'offer_discount_pence',
+            'discount_pence', 'customer_modification_charge_pence', 'currency_code', 'financial_outcome',
+            'no_show_charge_pence', 'created_at', 'completed_at', 'special_instructions', 'driver_id',
+            'service_area_id', 'arrived_at', 'pickup_waiting_started_at', 'cancelled_at',
+            MISSED_CANCELLED_EVENT_AT_COLUMN, 'cancellation_reason', 'cancelled_by', 'cancelled_by_role',
+            'cancel_reason', 'cancellation_note', 'arrival_cancellation_applied', 'arrival_cancellation_fee',
+            'arrival_cancellation_applied_at', 'arrival_cancellation_reason', 'financial_model',
+            'cancellation_fee_pence', 'payment_status', 'capture_amount_pence', 'provider_fee_pence',
+            'late_cancel_fee_pence', 'previous_driver_id',
+          ],
+          filters,
+          or_groups: orGroups,
+          and_or_groups: missedCancelledOwnershipAndOrGroups(),
+          order: [
+            { col: MISSED_CANCELLED_EVENT_AT_COLUMN, asc: ascending },
+            { col: 'id', asc: ascending },
+          ],
+          limit: ADMIN_MISSED_CANCELLED_PAGE_SIZE,
+          offset: from,
+          include_count: true,
+        },
+      );
 
-      if (error) throw error;
-      const rows = (data || []) as unknown as CancelledTrip[];
-      const directory = await fetchPassengerDirectory(rows.map((row) => row.passenger_id));
+      const driverIds = rawRows.flatMap((r) =>
+        [r.driver_id, r.previous_driver_id].filter((id): id is string => typeof id === 'string' && Boolean(id)),
+      );
+      const drivers = await adminLookupByIds<{
+        id: string;
+        first_name: string | null;
+        last_name: string | null;
+        phone: string | null;
+        region_id: string | null;
+      }>('missed-cancelled', 'drivers', driverIds, [
+        'id', 'first_name', 'last_name', 'phone', 'region_id',
+      ]);
+      const driverById = new Map(drivers.map((d) => [d.id, d]));
+      const saIds = rawRows
+        .map((r) => r.service_area_id as string | null)
+        .filter((id): id is string => Boolean(id));
+      const { rows: saRows } = saIds.length > 0
+        ? await adminServiceAreasLookup<{
+            id: string;
+            name: string;
+            region_id: string | null;
+            region?: { currency_code?: string | null } | null;
+          }>('missed-cancelled', { ids: saIds, include_archived: true })
+        : { rows: [] as Array<{
+            id: string;
+            name: string;
+            region_id: string | null;
+            region?: { currency_code?: string | null } | null;
+          }> };
+      const saById = new Map(saRows.map((sa) => [sa.id, sa]));
+
+      const rows = rawRows.map((r) => ({
+        ...r,
+        driver: r.driver_id ? driverById.get(String(r.driver_id)) ?? null : null,
+        previous_driver: r.previous_driver_id
+          ? driverById.get(String(r.previous_driver_id)) ?? null
+          : null,
+        service_area: r.service_area_id ? saById.get(String(r.service_area_id)) ?? null : null,
+      })) as unknown as CancelledTrip[];
+      const directory = await fetchPassengerDirectory(
+        rows.map((row) => row.passenger_id),
+        'missed-cancelled',
+      );
       const withDisposition = await enrichTripsWithPaymentDisposition(rows, 'missed_cancelled');
       // Rows are already ownership-scoped server-side; this only re-asserts the same SSOT.
       const filtered = hydratePassengerIdentity(withDisposition, directory).filter((row) => belongsInMissedCancelled(row));
@@ -286,44 +345,64 @@ export default function MissedCancelled() {
           return { cancelled: 0, missed: 0, fareRows: [] as CancelledTrip[] };
         }
       }
-      let cancelledQ = applyMissedCancelledOwnership(supabase
-        .from('trips')
-        .select('id', { count: 'exact', head: true })
-        .in('status', [...MISSED_CANCELLED_CANCELLED_STATUSES])
-        .gte('created_at', start.toISOString())
-        .lte('created_at', end.toISOString()));
-      let missedQ = applyMissedCancelledOwnership(supabase
-        .from('trips')
-        .select('id', { count: 'exact', head: true })
-        .in('status', [...MISSED_CANCELLED_MISSED_STATUSES])
-        .gte('created_at', start.toISOString())
-        .lte('created_at', end.toISOString()));
-      let fareQ = applyMissedCancelledOwnership(supabase
-        .from('trips')
-        .select(`
-          id, currency_code, status, financial_outcome, payment_status, cancellation_reason,
-          no_show_charge_pence, capture_amount_pence, cancellation_fee_pence, late_cancel_fee_pence,
-          arrival_cancellation_applied, arrival_cancellation_reason, arrival_cancellation_fee,
-          final_customer_fare_pence, final_fare_pence, estimated_total_pence, gross_fare_pence,
-          offer_discount_pence, voucher_discount_pence, promotion_discount_pence, discount_pence, discount_source,
-          fare, estimated_fare, fare_snapshot_json,
-          service_area:service_areas!trips_service_area_id_fkey(region:regions(currency_code))
-        `)
-        .in('status', [...MISSED_CANCELLED_STATUSES])
-        .gte('created_at', start.toISOString())
-        .lte('created_at', end.toISOString()))
-        .order('created_at', { ascending: false })
-        .limit(ADMIN_MISSED_CANCELLED_STATS_ROW_CAP);
-      if (saIds) {
-        cancelledQ = cancelledQ.in('service_area_id', saIds);
-        missedQ = missedQ.in('service_area_id', saIds);
-        fareQ = fareQ.in('service_area_id', saIds);
-      }
-      const [cancelledRes, missedRes, fareRes] = await Promise.all([
-        cancelledQ,
-        missedQ,
-        fareQ,
+      const baseFilters = (statuses: readonly string[]): AdminPageFilter[] => {
+        const f: AdminPageFilter[] = [
+          { op: 'in', col: 'status', val: [...statuses] },
+          { op: 'gte', col: 'created_at', val: start.toISOString() },
+          { op: 'lte', col: 'created_at', val: end.toISOString() },
+        ];
+        if (saIds) f.push({ op: 'in', col: 'service_area_id', val: saIds });
+        return f;
+      };
+      const [cancelledPage, missedPage, farePage] = await Promise.all([
+        adminPageSelect('missed-cancelled', 'trips', {
+          columns: ['id'],
+          filters: baseFilters(MISSED_CANCELLED_CANCELLED_STATUSES),
+          and_or_groups: missedCancelledOwnershipAndOrGroups(),
+          count_only: true,
+          limit: 1,
+        }),
+        adminPageSelect('missed-cancelled', 'trips', {
+          columns: ['id'],
+          filters: baseFilters(MISSED_CANCELLED_MISSED_STATUSES),
+          and_or_groups: missedCancelledOwnershipAndOrGroups(),
+          count_only: true,
+          limit: 1,
+        }),
+        adminPageSelect<Record<string, unknown>>('missed-cancelled', 'trips', {
+          columns: [
+            'id', 'currency_code', 'status', 'financial_outcome', 'payment_status', 'cancellation_reason',
+            'no_show_charge_pence', 'capture_amount_pence', 'cancellation_fee_pence', 'late_cancel_fee_pence',
+            'arrival_cancellation_applied', 'arrival_cancellation_reason', 'arrival_cancellation_fee',
+            'final_customer_fare_pence', 'final_fare_pence', 'estimated_total_pence', 'gross_fare_pence',
+            'offer_discount_pence', 'voucher_discount_pence', 'discount_pence', 'discount_source',
+            'fare', 'estimated_fare', 'fare_snapshot_json', 'service_area_id',
+          ],
+          filters: baseFilters(MISSED_CANCELLED_STATUSES),
+          and_or_groups: missedCancelledOwnershipAndOrGroups(),
+          order: [{ col: 'created_at', asc: false }],
+          limit: ADMIN_MISSED_CANCELLED_STATS_ROW_CAP,
+        }),
       ]);
+      const cancelledRes = { count: cancelledPage.count, error: null };
+      const missedRes = { count: missedPage.count, error: null };
+      const fareSaIds = farePage.rows
+        .map((r) => r.service_area_id as string | null)
+        .filter((id): id is string => Boolean(id));
+      const { rows: fareSaRows } = fareSaIds.length > 0
+        ? await adminServiceAreasLookup<{
+            id: string;
+            region?: { currency_code?: string | null } | null;
+          }>('missed-cancelled', { ids: fareSaIds, include_archived: true })
+        : { rows: [] as Array<{ id: string; region?: { currency_code?: string | null } | null }> };
+      const fareSaById = new Map(fareSaRows.map((sa) => [sa.id, sa]));
+      const fareRes = {
+        data: farePage.rows.map((r) => ({
+          ...r,
+          service_area: r.service_area_id ? fareSaById.get(String(r.service_area_id)) ?? null : null,
+        })),
+        error: null,
+      };
       if (cancelledRes.error) throw cancelledRes.error;
       if (missedRes.error) throw missedRes.error;
       if (fareRes.error) throw fareRes.error;
@@ -417,7 +496,7 @@ export default function MissedCancelled() {
     >
       {/* Service Area Filter */}
       <div className="flex items-center gap-3 mb-6">
-        <ServiceAreaFinanceFilter financialModel="ALL_OPERATIONAL" value={serviceFilter} onChange={(v) => { setServiceFilter(v); setListPage(0); }} />
+        <ServiceAreaFinanceFilter pageSlug="missed-cancelled" financialModel="ALL_OPERATIONAL" value={serviceFilter} onChange={(v) => { setServiceFilter(v); setListPage(0); }} />
         {isMixedCurrency && (
           <Badge variant="outline" className="text-amber-600 border-amber-300">
             <AlertTriangle className="h-3 w-3 mr-1" /> Mixed currencies — select a service for totals

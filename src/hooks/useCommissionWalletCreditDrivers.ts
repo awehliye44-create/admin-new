@@ -78,11 +78,17 @@ export function useCommissionWalletCreditDrivers(args: {
       const ids = eligible.map((d) => d.id);
       const plateByDriver = new Map<string, string>();
       if (ids.length > 0) {
-        const { data: vehicles } = await supabase
-          .from('vehicles')
-          .select('driver_id, license_plate, is_primary')
-          .in('driver_id', ids);
-        for (const v of vehicles ?? []) {
+        const { adminPageSelect } = await import('@/lib/adminPageGatedData');
+        const { rows: vehicles } = await adminPageSelect<{
+          driver_id: string;
+          license_plate: string | null;
+          is_primary: boolean | null;
+        }>('commission-wallet', 'vehicles', {
+          columns: ['driver_id', 'license_plate', 'is_primary'],
+          filters: [{ op: 'in', col: 'driver_id', val: ids }],
+          limit: Math.min(ids.length * 5, 500),
+        });
+        for (const v of vehicles) {
           const driverId = String(v.driver_id);
           const plate = String(v.license_plate ?? '').trim();
           if (!plate) continue;

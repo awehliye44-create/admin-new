@@ -1,5 +1,7 @@
-import { supabase } from '@/integrations/supabase/client';
-import { ACTIVE_TRIP_DB_STATUSES } from '@/lib/activeTripStatuses';
+import {
+  adminDashboardChartRowsRpc,
+  adminDashboardPeriodStatsRpc,
+} from '@/lib/adminPageGatedData';
 import { filterAdminActiveTrips } from '@/lib/adminActiveTripFilter';
 import { ADMIN_DASHBOARD_CHART_ROW_CAP } from '@/lib/adminQueryBounds';
 
@@ -32,132 +34,41 @@ type TripCountScope = {
   serviceAreaId: string | 'all';
 };
 
-async function tripHeadCount(
-  scope: TripCountScope,
-  status?: string | readonly string[],
-): Promise<number> {
-  let q = supabase
-    .from('trips')
-    .select('id', { count: 'exact', head: true })
-    .gte('created_at', scope.startIso)
-    .lte('created_at', scope.endIso);
-  if (scope.serviceAreaId !== 'all') {
-    q = q.eq('service_area_id', scope.serviceAreaId);
-  }
-  if (typeof status === 'string') {
-    q = q.eq('status', status);
-  } else if (status && status.length > 0) {
-    q = q.in('status', [...status]);
-  }
-  const { count, error } = await q;
-  if (error) throw error;
-  return count ?? 0;
-}
-
-async function driversHeadCount(
-  filter?: { column: string; value: string | boolean },
-): Promise<number> {
-  let q: any = supabase
-    .from('drivers')
-    .select('id', { count: 'exact', head: true })
-    .is('deleted_at', null)
-    .neq('driver_status', 'deleted');
-  if (filter) {
-    q = q.eq(filter.column, filter.value);
-  }
-  const { count, error } = await q;
-  if (error) throw error;
-  return count ?? 0;
-}
-
 /**
- * Operational dashboard KPIs via head counts + a small active-trip hydrate.
+ * Operational dashboard KPIs via page-gated RPC (dashboard page).
  * Never downloads up to 10k period trip rows or the full drivers table.
  */
 export async function fetchDashboardPeriodStats(
   scope: TripCountScope,
 ): Promise<DashboardPeriodStats> {
-  const inProgressStatuses = [
-    'in_progress',
-    'started',
-    'on_trip',
-    'ongoing',
-    'trip_started',
-  ] as const;
+  const raw = await adminDashboardPeriodStatsRpc({
+    startIso: scope.startIso,
+    endIso: scope.endIso,
+    serviceAreaId: scope.serviceAreaId,
+  });
 
-  const [
-    totalDrivers,
-    onlineDrivers,
-    pendingDrivers,
-    inactiveDrivers,
-    onTripR,
-    availableOnlineR,
-    ridersR,
-    totalTrips,
-    completedTrips,
-    cancelledTrips,
-    inProgressTrips,
-    activeRowsR,
-  ] = await Promise.all([
-    driversHeadCount(),
-    driversHeadCount({ column: 'is_online', value: true }),
-    driversHeadCount({ column: 'approval_status', value: 'pending' }),
-    driversHeadCount({ column: 'approval_status', value: 'rejected' }),
-    supabase
-      .from('drivers')
-      .select('id', { count: 'exact', head: true })
-      .is('deleted_at', null)
-      .neq('driver_status', 'deleted')
-      .eq('is_online', true)
-      .not('current_trip_id', 'is', null),
-    supabase
-      .from('drivers')
-      .select('id', { count: 'exact', head: true })
-      .is('deleted_at', null)
-      .neq('driver_status', 'deleted')
-      .eq('is_online', true)
-      .is('current_trip_id', null),
-    supabase.from('customers').select('id', { count: 'exact', head: true }),
-    tripHeadCount(scope),
-    tripHeadCount(scope, 'completed'),
-    tripHeadCount(scope, 'cancelled'),
-    tripHeadCount(scope, inProgressStatuses),
-    (async () => {
-      let q = supabase
-        .from('trips')
-        .select('id, status, searching_expires_at, created_at')
-        .in('status', [...ACTIVE_TRIP_DB_STATUSES])
-        .order('created_at', { ascending: false })
-        .limit(500);
-      if (scope.serviceAreaId !== 'all') {
-        q = q.eq('service_area_id', scope.serviceAreaId);
-      }
-      return q;
-    })(),
-  ]);
-
-  if (ridersR.error) throw ridersR.error;
-  if (onTripR.error) throw onTripR.error;
-  if (availableOnlineR.error) throw availableOnlineR.error;
-  if (activeRowsR.error) throw activeRowsR.error;
-
-  const activeTrips = filterAdminActiveTrips(activeRowsR.data || []).length;
-  const offlineDrivers = Math.max(0, totalDrivers - onlineDrivers);
+  const activeTripRows = (Array.isArray(raw.activeTripRows) ? raw.activeTripRows : []) as Array<{
+    id?: string;
+    status?: string | null;
+    searching_expires_at?: string | null;
+    created_at?: string;
+  }>;
+  const activeTrips = filterAdminActiveTrips(activeTripRows).length;
 
   return {
-    totalDrivers,
-    onlineDrivers,
-    offlineDrivers,
-    pendingDrivers,
-    inactiveDrivers,
-    onTripDrivers: onTripR.count ?? 0,
-    availableOnlineDrivers: availableOnlineR.count ?? 0,
-    totalRiders: ridersR.count ?? 0,
-    totalTrips,
+    totalDrivers: Number(raw.totalDrivers ?? 0),
+    onlineDrivers: Number(raw.onlineDrivers ?? 0),
+    offlineDrivers: Number(raw.offlineDrivers ?? 0),
+    pendingDrivers: Number(raw.pendingDrivers ?? 0),
+    inactiveDrivers: Number(raw.inactiveDrivers ?? 0),
+    onTripDrivers: Number(raw.onTripDrivers ?? 0),
+    availableOnlineDrivers: Number(raw.availableOnlineDrivers ?? 0),
+    totalRiders: Number(raw.totalRiders ?? 0),
+    totalTrips: Number(raw.totalTrips ?? 0),
     activeTrips,
-    inProgressTrips,
-    completedTrips,
-    cancelledTrips,
+    inProgressTrips: Number(raw.inProgressTrips ?? 0),
+    completedTrips: Number(raw.completedTrips ?? 0),
+    cancelledTrips: Number(raw.cancelledTrips ?? 0),
   };
 }
 
@@ -170,18 +81,10 @@ export async function fetchDashboardChartRows(args: {
   endIso: string;
   serviceAreaId: string | 'all';
 }): Promise<DashboardChartRow[]> {
-  let q = supabase
-    .from('trips')
-    .select('status, created_at')
-    .gte('created_at', args.startIso)
-    .lte('created_at', args.endIso)
-    .in('status', ['completed', 'cancelled'])
-    .order('created_at', { ascending: false })
-    .limit(ADMIN_DASHBOARD_CHART_ROW_CAP);
-  if (args.serviceAreaId !== 'all') {
-    q = q.eq('service_area_id', args.serviceAreaId);
-  }
-  const { data, error } = await q;
-  if (error) throw error;
-  return (data || []) as DashboardChartRow[];
+  return adminDashboardChartRowsRpc({
+    startIso: args.startIso,
+    endIso: args.endIso,
+    serviceAreaId: args.serviceAreaId,
+    limit: ADMIN_DASHBOARD_CHART_ROW_CAP,
+  });
 }

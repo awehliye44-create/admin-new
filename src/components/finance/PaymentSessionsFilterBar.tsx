@@ -91,7 +91,7 @@ export function PaymentSessionsFilterBar({
         </div>
         <div className="space-y-1">
           <Label className="text-xs text-muted-foreground">Service area</Label>
-          <ServiceAreaFinanceFilter
+          <ServiceAreaFinanceFilter pageSlug="payment-sessions"
             financialModel={financialModel}
             value={filters.serviceFilter}
             onChange={(serviceFilter) => onChange({ serviceFilter })}

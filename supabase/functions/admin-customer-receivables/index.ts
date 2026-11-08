@@ -10,7 +10,7 @@ import {
   corsHeaders,
 } from "../_shared/adminPaymentGate.ts";
 
-const PAGE_SLUG = "financial-reconciliation";
+const PAGE_SLUG = "customer-receivables";
 
 function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {

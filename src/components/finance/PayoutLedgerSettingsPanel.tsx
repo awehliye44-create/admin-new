@@ -6,6 +6,7 @@
 import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
+import { adminServiceAreasLookup } from '@/lib/adminPageGatedData';
 import {
   adminSetDriverPayoutOperationalPause,
   operationalPauseConfirmCopy,
@@ -136,13 +137,17 @@ export function PayoutLedgerSettingsPanel({
     queryKey: ['payout-ledger-sa-cashout', serviceFilter.serviceAreaId],
     enabled: Boolean(serviceFilter.serviceAreaId),
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from('service_areas')
-        .select('id, name, early_cashout_enabled, timezone')
-        .eq('id', serviceFilter.serviceAreaId!)
-        .maybeSingle();
-      if (error) throw error;
-      return data;
+      const { rows } = await adminServiceAreasLookup<{
+        id: string;
+        name: string;
+        early_cashout_enabled?: boolean | null;
+        timezone?: string | null;
+      }>('payout-ledger', {
+        ids: [serviceFilter.serviceAreaId!],
+        include_archived: true,
+        limit: 1,
+      });
+      return rows[0] ?? null;
     },
   });
 
@@ -180,13 +185,8 @@ export function PayoutLedgerSettingsPanel({
     queryKey: ['payout-driver-override', overrideDriverId],
     enabled: Boolean(overrideDriverId),
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from('drivers')
-        .select('id, first_name, last_name, driver_code, payouts_enabled, payout_operational_paused, charges_enabled')
-        .eq('id', overrideDriverId!)
-        .maybeSingle();
-      if (error) throw error;
-      return data as {
+      const { adminPageSelect } = await import('@/lib/adminPageGatedData');
+      const { rows } = await adminPageSelect<{
         id: string;
         first_name: string | null;
         last_name: string | null;
@@ -194,7 +194,15 @@ export function PayoutLedgerSettingsPanel({
         payouts_enabled: boolean | null;
         payout_operational_paused: boolean | null;
         charges_enabled: boolean | null;
-      } | null;
+      }>('payout-ledger', 'drivers', {
+        columns: [
+          'id', 'first_name', 'last_name', 'driver_code', 'payouts_enabled',
+          'payout_operational_paused', 'charges_enabled',
+        ],
+        filters: [{ op: 'eq', col: 'id', val: overrideDriverId! }],
+        limit: 1,
+      });
+      return rows[0] ?? null;
     },
   });
 
@@ -486,14 +494,26 @@ export function PayoutLedgerSettingsPanel({
     mutationFn: async (enabled: boolean) => {
       if (!overrideDriverId) throw new Error('Select a driver');
       // PIPELINE 1 — never pause/resume CW-only drivers from Payout Ledger Settings.
-      const { data: links, error: linkErr } = await supabase
-        .from('driver_service_areas')
-        .select('service_area_id, service_areas(financial_model)')
-        .eq('driver_id', overrideDriverId);
-      if (linkErr) throw linkErr;
-      const platformMember = (links ?? []).some((row) => {
-        const sa = row.service_areas as { financial_model?: string | null } | null;
-        const model = String(sa?.financial_model ?? '').toUpperCase();
+      const { adminPageSelect, adminServiceAreasLookup } = await import('@/lib/adminPageGatedData');
+      const { rows: links } = await adminPageSelect<{ service_area_id: string }>(
+        'payout-ledger',
+        'driver_service_areas',
+        {
+          columns: ['service_area_id'],
+          filters: [{ op: 'eq', col: 'driver_id', val: overrideDriverId }],
+          limit: 100,
+        },
+      );
+      const saIds = links.map((r) => r.service_area_id).filter(Boolean);
+      const { rows: areas } = saIds.length
+        ? await adminServiceAreasLookup<{ id: string; financial_model?: string | null }>(
+            'payout-ledger',
+            { ids: saIds, include_archived: true },
+          )
+        : { rows: [] as Array<{ id: string; financial_model?: string | null }> };
+      const modelById = new Map(areas.map((a) => [a.id, a.financial_model]));
+      const platformMember = links.some((row) => {
+        const model = String(modelById.get(row.service_area_id) ?? '').toUpperCase();
         return model !== 'DRIVER_COLLECTED_COMMISSION_WALLET';
       });
       if (!platformMember) {
@@ -625,6 +645,7 @@ export function PayoutLedgerSettingsPanel({
         </CardHeader>
         <CardContent className="space-y-4">
           <DriverSelector
+            pageSlug="payout-ledger"
             value={overrideDriverId}
             onChange={setOverrideDriverId}
             regionId={serviceFilter.regionId}

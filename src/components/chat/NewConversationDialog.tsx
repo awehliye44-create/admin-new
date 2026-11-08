@@ -20,6 +20,7 @@ import {
 } from "@/components/ui/select";
 import { Loader2 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
+import { adminPageSelect } from "@/lib/adminPageGatedData";
 import { toast } from "sonner";
 
 interface Props {
@@ -44,20 +45,29 @@ export function NewConversationDialog({ open, onOpenChange, onCreated }: Props) 
     if (!searchQuery.trim()) return;
     setIsSearching(true);
     try {
+      const like = `%${searchQuery}%`;
       if (userType === "customer") {
-        const { data } = await supabase
-          .from("customers")
-          .select("id, first_name, last_name, phone")
-          .or(`first_name.ilike.%${searchQuery}%,last_name.ilike.%${searchQuery}%,phone.ilike.%${searchQuery}%`)
-          .limit(10);
-        setSearchResults(data || []);
+        const { rows } = await adminPageSelect("live-chat", "customers", {
+          columns: ["id", "first_name", "last_name", "phone"],
+          or_groups: [
+            [{ op: "ilike", col: "first_name", val: like }],
+            [{ op: "ilike", col: "last_name", val: like }],
+            [{ op: "ilike", col: "phone", val: like }],
+          ],
+          limit: 10,
+        });
+        setSearchResults(rows as any[]);
       } else {
-        const { data } = await supabase
-          .from("drivers")
-          .select("id, first_name, last_name, email, phone")
-          .or(`first_name.ilike.%${searchQuery}%,last_name.ilike.%${searchQuery}%,email.ilike.%${searchQuery}%`)
-          .limit(10);
-        setSearchResults(data || []);
+        const { rows } = await adminPageSelect("live-chat", "drivers", {
+          columns: ["id", "first_name", "last_name", "email", "phone"],
+          or_groups: [
+            [{ op: "ilike", col: "first_name", val: like }],
+            [{ op: "ilike", col: "last_name", val: like }],
+            [{ op: "ilike", col: "email", val: like }],
+          ],
+          limit: 10,
+        });
+        setSearchResults(rows as any[]);
       }
     } finally {
       setIsSearching(false);

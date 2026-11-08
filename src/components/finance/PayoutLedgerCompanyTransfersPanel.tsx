@@ -268,7 +268,7 @@ export function PayoutLedgerCompanyTransfersPanel({
   const queryClient = useQueryClient();
   const { user } = useAuth();
   const { isOwner } = useStaffProfile();
-  const { data: serviceAreas = [] } = useServiceAreas({ activeOnly: true });
+  const { data: serviceAreas = [] } = useServiceAreas({ pageSlug: 'payout-ledger', activeOnly: true });
   const [showForm, setShowForm] = useState(false);
   const [editingTransferId, setEditingTransferId] = useState<string | null>(null);
   const [soleAdminTransfer, setSoleAdminTransfer] = useState<CompanyOutgoingTransferRow | null>(null);

@@ -16,6 +16,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { supabase } from '@/integrations/supabase/client';
+import { adminPageMutate, adminPageSelect, adminServiceAreasLookup } from '@/lib/adminPageGatedData';
 import { 
   PlusCircle, Loader2, MapPin, User, Phone, Clock, Car,
   DollarSign, FileText, Calendar, CheckCircle2, AlertCircle,
@@ -149,33 +150,39 @@ export default function ManualTrip() {
   useEffect(() => {
     async function fetchData() {
       try {
-        const [driversRes, vehicleTypesRes, customersRes, serviceAreasRes, corporateRes] = await Promise.all([
-          supabase
-            .from('drivers')
-            .select('id, first_name, last_name, phone, is_online, rating')
-            .eq('approval_status', 'approved')
-            .order('first_name'),
+        const [driversPage, vehicleTypesRes, customersPage, serviceAreasPage, corporateRes] = await Promise.all([
+          adminPageSelect<Driver>('manual-trip', 'drivers', {
+            columns: ['id', 'first_name', 'last_name', 'phone', 'is_online', 'rating'],
+            filters: [{ op: 'eq', col: 'approval_status', val: 'approved' }],
+            order: [{ col: 'first_name', asc: true }],
+            limit: 500,
+          }),
           supabase
             .from('vehicle_types')
             .select('id, name, capacity, icon')
             .eq('is_active', true)
             .order('display_order'),
-          supabase
-            .from('customers')
-            .select('id, first_name, last_name, phone, user_id')
-            .order('first_name')
-            .limit(100),
-          supabase
-            .from('service_areas')
-            .select('id, name, country, center_lat, center_lng, region_id, region:regions(distance_unit, currency_code)')
-            .eq('is_active', true)
-            .order('name'),
+          adminPageSelect<{
+            id: string;
+            first_name: string | null;
+            last_name: string | null;
+            phone: string | null;
+            user_id: string;
+          }>('manual-trip', 'customers', {
+            columns: ['id', 'first_name', 'last_name', 'phone', 'user_id'],
+            order: [{ col: 'first_name', asc: true }],
+            limit: 100,
+          }),
+          adminServiceAreasLookup('manual-trip', { active_only: true }),
           supabase
             .from('corporate_accounts')
             .select('id, company_name, status')
             .eq('status', 'active')
             .order('company_name'),
         ]);
+        const driversRes = { data: driversPage.rows, error: null };
+        const customersRes = { data: customersPage.rows, error: null };
+        const serviceAreasRes = { data: serviceAreasPage.rows, error: null };
 
         if (driversRes.error) throw driversRes.error;
         if (vehicleTypesRes.error) throw vehicleTypesRes.error;
@@ -236,7 +243,7 @@ export default function ManualTrip() {
     // Fetch payment methods + CW digital-only policy for this service area
     const fetchPaymentConfig = async () => {
       try {
-        const [{ data, error }, { data: cwSa }] = await Promise.all([
+        const [{ data, error }, cwSaLookup] = await Promise.all([
           supabase
             .from('service_area_payment_methods')
             .select(
@@ -244,12 +251,17 @@ export default function ManualTrip() {
             )
             .eq('service_area_id', selectedServiceAreaId)
             .single(),
-          supabase
-            .from('service_areas')
-            .select('financial_model, commission_wallet_enabled, customer_payment_policy')
-            .eq('id', selectedServiceAreaId)
-            .maybeSingle(),
+          adminServiceAreasLookup<{
+            financial_model?: string | null;
+            commission_wallet_enabled?: boolean | null;
+            customer_payment_policy?: string | null;
+          }>('manual-trip', {
+            ids: [selectedServiceAreaId],
+            include_archived: true,
+            limit: 1,
+          }),
         ]);
+        const cwSa = cwSaLookup.rows[0] ?? null;
 
         const cashUpfrontRetired = shouldSkipPlatformPreauthForCommissionWallet({
           financial_model: cwSa?.financial_model,
@@ -592,13 +604,18 @@ export default function ManualTrip() {
 
       // Phase 8: snapshot CW financial model so overview/deduction use trip flags.
       if (resolvedServiceAreaId) {
-        const { data: cwSa } = await supabase
-          .from('service_areas')
-          .select(
-            'financial_model, commission_wallet_enabled, customer_payment_policy, commission_wallet_currency, region_id',
-          )
-          .eq('id', resolvedServiceAreaId)
-          .maybeSingle();
+        const { rows: cwSaRows } = await adminServiceAreasLookup<{
+          financial_model?: string | null;
+          commission_wallet_enabled?: boolean | null;
+          customer_payment_policy?: string | null;
+          commission_wallet_currency?: string | null;
+          region_id?: string | null;
+        }>('manual-trip', {
+          ids: [resolvedServiceAreaId],
+          include_archived: true,
+          limit: 1,
+        });
+        const cwSa = cwSaRows[0] ?? null;
         const cwConfig = cwSa
           ? {
               financial_model: cwSa.financial_model,
@@ -618,13 +635,17 @@ export default function ManualTrip() {
           }
           let commissionRateBps = 0;
           if (selectedVehicleTypeId) {
-            const { data: pricingRow } = await supabase
-              .from('service_area_vehicle_pricing')
-              .select('commission_percentage')
-              .eq('service_area_id', resolvedServiceAreaId)
-              .eq('vehicle_type_id', selectedVehicleTypeId)
-              .maybeSingle();
-            const pct = Number(pricingRow?.commission_percentage);
+            const { rows: pricingRows } = await adminPageSelect<{
+              commission_percentage: number | null;
+            }>('manual-trip', 'service_area_vehicle_pricing', {
+              columns: ['commission_percentage'],
+              filters: [
+                { op: 'eq', col: 'service_area_id', val: resolvedServiceAreaId },
+                { op: 'eq', col: 'vehicle_type_id', val: selectedVehicleTypeId },
+              ],
+              limit: 1,
+            });
+            const pct = Number(pricingRows[0]?.commission_percentage);
             if (Number.isFinite(pct) && pct > 0) {
               commissionRateBps = Math.max(0, Math.round(pct * 100));
             }
@@ -641,13 +662,10 @@ export default function ManualTrip() {
           }
       }
 
-      const { data: createdTrip, error } = await supabase
-        .from('trips')
-        .insert([tripData as never])
-        .select('id')
-        .single();
-
-      if (error) throw error;
+      const { row: createdTrip } = await adminPageMutate<{ id: string }>('manual-trip', 'trips', 'insert', {
+        patch: tripData,
+      });
+      if (!createdTrip?.id) throw new Error('Trip insert returned no id');
 
       // Scheduled preconfirm notify stays list-only (/account/rides).
       // Live assign notify only for immediate trips.

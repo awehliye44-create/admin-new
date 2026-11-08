@@ -11,6 +11,11 @@ import {
 } from '@/components/ui/dialog';
 import { supabase } from '@/integrations/supabase/client';
 import {
+  adminLookupByIds,
+  adminPageMutate,
+  adminPageSelect,
+} from '@/lib/adminPageGatedData';
+import {
   Phone, Calendar, CreditCard, Car, Clock,
   Loader2, History, Wallet, Ban, ShieldOff, CheckCircle, Trash2, ShieldCheck, Unlock,
 } from 'lucide-react';
@@ -95,14 +100,25 @@ export function RiderDetailsDialog({ open, onOpenChange, rider, onRiderUpdate }:
   const { data: trips = [], isLoading } = useQuery({
     queryKey: ['rider-trips', rider?.id],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from('trips')
-        .select(`id, pickup_address, dropoff_address, status, fare, created_at, driver:drivers!trips_driver_id_fkey(first_name, last_name)`)
-        .eq('passenger_id', rider!.id)
-        .order('created_at', { ascending: false })
-        .limit(20);
-      if (error) throw error;
-      return (data || []) as unknown as RiderTrip[];
+      const { rows } = await adminPageSelect<Record<string, unknown>>('riders', 'trips', {
+        columns: ['id', 'pickup_address', 'dropoff_address', 'status', 'fare', 'created_at', 'driver_id'],
+        filters: [{ op: 'eq', col: 'passenger_id', val: rider!.id }],
+        order: [{ col: 'created_at', asc: false }],
+        limit: 20,
+      });
+      const driverIds = rows
+        .map((r) => r.driver_id as string | null | undefined)
+        .filter((id): id is string => Boolean(id));
+      const drivers = await adminLookupByIds<{
+        id: string;
+        first_name: string | null;
+        last_name: string | null;
+      }>('riders', 'drivers', driverIds, ['id', 'first_name', 'last_name']);
+      const byId = new Map(drivers.map((d) => [d.id, d]));
+      return rows.map((r) => ({
+        ...r,
+        driver: r.driver_id ? byId.get(r.driver_id as string) ?? null : null,
+      })) as unknown as RiderTrip[];
     },
     enabled: open && !!rider?.id && activeTab === 'history',
     staleTime: 60_000,
@@ -204,12 +220,13 @@ export function RiderDetailsDialog({ open, onOpenChange, rider, onRiderUpdate }:
     setIsUpdating(true);
     try {
       if (newStatus === 'deleted') {
-        const { error } = await supabase
-          .from('customers')
-          .update({ rider_status: newStatus, updated_at: new Date().toISOString() } as any)
-          .eq('id', rider.id);
-        if (error) {
-          if (error.message?.includes('active trip')) {
+        try {
+          await adminPageMutate('riders', 'customers', 'update', {
+            id: rider.id,
+            patch: { rider_status: newStatus, updated_at: new Date().toISOString() },
+          });
+        } catch (error: any) {
+          if (error?.message?.includes('active trip')) {
             toast.error('Cannot change status: rider has an active trip');
           } else {
             throw error;

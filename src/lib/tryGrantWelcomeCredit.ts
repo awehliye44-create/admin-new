@@ -48,31 +48,45 @@ export async function tryGrantWelcomeCredit(driverId: string): Promise<WelcomeGr
 
   const attempts: WelcomeGrantAttempt[] = [];
 
-  const { data: driver } = await supabase
-    .from('drivers')
-    .select('id, service_area_id')
-    .eq('id', id)
-    .maybeSingle();
+  const { adminPageSelect, adminServiceAreasLookup } = await import('@/lib/adminPageGatedData');
+  const { rows: driverRows } = await adminPageSelect<{ id: string; service_area_id: string | null }>(
+    'drivers',
+    'drivers',
+    {
+      columns: ['id', 'service_area_id'],
+      filters: [{ op: 'eq', col: 'id', val: id }],
+      limit: 1,
+    },
+  );
+  const driver = driverRows[0] ?? null;
 
-  const { data: assignments } = await supabase
-    .from('driver_service_areas')
-    .select('service_area_id')
-    .eq('driver_id', id);
+  const { rows: assignments } = await adminPageSelect<{ service_area_id: string }>(
+    'drivers',
+    'driver_service_areas',
+    {
+      columns: ['service_area_id'],
+      filters: [{ op: 'eq', col: 'driver_id', val: id }],
+      limit: 100,
+    },
+  );
 
   const saIds = new Set<string>();
-  for (const row of assignments ?? []) {
+  for (const row of assignments) {
     if (row.service_area_id) saIds.add(String(row.service_area_id));
   }
   if (driver?.service_area_id) saIds.add(String(driver.service_area_id));
 
   for (const serviceAreaId of saIds) {
-    const { data: sa } = await supabase
-      .from('service_areas')
-      .select(
-        'id, financial_model, commission_wallet_enabled, commission_wallet_currency, currency_code, welcome_credit_enabled, welcome_credit_amount_minor',
-      )
-      .eq('id', serviceAreaId)
-      .maybeSingle();
+    const { rows: saRows } = await adminServiceAreasLookup<{
+      id: string;
+      financial_model: string | null;
+      commission_wallet_enabled: boolean | null;
+      commission_wallet_currency: string | null;
+      currency_code: string | null;
+      welcome_credit_enabled: boolean | null;
+      welcome_credit_amount_minor: number | null;
+    }>('drivers', { ids: [serviceAreaId], include_archived: true, limit: 1 });
+    const sa = saRows[0] ?? null;
 
     if (!sa) {
       attempts.push({ service_area_id: serviceAreaId, ok: false, skipped: true, code: 'SA_NOT_FOUND' });

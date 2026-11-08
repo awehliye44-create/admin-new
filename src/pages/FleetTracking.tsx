@@ -12,6 +12,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { supabase } from '@/integrations/supabase/client';
+import { adminPageSelect, inFilter, adminServiceAreasLookup } from '@/lib/adminPageGatedData';
 import { isAdminPageLiveActive, subscribeAdminPageLiveActive } from '@/lib/adminPageVisibility';
 import { 
   MapPin, Loader2, Search, RefreshCw, Car, Users, Circle, 
@@ -295,58 +296,88 @@ export default function FleetTracking() {
       if (!isBackground) setIsLoading(true);
       
       // Fetch all data in parallel instead of sequentially
-      const [driversRes, regionsRes, serviceAreasRes, tripsRes] = await Promise.all([
-        supabase
-          .from('drivers')
-          .select(
-            'id, first_name, last_name, driver_code, is_online, approval_status, documents_approved, current_lat, current_lng, heading, region_id, service_area_id, profile_photo_url, rating, total_trips, driver_status, last_seen_at, region:regions(name)',
-          )
-          .eq('approval_status', 'approved')
-          .eq('documents_approved', true)
-          .order('is_online', { ascending: false }),
+      const [driversPage, regionsRes, serviceAreasPage, tripsPage] = await Promise.all([
+        adminPageSelect<Record<string, unknown>>('fleet-tracking', 'drivers', {
+          columns: [
+            'id', 'first_name', 'last_name', 'driver_code', 'is_online', 'approval_status',
+            'documents_approved', 'current_lat', 'current_lng', 'heading', 'region_id',
+            'service_area_id', 'profile_photo_url', 'rating', 'total_trips', 'driver_status',
+            'last_seen_at',
+          ],
+          filters: [
+            { op: 'eq', col: 'approval_status', val: 'approved' },
+            { op: 'eq', col: 'documents_approved', val: true },
+          ],
+          order: [{ col: 'is_online', asc: false }],
+          limit: 500,
+        }),
         supabase
           .from('regions')
           .select('id, name, geo_boundary')
           .eq('status', 'active'),
-        
-        supabase
-          .from('service_areas')
-          .select('id, name, region_id')
-          .eq('is_active', true)
-          .is('archived_at', null),
-        supabase
-          .from('trips')
-          .select('id, driver_id, status, pickup_address, dropoff_address')
-          .in('status', [...ACTIVE_TRIP_DB_STATUSES]),
+        adminServiceAreasLookup<{ id: string; name: string; region_id: string }>(
+          'fleet-tracking',
+          { active_only: true },
+        ),
+        adminPageSelect<{
+          id: string;
+          driver_id: string | null;
+          status: string;
+          pickup_address: string | null;
+          dropoff_address: string | null;
+        }>('fleet-tracking', 'trips', {
+          columns: ['id', 'driver_id', 'status', 'pickup_address', 'dropoff_address'],
+          filters: [inFilter('status', [...ACTIVE_TRIP_DB_STATUSES])],
+          limit: 500,
+        }),
       ]);
 
-      if (driversRes.error) throw driversRes.error;
       if (regionsRes.error) throw regionsRes.error;
 
-      const serviceAreasData: ServiceArea[] = (serviceAreasRes.data || []).map((sa: any) => ({
-        id: sa.id as string,
-        name: sa.name as string,
-        region_id: sa.region_id as string
+      const serviceAreasData: ServiceArea[] = (serviceAreasPage.rows || []).map((sa) => ({
+        id: sa.id,
+        name: sa.name,
+        region_id: sa.region_id,
       }));
 
+      const regionIds = [...new Set(
+        driversPage.rows.map((d) => d.region_id as string | null).filter((id): id is string => Boolean(id)),
+      )];
+      const regionNameById = new Map(
+        (regionsRes.data || [])
+          .filter((r) => regionIds.includes(r.id))
+          .map((r) => [r.id, r.name as string]),
+      );
+
       // Map active trips to drivers
-      const activeTrips = tripsRes.data || [];
-      const driversWithTrips = (driversRes.data || []).map(driver => {
-        const currentTrip = activeTrips.find(t => t.driver_id === driver.id);
-        return { ...driver, current_trip: currentTrip || null };
+      const activeTrips = tripsPage.rows || [];
+      const driversWithTrips = driversPage.rows.map((driver) => {
+        const currentTrip = activeTrips.find((t) => t.driver_id === driver.id);
+        return {
+          ...driver,
+          region: driver.region_id
+            ? { name: regionNameById.get(driver.region_id as string) ?? null }
+            : null,
+          current_trip: currentTrip || null,
+        };
       });
 
       // Fetch driver service area assignments
       const driverIds = driversWithTrips.map(d => d.id);
       if (driverIds.length > 0) {
-        const { data: dsaData } = await supabase
-          .from('driver_service_areas')
-          .select('driver_id, service_area_id')
-          .in('driver_id', driverIds);
-        
-        if (dsaData) {
+        const { adminPageSelect } = await import('@/lib/adminPageGatedData');
+        const { rows: dsaData } = await adminPageSelect<{ driver_id: string; service_area_id: string }>(
+          'fleet-tracking',
+          'driver_service_areas',
+          {
+            columns: ['driver_id', 'service_area_id'],
+            filters: [{ op: 'in', col: 'driver_id', val: driverIds }],
+            limit: Math.min(driverIds.length * 10, 500),
+          },
+        );
+        if (dsaData.length > 0) {
           const mapping: Record<string, string[]> = {};
-          dsaData.forEach(item => {
+          dsaData.forEach((item) => {
             if (!mapping[item.driver_id]) {
               mapping[item.driver_id] = [];
             }

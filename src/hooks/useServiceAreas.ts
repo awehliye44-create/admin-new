@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { supabase } from "@/integrations/supabase/client";
+import { adminServiceAreasLookup } from "@/lib/adminPageGatedData";
 
 export interface ServiceArea {
   id: string;
@@ -18,7 +18,7 @@ export interface ServiceArea {
   region_id: string;
   is_active: boolean;
   archived_at?: string | null;
-  geo_boundary: any;
+  geo_boundary?: any;
   center_lat: number | null;
   center_lng: number | null;
   created_at: string;
@@ -38,41 +38,39 @@ export interface ServiceArea {
   welcome_credit_max_drivers?: number | null;
 }
 
+export type UseServiceAreasOptions = {
+  /** Exact page grant asserted by admin_service_areas_lookup. */
+  pageSlug: string;
+  activeOnly?: boolean;
+  /** Services management may need archived rows; label consumers must not. */
+  includeArchived?: boolean;
+};
+
 /**
- * Shared hook for service areas reference data.
- * Cached globally — every page that needs service areas shares this single query.
- * Joins regions table so currency/units come from Region (single source of truth).
+ * Shared hook for service areas reference data via page-gated RPC.
  * staleTime = 5 min (service areas rarely change).
  */
-export function useServiceAreas(options?: { activeOnly?: boolean }) {
-  const activeOnly = options?.activeOnly ?? false;
+export function useServiceAreas(options: UseServiceAreasOptions) {
+  const activeOnly = options.activeOnly ?? false;
+  const includeArchived = options.includeArchived ?? false;
+  const pageSlug = options.pageSlug;
 
   return useQuery({
-    queryKey: ["service-areas", { activeOnly }],
+    queryKey: ["service-areas", pageSlug, { activeOnly, includeArchived }],
     queryFn: async () => {
-      let query = supabase
-        .from("service_areas")
-        .select(
-          "id, name, code, country, timezone, currency_code, distance_unit, region_id, is_active, archived_at, geo_boundary, center_lat, center_lng, created_at, updated_at, financial_model, commission_wallet_enabled, commission_wallet_currency, welcome_credit_enabled, welcome_credit_amount_minor, welcome_credit_max_drivers, region:regions(currency_code, distance_unit, name, country_code)",
-        )
-        // Archived areas are hidden everywhere except the Services management page.
-        .is("archived_at", null)
-        .order("name", { ascending: true });
-
-      if (activeOnly) {
-        query = query.eq("is_active", true);
-      }
-
-      const { data, error } = await query;
-      if (error) throw error;
-      return (data ?? []) as ServiceArea[];
+      const { rows } = await adminServiceAreasLookup<ServiceArea>(pageSlug, {
+        active_only: activeOnly,
+        include_archived: includeArchived,
+      });
+      return rows;
     },
     staleTime: 5 * 60 * 1000,
+    enabled: Boolean(pageSlug),
   });
 }
 
 /** Convenience: service areas as a lookup map keyed by id */
-export function useServiceAreasMap(options?: { activeOnly?: boolean }) {
+export function useServiceAreasMap(options: UseServiceAreasOptions) {
   const query = useServiceAreas(options);
   const map = new Map<string, ServiceArea>();
   query.data?.forEach((sa) => map.set(sa.id, sa));

@@ -34,7 +34,7 @@ export default function LostProperty() {
     dateFrom: dateFrom ? dateFrom.toISOString() : undefined,
     dateTo: dateTo ? dateTo.toISOString() : undefined,
   });
-  const { data: serviceAreas = [] } = useServiceAreas({ activeOnly: false });
+  const { data: serviceAreas = [] } = useServiceAreas({ pageSlug: 'lost-property', activeOnly: false });
 
   const saMap = new Map(serviceAreas.map(sa => [sa.id, sa.name]));
 

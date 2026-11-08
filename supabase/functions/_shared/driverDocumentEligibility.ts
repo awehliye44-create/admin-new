@@ -23,6 +23,8 @@ export type DocumentRowSnapshot = {
 export type RequiredDocumentRule = {
   slug: string;
   expiry_required: boolean;
+  /** When false, missing is OK but an expired current row still blocks. */
+  mandatory?: boolean;
 };
 
 export type DriverDocumentEligibilityResult = {
@@ -112,7 +114,12 @@ export function evaluateDriverDocumentStateFromSnapshot(args: {
   const pending_documents: string[] = [];
   let approvedValidCount = 0;
 
-  for (const rule of requiredRules) {
+  const mandatoryRules = requiredRules.filter((r) => r.mandatory !== false);
+  const optionalExpiryRules = requiredRules.filter(
+    (r) => r.mandatory === false && r.expiry_required,
+  );
+
+  for (const rule of mandatoryRules) {
     const slug = rule.slug;
     const doc = pickBestDocumentForSlug(args.documents, slug);
     if (!doc) {
@@ -149,15 +156,25 @@ export function evaluateDriverDocumentStateFromSnapshot(args: {
     pending_documents.push(slug);
   }
 
-  const allRequiredApproved = requiredRules.length === 0
-    || (
-      approvedValidCount === requiredRules.length
-      && missing_documents.length === 0
-      && rejected_documents.length === 0
-      && resubmission_documents.length === 0
-      && expired_documents.length === 0
-      && pending_documents.length === 0
-    );
+  // Optional + expiry_required: missing OK; expired current row blocks.
+  for (const rule of optionalExpiryRules) {
+    const slug = rule.slug;
+    const doc = pickBestDocumentForSlug(args.documents, slug);
+    if (!doc) continue;
+    if (rule.expiry_required && (doc.expiry_date == null || isExpired(doc.expiry_date, now))) {
+      if (!expired_documents.includes(slug)) expired_documents.push(slug);
+    }
+  }
+
+  const allRequiredApproved = (
+      mandatoryRules.length === 0
+      || approvedValidCount === mandatoryRules.length
+    )
+    && missing_documents.length === 0
+    && rejected_documents.length === 0
+    && resubmission_documents.length === 0
+    && expired_documents.length === 0
+    && pending_documents.length === 0;
 
   let document_state: DriverDocumentState;
   let blocked_reasons: DriverBlockedReason[] = [];
@@ -290,17 +307,17 @@ async function loadRequiredDocumentRulesForAssignedServiceArea(
     return { rulesConfigured: false, requiredRules: [] };
   }
 
-  const mandatoryRules = (allRules ?? []).filter(
-    (r) =>
-      r.is_active === true
-      && r.mandatory === true
-      && r.display_in_driver_app !== false,
+  const activeVisible = (allRules ?? []).filter(
+    (r) => r.is_active === true && r.display_in_driver_app !== false,
   );
-  if (mandatoryRules.length === 0) {
+  const eligibilityRules = activeVisible.filter(
+    (r) => r.mandatory === true || r.expiry_required === true,
+  );
+  if (eligibilityRules.length === 0) {
     return { rulesConfigured: true, requiredRules: [] };
   }
 
-  const typeIds = mandatoryRules.map((r) => r.doc_type_id).filter(Boolean);
+  const typeIds = eligibilityRules.map((r) => r.doc_type_id).filter(Boolean);
   const { data: types } = await service
     .from("document_types")
     .select("id, slug")
@@ -309,12 +326,13 @@ async function loadRequiredDocumentRulesForAssignedServiceArea(
 
   const typeById = new Map((types ?? []).map((t) => [t.id as string, t.slug as string]));
   const requiredRules: RequiredDocumentRule[] = [];
-  for (const rule of mandatoryRules) {
+  for (const rule of eligibilityRules) {
     const slug = typeById.get(rule.doc_type_id as string);
     if (!slug) continue;
     requiredRules.push({
       slug,
       expiry_required: rule.expiry_required !== false,
+      mandatory: rule.mandatory !== false,
     });
   }
 

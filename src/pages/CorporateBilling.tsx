@@ -10,6 +10,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { toast } from 'sonner';
 import { supabase } from '@/integrations/supabase/client';
+import { adminPageSelect, adminServiceAreasLookup} from '@/lib/adminPageGatedData';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { 
   CreditCard, 
@@ -124,20 +125,36 @@ export default function CorporateBilling() {
   const { data: corporateTrips = [], isLoading: loadingTrips } = useQuery<CorporateTrip[]>({
     queryKey: ['corporate-trips'],
     queryFn: async () => {
-      const { data: trips, error } = await (supabase as any)
-        .from('trips')
-        .select(`
-          id, trip_number, trip_code, status, fare, estimated_fare, gross_fare_pence,
-          final_fare_pence, capture_amount_pence, driver_net_pence, payment_method, payment_status,
-          waiting_charge_pence, total_waiting_charge_pence, fare_breakdown,
-          currency_code, pickup_address, dropoff_address, created_at, completed_at, corporate_account_id,
-          corporate_account:corporate_accounts(id, company_name)
-        `)
-        .not('corporate_account_id', 'is', null)
-        .order('created_at', { ascending: false })
-        .limit(100);
-      if (error) throw error;
-      return (trips ?? []) as CorporateTrip[];
+      const { rows } = await adminPageSelect<Record<string, unknown>>('corporate-billing', 'trips', {
+        columns: [
+          'id', 'trip_number', 'trip_code', 'status', 'fare', 'estimated_fare', 'gross_fare_pence',
+          'final_fare_pence', 'capture_amount_pence', 'driver_net_pence', 'payment_method',
+          'payment_status', 'waiting_charge_pence', 'total_waiting_charge_pence', 'fare_breakdown',
+          'currency_code', 'pickup_address', 'dropoff_address', 'created_at', 'completed_at',
+          'corporate_account_id',
+        ],
+        filters: [{ op: 'not_null', col: 'corporate_account_id' }],
+        order: [{ col: 'created_at', asc: false }],
+        limit: 100,
+      });
+      const accountIds = [...new Set(
+        rows.map((r) => r.corporate_account_id as string | null).filter((id): id is string => Boolean(id)),
+      )];
+      let accountById = new Map<string, { id: string; company_name: string }>();
+      if (accountIds.length > 0) {
+        const { data: accounts, error } = await supabase
+          .from('corporate_accounts')
+          .select('id, company_name')
+          .in('id', accountIds);
+        if (error) throw error;
+        accountById = new Map((accounts ?? []).map((a) => [a.id, a]));
+      }
+      return rows.map((r) => ({
+        ...r,
+        corporate_account: r.corporate_account_id
+          ? accountById.get(r.corporate_account_id as string) ?? null
+          : null,
+      })) as CorporateTrip[];
     },
   });
 
@@ -158,11 +175,15 @@ export default function CorporateBilling() {
   const { data: serviceAreas = [] } = useQuery({
     queryKey: ['service-areas', regionFilter],
     queryFn: async () => {
-      let query = supabase.from('service_areas').select('id, name, region_id').order('name');
+      const { rows } = await adminServiceAreasLookup<{ id: string; name: string; region_id: string }>(
+        'corporate-billing',
+        {},
+      );
+      let data = rows;
       if (regionFilter !== 'all') {
-        query = query.eq('region_id', regionFilter);
+        data = data.filter((r) => r.region_id === regionFilter);
       }
-      const { data, error } = await query;
+      const error = null;
       if (error) throw error;
       return data as ServiceArea[];
     },

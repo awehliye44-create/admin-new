@@ -15,6 +15,7 @@ import {
 } from '@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { supabase } from '@/integrations/supabase/client';
+import { adminPageSelect, adminServiceAreasLookup } from '@/lib/adminPageGatedData';
 import { 
   ArrowLeft, 
   Save, 
@@ -113,28 +114,24 @@ export default function ServiceAreaPricing() {
   const fetchInitialData = async (isBackground = false) => {
     try {
       if (!isBackground) setIsLoading(true);
-      const [areasRes, vtRes] = await Promise.all([
-        supabase
-          .from('service_areas')
-          .select('id, name, region_id, is_active, tips_enabled, early_cashout_enabled, region:regions(name, currency_code, distance_unit)')
-          .is('archived_at', null)
-          .order('name'),
+      const [areasPage, vtRes] = await Promise.all([
+        adminServiceAreasLookup('service-area-pricing', {}),
         supabase
           .from('vehicle_types')
           .select('id, name, slug, capacity, features, is_active')
           .order('display_order'),
       ]);
 
-      if (areasRes.error) throw areasRes.error;
       if (vtRes.error) throw vtRes.error;
 
-      setServiceAreas(areasRes.data || []);
+      const areasData = (areasPage.rows || []) as ServiceArea[];
+      setServiceAreas(areasData);
       setAllVehicleTypes(vtRes.data || []);
 
-      if (serviceAreaIdFromParams && areasRes.data?.some(sa => sa.id === serviceAreaIdFromParams)) {
+      if (serviceAreaIdFromParams && areasData.some(sa => sa.id === serviceAreaIdFromParams)) {
         setSelectedServiceAreaId(serviceAreaIdFromParams);
-      } else if (areasRes.data && areasRes.data.length > 0) {
-        setSelectedServiceAreaId(areasRes.data[0].id);
+      } else if (areasData.length > 0) {
+        setSelectedServiceAreaId(areasData[0].id);
       }
     } catch (err) {
       console.error('Error fetching data:', err);
@@ -152,15 +149,18 @@ export default function ServiceAreaPricing() {
   const fetchPricingAssignments = async (serviceAreaId: string) => {
     try {
       setVehicleTypesLoading(true);
-      const { data, error } = await supabase
-        .from('service_area_vehicle_pricing')
-        .select('id, vehicle_type_id, is_enabled')
-        .eq('service_area_id', serviceAreaId);
-
-      if (error) throw error;
+      const { rows } = await adminPageSelect<{
+        id: string;
+        vehicle_type_id: string;
+        is_enabled: boolean;
+      }>('service-area-pricing', 'service_area_vehicle_pricing', {
+        columns: ['id', 'vehicle_type_id', 'is_enabled'],
+        filters: [{ op: 'eq', col: 'service_area_id', val: serviceAreaId }],
+        limit: 500,
+      });
 
       const map: Record<string, VehiclePricingAssignment> = {};
-      (data || []).forEach((row: any) => {
+      rows.forEach((row) => {
         map[row.vehicle_type_id] = {
           id: row.id,
           vehicle_type_id: row.vehicle_type_id,

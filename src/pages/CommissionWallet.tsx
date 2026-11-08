@@ -96,7 +96,7 @@ function formatMinor(n: unknown, currency = 'USD'): string {
 export default function CommissionWallet() {
   const queryClient = useQueryClient();
   const { data: regions = [] } = useRegions();
-  const { data: allServiceAreas = [] } = useServiceAreas({ activeOnly: true });
+  const { data: allServiceAreas = [] } = useServiceAreas({ pageSlug: 'commission-wallet', activeOnly: true });
   const [serviceFilter, setServiceFilter] = useState<ServiceAreaFinanceSelection>(
     DEFAULT_SERVICE_AREA_SELECTION,
   );
