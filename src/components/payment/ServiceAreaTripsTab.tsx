@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { adminPageSelect } from '@/lib/adminPageGatedData';
 import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
@@ -33,14 +34,15 @@ export function ServiceAreaTripsTab({ serviceAreaId }: { serviceAreaId: string; 
     queryKey: ['service-area-trips', serviceAreaId],
     enabled: !!serviceAreaId,
     queryFn: async () => {
-      const { data: trips, error } = await supabase
-        .from('trips')
-        .select('id, trip_number, trip_code, status, payment_status, payment_method, created_at')
-        .eq('service_area_id', serviceAreaId)
-        .order('created_at', { ascending: false })
-        .limit(100);
-      if (error) throw error;
-      return trips ?? [];
+      const { rows } = await adminPageSelect<TripRow>('service-area-pricing', 'trips', {
+        columns: [
+          'id', 'trip_number', 'trip_code', 'status', 'payment_status', 'payment_method', 'created_at',
+        ],
+        filters: [{ op: 'eq', col: 'service_area_id', val: serviceAreaId }],
+        order: [{ col: 'created_at', asc: false }],
+        limit: 100,
+      });
+      return rows;
     },
   });
 

@@ -205,11 +205,13 @@ export function ServiceAreaCommunicationConfig({
         .map((log) => log.driver_id as string | null)
         .filter(Boolean) as string[];
       if (voipDriverIds.length > 0) {
-        const { data: drivers } = await supabase
-          .from('drivers')
-          .select('id, first_name, last_name')
-          .in('id', voipDriverIds);
-        for (const driver of drivers ?? []) {
+        const { adminLookupByIds } = await import('@/lib/adminPageGatedData');
+        const drivers = await adminLookupByIds<{
+          id: string;
+          first_name: string | null;
+          last_name: string | null;
+        }>('service-area-pricing', 'drivers', voipDriverIds, ['id', 'first_name', 'last_name']);
+        for (const driver of drivers) {
           driverNameById.set(driver.id, `${driver.first_name ?? ''} ${driver.last_name ?? ''}`.trim());
         }
       }

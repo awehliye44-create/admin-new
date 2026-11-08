@@ -1,11 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { supabase } from '@/integrations/supabase/client';
-import { ACTIVE_TRIP_DB_STATUSES } from '@/lib/activeTripStatuses';
-import {
-  adminActiveBoardScheduledExclusivityOrFilter,
-  adminScheduledBoardExcludedStatusInFilter,
-  belongsOnLiveAdminActiveBoard,
-} from '@/lib/adminScheduledBoardMembership';
+import { adminSidebarBadgeCountsRpc } from '@/lib/adminPageGatedData';
 import { isAdminPageLiveActive, subscribeAdminPageLiveActive } from '@/lib/adminPageVisibility';
 
 
@@ -82,86 +76,8 @@ async function fetchSidebarCountsOnce(skipCache = false): Promise<SidebarCounts>
     notifyLoading(true);
 
     try {
-      const [
-        activeTripsResult,
-        scheduledRidesResult,
-        pendingFeedbackResult,
-        pendingDocumentsResult,
-        activePromoCodesResult,
-        accountRequestsResult,
-        pendingDriversResult,
-        pendingVehicleChangesResult,
-      ] = await Promise.all([
-        supabase
-          .from('trips')
-          .select('id, status, searching_expires_at, driver_id, created_at, trip_code, is_scheduled')
-          .in('status', [...ACTIVE_TRIP_DB_STATUSES])
-          .or(adminActiveBoardScheduledExclusivityOrFilter()),
-        // Mirror Scheduled Rides board membership SSOT exactly.
-        supabase
-          .from('trips')
-          .select('id', { count: 'exact', head: true })
-          .eq('is_scheduled', true)
-          .is('driver_id', null)
-          .not('status', 'in', adminScheduledBoardExcludedStatusInFilter())
-          .or('scheduled_status.is.null,scheduled_status.not.in.(cancelled,expired,no_driver_found)'),
-        supabase
-          .from('rider_feedback')
-          .select('id', { count: 'exact', head: true })
-          .in('status', ['pending', 'new']),
-        // Only count current (non-superseded) pending rows for live drivers — superseded uploads
-        // and deleted drivers must not inflate the badge.
-        supabase
-          .from('documents')
-          .select('id, drivers!inner(deleted_at)', { count: 'exact', head: true })
-          .eq('status', 'pending')
-          .eq('is_current', true)
-          .is('drivers.deleted_at', null),
-        // Expired codes are no longer active on the Promo Codes page — keep the badge identical.
-        supabase
-          .from('promo_codes')
-          .select('id', { count: 'exact', head: true })
-          .eq('is_active', true)
-          .or(`valid_until.is.null,valid_until.gte.${new Date().toISOString()}`),
-        supabase
-          .from('admin_settings')
-          .select('setting_value')
-          .eq('setting_key', 'account_requests')
-          .maybeSingle(),
-        // Only count live drivers awaiting approval — deleted drivers must not inflate the badge.
-        supabase
-          .from('drivers')
-          .select('id', { count: 'exact', head: true })
-          .eq('approval_status', 'pending')
-          .is('deleted_at', null),
-        supabase
-          .from('vehicle_change_requests')
-          .select('id, drivers!inner(deleted_at)', { count: 'exact', head: true })
-          .eq('status', 'pending')
-          .is('drivers.deleted_at', null),
-
-      ]);
-
-      let pendingAccountRequests = 0;
-      if (accountRequestsResult.data?.setting_value) {
-        const requests = accountRequestsResult.data.setting_value as any[];
-        pendingAccountRequests = Array.isArray(requests)
-          ? requests.filter((r: any) => r.status === 'pending').length
-          : 0;
-      }
-
-      const newCounts: SidebarCounts = {
-        activeTrips: (activeTripsResult.data || []).filter((trip) =>
-          belongsOnLiveAdminActiveBoard(trip),
-        ).length,
-        scheduledRides: scheduledRidesResult.count || 0,
-        pendingFeedback: pendingFeedbackResult.count || 0,
-        pendingDocuments: pendingDocumentsResult.count || 0,
-        activePromoCodes: activePromoCodesResult.count || 0,
-        pendingAccountRequests,
-        pendingDrivers: pendingDriversResult.count || 0,
-        pendingVehicleChanges: pendingVehicleChangesResult.count || 0,
-      };
+      // Page-gated RPC: each badge is zero unless the caller has that page grant.
+      const newCounts: SidebarCounts = await adminSidebarBadgeCountsRpc();
 
       localStorage.setItem(CACHE_KEY, JSON.stringify({
         data: newCounts,

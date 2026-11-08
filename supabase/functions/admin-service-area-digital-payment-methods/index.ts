@@ -6,7 +6,7 @@ import type { AnySupabaseClient } from "../_shared/supabaseClientTypes.ts";
  */
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "npm:@supabase/supabase-js@2.57.2";
-import { corsHeaders, requireAdmin } from "../_shared/adminPaymentGate.ts";
+import { corsHeaders, requireAdmin, requirePageAccess } from "../_shared/adminPaymentGate.ts";
 import { checkServiceAreaGateway } from "../_shared/paymentGatewayGuard.ts";
 import { buildServiceAreaPaymentMethodFlags } from "../_shared/customerPaymentWorkflow.ts";
 import {
@@ -121,7 +121,9 @@ serve(async (req) => {
     return new Response(null, { headers: adminCorsHeaders });
   }
 
-  const gate = await requireAdmin(req);
+  const adminGate = await requireAdmin(req);
+  if (!adminGate.ok) return adminGate.response;
+  const gate = await requirePageAccess(adminGate, "services");
   if (!gate.ok) return gate.response;
 
   const { supabase } = gate;

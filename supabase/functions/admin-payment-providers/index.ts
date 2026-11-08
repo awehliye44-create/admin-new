@@ -1,6 +1,5 @@
 import type { AnySupabaseClient } from "../_shared/supabaseClientTypes.ts";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-import { createClient } from "npm:@supabase/supabase-js@2.57.2";
 import {
   detectModeMismatch,
   getPaymentProviderAdapter,
@@ -12,35 +11,19 @@ import {
   type ProviderSecrets,
 } from "../_shared/paymentProviders/index.ts";
 import { loadPaymentProviderCredentialReadiness } from "../_shared/paymentProviderReadinessSSOT.ts";
+import {
+  corsHeaders as sharedCorsHeaders,
+  requireAdmin,
+  requirePageAccess,
+} from "../_shared/adminPaymentGate.ts";
 
 const LIVE_CUSTOMER_BOOKING_PROVIDERS = new Set<string>(["revolut"]);
 
 const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers":
-    "authorization, x-client-info, apikey, content-type",
+  ...sharedCorsHeaders,
   "Access-Control-Allow-Methods": "GET, POST, PATCH, OPTIONS",
   "Access-Control-Max-Age": "86400",
 };
-
-async function requireAdmin(req: Request, supabase: AnySupabaseClient) {
-  const authHeader = req.headers.get("Authorization");
-  if (!authHeader) return { error: "Unauthorized", status: 401, user: null };
-
-  const token = authHeader.replace("Bearer ", "");
-  const { data: { user }, error: authError } = await supabase.auth.getUser(token);
-  if (authError || !user) return { error: "Unauthorized", status: 401, user: null };
-
-  const { data: roleData } = await supabase
-    .from("user_roles")
-    .select("role")
-    .eq("user_id", user.id)
-    .eq("role", "admin")
-    .maybeSingle();
-
-  if (!roleData) return { error: "Admin access required", status: 403, user: null };
-  return { error: null, status: 200, user };
-}
 
 
 
@@ -188,17 +171,11 @@ serve(async (req) => {
   }
 
   try {
-    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-    const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-    const supabase = createClient(supabaseUrl, supabaseServiceKey);
-
-    const auth = await requireAdmin(req, supabase);
-    if (!auth.user) {
-      return new Response(JSON.stringify({ error: auth.error }), {
-        status: auth.status,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
+    const adminGate = await requireAdmin(req);
+    if (!adminGate.ok) return adminGate.response;
+    const gate = await requirePageAccess(adminGate, "payment-providers");
+    if (!gate.ok) return gate.response;
+    const supabase = gate.supabase;
 
     const url = new URL(req.url);
     const action = url.searchParams.get("action");

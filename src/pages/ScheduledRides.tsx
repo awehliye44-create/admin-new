@@ -49,6 +49,12 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { supabase } from '@/integrations/supabase/client';
 import {
+  adminLookupByIds,
+  adminPageMutate,
+  adminPageSelect,
+  type AdminPageFilter,
+} from '@/lib/adminPageGatedData';
+import {
   ADMIN_SCHEDULED_RIDES_CAP,
   ADMIN_SCHEDULED_RIDES_DRIVERS_CAP,
 } from '@/lib/adminQueryBounds';
@@ -78,11 +84,28 @@ import {
   resolveAdminScheduledTimeCue,
 } from '@/lib/adminScheduledRidePresentation';
 import { validateAdminScheduledActionAt } from '@/lib/adminScheduledActionAt';
-import { adminScheduledBoardExcludedStatusInFilter } from '@/lib/adminScheduledBoardMembership';
+import {
+  ADMIN_SCHEDULED_BOARD_EXCLUDED_TRIP_STATUSES,
+} from '@/lib/adminScheduledBoardMembership';
 
 // Scheduled Rides actions must never reopen a completed or terminal trip.
-const TERMINAL_TRIP_STATUS_FILTER =
-  '(completed,cancelled,canceled,customer_cancelled,customer_canceled,expired,expired_no_driver,no_show,declined,failed)';
+const TERMINAL_TRIP_STATUSES = [
+  'completed', 'cancelled', 'canceled', 'customer_cancelled', 'customer_canceled',
+  'expired', 'expired_no_driver', 'no_show', 'declined', 'failed',
+] as const;
+
+async function scheduledRidesTripUpdate(
+  tripId: string,
+  patch: Record<string, unknown>,
+  filters: AdminPageFilter[] = [],
+): Promise<Array<{ id: string }>> {
+  const { rows } = await adminPageMutate<{ id: string }>('scheduled-rides', 'trips', 'update', {
+    id: tripId,
+    patch,
+    filters,
+  });
+  return rows ?? [];
+}
 
 interface ScheduledTrip {
   id: string;
@@ -195,74 +218,84 @@ export default function ScheduledRides() {
   const { data: scheduledData, isLoading } = useQuery({
     queryKey: ['scheduled-rides'],
     queryFn: async () => {
-      const [tripsRes, driversRes] = await Promise.all([
-        supabase
-          .from('trips')
-          .select(`
-            id,
-            trip_number,
-            trip_code,
-            status,
-            scheduled_status,
-            pending_release_kind,
-            pending_release_at,
-            pending_release_driver_id,
-            confirmed_driver_id,
-            scheduled_broadcast_at,
-            passenger_name,
-            passenger_phone,
-            pickup_address,
-            dropoff_address,
-            pickup_latitude,
-            pickup_longitude,
-            dropoff_latitude,
-            dropoff_longitude,
-            estimated_fare,
-            fare,
-            final_fare_pence,
-            final_customer_fare_pence,
-            estimated_total_pence,
-            gross_fare_pence,
-            offer_discount_pence,
-            discount_pence,
-            customer_modification_charge_pence,
-            estimated_distance_km,
-            estimated_duration_minutes,
-            currency_code,
-            scheduled_at,
-            created_at,
-            special_instructions,
-            payment_method,
-            vehicle_type,
-            driver_id,
-            service_area_id,
-            driver:drivers!trips_driver_id_fkey(id, first_name, last_name, phone, profile_photo_url, rating),
-            confirmed_driver:drivers!trips_confirmed_driver_id_fkey(id, first_name, last_name, phone, profile_photo_url, rating),
-            service_area:service_areas!trips_service_area_id_fkey(id, name, region:regions(currency_code, distance_unit))
-          `)
-          .eq('is_scheduled', true)
-          // Live scheduled lifecycle only — mutually exclusive with Active Trips.
-          // is_scheduled stays true as provenance; board ownership uses lifecycle + driver_id.
-          .is('driver_id', null)
-          .not('status', 'in', adminScheduledBoardExcludedStatusInFilter())
-          .or('scheduled_status.is.null,scheduled_status.not.in.(cancelled,expired,no_driver_found)')
-          .order('scheduled_at', { ascending: true })
-          .limit(ADMIN_SCHEDULED_RIDES_CAP),
-        supabase
-          .from('drivers')
-          .select('id, first_name, last_name, phone, is_online, rating, profile_photo_url, deleted_at, driver_status')
-          .eq('approval_status', 'approved')
-          .is('deleted_at', null)
-          .neq('driver_status', 'deleted')
-          .limit(ADMIN_SCHEDULED_RIDES_DRIVERS_CAP),
+      const [tripsPage, driversPage] = await Promise.all([
+        adminPageSelect<Record<string, unknown>>('scheduled-rides', 'trips', {
+          columns: [
+            'id', 'trip_number', 'trip_code', 'status', 'scheduled_status', 'pending_release_kind',
+            'pending_release_at', 'pending_release_driver_id', 'confirmed_driver_id',
+            'scheduled_broadcast_at', 'passenger_name', 'passenger_phone', 'pickup_address',
+            'dropoff_address', 'pickup_latitude', 'pickup_longitude', 'dropoff_latitude',
+            'dropoff_longitude', 'estimated_fare', 'fare', 'final_fare_pence',
+            'final_customer_fare_pence', 'estimated_total_pence', 'gross_fare_pence',
+            'offer_discount_pence', 'discount_pence', 'customer_modification_charge_pence',
+            'estimated_distance_km', 'estimated_duration_minutes', 'currency_code', 'scheduled_at',
+            'created_at', 'special_instructions', 'payment_method', 'vehicle_type', 'driver_id',
+            'service_area_id',
+          ],
+          filters: [
+            { op: 'eq', col: 'is_scheduled', val: true },
+            { op: 'is_null', col: 'driver_id' },
+            { op: 'not_in', col: 'status', val: [...ADMIN_SCHEDULED_BOARD_EXCLUDED_TRIP_STATUSES] },
+          ],
+          or_groups: [
+            [{ op: 'is_null', col: 'scheduled_status' }],
+            [{ op: 'not_in', col: 'scheduled_status', val: ['cancelled', 'expired', 'no_driver_found'] }],
+          ],
+          order: [{ col: 'scheduled_at', asc: true }],
+          limit: ADMIN_SCHEDULED_RIDES_CAP,
+        }),
+        adminPageSelect<Driver>('scheduled-rides', 'drivers', {
+          columns: [
+            'id', 'first_name', 'last_name', 'phone', 'is_online', 'rating',
+            'profile_photo_url', 'deleted_at', 'driver_status',
+          ],
+          filters: [
+            { op: 'eq', col: 'approval_status', val: 'approved' },
+            { op: 'is_null', col: 'deleted_at' },
+            { op: 'neq', col: 'driver_status', val: 'deleted' },
+          ],
+          limit: ADMIN_SCHEDULED_RIDES_DRIVERS_CAP,
+        }),
       ]);
 
-      if (tripsRes.error) throw tripsRes.error;
-      if (driversRes.error) throw driversRes.error;
+      const driverIds = tripsPage.rows.flatMap((t) =>
+        [t.driver_id, t.confirmed_driver_id].filter((id): id is string => typeof id === 'string' && Boolean(id)),
+      );
+      const drivers = await adminLookupByIds<{
+        id: string;
+        first_name: string | null;
+        last_name: string | null;
+        phone: string | null;
+        profile_photo_url: string | null;
+        rating: number | null;
+      }>('scheduled-rides', 'drivers', driverIds, [
+        'id', 'first_name', 'last_name', 'phone', 'profile_photo_url', 'rating',
+      ]);
+      const driverById = new Map(drivers.map((d) => [d.id, d]));
+      const saIds = tripsPage.rows
+        .map((t) => t.service_area_id as string | null)
+        .filter((id): id is string => Boolean(id));
+      const saRes = saIds.length > 0
+        ? await supabase
+            .from('service_areas')
+            .select('id, name, region:regions(currency_code, distance_unit)')
+            .in('id', saIds)
+        : { data: [] as any[], error: null };
+      if (saRes.error) throw saRes.error;
+      const saById = new Map((saRes.data ?? []).map((sa: any) => [sa.id, sa]));
+
+      const trips = tripsPage.rows.map((t) => ({
+        ...t,
+        driver: t.driver_id ? driverById.get(String(t.driver_id)) ?? null : null,
+        confirmed_driver: t.confirmed_driver_id
+          ? driverById.get(String(t.confirmed_driver_id)) ?? null
+          : null,
+        service_area: t.service_area_id ? saById.get(String(t.service_area_id)) ?? null : null,
+      })) as unknown as ScheduledTrip[];
 
       return {
-        trips: (tripsRes.data as unknown as ScheduledTrip[]) || [],
-        drivers: (driversRes.data as unknown as Driver[]) || [],
+        trips,
+        drivers: driversPage.rows || [],
       };
     },
     staleTime: 15_000,
@@ -340,9 +373,9 @@ export default function ScheduledRides() {
       const nowIso = new Date().toISOString();
       // Assign Now — pre-confirm (or swap preconfirm). Never overwrite live driver_id.
       // Includes driver_assigned so Admin can replace a dropped pre-confirmed driver.
-      const { data: assignedRows, error } = await supabase
-        .from('trips')
-        .update({
+      const assignedRows = await scheduledRidesTripUpdate(
+        selectedTrip.id,
+        {
           confirmed_driver_id: selectedDriverId,
           scheduled_status: 'driver_assigned',
           scheduled_accepted_at: nowIso,
@@ -351,21 +384,15 @@ export default function ScheduledRides() {
           pending_release_kind: null,
           pending_release_at: null,
           pending_release_driver_id: null,
-        })
-        .eq('id', selectedTrip.id)
-        .in('scheduled_status', [
-          'admin_held',
-          'scheduled',
-          'broadcasting',
-          'pending',
-          'driver_assigned',
-        ])
-        .is('driver_id', null)
-        .is('completed_at', null)
-        .not('status', 'in', TERMINAL_TRIP_STATUS_FILTER)
-        .select('id');
+        },
+        [
+          { op: 'in', col: 'scheduled_status', val: ['admin_held', 'scheduled', 'broadcasting', 'pending', 'driver_assigned'] },
+          { op: 'is_null', col: 'driver_id' },
+          { op: 'is_null', col: 'completed_at' },
+          { op: 'not_in', col: 'status', val: [...TERMINAL_TRIP_STATUSES] },
+        ],
+      );
 
-      if (error) throw error;
       if (!assignedRows?.length) {
         toast.error('Trip is no longer available to assign (already live or converted)');
         return;
@@ -423,26 +450,20 @@ export default function ScheduledRides() {
     try {
       // One pending action per trip — replaces any prior pending release.
       // Allows driver_assigned so Assign At can swap a pre-confirmed driver.
-      const { data: pendingRows, error } = await supabase
-        .from('trips')
-        .update({
+      const pendingRows = await scheduledRidesTripUpdate(
+        selectedTrip.id,
+        {
           pending_release_kind: 'assign',
           pending_release_at: at.toISOString(),
           pending_release_driver_id: selectedDriverId,
-        })
-        .eq('id', selectedTrip.id)
-        .in('scheduled_status', [
-          'admin_held',
-          'scheduled',
-          'pending',
-          'broadcasting',
-          'driver_assigned',
-        ])
-        .is('driver_id', null)
-        .is('completed_at', null)
-        .not('status', 'in', TERMINAL_TRIP_STATUS_FILTER)
-        .select('id');
-      if (error) throw error;
+        },
+        [
+          { op: 'in', col: 'scheduled_status', val: ['admin_held', 'scheduled', 'pending', 'broadcasting', 'driver_assigned'] },
+          { op: 'is_null', col: 'driver_id' },
+          { op: 'is_null', col: 'completed_at' },
+          { op: 'not_in', col: 'status', val: [...TERMINAL_TRIP_STATUSES] },
+        ],
+      );
       if (!pendingRows?.length) {
         toast.error('Trip is no longer available for Assign At');
         return;
@@ -499,16 +520,13 @@ export default function ScheduledRides() {
 
       // Keep scheduled board filters consistent (RPC cancels status/dispatch, not scheduled_status).
       // Also neutralize ownership + pending release so cancelled rows cannot re-surface as open work.
-      await supabase
-        .from('trips')
-        .update({
-          scheduled_status: 'cancelled',
-          confirmed_driver_id: null,
-          pending_release_kind: null,
-          pending_release_at: null,
-          pending_release_driver_id: null,
-        })
-        .eq('id', tripId);
+      await scheduledRidesTripUpdate(tripId, {
+        scheduled_status: 'cancelled',
+        confirmed_driver_id: null,
+        pending_release_kind: null,
+        pending_release_at: null,
+        pending_release_driver_id: null,
+      });
 
       perf.complete({ success: true, metadata: { trip_id: tripId } });
       toast.success('Scheduled ride cancelled');
@@ -533,9 +551,9 @@ export default function ScheduledRides() {
       const nowIso = new Date().toISOString();
       // Publish for Driver Scheduled Jobs advance PRE-CONFIRMATION only.
       // Does NOT start NRO / auto-dispatch (that is Broadcast).
-      const { data: rows, error } = await supabase
-        .from('trips')
-        .update({
+      const rows = await scheduledRidesTripUpdate(
+        selectedTrip.id,
+        {
           scheduled_status: 'scheduled',
           status: 'scheduled',
           scheduled_broadcast_at: nowIso,
@@ -543,16 +561,16 @@ export default function ScheduledRides() {
           pending_release_kind: null,
           pending_release_at: null,
           pending_release_driver_id: null,
-        })
-        .eq('id', selectedTrip.id)
-        .in('scheduled_status', ['admin_held', 'scheduled', 'pending'])
-        .is('confirmed_driver_id', null)
-        .is('driver_id', null)
-        .is('completed_at', null)
-        .not('status', 'in', TERMINAL_TRIP_STATUS_FILTER)
-        .select('id');
+        },
+        [
+          { op: 'in', col: 'scheduled_status', val: ['admin_held', 'scheduled', 'pending'] },
+          { op: 'is_null', col: 'confirmed_driver_id' },
+          { op: 'is_null', col: 'driver_id' },
+          { op: 'is_null', col: 'completed_at' },
+          { op: 'not_in', col: 'status', val: [...TERMINAL_TRIP_STATUSES] },
+        ],
+      );
 
-      if (error) throw error;
       if (!rows?.length) {
         toast.error('Trip is no longer eligible for Scheduled Jobs publication');
         return;
@@ -592,21 +610,21 @@ export default function ScheduledRides() {
     }
     setIsSaving(true);
     try {
-      const { data: pendingRows, error } = await supabase
-        .from('trips')
-        .update({
+      const pendingRows = await scheduledRidesTripUpdate(
+        selectedTrip.id,
+        {
           pending_release_kind: 'jobs',
           pending_release_at: timing.actionAt.toISOString(),
           pending_release_driver_id: null,
-        })
-        .eq('id', selectedTrip.id)
-        .in('scheduled_status', ['admin_held', 'scheduled', 'pending'])
-        .is('confirmed_driver_id', null)
-        .is('driver_id', null)
-        .is('completed_at', null)
-        .not('status', 'in', TERMINAL_TRIP_STATUS_FILTER)
-        .select('id');
-      if (error) throw error;
+        },
+        [
+          { op: 'in', col: 'scheduled_status', val: ['admin_held', 'scheduled', 'pending'] },
+          { op: 'is_null', col: 'confirmed_driver_id' },
+          { op: 'is_null', col: 'driver_id' },
+          { op: 'is_null', col: 'completed_at' },
+          { op: 'not_in', col: 'status', val: [...TERMINAL_TRIP_STATUSES] },
+        ],
+      );
       if (!pendingRows?.length) {
         toast.error('Trip is no longer available for Scheduled Jobs At');
         return;
@@ -637,9 +655,9 @@ export default function ScheduledRides() {
       const searchingExpiresAtIso = new Date(
         nowMs + maxFindMinutes * 60_000,
       ).toISOString();
-      const { data: broadcastRows, error } = await supabase
-        .from('trips')
-        .update({
+      const broadcastRows = await scheduledRidesTripUpdate(
+        selectedTrip.id,
+        {
           dispatch_mode: 'instant',
           scheduled_status: 'converted_to_instant',
           status: 'searching',
@@ -654,20 +672,15 @@ export default function ScheduledRides() {
           pending_release_at: null,
           pending_release_driver_id: null,
           updated_at: nowIso,
-        })
-        .eq('id', selectedTrip.id)
-        .in('scheduled_status', [
-          'admin_held',
-          'scheduled',
-          'pending',
-          'driver_assigned',
-        ])
-        .is('driver_id', null)
-        .is('completed_at', null)
-        .not('status', 'in', TERMINAL_TRIP_STATUS_FILTER)
-        .select('id');
+        },
+        [
+          { op: 'in', col: 'scheduled_status', val: ['admin_held', 'scheduled', 'pending', 'driver_assigned'] },
+          { op: 'is_null', col: 'driver_id' },
+          { op: 'is_null', col: 'completed_at' },
+          { op: 'not_in', col: 'status', val: [...TERMINAL_TRIP_STATUSES] },
+        ],
+      );
 
-      if (error) throw error;
       if (!broadcastRows?.length) {
         toast.error('Trip is already live-assigned or no longer eligible for broadcast');
         return;
@@ -711,25 +724,20 @@ export default function ScheduledRides() {
     const at = timing.actionAt;
     setIsSaving(true);
     try {
-      const { data: pendingRows, error } = await supabase
-        .from('trips')
-        .update({
+      const pendingRows = await scheduledRidesTripUpdate(
+        selectedTrip.id,
+        {
           pending_release_kind: 'broadcast',
           pending_release_at: at.toISOString(),
           pending_release_driver_id: null,
-        })
-        .eq('id', selectedTrip.id)
-        .in('scheduled_status', [
-          'admin_held',
-          'scheduled',
-          'pending',
-          'driver_assigned',
-        ])
-        .is('driver_id', null)
-        .is('completed_at', null)
-        .not('status', 'in', TERMINAL_TRIP_STATUS_FILTER)
-        .select('id');
-      if (error) throw error;
+        },
+        [
+          { op: 'in', col: 'scheduled_status', val: ['admin_held', 'scheduled', 'pending', 'driver_assigned'] },
+          { op: 'is_null', col: 'driver_id' },
+          { op: 'is_null', col: 'completed_at' },
+          { op: 'not_in', col: 'status', val: [...TERMINAL_TRIP_STATUSES] },
+        ],
+      );
       if (!pendingRows?.length) {
         toast.error('Trip is no longer available for Broadcast At');
         return;
@@ -749,15 +757,11 @@ export default function ScheduledRides() {
   const handleCancelPendingRelease = async (trip: ScheduledTrip) => {
     setIsSaving(true);
     try {
-      const { error } = await supabase
-        .from('trips')
-        .update({
-          pending_release_kind: null,
-          pending_release_at: null,
-          pending_release_driver_id: null,
-        })
-        .eq('id', trip.id);
-      if (error) throw error;
+      await scheduledRidesTripUpdate(trip.id, {
+        pending_release_kind: null,
+        pending_release_at: null,
+        pending_release_driver_id: null,
+      });
       toast.success('Pending release cancelled');
       fetchData();
     } catch (err: any) {

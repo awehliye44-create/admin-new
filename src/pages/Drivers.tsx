@@ -44,6 +44,11 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { supabase } from '@/integrations/supabase/client';
+import {
+  adminPageMutate,
+  adminPageSelect,
+  type AdminPageFilter,
+} from '@/lib/adminPageGatedData';
 import { ADMIN_DRIVERS_PAGE_SIZE } from '@/lib/adminQueryBounds';
 import {
   Car, 
@@ -218,37 +223,36 @@ export default function Drivers() {
       const to = from + ADMIN_DRIVERS_PAGE_SIZE - 1;
       const q = searchQuery.trim();
 
-      let driversQ = supabase
-        .from('drivers')
-        .select(
-          'id, driver_code, first_name, last_name, email, phone, is_online, approval_status, driver_status, deleted_at, rating, total_trips, profile_photo_url, created_at, region_id, residential_address, postcode, city, country, country_code, service_area_id, is_pet_friendly, documents_approved, category_id, current_trip_id',
-          { count: 'exact' },
-        )
-        .order('created_at', { ascending: false })
-        .range(from, to);
+      const filters: AdminPageFilter[] = [];
+      let orGroups: AdminPageFilter[][] | undefined;
 
       if (statusFilter === 'disabled') {
-        driversQ = driversQ.eq('driver_status', 'disabled');
+        filters.push({ op: 'eq', col: 'driver_status', val: 'disabled' });
       } else if (statusFilter === 'deleted') {
-        driversQ = driversQ.eq('driver_status', 'deleted');
+        filters.push({ op: 'eq', col: 'driver_status', val: 'deleted' });
       } else if (statusFilter === 'pending' || statusFilter === 'approved' || statusFilter === 'rejected') {
-        driversQ = driversQ.eq('approval_status', statusFilter);
-        driversQ = driversQ.neq('driver_status', 'deleted');
+        filters.push({ op: 'eq', col: 'approval_status', val: statusFilter });
+        filters.push({ op: 'neq', col: 'driver_status', val: 'deleted' });
         if (statusFilter === 'approved') {
-          driversQ = driversQ.eq('driver_status', 'active');
+          filters.push({ op: 'eq', col: 'driver_status', val: 'active' });
         }
       } else {
-        driversQ = driversQ.neq('driver_status', 'deleted');
+        filters.push({ op: 'neq', col: 'driver_status', val: 'deleted' });
       }
 
       if (selectedRegionFilter !== 'all') {
-        driversQ = driversQ.eq('region_id', selectedRegionFilter);
+        filters.push({ op: 'eq', col: 'region_id', val: selectedRegionFilter });
       }
 
       if (q) {
-        driversQ = driversQ.or(
-          `first_name.ilike.%${q}%,last_name.ilike.%${q}%,email.ilike.%${q}%,phone.ilike.%${q}%,driver_code.ilike.%${q}%`,
-        );
+        const like = `%${q}%`;
+        orGroups = [
+          [{ op: 'ilike', col: 'first_name', val: like }],
+          [{ op: 'ilike', col: 'last_name', val: like }],
+          [{ op: 'ilike', col: 'email', val: like }],
+          [{ op: 'ilike', col: 'phone', val: like }],
+          [{ op: 'ilike', col: 'driver_code', val: like }],
+        ];
       }
 
       if (selectedServiceAreaFilter !== 'all') {
@@ -265,13 +269,27 @@ export default function Drivers() {
           setDriverServiceAreasMap({});
           return;
         }
-        driversQ = driversQ.in('id', saIds);
+        filters.push({ op: 'in', col: 'id', val: saIds });
       }
 
-      const { data, error, count } = await driversQ;
-      if (error) throw error;
-      setDrivers((data as Driver[]) || []);
-      setTotalCount(count ?? (data?.length ?? 0));
+      const { rows, count } = await adminPageSelect<Driver>('drivers', 'drivers', {
+        columns: [
+          'id', 'driver_code', 'first_name', 'last_name', 'email', 'phone', 'is_online',
+          'approval_status', 'driver_status', 'deleted_at', 'rating', 'total_trips',
+          'profile_photo_url', 'created_at', 'region_id', 'residential_address', 'postcode',
+          'city', 'country', 'country_code', 'service_area_id', 'is_pet_friendly',
+          'documents_approved', 'category_id', 'current_trip_id',
+        ],
+        filters,
+        or_groups: orGroups,
+        order: [{ col: 'created_at', asc: false }],
+        limit: ADMIN_DRIVERS_PAGE_SIZE,
+        offset: from,
+        include_count: true,
+      });
+      const data = rows;
+      setDrivers(data);
+      setTotalCount(count ?? data.length);
 
       void fetchCouncilLicences((data ?? []).map((d) => d.id))
         .then((map) => setCouncilLicences((prev) => ({ ...prev, ...map })))
@@ -293,20 +311,24 @@ export default function Drivers() {
       // Vehicles / DSA only for the current page
       if (data && data.length > 0) {
         const driverIds = data.map(d => d.id);
-        const [vehiclesRes, driverServiceAreasRes] = await Promise.all([
-          supabase
-            .from('vehicles')
-            .select('id, driver_id, make, model, year, license_plate, color, approval_status, is_primary, capacity, vehicle_type_id, rejection_reason')
-            .in('driver_id', driverIds),
+        const [vehiclesPage, driverServiceAreasRes] = await Promise.all([
+          adminPageSelect<Vehicle & { driver_id: string }>('drivers', 'vehicles', {
+            columns: [
+              'id', 'driver_id', 'make', 'model', 'year', 'license_plate', 'color',
+              'approval_status', 'is_primary', 'capacity', 'vehicle_type_id', 'rejection_reason',
+            ],
+            filters: [{ op: 'in', col: 'driver_id', val: driverIds }],
+            limit: Math.min(driverIds.length * 5, 500),
+          }),
           supabase
             .from('driver_service_areas')
             .select('driver_id, service_area_id')
             .in('driver_id', driverIds),
         ]);
         
-        if (vehiclesRes.data) {
+        if (vehiclesPage.rows) {
           const vehiclesMap: Record<string, Vehicle[]> = {};
-          vehiclesRes.data.forEach(v => {
+          vehiclesPage.rows.forEach((v) => {
             if (!vehiclesMap[v.driver_id]) vehiclesMap[v.driver_id] = [];
             vehiclesMap[v.driver_id].push({
               ...v,
@@ -374,10 +396,17 @@ export default function Drivers() {
 
     setIsUpdating(driverId);
     try {
-      const { error } = await supabase
-        .from('drivers')
-        .update({ approval_status: newStatus })
-        .eq('id', driverId);
+      const { error } = await (async () => {
+        try {
+          await adminPageMutate('drivers', 'drivers', 'update', {
+            id: driverId,
+            patch: { approval_status: newStatus },
+          });
+          return { error: null as null };
+        } catch (e: any) {
+          return { error: e };
+        }
+      })();
 
       if (error) throw error;
 
@@ -528,22 +557,32 @@ export default function Drivers() {
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      const head = async (
-        apply: (q: any) => any,
-      ) => {
-        let q: any = supabase.from('drivers').select('id', { count: 'exact', head: true });
-        q = apply(q);
-        const { count } = await q;
+      const head = async (filters: AdminPageFilter[]) => {
+        const { count } = await adminPageSelect('drivers', 'drivers', {
+          columns: ['id'],
+          filters,
+          count_only: true,
+          limit: 1,
+        });
         return count ?? 0;
       };
       try {
         const [all, pending, approved, rejected, disabled, deleted] = await Promise.all([
-          head((q) => q.neq('driver_status', 'deleted')),
-          head((q) => q.eq('approval_status', 'pending').neq('driver_status', 'deleted')),
-          head((q) => q.eq('approval_status', 'approved').eq('driver_status', 'active')),
-          head((q) => q.eq('approval_status', 'rejected').neq('driver_status', 'deleted')),
-          head((q) => q.eq('driver_status', 'disabled')),
-          head((q) => q.eq('driver_status', 'deleted')),
+          head([{ op: 'neq', col: 'driver_status', val: 'deleted' }]),
+          head([
+            { op: 'eq', col: 'approval_status', val: 'pending' },
+            { op: 'neq', col: 'driver_status', val: 'deleted' },
+          ]),
+          head([
+            { op: 'eq', col: 'approval_status', val: 'approved' },
+            { op: 'eq', col: 'driver_status', val: 'active' },
+          ]),
+          head([
+            { op: 'eq', col: 'approval_status', val: 'rejected' },
+            { op: 'neq', col: 'driver_status', val: 'deleted' },
+          ]),
+          head([{ op: 'eq', col: 'driver_status', val: 'disabled' }]),
+          head([{ op: 'eq', col: 'driver_status', val: 'deleted' }]),
         ]);
         if (!cancelled) {
           setStatusCounts({ all, pending, approved, rejected, disabled, deleted });
@@ -580,9 +619,8 @@ export default function Drivers() {
 
     setIsAdding(true);
     try {
-      const { data, error } = await supabase
-        .from('drivers')
-        .insert({
+      const { row: data } = await adminPageMutate<Driver>('drivers', 'drivers', 'insert', {
+        patch: {
           first_name: newDriver.first_name,
           last_name: newDriver.last_name,
           email: newDriver.email,
@@ -590,11 +628,9 @@ export default function Drivers() {
           region_id: newDriver.region_id,
           user_id: crypto.randomUUID(),
           approval_status: 'approved',
-        })
-        .select()
-        .single();
-
-      if (error) throw error;
+        },
+      });
+      if (!data) throw new Error('Driver insert returned no row');
 
       try {
         const savedCouncil = await saveCouncilLicence(data.id, newDriver.council_licence_authority);
@@ -680,9 +716,9 @@ export default function Drivers() {
             country_code: editDriver.country_code?.trim().toUpperCase() || null,
           };
 
-      const { error } = await supabase
-        .from('drivers')
-        .update({
+      await adminPageMutate('drivers', 'drivers', 'update', {
+        id: editDriver.id,
+        patch: {
           first_name: editDriver.first_name,
           last_name: editDriver.last_name,
           email: editDriver.email,
@@ -690,10 +726,8 @@ export default function Drivers() {
           region_id: editDriver.region_id,
           approval_status: editDriver.approval_status,
           ...addressUpdate,
-        })
-        .eq('id', editDriver.id);
-
-      if (error) throw error;
+        },
+      });
 
       const previous = drivers.find((d) => d.id === editDriver.id);
       const becameApproved =
@@ -796,12 +830,14 @@ export default function Drivers() {
         ? selectedDriver.service_area_id
         : selectedServiceAreas[0] ?? null;
 
-      const { error: primaryUpdateError } = await supabase
-        .from('drivers')
-        .update({ service_area_id: nextPrimaryServiceAreaId })
-        .eq('id', selectedDriver.id);
-
-      if (primaryUpdateError) throw primaryUpdateError;
+      try {
+        await adminPageMutate('drivers', 'drivers', 'update', {
+          id: selectedDriver.id,
+          patch: { service_area_id: nextPrimaryServiceAreaId },
+        });
+      } catch (primaryUpdateError) {
+        throw primaryUpdateError;
+      }
 
       // Remove unselected
       if (toRemove.length > 0) {

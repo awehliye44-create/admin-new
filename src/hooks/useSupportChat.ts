@@ -1,5 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
+import { adminLookupByIds } from "@/lib/adminPageGatedData";
 import { toast } from "sonner";
 import { useEffect, useId } from "react";
 import { isAdminPageLiveActive } from "@/lib/adminPageVisibility";
@@ -83,15 +84,15 @@ async function enrichSupportIdentities(rows: SupportConversation[]): Promise<Sup
 
   if (customerIds.length > 0) {
     try {
-      const { data, error } = await supabase
-        .from("customers")
-        .select("id, first_name, last_name, phone")
-        .in("id", customerIds);
-      if (!error) {
-        (data || []).forEach((c) => {
-          customerMap[c.id] = c;
-        });
-      }
+      const customers = await adminLookupByIds<{
+        id: string;
+        first_name: string | null;
+        last_name: string | null;
+        phone: string | null;
+      }>("live-chat", "customers", customerIds, ["id", "first_name", "last_name", "phone"]);
+      customers.forEach((c) => {
+        customerMap[c.id] = c;
+      });
     } catch {
       /* keep the conversation list without customer names */
     }

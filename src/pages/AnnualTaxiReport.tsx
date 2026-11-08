@@ -98,15 +98,16 @@ export default function AnnualTaxiReport() {
   const { data: drivers = [] } = useQuery({
     queryKey: ["atr-drivers", regionId],
     queryFn: async () => {
-      let q = supabase
-        .from("drivers")
-        .select("id,first_name,last_name,driver_code,region_id")
-        .order("driver_code", { ascending: true })
-        .limit(1000);
-      if (regionId) q = q.eq("region_id", regionId);
-      const { data, error } = await q;
-      if (error) throw error;
-      return (data ?? []) as DriverRow[];
+      const { adminPageSelect } = await import("@/lib/adminPageGatedData");
+      const filters: import("@/lib/adminPageGatedData").AdminPageFilter[] = [];
+      if (regionId) filters.push({ op: "eq", col: "region_id", val: regionId });
+      const { rows } = await adminPageSelect<DriverRow>("annual-taxi-report", "drivers", {
+        columns: ["id", "first_name", "last_name", "driver_code", "region_id"],
+        filters,
+        order: [{ col: "driver_code", asc: true }],
+        limit: 1000,
+      });
+      return rows;
     },
   });
 

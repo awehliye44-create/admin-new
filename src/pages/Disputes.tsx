@@ -8,6 +8,7 @@ import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { supabase } from '@/integrations/supabase/client';
+import { adminLookupByIds } from '@/lib/adminPageGatedData';
 import { useQuery } from '@tanstack/react-query';
 import { NewAdjustmentDialog } from '@/components/adjustments/NewAdjustmentDialog';
 import { ServiceAreaFinanceFilter, DEFAULT_SERVICE_AREA_SELECTION, type ServiceAreaFinanceSelection } from '@/components/finance/ServiceAreaFinanceFilter';
@@ -66,13 +67,22 @@ export default function Disputes() {
       let driversMap: Record<string, { name: string; code: string | null; region_id: string | null }> = {};
 
       if (driverIds.length > 0) {
-        const { data: drivers } = await supabase
-          .from('drivers')
-          .select('id, first_name, last_name, driver_code, region_id')
-          .in('id', driverIds);
+        const drivers = await adminLookupByIds<{
+          id: string;
+          first_name: string | null;
+          last_name: string | null;
+          driver_code: string | null;
+          region_id: string | null;
+        }>('disputes', 'drivers', driverIds, [
+          'id', 'first_name', 'last_name', 'driver_code', 'region_id',
+        ]);
 
-        driversMap = (drivers || []).reduce((acc, d) => {
-          acc[d.id] = { name: `${d.first_name} ${d.last_name}`, code: d.driver_code, region_id: d.region_id };
+        driversMap = drivers.reduce((acc, d) => {
+          acc[d.id] = {
+            name: `${d.first_name ?? ''} ${d.last_name ?? ''}`.trim() || 'Unknown',
+            code: d.driver_code,
+            region_id: d.region_id,
+          };
           return acc;
         }, {} as Record<string, { name: string; code: string | null; region_id: string | null }>);
       }

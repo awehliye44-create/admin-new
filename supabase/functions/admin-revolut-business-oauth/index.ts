@@ -5,7 +5,7 @@
  * Never calls /pay, transfers, or payouts during OAuth connect.
  */
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-import { requireAdmin, corsHeaders } from "../_shared/adminPaymentGate.ts";
+import { requireAdmin, requirePageAccess, corsHeaders } from "../_shared/adminPaymentGate.ts";
 import {
   buildRevolutBusinessAuthorizationUrl,
   buildRevolutBusinessDiagnostics,
@@ -127,7 +127,9 @@ serve(async (req) => {
   }
 
   try {
-    const gate = await requireAdmin(req);
+    const adminGate = await requireAdmin(req);
+    if (!adminGate.ok) return adminGate.response;
+    const gate = await requirePageAccess(adminGate, "payment-providers");
     if (!gate.ok) return gate.response;
     const { supabase, userId } = gate;
 

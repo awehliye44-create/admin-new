@@ -11,7 +11,7 @@ import type { AnySupabaseClient } from "../_shared/supabaseClientTypes.ts";
  * Returns fresh trip + stops snapshot.
  */
 import { createClient } from "npm:@supabase/supabase-js@2.57.2";
-import { corsHeaders, requireAdmin } from "../_shared/adminPaymentGate.ts";
+import { corsHeaders, requireAdmin, requireAnyPageAccess } from "../_shared/adminPaymentGate.ts";
 import {
   convertCommissionWalletOnTripComplete,
   ensureCommissionWalletDeductionForCompletedTrip,
@@ -74,7 +74,13 @@ Deno.serve(async (req) => {
     return new Response(null, { headers: corsHeaders });
   }
 
-  const gate = await requireAdmin(req);
+  const adminGate = await requireAdmin(req);
+  if (!adminGate.ok) return adminGate.response;
+  const gate = await requireAnyPageAccess(adminGate, [
+    "active-trips",
+    "manual-trip",
+    "scheduled-rides",
+  ]);
   if (!gate.ok) return gate.response;
 
   try {

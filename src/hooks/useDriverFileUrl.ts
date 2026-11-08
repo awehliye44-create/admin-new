@@ -160,12 +160,18 @@ export function useDriverProfilePhoto(driverId: string | null | undefined): {
 
     (async () => {
       try {
+        const { adminPageSelect } = await import('@/lib/adminPageGatedData');
         // First check drivers.profile_photo_url
-        const { data: driver } = await supabase
-          .from('drivers')
-          .select('profile_photo_url')
-          .eq('id', driverId)
-          .single();
+        const { rows: driverRows } = await adminPageSelect<{ profile_photo_url: string | null }>(
+          'drivers',
+          'drivers',
+          {
+            columns: ['profile_photo_url'],
+            filters: [{ op: 'eq', col: 'id', val: driverId }],
+            limit: 1,
+          },
+        );
+        const driver = driverRows[0];
 
         if (!cancelled && driver?.profile_photo_url) {
           const signed = await getSignedDocumentUrl(driver.profile_photo_url);
@@ -177,14 +183,20 @@ export function useDriverProfilePhoto(driverId: string | null | undefined): {
         }
 
         // Fallback: get from documents table
-        const { data: doc } = await supabase
-          .from('documents')
-          .select('file_url')
-          .eq('driver_id', driverId)
-          .eq('document_type', 'profile_photo')
-          .order('created_at', { ascending: false })
-          .limit(1)
-          .maybeSingle();
+        const { rows: docs } = await adminPageSelect<{ file_url: string | null }>(
+          'drivers',
+          'documents',
+          {
+            columns: ['file_url'],
+            filters: [
+              { op: 'eq', col: 'driver_id', val: driverId },
+              { op: 'eq', col: 'document_type', val: 'profile_photo' },
+            ],
+            order: [{ col: 'created_at', asc: false }],
+            limit: 1,
+          },
+        );
+        const doc = docs[0];
 
         if (!cancelled && doc?.file_url) {
           const signed = await getSignedDocumentUrl(doc.file_url);

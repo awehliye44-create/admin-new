@@ -37,6 +37,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { supabase } from '@/integrations/supabase/client';
+import { adminPageMutate, adminPageSelect } from '@/lib/adminPageGatedData';
 import { tryGrantWelcomeCredit } from '@/lib/tryGrantWelcomeCredit';
 import { Progress } from '@/components/ui/progress';
 import { 
@@ -213,25 +214,37 @@ export function DriverDetailsDialog({
         .select('id, slug, name, has_expiry, is_required')
         .eq('is_active', true)
         .order('display_order'),
-      supabase
-        .from('documents')
-        .select('id, document_type, document_name, status, expiry_date, file_url, is_current, superseded_by')
-        .eq('driver_id', driverId)
-        .eq('is_current', true),
-
-      supabase
-        .from('drivers')
-        .select('service_area_id, service_areas(name)')
-        .eq('id', driverId)
-        .maybeSingle(),
+      adminPageSelect('drivers', 'documents', {
+        columns: [
+          'id', 'document_type', 'document_name', 'status', 'expiry_date', 'file_url',
+          'is_current', 'superseded_by',
+        ],
+        filters: [
+          { op: 'eq', col: 'driver_id', val: driverId },
+          { op: 'eq', col: 'is_current', val: true },
+        ],
+        limit: 200,
+      }),
+      adminPageSelect('drivers', 'drivers', {
+        columns: ['id', 'service_area_id'],
+        filters: [{ op: 'eq', col: 'id', val: driverId }],
+        limit: 1,
+      }),
     ]);
 
     const allTypes = (typesRes.data || []) as { id: string; slug: string; name: string; has_expiry: boolean; is_required: boolean }[];
-    const assignedServiceAreaId = (driverRes.data?.service_area_id as string | null) ?? null;
-    const joinedSa = driverRes.data?.service_areas as { name?: string } | { name?: string }[] | null | undefined;
-    const assignedServiceAreaName = Array.isArray(joinedSa)
-      ? joinedSa[0]?.name ?? null
-      : joinedSa?.name ?? null;
+    const docsPage = docsRes as Awaited<ReturnType<typeof adminPageSelect>>;
+    const driverPage = driverRes as Awaited<ReturnType<typeof adminPageSelect>>;
+    const assignedServiceAreaId = (driverPage.rows[0]?.service_area_id as string | null) ?? null;
+    let assignedServiceAreaName: string | null = null;
+    if (assignedServiceAreaId) {
+      const { data: saRow } = await supabase
+        .from('service_areas')
+        .select('name')
+        .eq('id', assignedServiceAreaId)
+        .maybeSingle();
+      assignedServiceAreaName = (saRow?.name as string | null) ?? null;
+    }
 
     let saRules: {
       doc_type_id: string;
@@ -267,7 +280,7 @@ export function DriverDetailsDialog({
 
     return {
       requiredTypes,
-      driverDocs: (docsRes.data || []) as { id: string; document_type: string; document_name: string; status: string; expiry_date: string | null; file_url: string | null }[],
+      driverDocs: (docsPage.rows || []) as { id: string; document_type: string; document_name: string; status: string; expiry_date: string | null; file_url: string | null }[],
       assignedServiceAreaId,
       assignedServiceAreaName,
       rulesConfigured: Boolean(assignedServiceAreaId) && saRules.length > 0,
@@ -315,13 +328,13 @@ export function DriverDetailsDialog({
 
   const fetchDriverCommissionData = async () => {
     if (!driver) return;
-    const { data } = await supabase
-      .from('drivers')
-      .select('category_id')
-      .eq('id', driver.id)
-      .single();
-    if (data) {
-      setSelectedCategoryId((data as any).category_id || '');
+    const { rows } = await adminPageSelect('drivers', 'drivers', {
+      columns: ['id', 'category_id'],
+      filters: [{ op: 'eq', col: 'id', val: driver.id }],
+      limit: 1,
+    });
+    if (rows[0]) {
+      setSelectedCategoryId((rows[0] as any).category_id || '');
     }
   };
 
@@ -329,14 +342,10 @@ export function DriverDetailsDialog({
     if (!driver) return;
     setIsSavingCommission(true);
     try {
-      const updateData: Record<string, any> = {
-        category_id: selectedCategoryId || null,
-      };
-      const { error } = await supabase
-        .from('drivers')
-        .update(updateData as any)
-        .eq('id', driver.id);
-      if (error) throw error;
+      await adminPageMutate('drivers', 'drivers', 'update', {
+        id: driver.id,
+        patch: { category_id: selectedCategoryId || null },
+      });
       toast.success('Commission settings saved');
     } catch (err) {
       console.error('Error saving commission:', err);
@@ -366,14 +375,13 @@ export function DriverDetailsDialog({
 
     setIsUpdating(true);
     try {
-      const { data: updated, error } = await supabase
-        .from('drivers')
-        .update({ approval_status: newStatus })
-        .eq('id', driver.id)
-        .select('approval_status, documents_approved')
-        .single();
-
-      if (error) throw error;
+      const { row: updated } = await adminPageMutate<{
+        approval_status?: string;
+        documents_approved?: boolean;
+      }>('drivers', 'drivers', 'update', {
+        id: driver.id,
+        patch: { approval_status: newStatus },
+      });
 
       const docsApproved = updated?.documents_approved ?? false;
       onDriverUpdate({ ...driver, approval_status: newStatus });
@@ -489,12 +497,10 @@ export function DriverDetailsDialog({
     
     setIsPetFriendly(value);
     try {
-      const { error } = await supabase
-        .from('drivers')
-        .update({ is_pet_friendly: value })
-        .eq('id', driver.id);
-
-      if (error) throw error;
+      await adminPageMutate('drivers', 'drivers', 'update', {
+        id: driver.id,
+        patch: { is_pet_friendly: value },
+      });
       
       onDriverUpdate({ ...driver, is_pet_friendly: value });
       toast.success(`Pet-friendly ${value ? 'enabled' : 'disabled'}`);
@@ -508,12 +514,10 @@ export function DriverDetailsDialog({
   const approveVehicle = async (vehicleId: string) => {
     setIsUpdating(true);
     try {
-      const { error } = await supabase
-        .from('vehicles')
-        .update({ approval_status: 'approved', rejection_reason: null })
-        .eq('id', vehicleId);
-
-      if (error) throw error;
+      await adminPageMutate('drivers', 'vehicles', 'update', {
+        id: vehicleId,
+        patch: { approval_status: 'approved', rejection_reason: null },
+      });
       
       const vehicle = vehicles.find(v => v.id === vehicleId);
       if (vehicle) {
@@ -536,16 +540,14 @@ export function DriverDetailsDialog({
 
     setIsRejecting(true);
     try {
-      const { error } = await supabase
-        .from('vehicles')
-        .update({ 
-          approval_status: 'rejected', 
-          rejection_reason: rejectionReason.trim() 
-        })
-        .eq('id', rejectVehicleId);
+      await adminPageMutate('drivers', 'vehicles', 'update', {
+        id: rejectVehicleId,
+        patch: {
+          approval_status: 'rejected',
+          rejection_reason: rejectionReason.trim(),
+        },
+      });
 
-      if (error) throw error;
-      
       const vehicle = vehicles.find(v => v.id === rejectVehicleId);
       if (vehicle) {
         onVehicleUpdate({ 
@@ -1167,11 +1169,10 @@ export function DriverDetailsDialog({
                               onClick={async () => {
                                 setIsUpdating(true);
                                 try {
-                                  const { error } = await supabase
-                                    .from('vehicles')
-                                    .update({ approval_status: 'pending', rejection_reason: null })
-                                    .eq('id', vehicle.id);
-                                  if (error) throw error;
+                                  await adminPageMutate('drivers', 'vehicles', 'update', {
+                                    id: vehicle.id,
+                                    patch: { approval_status: 'pending', rejection_reason: null },
+                                  });
                                   onVehicleUpdate({ ...vehicle, approval_status: 'pending', rejection_reason: null });
                                   toast.success('Vehicle set to pending');
                                 } catch {

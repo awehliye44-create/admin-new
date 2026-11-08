@@ -16,6 +16,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { supabase } from '@/integrations/supabase/client';
+import { adminPageMutate, adminPageSelect } from '@/lib/adminPageGatedData';
 import { 
   PlusCircle, Loader2, MapPin, User, Phone, Clock, Car,
   DollarSign, FileText, Calendar, CheckCircle2, AlertCircle,
@@ -149,22 +150,29 @@ export default function ManualTrip() {
   useEffect(() => {
     async function fetchData() {
       try {
-        const [driversRes, vehicleTypesRes, customersRes, serviceAreasRes, corporateRes] = await Promise.all([
-          supabase
-            .from('drivers')
-            .select('id, first_name, last_name, phone, is_online, rating')
-            .eq('approval_status', 'approved')
-            .order('first_name'),
+        const [driversPage, vehicleTypesRes, customersPage, serviceAreasRes, corporateRes] = await Promise.all([
+          adminPageSelect<Driver>('manual-trip', 'drivers', {
+            columns: ['id', 'first_name', 'last_name', 'phone', 'is_online', 'rating'],
+            filters: [{ op: 'eq', col: 'approval_status', val: 'approved' }],
+            order: [{ col: 'first_name', asc: true }],
+            limit: 500,
+          }),
           supabase
             .from('vehicle_types')
             .select('id, name, capacity, icon')
             .eq('is_active', true)
             .order('display_order'),
-          supabase
-            .from('customers')
-            .select('id, first_name, last_name, phone, user_id')
-            .order('first_name')
-            .limit(100),
+          adminPageSelect<{
+            id: string;
+            first_name: string | null;
+            last_name: string | null;
+            phone: string | null;
+            user_id: string;
+          }>('manual-trip', 'customers', {
+            columns: ['id', 'first_name', 'last_name', 'phone', 'user_id'],
+            order: [{ col: 'first_name', asc: true }],
+            limit: 100,
+          }),
           supabase
             .from('service_areas')
             .select('id, name, country, center_lat, center_lng, region_id, region:regions(distance_unit, currency_code)')
@@ -176,6 +184,8 @@ export default function ManualTrip() {
             .eq('status', 'active')
             .order('company_name'),
         ]);
+        const driversRes = { data: driversPage.rows, error: null };
+        const customersRes = { data: customersPage.rows, error: null };
 
         if (driversRes.error) throw driversRes.error;
         if (vehicleTypesRes.error) throw vehicleTypesRes.error;
@@ -641,13 +651,10 @@ export default function ManualTrip() {
           }
       }
 
-      const { data: createdTrip, error } = await supabase
-        .from('trips')
-        .insert([tripData as never])
-        .select('id')
-        .single();
-
-      if (error) throw error;
+      const { row: createdTrip } = await adminPageMutate<{ id: string }>('manual-trip', 'trips', 'insert', {
+        patch: tripData,
+      });
+      if (!createdTrip?.id) throw new Error('Trip insert returned no id');
 
       // Scheduled preconfirm notify stays list-only (/account/rides).
       // Live assign notify only for immediate trips.

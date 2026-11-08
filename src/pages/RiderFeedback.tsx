@@ -31,6 +31,10 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { supabase } from '@/integrations/supabase/client';
+import {
+  adminLookupByIds,
+  adminPageSelect,
+} from '@/lib/adminPageGatedData';
 import { 
   MessageSquare, Loader2, Search, Star, RefreshCw,
   Eye, CheckCircle, XCircle, Clock, Car, User, Filter, Plus,
@@ -223,22 +227,33 @@ export default function RiderFeedback() {
 
       if (customerIds.length > 0) {
         // Try matching by customers.id first (rider_feedback.customer_id → customers.id)
-        const { data: customersById } = await supabase
-          .from('customers')
-          .select('id, user_id, first_name, last_name, phone')
-          .in('id', customerIds);
+        const customersById = await adminLookupByIds<{
+          id: string;
+          user_id: string | null;
+          first_name: string | null;
+          last_name: string | null;
+          phone: string | null;
+        }>('rider-feedback', 'customers', customerIds as string[], [
+          'id', 'user_id', 'first_name', 'last_name', 'phone',
+        ]);
 
-        if (customersById && customersById.length > 0) {
-          customerMap = Object.fromEntries(customersById.map(c => [c.id, c]));
+        if (customersById.length > 0) {
+          customerMap = Object.fromEntries(customersById.map((c) => [c.id, c]));
         } else {
           // Fallback: match by user_id for legacy data
-          const { data: customersByUserId } = await supabase
-            .from('customers')
-            .select('id, user_id, first_name, last_name, phone')
-            .in('user_id', customerIds);
-
-          if (customersByUserId) {
-            customerMap = Object.fromEntries(customersByUserId.map(c => [c.user_id, c]));
+          const { rows: customersByUserId } = await adminPageSelect<{
+            id: string;
+            user_id: string;
+            first_name: string | null;
+            last_name: string | null;
+            phone: string | null;
+          }>('rider-feedback', 'customers', {
+            columns: ['id', 'user_id', 'first_name', 'last_name', 'phone'],
+            filters: [{ op: 'in', col: 'user_id', val: customerIds }],
+            limit: customerIds.length,
+          });
+          if (customersByUserId.length > 0) {
+            customerMap = Object.fromEntries(customersByUserId.map((c) => [c.user_id, c]));
           }
         }
       }
@@ -261,15 +276,44 @@ export default function RiderFeedback() {
 
   const fetchFormData = useCallback(async () => {
     try {
-      const [customersRes, driversRes, tripsRes] = await Promise.all([
-        supabase.from('customers').select('user_id, first_name, last_name, phone').order('first_name'),
-        supabase.from('drivers').select('id, first_name, last_name').eq('approval_status', 'approved').order('first_name'),
-        supabase.from('trips').select('id, trip_code, pickup_address, dropoff_address, passenger_id').eq('status', 'completed').order('created_at', { ascending: false }).limit(100),
+      const [customersPage, driversPage, tripsPage] = await Promise.all([
+        adminPageSelect<{
+          user_id: string;
+          first_name: string | null;
+          last_name: string | null;
+          phone: string | null;
+        }>('rider-feedback', 'customers', {
+          columns: ['user_id', 'first_name', 'last_name', 'phone'],
+          order: [{ col: 'first_name', asc: true }],
+          limit: 500,
+        }),
+        adminPageSelect<{
+          id: string;
+          first_name: string | null;
+          last_name: string | null;
+        }>('rider-feedback', 'drivers', {
+          columns: ['id', 'first_name', 'last_name'],
+          filters: [{ op: 'eq', col: 'approval_status', val: 'approved' }],
+          order: [{ col: 'first_name', asc: true }],
+          limit: 500,
+        }),
+        adminPageSelect<{
+          id: string;
+          trip_code: string | null;
+          pickup_address: string | null;
+          dropoff_address: string | null;
+          passenger_id: string | null;
+        }>('rider-feedback', 'trips', {
+          columns: ['id', 'trip_code', 'pickup_address', 'dropoff_address', 'passenger_id'],
+          filters: [{ op: 'eq', col: 'status', val: 'completed' }],
+          order: [{ col: 'created_at', asc: false }],
+          limit: 100,
+        }),
       ]);
 
-      if (customersRes.data) setCustomers(customersRes.data);
-      if (driversRes.data) setDrivers(driversRes.data);
-      if (tripsRes.data) setTrips(tripsRes.data);
+      setCustomers(customersPage.rows as any);
+      setDrivers(driversPage.rows as any);
+      setTrips(tripsPage.rows as any);
     } catch (err) {
       console.error('Error fetching form data:', err);
     }

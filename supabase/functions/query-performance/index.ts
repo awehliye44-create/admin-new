@@ -1,5 +1,5 @@
 import { createClient } from "npm:@supabase/supabase-js@2.57.2";
-import { requireAdmin } from "../_shared/internalAuth.ts";
+import { requireAdmin, requirePageAccess } from "../_shared/adminPaymentGate.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -12,13 +12,10 @@ Deno.serve(async (req) => {
     return new Response(null, { headers: corsHeaders });
   }
 
-  const admin = await requireAdmin(req);
-  if (admin instanceof Response) {
-    return new Response(JSON.stringify({ error: "Forbidden" }), {
-      status: admin.status,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
-  }
+  const adminGate = await requireAdmin(req);
+  if (!adminGate.ok) return adminGate.response;
+  const pageGate = await requirePageAccess(adminGate, "system");
+  if (!pageGate.ok) return pageGate.response;
 
   try {
     const supabase = createClient(

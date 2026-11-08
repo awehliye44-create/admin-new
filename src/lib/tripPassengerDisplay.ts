@@ -1,4 +1,4 @@
-import { supabase } from '@/integrations/supabase/client';
+import { adminLookupByIds } from '@/lib/adminPageGatedData';
 
 /**
  * Trip passenger display SSOT.
@@ -35,32 +35,34 @@ export interface PassengerDirectoryEntry {
 
 export type PassengerDirectory = Map<string, PassengerDirectoryEntry>;
 
-/** Load rider identities for the given passenger ids (deduped, chunked). */
+/**
+ * Load rider identities for the given passenger ids (deduped, chunked).
+ * `pageSlug` must be a page that is allowlisted for customers SELECT.
+ */
 export async function fetchPassengerDirectory(
   passengerIds: Array<string | null | undefined>,
+  pageSlug = 'trip-history',
 ): Promise<PassengerDirectory> {
   const ids = Array.from(new Set(passengerIds.filter((id): id is string => Boolean(id))));
   const directory: PassengerDirectory = new Map();
   if (ids.length === 0) return directory;
 
-  const CHUNK = 200;
-  for (let i = 0; i < ids.length; i += CHUNK) {
-    const chunk = ids.slice(i, i + CHUNK);
-    const { data, error } = await supabase
-      .from('customers')
-      .select('id, first_name, last_name, phone')
-      .in('id', chunk);
-    if (error) throw error;
-    for (const row of data ?? []) {
-      const name = [row.first_name, row.last_name]
-        .map((part) => (part ?? '').trim())
-        .filter(Boolean)
-        .join(' ');
-      directory.set(row.id as string, {
-        name: name.length > 0 ? name : null,
-        phone: (row.phone ?? '').trim() || null,
-      });
-    }
+  const rows = await adminLookupByIds<{
+    id: string;
+    first_name: string | null;
+    last_name: string | null;
+    phone: string | null;
+  }>(pageSlug, 'customers', ids, ['id', 'first_name', 'last_name', 'phone']);
+
+  for (const row of rows) {
+    const name = [row.first_name, row.last_name]
+      .map((part) => (part ?? '').trim())
+      .filter(Boolean)
+      .join(' ');
+    directory.set(row.id, {
+      name: name.length > 0 ? name : null,
+      phone: (row.phone ?? '').trim() || null,
+    });
   }
   return directory;
 }

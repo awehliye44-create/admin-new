@@ -1,6 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { z } from "https://esm.sh/zod@3.23.8";
-import { corsHeaders, jsonResponse, requireAdmin } from "../_shared/adminPaymentGate.ts";
+import { corsHeaders, jsonResponse, requireAdmin, requireAnyPageAccess } from "../_shared/adminPaymentGate.ts";
 import {
   mapTripsToCaptureSsotRows,
   TRIP_CAPTURE_SSOT_SELECT,
@@ -16,7 +16,13 @@ serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
   try {
-    const gate = await requireAdmin(req);
+    const adminGate = await requireAdmin(req);
+    if (!adminGate.ok) return adminGate.response;
+    const gate = await requireAnyPageAccess(adminGate, [
+      "payment-sessions",
+      "financial-reconciliation",
+      "trip-history",
+    ]);
     if (!gate.ok) return gate.response;
 
     let body: unknown;

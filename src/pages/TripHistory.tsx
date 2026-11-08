@@ -33,6 +33,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { supabase } from '@/integrations/supabase/client';
+import { adminPageSelect } from '@/lib/adminPageGatedData';
 import { useRegions } from '@/hooks/useRegions';
 import { useServiceAreas as useSharedServiceAreas } from '@/hooks/useServiceAreas';
 import { 
@@ -2201,19 +2202,25 @@ export default function TripHistory() {
                   }
                   onUpdated={async () => {
                     fetchData();
-                    const { data } = await supabase
-                      .from('trips')
-                      .select(`
-                        invoice_no, invoice_pdf_url, invoice_generated_at, invoice_email_sent,
-                        invoice_email_sent_at, invoice_email_status, invoice_email_error,
-                        invoice_pdf_error, invoice_total_paid_pence, invoice_regenerated_at,
-                        invoice_payment_classification, invoice_paid_pence, invoice_outstanding_pence, invoice_delivery_eligible
-                      `)
-                      .eq('id', selectedTrip.id)
-                      .single();
+                    const { rows } = await adminPageSelect<Record<string, unknown>>(
+                      'trip-history',
+                      'trips',
+                      {
+                        columns: [
+                          'invoice_no', 'invoice_pdf_url', 'invoice_generated_at', 'invoice_email_sent',
+                          'invoice_email_sent_at', 'invoice_email_status', 'invoice_email_error',
+                          'invoice_pdf_error', 'invoice_total_paid_pence', 'invoice_regenerated_at',
+                          'invoice_payment_classification', 'invoice_paid_pence',
+                          'invoice_outstanding_pence', 'invoice_delivery_eligible',
+                        ],
+                        filters: [{ op: 'eq', col: 'id', val: selectedTrip.id }],
+                        limit: 1,
+                      },
+                    );
+                    const data = rows[0];
                     if (data) {
                       setSelectedTrip((prev) => (prev ? { ...prev, ...data } : prev));
-                      if (data.invoice_email_sent_at) {
+                      if (typeof data.invoice_email_sent_at === 'string') {
                         markReceiptSent(selectedTrip.id, data.invoice_email_sent_at);
                       }
                     }

@@ -21,6 +21,7 @@ import {
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import { supabase } from '@/integrations/supabase/client';
+import { adminListRidersPage } from '@/lib/adminPageGatedData';
 import { ADMIN_RIDERS_PAGE_SIZE } from '@/lib/adminQueryBounds';
 import {
   Users, Loader2, Search, MoreVertical, Eye,
@@ -77,36 +78,19 @@ export default function Riders() {
   const { data: ridersPage, isLoading } = useQuery({
     queryKey: ['riders', listPage, statusFilter, searchQuery],
     queryFn: async () => {
-      const from = listPage * ADMIN_RIDERS_PAGE_SIZE;
-      const to = from + ADMIN_RIDERS_PAGE_SIZE - 1;
       const q = searchQuery.trim();
+      const { rows, count } = await adminListRidersPage({
+        status: statusFilter,
+        search: q || undefined,
+        limit: ADMIN_RIDERS_PAGE_SIZE,
+        offset: listPage * ADMIN_RIDERS_PAGE_SIZE,
+      });
 
-      let ridersQ = supabase
-        .from('admin_riders_with_trip_stats')
-        .select(
-          'id, user_id, customer_code, first_name, last_name, phone, email, created_at, updated_at, rider_status, trip_count, last_trip_at, identity_verified_at, identity_provider, name_edit_locked, name_unlocked_at',
-          { count: 'exact' },
-        )
-        .order('created_at', { ascending: false })
-        .range(from, to);
-
-      if (statusFilter !== 'all') {
-        ridersQ = ridersQ.eq('rider_status', statusFilter);
-      }
-      if (q) {
-        ridersQ = ridersQ.or(
-          `first_name.ilike.%${q}%,last_name.ilike.%${q}%,phone.ilike.%${q}%,customer_code.ilike.%${q}%`,
-        );
-      }
-
-      const { data: ridersData, error: ridersError, count } = await ridersQ;
-      if (ridersError) throw ridersError;
-
-      const riders = (ridersData || []).map((rider) => ({
+      const riders = rows.map((rider) => ({
         ...rider,
-        trip_count: rider.trip_count ?? 0,
-        last_trip_at: rider.last_trip_at ?? null,
-        rider_status: rider.rider_status || 'active',
+        trip_count: (rider.trip_count as number | undefined) ?? 0,
+        last_trip_at: (rider.last_trip_at as string | null | undefined) ?? null,
+        rider_status: (rider.rider_status as Rider['rider_status']) || 'active',
       })) as Rider[];
       return { riders, totalCount: count ?? riders.length };
     },
@@ -120,12 +104,11 @@ export default function Riders() {
     queryKey: ['riders-status-counts'],
     queryFn: async () => {
       const head = async (status?: StatusFilter) => {
-        let q = supabase
-          .from('admin_riders_with_trip_stats')
-          .select('id', { count: 'exact', head: true });
-        if (status && status !== 'all') q = q.eq('rider_status', status);
-        const { count, error } = await q;
-        if (error) throw error;
+        const { count } = await adminListRidersPage({
+          status: status && status !== 'all' ? status : 'all',
+          count_only: true,
+          limit: 1,
+        });
         return count ?? 0;
       };
       const [all, active, disabled, suspended, deleted] = await Promise.all([
@@ -146,18 +129,18 @@ export default function Riders() {
       const now = new Date();
       const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
       const [withTrips, newThisMonth] = await Promise.all([
-        supabase
-          .from('admin_riders_with_trip_stats')
-          .select('id', { count: 'exact', head: true })
-          .eq('rider_status', 'active')
-          .gt('trip_count', 0),
-        supabase
-          .from('admin_riders_with_trip_stats')
-          .select('id', { count: 'exact', head: true })
-          .gte('created_at', monthStart),
+        adminListRidersPage({
+          status: 'active',
+          min_trip_count: 1,
+          count_only: true,
+          limit: 1,
+        }),
+        adminListRidersPage({
+          created_gte: monthStart,
+          count_only: true,
+          limit: 1,
+        }),
       ]);
-      if (withTrips.error) throw withTrips.error;
-      if (newThisMonth.error) throw newThisMonth.error;
       return {
         withTrips: withTrips.count ?? 0,
         newThisMonth: newThisMonth.count ?? 0,
@@ -186,19 +169,22 @@ export default function Riders() {
 
     let cancelled = false;
     (async () => {
-      const { data, error } = await supabase
-        .from('admin_riders_with_trip_stats')
-        .select(
-          'id, user_id, customer_code, first_name, last_name, phone, email, created_at, updated_at, rider_status, trip_count, last_trip_at, identity_verified_at, identity_provider, name_edit_locked, name_unlocked_at',
-        )
-        .eq('id', deepLinkCustomerId)
-        .maybeSingle();
-      if (cancelled || error || !data) return;
+      let data: Record<string, unknown> | null = null;
+      try {
+        const { rows } = await adminListRidersPage({
+          id: deepLinkCustomerId,
+          limit: 1,
+        });
+        data = (rows[0] as Record<string, unknown>) ?? null;
+      } catch {
+        return;
+      }
+      if (cancelled || !data) return;
       const rider = {
         ...data,
-        trip_count: data.trip_count ?? 0,
-        last_trip_at: data.last_trip_at ?? null,
-        rider_status: data.rider_status || 'active',
+        trip_count: (data.trip_count as number | undefined) ?? 0,
+        last_trip_at: (data.last_trip_at as string | null | undefined) ?? null,
+        rider_status: (data.rider_status as Rider['rider_status']) || 'active',
       } as Rider;
       setSelectedRider(rider);
       setIsViewDialogOpen(true);
