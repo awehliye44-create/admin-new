@@ -140,7 +140,6 @@ Deno.serve(async (req) => {
     logEvent("RESUME_VERIFICATION_SIGN_IN", {
       user_id: userId,
       app_type: appType,
-      email,
     });
 
     return jsonResponse({

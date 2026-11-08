@@ -67,6 +67,18 @@ serve(async (req) => {
           return errorResponse("Trip not found or has no service_area_id", 404);
         }
 
+        // The stop must belong to the caller's trip before any waiting session is written.
+        const { data: stop, error: stopErr } = await supabase
+          .from("trip_stops")
+          .select("id")
+          .eq("id", body.stop_id)
+          .eq("trip_id", body.trip_id)
+          .maybeSingle();
+
+        if (stopErr || !stop) {
+          return errorResponse("Stop not found for this trip", 404);
+        }
+
         const { data: ds, error: dsErr } = await supabase
           .from("stop_waiting_settings")
           .select("stop_waiting_grace_period_seconds, stop_waiting_charge_interval_seconds, stop_waiting_rate_pence_per_minute")
