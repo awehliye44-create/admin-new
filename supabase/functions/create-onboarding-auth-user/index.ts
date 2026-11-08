@@ -22,6 +22,36 @@ function isDuplicateAuthError(message: string): boolean {
   return msg.includes("already") || msg.includes("registered") || msg.includes("exists");
 }
 
+/** Map GoTrue createUser failures to actionable 4xx copy (never a silent 500). */
+function mapCreateUserFailure(message: string): { status: number; error: string } {
+  const msg = message.toLowerCase();
+  if (isDuplicateAuthError(message)) {
+    if (msg.includes("phone")) {
+      return { status: 409, error: "This phone number is already registered." };
+    }
+    return {
+      status: 409,
+      error: "An account with this email already exists. Please sign in instead.",
+    };
+  }
+  if (msg.includes("password") && (msg.includes("weak") || msg.includes("short") || msg.includes("least"))) {
+    return { status: 400, error: "Choose a stronger password (at least 8 characters)." };
+  }
+  if (msg.includes("email") && (msg.includes("invalid") || msg.includes("format"))) {
+    return { status: 400, error: "Please enter a valid email address." };
+  }
+  if (msg.includes("phone") && (msg.includes("invalid") || msg.includes("format"))) {
+    return { status: 400, error: "Please enter a valid phone number." };
+  }
+  if (msg.includes("rate") || msg.includes("too many")) {
+    return {
+      status: 429,
+      error: "Too many signup attempts. Please wait a moment and try again.",
+    };
+  }
+  return { status: 500, error: "Could not create account. Please try again." };
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
@@ -136,15 +166,38 @@ Deno.serve(async (req) => {
       ...addressMetadata,
     };
 
-    const { data: created, error: createError } = await service.auth.admin.createUser({
+    // Prefer Auth.phone (unconfirmed) so Driver OTP targets the collected number.
+    // Fall back to metadata-only when an unconfirmed phone collision blocks attach
+    // (check_identity_exists only treats confirmed phones as taken).
+    const baseCreatePayload = {
       email,
       password,
       email_confirm: confirmEmailOnCreate,
       user_metadata: userMetadata,
-    });
+    };
+    const createWithPhone = { ...baseCreatePayload, phone, phone_confirm: false };
 
-    let createdUser = created;
-    let finalCreateError = createError;
+    async function createAuthUser(
+      payload: typeof createWithPhone | typeof baseCreatePayload,
+    ) {
+      return await service.auth.admin.createUser(payload);
+    }
+
+    let { data: createdUser, error: finalCreateError } = await createAuthUser(createWithPhone);
+
+    if (
+      (finalCreateError || !createdUser.user?.id) &&
+      /phone/i.test(finalCreateError?.message ?? "") &&
+      isDuplicateAuthError(finalCreateError?.message ?? "")
+    ) {
+      logEvent("DRIVER_SIGNUP_CREATE_USER_PHONE_ATTACH_FALLBACK", {
+        app_type: appType,
+        provider_message: (finalCreateError?.message ?? "").slice(0, 180),
+      });
+      const fallback = await createAuthUser(baseCreatePayload);
+      createdUser = fallback.data;
+      finalCreateError = fallback.error;
+    }
 
     if ((finalCreateError || !createdUser.user?.id) && isDuplicateAuthError(finalCreateError?.message ?? "")) {
       const { data: retryReclaim } = await service.rpc("reclaim_stale_onboarding_auth_user", { p_email: email });
@@ -152,24 +205,35 @@ Deno.serve(async (req) => {
         logEvent("STALE_ONBOARDING_AUTH_USER_RECLAIMED_ON_CREATE_RETRY", {
           user_id: (retryReclaim as { user_id?: string }).user_id ?? null,
         });
-        const retry = await service.auth.admin.createUser({
-          email,
-          password,
-          email_confirm: confirmEmailOnCreate,
-          user_metadata: userMetadata,
-        });
+        const retry = await createAuthUser(createWithPhone);
         createdUser = retry.data;
         finalCreateError = retry.error;
+        if (
+          (finalCreateError || !createdUser.user?.id) &&
+          /phone/i.test(finalCreateError?.message ?? "")
+        ) {
+          const retryFallback = await createAuthUser(baseCreatePayload);
+          createdUser = retryFallback.data;
+          finalCreateError = retryFallback.error;
+        }
       }
     }
 
     if (finalCreateError || !createdUser.user?.id) {
       const msg = finalCreateError?.message ?? "createUser failed";
-      if (isDuplicateAuthError(msg)) {
-        return jsonResponse({ error: "An account with this email already exists. Please sign in instead." }, 409);
-      }
-      console.error("create-onboarding-auth-user createUser error:", finalCreateError);
-      return jsonResponse({ error: "Could not create account. Please try again." }, 500);
+      const mapped = mapCreateUserFailure(msg);
+      console.error("create-onboarding-auth-user createUser error:", {
+        message: msg,
+        mapped_status: mapped.status,
+        mapped_error: mapped.error,
+      });
+      logEvent("DRIVER_SIGNUP_CREATE_USER_FAILED", {
+        app_type: appType,
+        mapped_status: mapped.status,
+        reason: mapped.error,
+        provider_message: msg.slice(0, 180),
+      });
+      return jsonResponse({ error: mapped.error }, mapped.status);
     }
 
     const userId = createdUser.user.id;
