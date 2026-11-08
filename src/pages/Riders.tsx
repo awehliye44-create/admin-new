@@ -506,8 +506,8 @@ export default function Riders() {
                   <TableHead>Status</TableHead>
                   <TableHead>Phone</TableHead>
                   <TableHead>Email</TableHead>
-                  <TableHead>Trips</TableHead>
-                  <TableHead>Last Trip</TableHead>
+                  <TableHead>Completed Trips</TableHead>
+                  <TableHead>Last Completed Trip</TableHead>
                   <TableHead>Joined</TableHead>
                   <TableHead className="text-right">Actions</TableHead>
                 </TableRow>
