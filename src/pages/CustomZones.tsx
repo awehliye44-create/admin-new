@@ -524,75 +524,164 @@ export default function CustomZones() {
           </CardContent>
         </Card>
 
-        {/* Create/Edit Dialog */}
+        {/* Create/Edit Dialog — near full-screen so the map is drawable */}
         <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-          <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
-            <form onSubmit={handleSubmit}>
-              <DialogHeader>
+          <DialogContent className="max-w-[98vw] w-[98vw] h-[96vh] flex flex-col gap-3 overflow-hidden p-4 sm:rounded-lg">
+            <form onSubmit={handleSubmit} className="flex min-h-0 flex-1 flex-col gap-3">
+              <DialogHeader className="shrink-0 space-y-1 pr-8">
                 <DialogTitle>{editingZone ? "Edit Pricing Zone" : "Create Pricing Zone"}</DialogTitle>
-                <DialogDescription>Apply fees, surcharges, or fare overrides based on location.</DialogDescription>
+                <DialogDescription>Draw the zone on the large map, then set pricing rules on the left.</DialogDescription>
               </DialogHeader>
 
-              <div className="grid gap-4 py-4">
-                {/* Basic Info */}
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="grid gap-2">
-                    <Label htmlFor="name">Zone Name *</Label>
-                    <Input id="name" value={formData.name} onChange={(e) => setFormData({ ...formData, name: e.target.value })} placeholder="e.g., Airport Terminal 1" required />
+              <div className="grid min-h-0 flex-1 gap-4 overflow-hidden lg:grid-cols-[minmax(300px,380px)_minmax(0,1fr)]">
+                {/* Form fields */}
+                <div className="min-h-0 space-y-4 overflow-y-auto pr-1">
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="grid gap-2">
+                      <Label htmlFor="name">Zone Name *</Label>
+                      <Input id="name" value={formData.name} onChange={(e) => setFormData({ ...formData, name: e.target.value })} placeholder="e.g., Airport Terminal 1" required />
+                    </div>
+                    <div className="grid gap-2">
+                      <Label>Region</Label>
+                      <Select value={formData.region_id || "none"} onValueChange={(value) => setFormData({ ...formData, region_id: value === "none" ? "" : value, service_area_id: "" })}>
+                        <SelectTrigger><SelectValue placeholder="Select Region" /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="none">Select a region</SelectItem>
+                          {regions.map((r) => <SelectItem key={r.id} value={r.id}>{r.name}</SelectItem>)}
+                        </SelectContent>
+                      </Select>
+                    </div>
                   </div>
+
                   <div className="grid gap-2">
-                    <Label>Region</Label>
-                    <Select value={formData.region_id || "none"} onValueChange={(value) => setFormData({ ...formData, region_id: value === "none" ? "" : value, service_area_id: "" })}>
-                      <SelectTrigger><SelectValue placeholder="Select Region" /></SelectTrigger>
+                    <Label>Service Area *</Label>
+                    <Select value={formData.service_area_id || "none"} onValueChange={(value) => setFormData({ ...formData, service_area_id: value === "none" ? "" : value })}>
+                      <SelectTrigger><SelectValue placeholder="Select Service Area" /></SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="none">Select a region</SelectItem>
-                        {regions.map((r) => <SelectItem key={r.id} value={r.id}>{r.name}</SelectItem>)}
+                        <SelectItem value="none">Select a service area</SelectItem>
+                        {formServiceAreas.map((sa) => <SelectItem key={sa.id} value={sa.id}>{sa.name}</SelectItem>)}
                       </SelectContent>
                     </Select>
                   </div>
-                </div>
 
-                <div className="grid gap-2">
-                  <Label>Service Area *</Label>
-                  <Select value={formData.service_area_id || "none"} onValueChange={(value) => setFormData({ ...formData, service_area_id: value === "none" ? "" : value })}>
-                    <SelectTrigger><SelectValue placeholder="Select Service Area" /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="none">Select a service area</SelectItem>
-                      {formServiceAreas.map((sa) => <SelectItem key={sa.id} value={sa.id}>{sa.name}</SelectItem>)}
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                <div className="grid gap-2">
-                  <Label htmlFor="description">Description</Label>
-                  <Textarea id="description" value={formData.description} onChange={(e) => setFormData({ ...formData, description: e.target.value })} placeholder="Describe this zone..." rows={2} />
-                </div>
-
-                <div className="grid grid-cols-2 gap-4">
                   <div className="grid gap-2">
-                    <Label>Priority</Label>
-                    <Input type="number" value={formData.priority} onChange={(e) => setFormData({ ...formData, priority: parseInt(e.target.value) || 0 })} min={0} max={100} />
-                    <p className="text-xs text-muted-foreground">Higher priority wins when zones overlap</p>
+                    <Label htmlFor="description">Description</Label>
+                    <Textarea id="description" value={formData.description} onChange={(e) => setFormData({ ...formData, description: e.target.value })} placeholder="Describe this zone..." rows={2} />
                   </div>
-                  <div className="grid gap-2">
-                    <Label>Color</Label>
-                    <div className="flex flex-wrap gap-1">
-                      {PRESET_COLORS.slice(0, 7).map((c) => (
-                        <button key={c} type="button" className={`h-6 w-6 rounded-full border-2 transition-transform ${formData.color === c ? 'border-foreground scale-110' : 'border-transparent'}`} style={{ backgroundColor: c }} onClick={() => setFormData({ ...formData, color: c })} />
-                      ))}
+
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="grid gap-2">
+                      <Label>Priority</Label>
+                      <Input type="number" value={formData.priority} onChange={(e) => setFormData({ ...formData, priority: parseInt(e.target.value) || 0 })} min={0} max={100} />
+                      <p className="text-xs text-muted-foreground">Higher priority wins when zones overlap</p>
+                    </div>
+                    <div className="grid gap-2">
+                      <Label>Color</Label>
+                      <div className="flex flex-wrap gap-1">
+                        {PRESET_COLORS.slice(0, 7).map((c) => (
+                          <button key={c} type="button" className={`h-6 w-6 rounded-full border-2 transition-transform ${formData.color === c ? 'border-foreground scale-110' : 'border-transparent'}`} style={{ backgroundColor: c }} onClick={() => setFormData({ ...formData, color: c })} />
+                        ))}
+                      </div>
                     </div>
                   </div>
+
+                  <Separator />
+
+                  <div className="space-y-4">
+                    <Label className="text-base font-medium">Pricing Rules</Label>
+
+                    <div className="grid gap-2">
+                      <Label>Scheduled access allowance (minutes)</Label>
+                      <Input
+                        type="number"
+                        min={0}
+                        value={formData.access_allowance_minutes ?? ""}
+                        onChange={(e) => setFormData({
+                          ...formData,
+                          access_allowance_minutes: e.target.value === ""
+                            ? null
+                            : Math.max(0, parseInt(e.target.value) || 0),
+                        })}
+                        placeholder="Inherit SA / system default"
+                      />
+                      <p className="text-xs text-muted-foreground">
+                        Optional location override for scheduled commitment timing. Empty inherits service-area / system default.
+                      </p>
+                    </div>
+
+                    <div className="grid gap-2">
+                      <Label>Airport Charge (£)</Label>
+                      <Input
+                        type="number"
+                        step="0.01"
+                        value={formData.metadata.airport_charge ?? ""}
+                        onChange={(e) => setFormData({
+                          ...formData,
+                          metadata: {
+                            ...formData.metadata,
+                            airport_charge: e.target.value ? parseFloat(e.target.value) : undefined,
+                          },
+                        })}
+                        placeholder="0.00"
+                      />
+                      <p className="text-xs text-muted-foreground">
+                        Applied to airport pickup and dropoff. Final fare = Fixed Fare + Airport Charge.
+                      </p>
+                    </div>
+
+                    <div className="grid gap-2">
+                      <Label>Surcharge %</Label>
+                      <Input type="number" step="0.1" value={formData.metadata.surcharge_pct ?? ""} onChange={(e) => setFormData({ ...formData, metadata: { ...formData.metadata, surcharge_pct: e.target.value ? parseFloat(e.target.value) : undefined } })} placeholder="0" />
+                      <p className="text-xs text-muted-foreground">Percentage added on top of Base Fare (BF) only</p>
+                    </div>
+
+                    <Separator />
+
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="grid gap-2">
+                        <Label>Fare Override Mode</Label>
+                        <Select value={formData.metadata.fare_override_mode || "NONE"} onValueChange={(value) => setFormData({ ...formData, metadata: { ...formData.metadata, fare_override_mode: value as any, fare_override_value: value === 'NONE' ? undefined : formData.metadata.fare_override_value } })}>
+                          <SelectTrigger><SelectValue /></SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="NONE">None (default)</SelectItem>
+                            <SelectItem value="FIXED_FARE">Fixed Fare</SelectItem>
+                            <SelectItem value="MULTIPLIER">Multiplier</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      {formData.metadata.fare_override_mode && formData.metadata.fare_override_mode !== 'NONE' && (
+                        <div className="grid gap-2">
+                          <Label>{formData.metadata.fare_override_mode === 'FIXED_FARE' ? 'Fixed Fare Amount (£)' : 'Multiplier Factor'}</Label>
+                          <Input type="number" step="0.01" value={formData.metadata.fare_override_value ?? ""} onChange={(e) => setFormData({ ...formData, metadata: { ...formData.metadata, fare_override_value: e.target.value ? parseFloat(e.target.value) : undefined } })} placeholder={formData.metadata.fare_override_mode === 'FIXED_FARE' ? '15.00' : '1.2'} />
+                          <p className="text-xs text-muted-foreground">
+                            {formData.metadata.fare_override_mode === 'FIXED_FARE' ? 'Sets the base fare to this fixed amount' : 'Multiplies the base fare by this factor (e.g. 1.2 = 20% increase)'}
+                          </p>
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="grid gap-2">
+                      <Label>Notes</Label>
+                      <Textarea value={formData.metadata.notes ?? ""} onChange={(e) => setFormData({ ...formData, metadata: { ...formData.metadata, notes: e.target.value || undefined } })} placeholder="Internal notes about this pricing zone..." rows={2} />
+                    </div>
+                  </div>
+
+                  <div className="flex items-center justify-between rounded-lg border p-3">
+                    <div>
+                      <Label>Active Status</Label>
+                      <p className="text-xs text-muted-foreground">Zone will be used for fare calculations</p>
+                    </div>
+                    <Switch checked={formData.is_active} onCheckedChange={(checked) => setFormData({ ...formData, is_active: checked })} />
+                  </div>
                 </div>
 
-                <Separator />
-
-                {/* Map */}
-                <div className="space-y-3">
-                  <Label className="text-base font-medium">Zone Boundary *</Label>
+                {/* Large map pane */}
+                <div className="flex min-h-[50vh] flex-col overflow-hidden lg:min-h-0">
+                  <Label className="mb-2 shrink-0 text-base font-medium">Zone Boundary *</Label>
                   {!formData.service_area_id ? (
-                    <div className="flex items-center gap-2 p-4 rounded-lg border border-dashed border-muted-foreground/30 bg-muted/30">
+                    <div className="flex flex-1 items-center justify-center gap-2 rounded-lg border border-dashed border-muted-foreground/30 bg-muted/30 p-6">
                       <Map className="h-5 w-5 text-muted-foreground" />
-                      <p className="text-sm text-muted-foreground">Select a service area above to enable map drawing</p>
+                      <p className="text-sm text-muted-foreground">Select a service area on the left to enable map drawing</p>
                     </div>
                   ) : (
                     <ZoneBoundaryMap
@@ -604,103 +693,14 @@ export default function CustomZones() {
                       onPolygonChange={handlePolygonChange}
                       onCircleChange={handleCircleChange}
                       onShapeTypeChange={handleShapeTypeChange}
-                      height="350px"
+                      fillContainer
+                      className="min-h-0 flex-1"
                     />
                   )}
                 </div>
-
-                <Separator />
-
-                {/* Pricing Rules */}
-                <div className="space-y-4">
-                  <Label className="text-base font-medium">Pricing Rules</Label>
-
-                  <div className="grid gap-2">
-                    <Label>Scheduled access allowance (minutes)</Label>
-                    <Input
-                      type="number"
-                      min={0}
-                      value={formData.access_allowance_minutes ?? ""}
-                      onChange={(e) => setFormData({
-                        ...formData,
-                        access_allowance_minutes: e.target.value === ""
-                          ? null
-                          : Math.max(0, parseInt(e.target.value) || 0),
-                      })}
-                      placeholder="Inherit SA / system default"
-                    />
-                    <p className="text-xs text-muted-foreground">
-                      Optional location override for scheduled commitment timing (airports, stations, venues, restricted). Does not create a separate workflow — adds access time only. Empty inherits service-area / system default.
-                    </p>
-                  </div>
-
-                  <div className="grid gap-2">
-                    <Label>Airport Charge (£)</Label>
-                    <Input
-                      type="number"
-                      step="0.01"
-                      value={formData.metadata.airport_charge ?? ""}
-                      onChange={(e) => setFormData({
-                        ...formData,
-                        metadata: {
-                          ...formData.metadata,
-                          airport_charge: e.target.value ? parseFloat(e.target.value) : undefined,
-                        },
-                      })}
-                      placeholder="0.00"
-                    />
-                    <p className="text-xs text-muted-foreground">
-                      Single charge applied to BOTH airport pickup and airport dropoff trips. Final fare = Fixed Fare + Airport Charge.
-                    </p>
-                  </div>
-
-                  <div className="grid gap-2">
-                    <Label>Surcharge %</Label>
-                    <Input type="number" step="0.1" value={formData.metadata.surcharge_pct ?? ""} onChange={(e) => setFormData({ ...formData, metadata: { ...formData.metadata, surcharge_pct: e.target.value ? parseFloat(e.target.value) : undefined } })} placeholder="0" />
-                    <p className="text-xs text-muted-foreground">Percentage added on top of Base Fare (BF) only</p>
-                  </div>
-
-                  <Separator />
-
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="grid gap-2">
-                      <Label>Fare Override Mode</Label>
-                      <Select value={formData.metadata.fare_override_mode || "NONE"} onValueChange={(value) => setFormData({ ...formData, metadata: { ...formData.metadata, fare_override_mode: value as any, fare_override_value: value === 'NONE' ? undefined : formData.metadata.fare_override_value } })}>
-                        <SelectTrigger><SelectValue /></SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="NONE">None (default)</SelectItem>
-                          <SelectItem value="FIXED_FARE">Fixed Fare</SelectItem>
-                          <SelectItem value="MULTIPLIER">Multiplier</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    {formData.metadata.fare_override_mode && formData.metadata.fare_override_mode !== 'NONE' && (
-                      <div className="grid gap-2">
-                        <Label>{formData.metadata.fare_override_mode === 'FIXED_FARE' ? 'Fixed Fare Amount (£)' : 'Multiplier Factor'}</Label>
-                        <Input type="number" step="0.01" value={formData.metadata.fare_override_value ?? ""} onChange={(e) => setFormData({ ...formData, metadata: { ...formData.metadata, fare_override_value: e.target.value ? parseFloat(e.target.value) : undefined } })} placeholder={formData.metadata.fare_override_mode === 'FIXED_FARE' ? '15.00' : '1.2'} />
-                        <p className="text-xs text-muted-foreground">
-                          {formData.metadata.fare_override_mode === 'FIXED_FARE' ? 'Sets the base fare to this fixed amount' : 'Multiplies the base fare by this factor (e.g. 1.2 = 20% increase)'}
-                        </p>
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="grid gap-2">
-                    <Label>Notes</Label>
-                    <Textarea value={formData.metadata.notes ?? ""} onChange={(e) => setFormData({ ...formData, metadata: { ...formData.metadata, notes: e.target.value || undefined } })} placeholder="Internal notes about this pricing zone..." rows={2} />
-                  </div>
-                </div>
-
-                <div className="flex items-center justify-between rounded-lg border p-3">
-                  <div>
-                    <Label>Active Status</Label>
-                    <p className="text-xs text-muted-foreground">Zone will be used for fare calculations</p>
-                  </div>
-                  <Switch checked={formData.is_active} onCheckedChange={(checked) => setFormData({ ...formData, is_active: checked })} />
-                </div>
               </div>
 
-              <DialogFooter>
+              <DialogFooter className="shrink-0 border-t pt-3">
                 <Button type="button" variant="outline" onClick={resetForm}>Cancel</Button>
                 <Button type="submit" disabled={createMutation.isPending || updateMutation.isPending}>
                   {(createMutation.isPending || updateMutation.isPending) && <Loader2 className="h-4 w-4 animate-spin mr-2" />}

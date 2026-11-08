@@ -8,6 +8,7 @@ import * as turf from '@turf/turf';
 import { mapboxgl } from '@/lib/mapbox';
 import { createMapboxMap } from '@/lib/mapboxMap';
 import { useMapboxToken } from '@/hooks/useMapboxToken';
+import { cn } from '@/lib/utils';
 
 interface LatLng { lat: number; lng: number }
 interface GeoJSONPoly { type: string; coordinates: number[][][] }
@@ -26,6 +27,9 @@ interface ZoneBoundaryMapProps {
   onCircleChange: (center_lat: number | null, center_lng: number | null, radius_meters: number | null) => void;
   onShapeTypeChange: (type: 'polygon' | 'circle') => void;
   height?: string;
+  /** Fill parent height (flex layouts / full-screen dialogs). */
+  fillContainer?: boolean;
+  className?: string;
 }
 
 const REGION_SRC = 'zone-region-src', REGION_FILL = 'zone-region-fill', REGION_LINE = 'zone-region-line';
@@ -53,6 +57,8 @@ export function ZoneBoundaryMap({
   onCircleChange,
   onShapeTypeChange,
   height = '400px',
+  fillContainer = false,
+  className,
 }: ZoneBoundaryMapProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<mapboxgl.Map | null>(null);
@@ -328,8 +334,8 @@ export function ZoneBoundaryMap({
   const hasValidShape = shapeType === 'polygon' ? points.length >= 3 && !isDrawing : circleCenter !== null && !isDrawing;
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-center gap-2">
+    <div className={cn('space-y-4', fillContainer && 'h-full min-h-0 flex flex-col', className)}>
+      <div className="flex items-center gap-2 shrink-0">
         <Label className="text-sm font-medium">Shape Type:</Label>
         <div className="flex gap-2">
           <Button type="button" variant={shapeType === 'polygon' ? 'default' : 'outline'} size="sm"
@@ -343,7 +349,14 @@ export function ZoneBoundaryMap({
         </div>
       </div>
 
-      <div ref={containerRef} style={{ height, width: '100%' }} className="rounded-lg border border-border overflow-hidden relative">
+      <div
+        ref={containerRef}
+        style={fillContainer ? { width: '100%' } : { height, width: '100%' }}
+        className={cn(
+          'rounded-lg border border-border overflow-hidden relative',
+          fillContainer && 'flex-1 min-h-[280px]',
+        )}
+      >
         {mapInitError && (
           <div className="absolute inset-0 flex items-center justify-center p-4 text-center text-sm text-muted-foreground bg-muted">
             Map unavailable: {mapInitError}. Set VITE_MAPBOX_WEB_TOKEN in Lovable or MAPBOX_WEB_TOKEN on Supabase.
@@ -352,13 +365,13 @@ export function ZoneBoundaryMap({
       </div>
 
       {validationWarning && (
-        <div className="flex items-center gap-2 p-3 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-700">
+        <div className="flex items-center gap-2 p-3 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-700 shrink-0">
           <AlertTriangle className="h-4 w-4 flex-shrink-0" />
           <span className="text-sm">{validationWarning}</span>
         </div>
       )}
 
-      <div className="flex flex-col gap-3 p-4 bg-muted/50 rounded-lg">
+      <div className="flex flex-col gap-3 p-4 bg-muted/50 rounded-lg shrink-0">
         <div className="text-sm text-muted-foreground">
           {shapeType === 'polygon' ? (
             isDrawing ? (
