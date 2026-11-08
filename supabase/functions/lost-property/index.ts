@@ -23,6 +23,7 @@ import {
   authorizeLostPropertyCronRequest,
   isLostPropertyCronAction,
 } from "../_shared/lostPropertyCronAuth.ts";
+import { filterCasePhotoPaths, validateCasePhotoPaths } from "./photoPaths.ts";
 
 async function tripCwSnapshotFields(
   sb: ReturnType<typeof getServiceClient>,
@@ -268,14 +269,10 @@ async function driverAttachFoundPhotos(req: Request) {
   const { report_id, photo_paths } = await req.json();
   if (!report_id) return errorResp("report_id is required");
   if (!Array.isArray(photo_paths)) return errorResp("photo_paths must be an array");
-  if (photo_paths.length > 4) return errorResp("Maximum 4 photos allowed");
 
-  const paths = photo_paths
-    .map((p: unknown) => String(p || "").trim())
-    .filter(Boolean);
-  if (paths.some((p: string) => !p.startsWith(`${report_id}/`))) {
-    return errorResp("Invalid photo path for report");
-  }
+  const checked = validateCasePhotoPaths(photo_paths, String(report_id));
+  if (!checked.ok) return errorResp(checked.error);
+  const paths = checked.paths;
 
   const driverId = await getDriverId(auth.userId);
   if (!driverId) return errorResp("Driver profile not found", 403);
@@ -375,6 +372,11 @@ async function createCase(req: Request) {
     caseNumber = String(generated);
   }
 
+  // Photos may only reference this case's own storage folder.
+  const caseId = crypto.randomUUID();
+  const checkedPhotos = validateCasePhotoPaths(photos, caseId);
+  if (!checkedPhotos.ok) return errorResp(checkedPhotos.error);
+
   const now = new Date();
   const chatExpiresAt = new Date(now.getTime() + 10 * 24 * 60 * 60 * 1000);
   const name =
@@ -385,6 +387,7 @@ async function createCase(req: Request) {
   const { data: newCase, error } = await sb
     .from("lost_property_cases")
     .insert({
+      id: caseId,
       case_number: caseNumber,
       trip_id,
       customer_id: customerId,
@@ -397,7 +400,7 @@ async function createCase(req: Request) {
       item_description,
       item_colour: item_colour ? String(item_colour).trim() || null : null,
       item_brand: item_brand ? String(item_brand).trim() || null : null,
-      photos: photos || [],
+      photos: checkedPhotos.paths,
       status: "NEW",
       chat_enabled: true,
       chat_opened_at: now.toISOString(),
