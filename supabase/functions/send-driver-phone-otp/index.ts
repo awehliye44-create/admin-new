@@ -4,6 +4,7 @@ import {
   type DriverPhoneOtpPurpose,
 } from "../_shared/driverPhoneOtpPolicy.ts";
 import { mapOtpErrorToMessage } from "../_shared/authErrorMessages.ts";
+import { normalizeOnboardingPhone } from "../_shared/onboardingValidation.ts";
 import { nativeAppCorsHeaders as corsHeaders } from "../_shared/security.ts";
 import { opsLog } from "../_shared/opsLog.ts";
 import {
@@ -159,6 +160,28 @@ Deno.serve(async (req) => {
         );
       }
     } else {
+      // Signup OTP must go through phone_change (updateUser). If Auth.phone was
+      // pre-attached unconfirmed (same number), GoTrue no-ops and no SMS is sent —
+      // clear it first so updateUser can dispatch a fresh phone_change OTP.
+      const { data: authLookup } = await service.auth.admin.getUserById(user.id);
+      const authPhoneRaw = String(authLookup?.user?.phone ?? "").trim();
+      const authPhoneConfirmed = Boolean(authLookup?.user?.phone_confirmed_at);
+      if (authPhoneRaw && !authPhoneConfirmed) {
+        if (normalizeOnboardingPhone(authPhoneRaw) === guard.normalizedPhone) {
+          const { error: clearError } = await service.auth.admin.updateUserById(user.id, {
+            phone: "",
+          });
+          if (clearError) {
+            console.error("send-driver-phone-otp clear unconfirmed Auth.phone failed:", clearError.message);
+          } else {
+            console.info("DRIVER_PHONE_OTP_CLEARED_UNCONFIRMED_AUTH_PHONE", JSON.stringify({
+              user_id: user.id,
+              phone_suffix: guard.normalizedPhone.slice(-4),
+            }));
+          }
+        }
+      }
+
       const dispatched = await goTrueUpdateUserPhone(authCtx, guard.normalizedPhone);
 
       if (!dispatched.ok) {

@@ -166,38 +166,20 @@ Deno.serve(async (req) => {
       ...addressMetadata,
     };
 
-    // Prefer Auth.phone (unconfirmed) so Driver OTP targets the collected number.
-    // Fall back to metadata-only when an unconfirmed phone collision blocks attach
-    // (check_identity_exists only treats confirmed phones as taken).
-    const baseCreatePayload = {
-      email,
-      password,
-      email_confirm: confirmEmailOnCreate,
-      user_metadata: userMetadata,
-    };
-    const createWithPhone = { ...baseCreatePayload, phone, phone_confirm: false };
-
-    async function createAuthUser(
-      payload: typeof createWithPhone | typeof baseCreatePayload,
-    ) {
-      return await service.auth.admin.createUser(payload);
-    }
-
-    let { data: createdUser, error: finalCreateError } = await createAuthUser(createWithPhone);
-
-    if (
-      (finalCreateError || !createdUser.user?.id) &&
-      /phone/i.test(finalCreateError?.message ?? "") &&
-      isDuplicateAuthError(finalCreateError?.message ?? "")
-    ) {
-      logEvent("DRIVER_SIGNUP_CREATE_USER_PHONE_ATTACH_FALLBACK", {
-        app_type: appType,
-        provider_message: (finalCreateError?.message ?? "").slice(0, 180),
+    // Keep phone in user_metadata only. Do NOT attach Auth.phone on createUser —
+    // pre-attached unconfirmed phone makes later updateUser({ phone }) a no-op
+    // (no phone_change OTP / no SMS) while the Driver app still shows "code sent".
+    // Identity uniqueness is enforced earlier via check_identity_exists.
+    async function createAuthUser() {
+      return await service.auth.admin.createUser({
+        email,
+        password,
+        email_confirm: confirmEmailOnCreate,
+        user_metadata: userMetadata,
       });
-      const fallback = await createAuthUser(baseCreatePayload);
-      createdUser = fallback.data;
-      finalCreateError = fallback.error;
     }
+
+    let { data: createdUser, error: finalCreateError } = await createAuthUser();
 
     if ((finalCreateError || !createdUser.user?.id) && isDuplicateAuthError(finalCreateError?.message ?? "")) {
       const { data: retryReclaim } = await service.rpc("reclaim_stale_onboarding_auth_user", { p_email: email });
@@ -205,17 +187,9 @@ Deno.serve(async (req) => {
         logEvent("STALE_ONBOARDING_AUTH_USER_RECLAIMED_ON_CREATE_RETRY", {
           user_id: (retryReclaim as { user_id?: string }).user_id ?? null,
         });
-        const retry = await createAuthUser(createWithPhone);
+        const retry = await createAuthUser();
         createdUser = retry.data;
         finalCreateError = retry.error;
-        if (
-          (finalCreateError || !createdUser.user?.id) &&
-          /phone/i.test(finalCreateError?.message ?? "")
-        ) {
-          const retryFallback = await createAuthUser(baseCreatePayload);
-          createdUser = retryFallback.data;
-          finalCreateError = retryFallback.error;
-        }
       }
     }
 
