@@ -51,9 +51,10 @@ export type UseServiceAreasOptions = {
  * staleTime = 5 min (service areas rarely change).
  */
 export function useServiceAreas(options: UseServiceAreasOptions) {
-  const activeOnly = options.activeOnly ?? false;
-  const includeArchived = options.includeArchived ?? false;
-  const pageSlug = options.pageSlug;
+  // Fail soft if a caller omits options — empty query, not a white-screen crash.
+  const activeOnly = options?.activeOnly ?? false;
+  const includeArchived = options?.includeArchived ?? false;
+  const pageSlug = options?.pageSlug;
 
   return useQuery({
     queryKey: ["service-areas", pageSlug, { activeOnly, includeArchived }],

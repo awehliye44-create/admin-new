@@ -101,7 +101,7 @@ export default function Disputes() {
   });
 
   // Get service areas for region mapping
-  const { map: saMap } = useServiceAreasMap();
+  const { map: saMap } = useServiceAreasMap({ pageSlug: 'disputes' });
 
   // Filter adjustments by selected service area's region
   const adjustments = useMemo(() => {

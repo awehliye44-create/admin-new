@@ -24,7 +24,7 @@ import { format } from "date-fns";
 export default function Offers() {
   const qc = useQueryClient();
   const { data: offers = [], isLoading } = useAdminOffers();
-  const { map: areaMap } = useServiceAreasMap();
+  const { map: areaMap } = useServiceAreasMap({ pageSlug: 'offers' });
   const [search, setSearch] = useState("");
   const [editing, setEditing] = useState<OfferWithAreas | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
