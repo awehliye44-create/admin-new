@@ -599,7 +599,7 @@ export default function CustomZones() {
                 </div>
 
                 {/* Map — after basics on small screens; right column on desktop */}
-                <div className="flex h-[min(52dvh,440px)] min-h-[240px] flex-col lg:col-start-2 lg:row-span-2 lg:row-start-1 lg:h-auto lg:min-h-0 lg:overflow-hidden">
+                <div className="flex h-[min(58dvh,520px)] min-h-[280px] flex-col overflow-visible lg:col-start-2 lg:row-span-2 lg:row-start-1 lg:h-auto lg:min-h-0">
                   <Label className="mb-2 shrink-0 text-base font-medium">Zone Boundary *</Label>
                   {!formData.service_area_id ? (
                     <div className="flex flex-1 items-center justify-center gap-2 rounded-lg border border-dashed border-muted-foreground/30 bg-muted/30 p-4 text-center sm:p-6">
@@ -616,6 +616,22 @@ export default function CustomZones() {
                       onPolygonChange={handlePolygonChange}
                       onCircleChange={handleCircleChange}
                       onShapeTypeChange={handleShapeTypeChange}
+                      serviceAreaId={formData.service_area_id}
+                      jumpTargets={zones
+                        .filter((z) =>
+                          z.service_area_id === formData.service_area_id
+                          && z.id !== editingZone?.id,
+                        )
+                        .map((z) => ({
+                          id: z.id,
+                          name: z.name,
+                          shape_type: z.shape_type,
+                          geo_boundary: z.geo_boundary,
+                          center_lat: z.center_lat,
+                          center_lng: z.center_lng,
+                          radius_meters: z.radius_meters,
+                          color: z.color,
+                        }))}
                       fillContainer
                       className="min-h-0 flex-1"
                     />

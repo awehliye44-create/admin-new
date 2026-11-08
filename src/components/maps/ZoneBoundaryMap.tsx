@@ -1,14 +1,22 @@
-import { useEffect, useRef, useState, useCallback } from 'react';
+import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
-import { Trash2, Undo, MapPin, Circle, Hexagon, Target, Check, AlertTriangle, Ruler } from 'lucide-react';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import { Trash2, Undo, MapPin, Circle, Hexagon, Target, Check, AlertTriangle, Ruler, Search } from 'lucide-react';
 import * as turf from '@turf/turf';
 import { mapboxgl } from '@/lib/mapbox';
 import { createMapboxMap } from '@/lib/mapboxMap';
 import { useMapboxToken } from '@/hooks/useMapboxToken';
 import { cn } from '@/lib/utils';
+import { PlacesAutocomplete } from '@/components/places/PlacesAutocomplete';
 
 interface LatLng { lat: number; lng: number }
 interface GeoJSONPoly { type: string; coordinates: number[][][] }
@@ -17,6 +25,16 @@ interface RegionBoundary {
   name: string;
   geo_boundary: GeoJSONPoly | null;
 }
+export type ZoneMapJumpTarget = {
+  id: string;
+  name: string;
+  shape_type: 'polygon' | 'circle';
+  geo_boundary: GeoJSONPoly | null;
+  center_lat: number | null;
+  center_lng: number | null;
+  radius_meters: number | null;
+  color?: string | null;
+};
 interface ZoneBoundaryMapProps {
   shapeType: 'polygon' | 'circle';
   existingPolygon: GeoJSONPoly | null;
@@ -30,6 +48,10 @@ interface ZoneBoundaryMapProps {
   /** Fill parent height (flex layouts / full-screen dialogs). */
   fillContainer?: boolean;
   className?: string;
+  /** Service area id for ONECAB location search (city / airport / landmark). */
+  serviceAreaId?: string | null;
+  /** Existing pricing zones in the same service area — jump-to for drawing nearby. */
+  jumpTargets?: ZoneMapJumpTarget[];
 }
 
 const REGION_SRC = 'zone-region-src', REGION_FILL = 'zone-region-fill', REGION_LINE = 'zone-region-line';
@@ -59,10 +81,13 @@ export function ZoneBoundaryMap({
   height = '400px',
   fillContainer = false,
   className,
+  serviceAreaId = null,
+  jumpTargets = [],
 }: ZoneBoundaryMapProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<mapboxgl.Map | null>(null);
   const centerMarkerRef = useRef<mapboxgl.Marker | null>(null);
+  const searchMarkerRef = useRef<mapboxgl.Marker | null>(null);
   const { isReady: mapboxReady, error: mapboxError } = useMapboxToken();
   const initializedRef = useRef(false);
   const prevDataRef = useRef<string>('');
@@ -75,6 +100,72 @@ export function ZoneBoundaryMap({
   const [circleCenter, setCircleCenter] = useState<LatLng | null>(null);
   const [circleRadius, setCircleRadius] = useState<number>(500);
   const [validationWarning, setValidationWarning] = useState<string | null>(null);
+  const [placeQuery, setPlaceQuery] = useState('');
+  const [selectedJumpId, setSelectedJumpId] = useState<string>('');
+
+  const serviceAreaCenter = useMemo(() => {
+    const ring = region?.geo_boundary?.coordinates?.[0];
+    if (!ring?.length) return null;
+    const lat = ring.reduce((s, c) => s + c[1], 0) / ring.length;
+    const lng = ring.reduce((s, c) => s + c[0], 0) / ring.length;
+    return { lat, lng };
+  }, [region]);
+
+  const clearSearchMarker = useCallback(() => {
+    searchMarkerRef.current?.remove();
+    searchMarkerRef.current = null;
+  }, []);
+
+  const flyToPlace = useCallback((lng: number, lat: number, zoom = 14) => {
+    const map = mapRef.current;
+    if (!map || !Number.isFinite(lng) || !Number.isFinite(lat)) return;
+    map.flyTo({ center: [lng, lat], zoom, duration: 700, essential: true });
+    clearSearchMarker();
+    searchMarkerRef.current = new mapboxgl.Marker({ color: '#ea580c' })
+      .setLngLat([lng, lat])
+      .addTo(map);
+  }, [clearSearchMarker]);
+
+  const jumpToZoneTarget = useCallback((target: ZoneMapJumpTarget) => {
+    const map = mapRef.current;
+    if (!map) return;
+    clearSearchMarker();
+    if (target.shape_type === 'circle' && target.center_lat != null && target.center_lng != null) {
+      const radius = Math.max(50, target.radius_meters ?? 500);
+      const circle = turf.circle([target.center_lng, target.center_lat], radius / 1000, {
+        steps: 48,
+        units: 'kilometers',
+      });
+      const bbox = turf.bbox(circle);
+      map.fitBounds(
+        [
+          [bbox[0], bbox[1]],
+          [bbox[2], bbox[3]],
+        ],
+        { padding: 56, maxZoom: 16, duration: 700 },
+      );
+      searchMarkerRef.current = new mapboxgl.Marker({ color: target.color || '#ea580c' })
+        .setLngLat([target.center_lng, target.center_lat])
+        .addTo(map);
+      return;
+    }
+    const ring = target.geo_boundary?.coordinates?.[0];
+    if (ring && ring.length >= 3) {
+      const bounds = new mapboxgl.LngLatBounds();
+      for (const c of ring) {
+        if (Number.isFinite(c[0]) && Number.isFinite(c[1])) bounds.extend([c[0], c[1]]);
+      }
+      if (!bounds.isEmpty()) {
+        map.fitBounds(bounds, { padding: 56, maxZoom: 16, duration: 700 });
+        const c = bounds.getCenter();
+        searchMarkerRef.current = new mapboxgl.Marker({ color: target.color || '#ea580c' })
+          .setLngLat(c)
+          .addTo(map);
+      }
+    }
+  }, [clearSearchMarker]);
+
+  useEffect(() => () => clearSearchMarker(), [clearSearchMarker]);
 
   const isDrawingRef = useRef(isDrawing);
   const shapeTypeRef = useRef(shapeType);
@@ -335,19 +426,94 @@ export function ZoneBoundaryMap({
 
   return (
     <div className={cn('space-y-4', fillContainer && 'h-full min-h-0 flex flex-col', className)}>
-      <div className="flex shrink-0 flex-col gap-2 sm:flex-row sm:items-center">
-        <Label className="text-sm font-medium">Shape Type:</Label>
-        <div className="flex flex-wrap gap-2">
-          <Button type="button" variant={shapeType === 'polygon' ? 'default' : 'outline'} size="sm"
-            onClick={() => { handleClear(); onShapeTypeChange('polygon'); }} className="gap-2">
-            <Hexagon className="h-4 w-4" /> Polygon
-          </Button>
-          <Button type="button" variant={shapeType === 'circle' ? 'default' : 'outline'} size="sm"
-            onClick={() => { handleClear(); onShapeTypeChange('circle'); }} className="gap-2">
-            <Circle className="h-4 w-4" /> Circle
-          </Button>
+      <div className="flex shrink-0 flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+          <Label className="text-sm font-medium">Shape Type:</Label>
+          <div className="flex flex-wrap gap-2">
+            <Button type="button" variant={shapeType === 'polygon' ? 'default' : 'outline'} size="sm"
+              onClick={() => { handleClear(); onShapeTypeChange('polygon'); }} className="gap-2">
+              <Hexagon className="h-4 w-4" /> Polygon
+            </Button>
+            <Button type="button" variant={shapeType === 'circle' ? 'default' : 'outline'} size="sm"
+              onClick={() => { handleClear(); onShapeTypeChange('circle'); }} className="gap-2">
+              <Circle className="h-4 w-4" /> Circle
+            </Button>
+          </div>
         </div>
+        {region?.geo_boundary && (
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="w-full sm:w-auto"
+            onClick={() => {
+              const map = mapRef.current;
+              const ring = region.geo_boundary?.coordinates?.[0];
+              if (!map || !ring?.length) return;
+              const bounds = new mapboxgl.LngLatBounds();
+              for (const c of ring) {
+                if (Number.isFinite(c[0]) && Number.isFinite(c[1])) bounds.extend([c[0], c[1]]);
+              }
+              if (!bounds.isEmpty()) map.fitBounds(bounds, { padding: 40, maxZoom: 13, duration: 600 });
+            }}
+          >
+            Fit service area
+          </Button>
+        )}
       </div>
+
+      {serviceAreaId ? (
+        <div className="grid shrink-0 gap-2 sm:grid-cols-[minmax(0,1fr)_minmax(160px,220px)]">
+          <div className="space-y-1">
+            <Label className="flex items-center gap-1.5 text-xs text-muted-foreground">
+              <Search className="h-3.5 w-3.5" />
+              Find city, airport, or place
+            </Label>
+            <PlacesAutocomplete
+              value={placeQuery}
+              onChange={setPlaceQuery}
+              onPlaceSelect={(place) => {
+                const q = place.address.toLowerCase();
+                const zoom = /airport|terminal|station|rail|hotel/.test(q) ? 15 : 14;
+                flyToPlace(place.lng, place.lat, zoom);
+              }}
+              placeholder="Search Luton Airport, MK centre…"
+              icon="none"
+              serviceAreaId={serviceAreaId}
+              serviceAreaCenter={serviceAreaCenter}
+              className="z-20"
+            />
+          </div>
+          <div className="space-y-1">
+            <Label className="text-xs text-muted-foreground">Jump to existing zone</Label>
+            <Select
+              value={selectedJumpId || 'none'}
+              onValueChange={(id) => {
+                if (id === 'none') {
+                  setSelectedJumpId('');
+                  return;
+                }
+                setSelectedJumpId(id);
+                const target = jumpTargets.find((z) => z.id === id);
+                if (target) jumpToZoneTarget(target);
+              }}
+              disabled={jumpTargets.length === 0}
+            >
+              <SelectTrigger>
+                <SelectValue placeholder={jumpTargets.length ? 'Select zone' : 'No zones yet'} />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">Select zone</SelectItem>
+                {jumpTargets.map((z) => (
+                  <SelectItem key={z.id} value={z.id}>
+                    {z.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+      ) : null}
 
       <div
         ref={containerRef}
