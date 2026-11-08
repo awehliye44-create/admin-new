@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, createContext, useContext, ReactNode } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
+import { isCatalogPageSlug } from '../../shared/adminPageCatalogSSOT';
 
 export type StaffRole = 'super_admin' | 'admin' | 'operator' | 'finance_manager' | 'customer_support' | 'compliance_officer';
 
@@ -24,11 +25,21 @@ export interface StaffServiceArea {
   service_area_name?: string;
 }
 
+/** Staff permission load outcome — fail closed unless `ready` with a profile. */
+export type StaffAccessStatus =
+  | 'loading'
+  | 'ready'
+  | 'missing_profile'
+  | 'inactive'
+  | 'fetch_error';
+
 interface StaffProfileContextType {
   staffProfile: StaffProfile | null;
   allowedPages: Set<string>;
   assignedServiceAreas: StaffServiceArea[];
   isStaffLoading: boolean;
+  staffAccessStatus: StaffAccessStatus;
+  staffAccessError: string | null;
   isOwner: boolean;
   canAccessPage: (pageSlug: string) => boolean;
   canManageRoles: boolean;
@@ -57,68 +68,44 @@ const ROLE_PREFIXES: Record<StaffRole, string> = {
 
 export { ROLE_LABELS, ROLE_PREFIXES };
 
-/** Route/sidebar slugs that differ from role_page_permissions slugs */
-const ROUTE_PERMISSION_ALIASES: Record<string, string[]> = {
-  'payment-sessions': [
-    'payment-sessions',
-    'payments',
-    'admin-payments',
-  ],
-  payments: ['payments', 'payment-sessions'],
-  'payment-providers': ['payment-providers', 'integrations'],
-  'financial-reconciliation': [
-    'financial-reconciliation',
-    'drivers-and-payouts',
-    'admin-settlements',
-  ],
-  'annual-taxi-report': [
-    'annual-taxi-report',
-    'financial-reconciliation',
-    'drivers-and-payouts',
-    'admin-settlements',
-  ],
-  'onecab-revenue-profit': [
-    'onecab-revenue-profit',
-    'financial-reconciliation',
-  ],
-  'payout-batches': [
-    'payout-batches',
-    'payout-ledger',
-    'connect-payout-lockdown',
-    'drivers-and-payouts',
-    'admin-settlements',
-    'finance-ledger-transactions',
-  ],
-  'payout-ledger': [
-    'payout-ledger',
-    'payout-batches',
-    'connect-payout-lockdown',
-  ],
-  'driver-wallet-ledger': [
-    'driver-wallet-ledger',
-    'finance-ledger-transactions',
-    'driver-wallet',
-  ],
-};
+export interface ResolvePageAccessOpts {
+  isLoading: boolean;
+  profile: Pick<StaffProfile, 'is_owner'> | null;
+  allowedPages: Set<string>;
+  /** When true (fetch failed / missing profile), deny all non-owner access. */
+  failClosed?: boolean;
+}
 
-/** Pure page-access rule shared by the sidebar and the page gate. */
-export function resolvePageAccess(
-  pageSlug: string,
-  opts: { isLoading: boolean; profile: Pick<StaffProfile, 'is_owner'> | null; allowedPages: Set<string> },
-): boolean {
-  const { isLoading, profile, allowedPages } = opts;
-  // While loading, allow access to prevent flashing — except the
-  // owner-only Roles & Permissions page, which must never render early.
-  if (isLoading) return pageSlug !== 'roles';
-  // Owner has unrestricted access to every admin page
+/**
+ * Pure page-access rule shared by the sidebar and the page gate.
+ *
+ * Exceptions (explicit, minimal):
+ *  1. Owner (`is_owner`) → every page, including Roles & Permissions
+ *  2. `roles` → Owner only (non-owners denied even if the DB row is granted)
+ *  3. Path redirects normalize to a canonical slug before calling this
+ *     (see `resolvePermissionSlugFromPath`) — not alias expansion
+ *
+ * `/profile` requires an explicit matrix grant (same as any other page).
+ * Unknown / non-catalog slugs are denied to non-owners.
+ */
+export function resolvePageAccess(pageSlug: string, opts: ResolvePageAccessOpts): boolean {
+  const { isLoading, profile, allowedPages, failClosed = false } = opts;
+
+  // Fail closed while loading — ProtectedRoute waits for staff load before shell.
+  if (isLoading) return false;
+
   if (profile?.is_owner === true) return true;
+
   // Roles & Permissions is reserved for the single ONECAB Owner
   if (pageSlug === 'roles') return false;
-  // No staff profile → legacy admin without staff system (backward compat)
-  if (!profile) return true;
-  if (pageSlug === 'profile') return true;
-  const slugsToCheck = ROUTE_PERMISSION_ALIASES[pageSlug] ?? [pageSlug];
-  return slugsToCheck.some((slug) => allowedPages.has(slug));
+
+  if (failClosed || !profile) return false;
+
+  // Unknown routes are not assignable → deny non-owners
+  if (!isCatalogPageSlug(pageSlug)) return false;
+
+  // Exact slug match only — one matrix tick grants one page
+  return allowedPages.has(pageSlug);
 }
 
 export function StaffProfileProvider({ children }: { children: ReactNode }) {
@@ -127,6 +114,8 @@ export function StaffProfileProvider({ children }: { children: ReactNode }) {
   const [allowedPages, setAllowedPages] = useState<Set<string>>(new Set());
   const [assignedServiceAreas, setAssignedServiceAreas] = useState<StaffServiceArea[]>([]);
   const [isStaffLoading, setIsStaffLoading] = useState(true);
+  const [staffAccessStatus, setStaffAccessStatus] = useState<StaffAccessStatus>('loading');
+  const [staffAccessError, setStaffAccessError] = useState<string | null>(null);
 
   const userId = user?.id;
 
@@ -135,76 +124,106 @@ export function StaffProfileProvider({ children }: { children: ReactNode }) {
       setStaffProfile(null);
       setAllowedPages(new Set());
       setAssignedServiceAreas([]);
+      setStaffAccessStatus('loading');
+      setStaffAccessError(null);
       setIsStaffLoading(false);
       return;
     }
 
-    // Only show loading on initial fetch, not background refreshes
-    const isInitialLoad = !staffProfile && allowedPages.size === 0;
-    if (isInitialLoad) setIsStaffLoading(true);
+    setIsStaffLoading(true);
+    setStaffAccessError(null);
+
     try {
-      // Fetch staff profile (including inactive — we explicitly check is_active below)
-      const { data: profile } = await supabase
+      const { data: profile, error: profileError } = await supabase
         .from('staff_profiles')
         .select('id, user_id, staff_role_id, full_name, username, role, role_id, is_active, is_owner, created_at, staff_roles_catalog(name)')
         .eq('user_id', userId)
         .maybeSingle();
 
-      if (profile && profile.is_active === false) {
-        // Suspended staff: deny all admin access, do NOT fall through to backward-compat super_admin
-        setStaffProfile(profile as unknown as StaffProfile);
+      if (profileError) {
+        console.error('Error loading staff profile:', profileError);
+        setStaffProfile(null);
         setAllowedPages(new Set());
         setAssignedServiceAreas([]);
+        setStaffAccessStatus('fetch_error');
+        setStaffAccessError(profileError.message || 'Failed to load staff profile');
         setIsStaffLoading(false);
         return;
       }
 
       if (!profile) {
-        // No staff profile - user has admin role in profiles (backward compat)
-        // Give them full access as super_admin
+        // Authenticated admin without a staff_profiles row — fail closed
         setStaffProfile(null);
-        const { data: allPerms } = await supabase
-          .from('role_page_permissions')
-          .select('page_slug, staff_roles_catalog!inner(is_owner_role)')
-          .eq('staff_roles_catalog.is_owner_role', true)
-          .eq('can_access', true);
-        setAllowedPages(new Set((allPerms || []).map(p => p.page_slug)));
+        setAllowedPages(new Set());
         setAssignedServiceAreas([]);
+        setStaffAccessStatus('missing_profile');
+        setStaffAccessError(null);
         setIsStaffLoading(false);
         return;
       }
 
-      setStaffProfile({
+      if (profile.is_active === false) {
+        setStaffProfile(profile as unknown as StaffProfile);
+        setAllowedPages(new Set());
+        setAssignedServiceAreas([]);
+        setStaffAccessStatus('inactive');
+        setStaffAccessError(null);
+        setIsStaffLoading(false);
+        return;
+      }
+
+      const resolvedProfile: StaffProfile = {
         ...(profile as unknown as StaffProfile),
         role_name: (profile as any).staff_roles_catalog?.name ?? undefined,
-      });
+      };
+      setStaffProfile(resolvedProfile);
 
-      // Fetch page permissions for this role
-      const { data: perms } = await supabase
+      const { data: perms, error: permsError } = await supabase
         .from('role_page_permissions')
         .select('page_slug')
         .eq('role_id', (profile as any).role_id)
         .eq('can_access', true);
 
-      setAllowedPages(new Set((perms || []).map(p => p.page_slug)));
+      if (permsError) {
+        console.error('Error loading page permissions:', permsError);
+        setAllowedPages(new Set());
+        setAssignedServiceAreas([]);
+        setStaffAccessStatus('fetch_error');
+        setStaffAccessError(permsError.message || 'Failed to load page permissions');
+        setIsStaffLoading(false);
+        return;
+      }
 
-      // Fetch assigned service areas
-      const { data: sas } = await supabase
+      setAllowedPages(new Set((perms || []).map((p) => p.page_slug)));
+
+      const { data: sas, error: sasError } = await supabase
         .from('staff_service_areas')
         .select('id, service_area_id, service_areas(name)')
         .eq('staff_id', profile.id);
 
-      setAssignedServiceAreas(
-        (sas || []).map((sa: any) => ({
-          id: sa.id,
-          service_area_id: sa.service_area_id,
-          service_area_name: sa.service_areas?.name || 'Unknown',
-        }))
-      );
+      if (sasError) {
+        // Service areas are not page RBAC — log and continue with empty list
+        console.error('Error loading staff service areas:', sasError);
+        setAssignedServiceAreas([]);
+      } else {
+        setAssignedServiceAreas(
+          (sas || []).map((sa: any) => ({
+            id: sa.id,
+            service_area_id: sa.service_area_id,
+            service_area_name: sa.service_areas?.name || 'Unknown',
+          })),
+        );
+      }
+
+      setStaffAccessStatus('ready');
+      setStaffAccessError(null);
     } catch (err) {
       console.error('Error loading staff profile:', err);
-      // Fallback: give full access
+      setStaffProfile(null);
       setAllowedPages(new Set());
+      setAssignedServiceAreas([]);
+      setStaffAccessStatus('fetch_error');
+      setStaffAccessError(err instanceof Error ? err.message : 'Failed to load staff permissions');
     } finally {
       setIsStaffLoading(false);
     }
@@ -217,11 +236,20 @@ export function StaffProfileProvider({ children }: { children: ReactNode }) {
   }, [isAuthReady, fetchStaffData]);
 
   const isOwner = staffProfile?.is_owner === true;
+  const failClosed =
+    staffAccessStatus === 'missing_profile' ||
+    staffAccessStatus === 'inactive' ||
+    staffAccessStatus === 'fetch_error';
 
   const canAccessPage = useCallback(
     (pageSlug: string) =>
-      resolvePageAccess(pageSlug, { isLoading: isStaffLoading, profile: staffProfile, allowedPages }),
-    [staffProfile, allowedPages, isStaffLoading]
+      resolvePageAccess(pageSlug, {
+        isLoading: isStaffLoading,
+        profile: staffProfile,
+        allowedPages,
+        failClosed,
+      }),
+    [staffProfile, allowedPages, isStaffLoading, failClosed],
   );
 
   const canManageRoles = staffProfile?.is_owner === true;
@@ -233,6 +261,8 @@ export function StaffProfileProvider({ children }: { children: ReactNode }) {
         allowedPages,
         assignedServiceAreas,
         isStaffLoading,
+        staffAccessStatus,
+        staffAccessError,
         isOwner,
         canAccessPage,
         canManageRoles,
