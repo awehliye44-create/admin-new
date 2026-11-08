@@ -2,9 +2,8 @@
  * Admin page-gated data access (client).
  *
  * Non-Owner UI must use these helpers instead of direct JWT on gated tables.
- * Shared-table RPCs: 20261231130000 (applied). Restrictive RLS: 20261231140000 + 20261231150000 (applied).
- * document-type in-use: 20261231160000 (LOCAL / UNAPPLIED).
- * Catalog RPCs: 20261231170000 (LOCAL / UNAPPLIED). Catalog RLS: 20261231180000 (LOCAL / UNAPPLIED).
+ * Shared-table RPCs: 20261231130000. Restrictive RLS: 20261231140000 + 20261231150000.
+ * Catalog: 20261231160000 in-use RPC, 20261231170000 page RPCs, 20261231180000 fail-closed RLS.
  *
  * Owner still works via RPCs (staff_has_page_access treats Owner as all pages)
  * and, after shared fail-closed, via direct table RLS as well.
