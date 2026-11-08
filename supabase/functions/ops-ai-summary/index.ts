@@ -1,5 +1,5 @@
 import { createClient } from "npm:@supabase/supabase-js@2.57.2";
-import { requireAdmin } from "../_shared/internalAuth.ts";
+import { requireAdmin, requirePageAccess } from "../_shared/adminPaymentGate.ts";
 import { requestOpsAlertAiAnalysis } from "../_shared/opsAlertAnalysis.ts";
 
 const corsHeaders = {
@@ -20,8 +20,10 @@ Deno.serve(async (req) => {
     return new Response(null, { headers: corsHeaders });
   }
 
-  const admin = await requireAdmin(req);
-  if (admin instanceof Response) return admin;
+  const adminGate = await requireAdmin(req);
+  if (!adminGate.ok) return adminGate.response;
+  const pageGate = await requirePageAccess(adminGate, "system");
+  if (!pageGate.ok) return pageGate.response;
 
   try {
     const { alert_id } = await req.json();

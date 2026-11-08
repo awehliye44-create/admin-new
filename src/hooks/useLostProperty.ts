@@ -1,6 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { useState, useEffect, useCallback } from 'react';
+import { adminLookupByIds, adminPageSelect } from '@/lib/adminPageGatedData';
 
 export interface LostPropertyCase {
   id: string;
@@ -102,17 +103,27 @@ async function enrichCasesWithNames(cases: LostPropertyCase[]): Promise<LostProp
   const customerIds = [...new Set(cases.map(c => c.customer_id).filter(Boolean))];
   const driverIds = [...new Set(cases.map(c => c.driver_id).filter(Boolean))];
 
-  const [customersRes, driversRes] = await Promise.all([
+  const [customers, drivers] = await Promise.all([
     customerIds.length > 0
-      ? supabase.from('customers').select('id, first_name, last_name').in('id', customerIds)
-      : Promise.resolve({ data: [] }),
+      ? adminLookupByIds<{ id: string; first_name: string | null; last_name: string | null }>(
+          'lost-property',
+          'customers',
+          customerIds as string[],
+          ['id', 'first_name', 'last_name'],
+        )
+      : Promise.resolve([]),
     driverIds.length > 0
-      ? supabase.from('drivers').select('id, first_name, last_name').in('id', driverIds)
-      : Promise.resolve({ data: [] }),
+      ? adminLookupByIds<{ id: string; first_name: string | null; last_name: string | null }>(
+          'lost-property',
+          'drivers',
+          driverIds as string[],
+          ['id', 'first_name', 'last_name'],
+        )
+      : Promise.resolve([]),
   ]);
 
-  const customerMap = new Map((customersRes.data ?? []).map((c: any) => [c.id, `${c.first_name || ''} ${c.last_name || ''}`.trim()]));
-  const driverMap = new Map((driversRes.data ?? []).map((d: any) => [d.id, `${d.first_name || ''} ${d.last_name || ''}`.trim()]));
+  const customerMap = new Map(customers.map((c) => [c.id, `${c.first_name || ''} ${c.last_name || ''}`.trim()]));
+  const driverMap = new Map(drivers.map((d) => [d.id, `${d.first_name || ''} ${d.last_name || ''}`.trim()]));
 
   return cases.map(c => ({
     ...c,
@@ -193,13 +204,12 @@ export function useTripSummary(tripId: string | undefined) {
     queryKey: ['trip-summary', tripId],
     queryFn: async () => {
       if (!tripId) return null;
-      const { data, error } = await supabase
-        .from('trips')
-        .select('id, pickup_address, dropoff_address, started_at, completed_at, created_at')
-        .eq('id', tripId)
-        .single();
-      if (error) throw error;
-      return data as TripSummary;
+      const { rows } = await adminPageSelect<TripSummary>('lost-property', 'trips', {
+        columns: ['id', 'pickup_address', 'dropoff_address', 'started_at', 'completed_at', 'created_at'],
+        filters: [{ op: 'eq', col: 'id', val: tripId }],
+        limit: 1,
+      });
+      return rows[0] ?? null;
     },
     enabled: !!tripId,
     staleTime: 60_000,

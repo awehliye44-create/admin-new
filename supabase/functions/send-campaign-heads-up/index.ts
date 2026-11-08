@@ -14,6 +14,10 @@ import {
 } from "../_shared/authoritativeDevicePush.ts";
 import { assertCronOrServiceRoleAuth } from "../_shared/cronEdgeAuth.ts";
 import {
+  requireAdminOrStaff,
+  requirePageAccess,
+} from "../_shared/adminPaymentGate.ts";
+import {
   chunkIds,
   listActiveCustomerUserIds,
   listActiveDriverIds,
@@ -650,12 +654,10 @@ serve(async (req) => {
       const cron = await assertCronOrServiceRoleAuth(req, body as Record<string, unknown>);
       if (!cron.ok) return cron.response;
     } else {
-      const denied = await requireAdminOrStaff(
-        supabase,
-        authHeader.replace("Bearer ", ""),
-        serviceKey,
-      );
-      if (denied) return denied;
+      const staffGate = await requireAdminOrStaff(req);
+      if (!staffGate.ok) return staffGate.response;
+      const pageGate = await requirePageAccess(staffGate, "notifications");
+      if (!pageGate.ok) return pageGate.response;
       if (!campaignId) return jsonResponse({ error: "campaignId required" }, 400);
     }
 

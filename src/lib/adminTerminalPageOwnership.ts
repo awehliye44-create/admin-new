@@ -1,3 +1,4 @@
+import type { AdminPageFilter } from '@/lib/adminPageGatedData';
 import { MISSED_CANCELLED_STATUSES } from '@/lib/adminTripNoShowClassification';
 import { TRIP_HISTORY_FINANCIAL_OUTCOMES } from '@/lib/tripHistoryQuery';
 
@@ -20,6 +21,24 @@ export function applyMissedCancelledOwnership<Q extends { or: (filter: string) =
   let q = query;
   for (const filter of MISSED_CANCELLED_OWNERSHIP_OR_FILTERS) q = q.or(filter);
   return q;
+}
+
+/** Same ownership as applyMissedCancelledOwnership, for admin_page_select and_or_groups. */
+export function missedCancelledOwnershipAndOrGroups(): AdminPageFilter[][][] {
+  return [
+    [
+      [{ op: 'is_null', col: 'financial_outcome' }],
+      [{ op: 'not_in', col: 'financial_outcome', val: [...TRIP_HISTORY_FINANCIAL_OUTCOMES] }],
+    ],
+    [
+      [{ op: 'is_null', col: 'no_show_charge_pence' }],
+      [{ op: 'lte', col: 'no_show_charge_pence', val: 0 }],
+    ],
+    [
+      [{ op: 'is_null', col: 'cancellation_reason' }],
+      [{ op: 'neq', col: 'cancellation_reason', val: 'no_show' }],
+    ],
+  ];
 }
 
 export const MISSED_CANCELLED_CANCELLED_STATUSES = ['cancelled', 'customer_cancelled'] as const;

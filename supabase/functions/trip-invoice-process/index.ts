@@ -1,6 +1,6 @@
 import { assertCronOrServiceRoleAuth } from "../_shared/cronEdgeAuth.ts";
 import { createClient } from "npm:@supabase/supabase-js@2.57.2";
-import { corsHeaders, requireAdminOrStaff } from "../_shared/adminPaymentGate.ts";
+import { corsHeaders, requireAdminOrStaff, requirePageAccess } from "../_shared/adminPaymentGate.ts";
 import { handleTripInvoiceAction, type TripInvoiceAction } from "../_shared/tripInvoice.ts";
 
 const VALID_ACTIONS = new Set<TripInvoiceAction>([
@@ -100,10 +100,15 @@ Deno.serve(async (req) => {
   if (internal) {
     supabase = serviceClient();
   } else {
-    const gate = await requireAdminOrStaff(req);
-    if (!gate.ok) {
-      const errBody = await gate.response.json().catch(() => ({ error: "Unauthorized" }));
+    const staffGate = await requireAdminOrStaff(req);
+    if (!staffGate.ok) {
+      const errBody = await staffGate.response.json().catch(() => ({ error: "Unauthorized" }));
       return json({ success: false, ok: false, error: errBody.error ?? "Unauthorized" }, 401);
+    }
+    const gate = await requirePageAccess(staffGate, "invoices");
+    if (!gate.ok) {
+      const errBody = await gate.response.json().catch(() => ({ error: "Forbidden" }));
+      return json({ success: false, ok: false, error: errBody.error ?? "Forbidden" }, 403);
     }
     supabase = serviceClient();
   }

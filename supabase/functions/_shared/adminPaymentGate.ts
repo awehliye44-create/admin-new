@@ -33,6 +33,8 @@ export const FINANCE_EXECUTION_PAGE_SLUGS = {
   PAYMENT_PROVIDERS: "payment-providers",
   DRIVER_WALLET_LEDGER: "driver-wallet-ledger",
   COMPANY_OUTGOING_TRANSFERS: "payout-ledger",
+  CUSTOMER_RECEIVABLES: "customer-receivables",
+  PAYMENT_SESSIONS: "payment-sessions",
 } as const;
 
 /**
@@ -76,7 +78,8 @@ export async function requireFinanceExecutionAuth(
     .eq("is_active", true)
     .maybeSingle();
 
-  if (options?.requireStaffFinanceProfile && !staffRow) {
+  // Fail closed: finance execution never elevates a bare admin JWT to Owner/super_admin.
+  if (!staffRow) {
     return {
       ok: false,
       response: new Response(JSON.stringify({
@@ -89,7 +92,7 @@ export async function requireFinanceExecutionAuth(
     };
   }
 
-  const role = staffRow?.role ? String(staffRow.role) : "super_admin";
+  const role = String(staffRow.role);
   if (isCompanyFundsRejectedStaffRole(role)) {
     return {
       ok: false,
@@ -355,8 +358,8 @@ export async function requireAdminOrStaff(req: Request): Promise<GateResult | Ga
 
 /**
  * After requireAdminOrStaff: enforce role_page_permissions for a page slug.
- * Mirrors frontend canAccessPage — staff role must have can_access=true.
- * Legacy user_roles.admin (no staff_profiles) is treated as super_admin page set.
+ * Exact slug match only. Owner (active is_owner staff) bypasses page checks.
+ * Missing / inactive staff profile → deny (no Owner-role fallback).
  * Service-role callers pass through.
  */
 export async function requirePageAccess(
@@ -365,28 +368,80 @@ export async function requirePageAccess(
 ): Promise<GateResult | GateError> {
   if (gate.userId === 'service-role') return gate;
 
-  const { data: staffRow } = await gate.supabase
+  if (!pageSlug) {
+    return {
+      ok: false,
+      response: new Response(JSON.stringify({
+        success: false,
+        error: 'Forbidden — page slug required',
+        code: 'PAGE_FORBIDDEN',
+      }), {
+        status: 403,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      }),
+    };
+  }
+
+  const { data: staffRow, error: staffErr } = await gate.supabase
     .from('staff_profiles')
-    .select('role_id, is_active')
+    .select('role_id, is_active, is_owner')
     .eq('user_id', gate.userId)
     .eq('is_active', true)
     .maybeSingle();
 
-  // Legacy admin JWT without a staff profile resolves to the protected owner role.
-  let roleId: string | null = staffRow?.role_id ? String(staffRow.role_id) : null;
-  if (!roleId) {
-    const { data: ownerRole } = await gate.supabase
-      .from('staff_roles_catalog')
-      .select('id')
-      .eq('is_owner_role', true)
-      .maybeSingle();
-    roleId = ownerRole?.id ? String(ownerRole.id) : null;
+  if (staffErr) {
+    return {
+      ok: false,
+      response: new Response(JSON.stringify({
+        success: false,
+        error: 'Permission check failed',
+      }), {
+        status: 500,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      }),
+    };
+  }
+
+  if (!staffRow?.role_id) {
+    return {
+      ok: false,
+      response: new Response(JSON.stringify({
+        success: false,
+        error: 'Forbidden — active staff profile required',
+        code: 'STAFF_PROFILE_REQUIRED',
+      }), {
+        status: 403,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      }),
+    };
+  }
+
+  if (staffRow.is_owner === true) {
+    return {
+      ...gate,
+      actor_is_owner: true,
+    };
+  }
+
+  // Non-owners never receive Roles & Permissions via Edge page gates
+  if (pageSlug === 'roles') {
+    return {
+      ok: false,
+      response: new Response(JSON.stringify({
+        success: false,
+        error: 'Forbidden — missing page access (roles)',
+        code: 'PAGE_FORBIDDEN',
+      }), {
+        status: 403,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      }),
+    };
   }
 
   const { data: perm, error: permErr } = await gate.supabase
     .from('role_page_permissions')
     .select('can_access')
-    .eq('role_id', roleId ?? '00000000-0000-0000-0000-000000000000')
+    .eq('role_id', String(staffRow.role_id))
     .eq('page_slug', pageSlug)
     .eq('can_access', true)
     .maybeSingle();
@@ -418,7 +473,10 @@ export async function requirePageAccess(
     };
   }
 
-  return gate;
+  return {
+    ...gate,
+    actor_is_owner: false,
+  };
 }
 
 /** Staff must hold access to at least one of the listed admin pages. */

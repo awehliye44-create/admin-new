@@ -180,13 +180,8 @@ export function PayoutLedgerSettingsPanel({
     queryKey: ['payout-driver-override', overrideDriverId],
     enabled: Boolean(overrideDriverId),
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from('drivers')
-        .select('id, first_name, last_name, driver_code, payouts_enabled, payout_operational_paused, charges_enabled')
-        .eq('id', overrideDriverId!)
-        .maybeSingle();
-      if (error) throw error;
-      return data as {
+      const { adminPageSelect } = await import('@/lib/adminPageGatedData');
+      const { rows } = await adminPageSelect<{
         id: string;
         first_name: string | null;
         last_name: string | null;
@@ -194,7 +189,15 @@ export function PayoutLedgerSettingsPanel({
         payouts_enabled: boolean | null;
         payout_operational_paused: boolean | null;
         charges_enabled: boolean | null;
-      } | null;
+      }>('payout-ledger', 'drivers', {
+        columns: [
+          'id', 'first_name', 'last_name', 'driver_code', 'payouts_enabled',
+          'payout_operational_paused', 'charges_enabled',
+        ],
+        filters: [{ op: 'eq', col: 'id', val: overrideDriverId! }],
+        limit: 1,
+      });
+      return rows[0] ?? null;
     },
   });
 

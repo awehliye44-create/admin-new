@@ -1,4 +1,10 @@
 import { supabase } from '@/integrations/supabase/client';
+import {
+  adminLookupByIds,
+  adminPageSelect,
+  type AdminPageFilter,
+  type AdminPageSelectArgs,
+} from '@/lib/adminPageGatedData';
 import { fetchPassengerDirectory, hydratePassengerIdentity } from '@/lib/tripPassengerDisplay';
 import {
   ADMIN_TRIP_DATE_SORT_DEFAULT,
@@ -88,56 +94,31 @@ export function tripHistoryDateOrFilter(start: Date, end: Date): string {
   ].join(',');
 }
 
-const TRIP_HISTORY_SELECT_BASE = `
-  id, trip_code, trip_number, status, financial_outcome, passenger_id, passenger_name, passenger_phone,
-  pickup_address, pickup_latitude, pickup_longitude, dropoff_address, dropoff_latitude, dropoff_longitude,
-  estimated_fare, fare, gross_fare_pence, commission_pence, driver_net_pence, final_fare_pence,
-  final_customer_fare_pence, capture_amount_pence, commissionable_fare_pence, no_show_charge_pence,
-  locked_base_fare_pence, accepted_preset_offer_fare_pence, accepted_driver_offer_fare_pence,
-  customer_modification_charge_pence, destination_change_adjustment_pence,
-  offer_discount_pence, voucher_discount_pence, discount_pence, applied_offer_code,
-  provider_fee_pence, onecab_net_pence,
-  payment_status, payment_method, payment_provider, provider_order_id, provider_payment_id,
-  currency_code, estimated_distance_km, estimated_duration_minutes,
-  refund_amount_pence, refunded_at,
-  total_stops, created_at, started_at, completed_at, cancelled_at, ${TRIP_HISTORY_EVENT_AT_COLUMN}, cancellation_reason, surge_multiplier, driver_id,
-  driver_location_lat, driver_location_lng, stacked_trip_id,
-  corporate_account_id, region_id, service_area_id, financial_model,
-  cancellation_fee_pence,
-  pricing_mode, fare_locked, vehicle_type_id, vehicle_type, fare_engine_config_id,
-  waiting_charge_pence, pickup_waiting_charge_pence, stop_waiting_charge_pence, total_waiting_charge_pence, waiting_minutes, fare_breakdown,
-  tip_pence, tip_amount_pence, airport_charge_pence, other_pass_through_charges_pence,
-  accepted_commission_percent, driver_tier_commission_percent,
-  arrival_cancellation_applied, arrival_cancellation_fee, previous_driver_id,
-  driver:drivers!trips_driver_id_fkey(id, first_name, last_name, phone, driver_code, region_id),
-  previous_driver:drivers!trips_previous_driver_id_fkey(id, first_name, last_name, phone, driver_code, region_id),
-  service_area_join:service_areas!trips_service_area_id_fkey(region_id, region:regions(currency_code, distance_unit))
-`;
-const TRIP_HISTORY_SELECT_INVOICE = `
-  invoice_no, invoice_pdf_url, invoice_generated_at, invoice_email_sent,
-  invoice_email_sent_at, invoice_email_status, invoice_email_error,
-  invoice_pdf_error, invoice_total_paid_pence, invoice_regenerated_at,
-  invoice_payment_classification, invoice_paid_pence, invoice_outstanding_pence, invoice_delivery_eligible
-`;
-
-const TRIP_HISTORY_SELECT_CORPORATE = `
-  corporate_account:corporate_accounts!trips_corporate_account_id_fkey(id, company_name)
-`;
-
-function isRecoverableTripHistoryQueryError(error: { message?: string; code?: string }): boolean {
-  const msg = (error.message ?? '').toLowerCase();
-  return (
-    msg.includes('column')
-    || msg.includes('does not exist')
-    || msg.includes('could not find')
-    || msg.includes('relationship')
-    || error.code === '42703'
-    || error.code === 'PGRST204'
-    || error.code === 'PGRST200'
-  );
-}
-
-export type TripHistoryRow = Record<string, unknown> & { id: string };
+const TRIP_HISTORY_COLUMNS = [
+  'id', 'trip_code', 'trip_number', 'status', 'financial_outcome', 'passenger_id', 'passenger_name',
+  'passenger_phone', 'pickup_address', 'pickup_latitude', 'pickup_longitude', 'dropoff_address',
+  'dropoff_latitude', 'dropoff_longitude', 'estimated_fare', 'fare', 'gross_fare_pence',
+  'commission_pence', 'driver_net_pence', 'final_fare_pence', 'final_customer_fare_pence',
+  'capture_amount_pence', 'commissionable_fare_pence', 'no_show_charge_pence', 'locked_base_fare_pence',
+  'accepted_preset_offer_fare_pence', 'accepted_driver_offer_fare_pence',
+  'customer_modification_charge_pence', 'destination_change_adjustment_pence', 'offer_discount_pence',
+  'voucher_discount_pence', 'discount_pence', 'applied_offer_code', 'provider_fee_pence', 'onecab_net_pence',
+  'payment_status', 'payment_method', 'payment_provider', 'provider_order_id', 'provider_payment_id',
+  'currency_code', 'estimated_distance_km', 'estimated_duration_minutes', 'refund_amount_pence',
+  'refunded_at', 'total_stops', 'created_at', 'started_at', 'completed_at', 'cancelled_at',
+  TRIP_HISTORY_EVENT_AT_COLUMN, 'cancellation_reason', 'surge_multiplier', 'driver_id',
+  'driver_location_lat', 'driver_location_lng', 'stacked_trip_id', 'corporate_account_id', 'region_id',
+  'service_area_id', 'financial_model', 'cancellation_fee_pence', 'pricing_mode', 'fare_locked',
+  'vehicle_type_id', 'vehicle_type', 'fare_engine_config_id', 'waiting_charge_pence',
+  'pickup_waiting_charge_pence', 'stop_waiting_charge_pence', 'total_waiting_charge_pence',
+  'waiting_minutes', 'fare_breakdown', 'tip_pence', 'tip_amount_pence', 'airport_charge_pence',
+  'other_pass_through_charges_pence', 'accepted_commission_percent', 'driver_tier_commission_percent',
+  'arrival_cancellation_applied', 'arrival_cancellation_fee', 'previous_driver_id',
+  'invoice_no', 'invoice_pdf_url', 'invoice_generated_at', 'invoice_email_sent',
+  'invoice_email_sent_at', 'invoice_email_status', 'invoice_email_error', 'invoice_pdf_error',
+  'invoice_total_paid_pence', 'invoice_regenerated_at', 'invoice_payment_classification',
+  'invoice_paid_pence', 'invoice_outstanding_pence', 'invoice_delivery_eligible',
+];
 
 export type TripHistoryStatusFilter =
   | 'all'
@@ -145,6 +126,103 @@ export type TripHistoryStatusFilter =
   | 'no_show'
   | 'arrival_cancellation'
   | 'late_cancellation';
+
+function tripHistoryTerminalOrGroups(
+  status: TripHistoryStatusFilter = 'all',
+): AdminPageFilter[][] {
+  if (status === 'completed') {
+    return [
+      [{ op: 'eq', col: 'financial_outcome', val: 'COMPLETED' }],
+      [{ op: 'eq', col: 'status', val: 'completed' }],
+    ];
+  }
+  if (status === 'no_show') {
+    return [
+      [{ op: 'eq', col: 'financial_outcome', val: 'NO_SHOW' }],
+      [{ op: 'eq', col: 'status', val: 'no_show' }],
+      [{ op: 'gt', col: 'no_show_charge_pence', val: 0 }],
+      [{ op: 'eq', col: 'cancellation_reason', val: 'no_show' }],
+    ];
+  }
+  if (status === 'arrival_cancellation') {
+    return [[{ op: 'eq', col: 'financial_outcome', val: 'ARRIVAL_CANCELLATION' }]];
+  }
+  if (status === 'late_cancellation') {
+    return [[{ op: 'eq', col: 'financial_outcome', val: 'LATE_PASSENGER_CANCELLATION' }]];
+  }
+  return [
+    [{ op: 'in', col: 'financial_outcome', val: [...TRIP_HISTORY_FINANCIAL_OUTCOMES] }],
+    [{ op: 'in', col: 'status', val: [...TRIP_HISTORY_STATUSES] }],
+    [{ op: 'gt', col: 'no_show_charge_pence', val: 0 }],
+    [{ op: 'eq', col: 'cancellation_reason', val: 'no_show' }],
+  ];
+}
+
+function tripHistoryDateOrGroups(start: Date, end: Date): AdminPageFilter[][] {
+  const s = start.toISOString();
+  const e = end.toISOString();
+  const terminal = [...TRIP_HISTORY_CHARGEABLE_TERMINAL_OUTCOMES];
+  return [
+    [
+      { op: 'gte', col: 'completed_at', val: s },
+      { op: 'lte', col: 'completed_at', val: e },
+    ],
+    [
+      { op: 'is_null', col: 'completed_at' },
+      { op: 'eq', col: 'status', val: 'no_show' },
+      { op: 'gte', col: 'cancelled_at', val: s },
+      { op: 'lte', col: 'cancelled_at', val: e },
+    ],
+    [
+      { op: 'is_null', col: 'completed_at' },
+      { op: 'in', col: 'financial_outcome', val: terminal },
+      { op: 'gte', col: 'cancelled_at', val: s },
+      { op: 'lte', col: 'cancelled_at', val: e },
+    ],
+    [
+      { op: 'is_null', col: 'completed_at' },
+      { op: 'is_null', col: 'cancelled_at' },
+      { op: 'eq', col: 'status', val: 'no_show' },
+      { op: 'gte', col: 'created_at', val: s },
+      { op: 'lte', col: 'created_at', val: e },
+    ],
+    [
+      { op: 'is_null', col: 'completed_at' },
+      { op: 'is_null', col: 'cancelled_at' },
+      { op: 'in', col: 'financial_outcome', val: terminal },
+      { op: 'gte', col: 'created_at', val: s },
+      { op: 'lte', col: 'created_at', val: e },
+    ],
+    [
+      { op: 'is_null', col: 'completed_at' },
+      { op: 'gt', col: 'no_show_charge_pence', val: 0 },
+      { op: 'gte', col: 'cancelled_at', val: s },
+      { op: 'lte', col: 'cancelled_at', val: e },
+    ],
+    [
+      { op: 'is_null', col: 'completed_at' },
+      { op: 'is_null', col: 'cancelled_at' },
+      { op: 'gt', col: 'no_show_charge_pence', val: 0 },
+      { op: 'gte', col: 'created_at', val: s },
+      { op: 'lte', col: 'created_at', val: e },
+    ],
+    [
+      { op: 'is_null', col: 'completed_at' },
+      { op: 'eq', col: 'cancellation_reason', val: 'no_show' },
+      { op: 'gte', col: 'cancelled_at', val: s },
+      { op: 'lte', col: 'cancelled_at', val: e },
+    ],
+    [
+      { op: 'is_null', col: 'completed_at' },
+      { op: 'is_null', col: 'cancelled_at' },
+      { op: 'eq', col: 'cancellation_reason', val: 'no_show' },
+      { op: 'gte', col: 'created_at', val: s },
+      { op: 'lte', col: 'created_at', val: e },
+    ],
+  ];
+}
+
+export type TripHistoryRow = Record<string, unknown> & { id: string };
 
 /** Keyset position on (trip_history_event_at, id); bound to the sort it was issued for. */
 export type TripHistoryCursor = {
@@ -205,12 +283,11 @@ export function decodeTripHistoryCursor(raw: string | null | undefined): TripHis
   }
 }
 
-async function applyTripHistoryLocationFilter(
-  query: any,
+async function tripHistoryLocationFilters(
   args: { regionId?: string; serviceAreaId?: string },
-): Promise<any> {
+): Promise<{ filters: AdminPageFilter[]; or_groups?: AdminPageFilter[][] }> {
   if (args.serviceAreaId && args.serviceAreaId !== 'all') {
-    return query.eq('service_area_id', args.serviceAreaId);
+    return { filters: [{ op: 'eq', col: 'service_area_id', val: args.serviceAreaId }] };
   }
   if (args.regionId && args.regionId !== 'all') {
     const { data: areas } = await supabase
@@ -219,11 +296,17 @@ async function applyTripHistoryLocationFilter(
       .eq('region_id', args.regionId);
     const areaIds = (areas ?? []).map((row: any) => row.id as string).filter(Boolean);
     if (areaIds.length > 0) {
-      return query.or(`region_id.eq.${args.regionId},service_area_id.in.(${areaIds.join(',')})`);
+      return {
+        filters: [],
+        or_groups: [
+          [{ op: 'eq', col: 'region_id', val: args.regionId }],
+          [{ op: 'in', col: 'service_area_id', val: areaIds }],
+        ],
+      };
     }
-    return query.eq('region_id', args.regionId);
+    return { filters: [{ op: 'eq', col: 'region_id', val: args.regionId }] };
   }
-  return query;
+  return { filters: [] };
 }
 
 /**
@@ -240,9 +323,18 @@ export function tripHistoryCursorOrFilter(cursor: TripHistoryCursor): string {
   ].join(',');
 }
 
-function applyTripHistoryCursorFilter(query: any, cursor: TripHistoryCursor | null | undefined): any {
-  if (!cursor?.id) return query;
-  return query.or(tripHistoryCursorOrFilter(cursor));
+function tripHistoryCursorOrGroups(
+  cursor: TripHistoryCursor | null | undefined,
+): AdminPageFilter[][] | undefined {
+  if (!cursor?.id) return undefined;
+  const op: AdminPageFilter['op'] = adminTripDateSortAscending(cursor.sort) ? 'gt' : 'lt';
+  return [
+    [{ op, col: TRIP_HISTORY_EVENT_AT_COLUMN, val: cursor.eventAt }],
+    [
+      { op: 'eq', col: TRIP_HISTORY_EVENT_AT_COLUMN, val: cursor.eventAt },
+      { op, col: 'id', val: cursor.id },
+    ],
+  ];
 }
 
 type TripHistoryDriverJoin = Record<string, unknown> | null | undefined;
@@ -284,6 +376,7 @@ export type FetchTripHistoryPageArgs = {
 /**
  * One Admin Trip History page. Full trip history stays in the database forever;
  * this only pages the UI. Never deletes, archives, or hides finance rows.
+ * Uses page-gated admin_page_select (trip-history) — not direct JWT table reads.
  */
 export async function fetchTripHistoryPage(
   args: FetchTripHistoryPageArgs,
@@ -292,69 +385,96 @@ export async function fetchTripHistoryPage(
   const sort = parseAdminTripDateSort(args.sort);
   const ascending = adminTripDateSortAscending(sort);
   const cursor = args.cursor && args.cursor.sort === sort ? args.cursor : null;
-  const selectVariants = [
-    `${TRIP_HISTORY_SELECT_BASE}, ${TRIP_HISTORY_SELECT_INVOICE}, ${TRIP_HISTORY_SELECT_CORPORATE}`,
-    `${TRIP_HISTORY_SELECT_BASE}, ${TRIP_HISTORY_SELECT_INVOICE}`,
-    TRIP_HISTORY_SELECT_BASE,
-  ];
 
-  let lastError: { message?: string; code?: string } | null = null;
-
-  for (const select of selectVariants) {
-    let query = supabase
-      .from('trips')
-      .select(select)
-      .or(tripHistoryTerminalOrFilter(args.status ?? 'all'))
-      .or(tripHistoryDateOrFilter(args.start, args.end))
-      .order(TRIP_HISTORY_EVENT_AT_COLUMN, { ascending })
-      .order('id', { ascending })
-      .limit(pageSize + 1);
-
-    query = await applyTripHistoryLocationFilter(query, args);
-    query = applyTripHistoryCursorFilter(query, cursor);
-
-    if (args.driverId) query = query.or(tripHistoryDriverOrFilter(args.driverId));
-    if (args.passengerId) query = query.eq('passenger_id', args.passengerId);
-    if (args.tripCode && args.tripCode.trim()) {
-      const code = args.tripCode.trim();
-      // Prefer exact / prefix so indexes on trip_code remain useful.
-      query = query.ilike('trip_code', `${code}%`);
-    }
-
-    const { data, error } = await query;
-    if (!error) {
-      const raw = (data ?? []) as unknown as TripHistoryRow[];
-      const hasMore = raw.length > pageSize;
-      const pageRows = hasMore ? raw.slice(0, pageSize) : raw;
-      const directory = await fetchPassengerDirectory(
-        pageRows.map((row) => (row as { passenger_id?: string | null }).passenger_id),
-      );
-      const rows = hydratePassengerIdentity(
-        pageRows as unknown as Array<Record<string, unknown>>,
-        directory,
-      ).map(attributeTripHistoryDriver) as TripHistoryRow[];
-
-      const last = rows[rows.length - 1];
-      const lastEventAt = last
-        ? (typeof last[TRIP_HISTORY_EVENT_AT_COLUMN] === 'string'
-          ? (last[TRIP_HISTORY_EVENT_AT_COLUMN] as string)
-          : tripHistoryEventAt(last as Parameters<typeof tripHistoryEventAt>[0]))
-        : null;
-      const nextCursor: TripHistoryCursor | null =
-        hasMore && last && lastEventAt
-          ? { id: last.id, eventAt: lastEventAt, sort }
-          : null;
-
-      return { rows, nextCursor, hasMore, pageSize };
-    }
-
-    lastError = error;
-    if (!isRecoverableTripHistoryQueryError(error)) {
-      throw error;
-    }
+  const location = await tripHistoryLocationFilters(args);
+  const filters: AdminPageFilter[] = [...location.filters];
+  if (args.passengerId) {
+    filters.push({ op: 'eq', col: 'passenger_id', val: args.passengerId });
+  }
+  if (args.tripCode && args.tripCode.trim()) {
+    filters.push({ op: 'ilike', col: 'trip_code', val: `${args.tripCode.trim()}%` });
   }
 
-  throw lastError ?? new Error('Failed to load trip history');
+  const andOrGroups: AdminPageFilter[][][] = [
+    tripHistoryTerminalOrGroups(args.status ?? 'all'),
+    tripHistoryDateOrGroups(args.start, args.end),
+  ];
+  if (location.or_groups?.length) {
+    andOrGroups.push(location.or_groups);
+  }
+  const cursorGroups = tripHistoryCursorOrGroups(cursor);
+  if (cursorGroups) {
+    andOrGroups.push(cursorGroups);
+  }
+  if (args.driverId) {
+    andOrGroups.push([
+      [{ op: 'eq', col: 'driver_id', val: args.driverId }],
+      [
+        { op: 'is_null', col: 'driver_id' },
+        { op: 'eq', col: 'previous_driver_id', val: args.driverId },
+      ],
+    ]);
+  }
+
+  const selectArgs: AdminPageSelectArgs = {
+    columns: TRIP_HISTORY_COLUMNS,
+    filters,
+    and_or_groups: andOrGroups,
+    order: [
+      { col: TRIP_HISTORY_EVENT_AT_COLUMN, asc: ascending },
+      { col: 'id', asc: ascending },
+    ],
+    limit: pageSize + 1,
+  };
+
+  const { rows: rawRows } = await adminPageSelect<TripHistoryRow>('trip-history', 'trips', selectArgs);
+  const hasMore = rawRows.length > pageSize;
+  const pageRows = hasMore ? rawRows.slice(0, pageSize) : rawRows;
+
+  const driverIds = pageRows.flatMap((row) =>
+    [row.driver_id, row.previous_driver_id].filter((id): id is string => typeof id === 'string' && Boolean(id)),
+  );
+  const drivers = await adminLookupByIds<{
+    id: string;
+    first_name: string | null;
+    last_name: string | null;
+    phone: string | null;
+    driver_code: string | null;
+    region_id: string | null;
+  }>('trip-history', 'drivers', driverIds, [
+    'id', 'first_name', 'last_name', 'phone', 'driver_code', 'region_id',
+  ]);
+  const driverById = new Map(drivers.map((d) => [d.id, d]));
+
+  const withDrivers = pageRows.map((row) => ({
+    ...row,
+    driver: row.driver_id ? driverById.get(String(row.driver_id)) ?? null : null,
+    previous_driver: row.previous_driver_id
+      ? driverById.get(String(row.previous_driver_id)) ?? null
+      : null,
+  }));
+
+  const directory = await fetchPassengerDirectory(
+    withDrivers.map((row) => (row as { passenger_id?: string | null }).passenger_id),
+    'trip-history',
+  );
+  const rows = hydratePassengerIdentity(
+    withDrivers as unknown as Array<Record<string, unknown>>,
+    directory,
+  ).map(attributeTripHistoryDriver) as TripHistoryRow[];
+
+  const last = rows[rows.length - 1];
+  const lastEventAt = last
+    ? (typeof last[TRIP_HISTORY_EVENT_AT_COLUMN] === 'string'
+      ? (last[TRIP_HISTORY_EVENT_AT_COLUMN] as string)
+      : tripHistoryEventAt(last as Parameters<typeof tripHistoryEventAt>[0]))
+    : null;
+  const nextCursor: TripHistoryCursor | null =
+    hasMore && last && lastEventAt
+      ? { id: last.id, eventAt: lastEventAt, sort }
+      : null;
+
+  return { rows, nextCursor, hasMore, pageSize };
 }
 
 /**

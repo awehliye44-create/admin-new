@@ -154,11 +154,18 @@ export default function StatementRuns() {
         const { data: invNum } = await supabase.rpc("generate_invoice_number");
         const invoiceNumber = invNum || `INV-${Date.now()}-${invoiceCount}`;
 
-        const { data: driverRow } = await supabase
-          .from("drivers")
-          .select("first_name, last_name, driver_code, email")
-          .eq("id", driverId)
-          .maybeSingle();
+        const { adminPageSelect } = await import("@/lib/adminPageGatedData");
+        const { rows: driverRows } = await adminPageSelect<{
+          first_name: string | null;
+          last_name: string | null;
+          driver_code: string | null;
+          email: string | null;
+        }>("statement-runs", "drivers", {
+          columns: ["first_name", "last_name", "driver_code", "email"],
+          filters: [{ op: "eq", col: "id", val: driverId }],
+          limit: 1,
+        });
+        const driverRow = driverRows[0];
         const driverDisplayName = driverRow
           ? `${driverRow.first_name ?? ""} ${driverRow.last_name ?? ""}`.trim()
           : "";

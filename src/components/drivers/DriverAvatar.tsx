@@ -1,7 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { getSignedDocumentUrl } from '@/hooks/useDriverFileUrl';
-import { supabase } from '@/integrations/supabase/client';
 import { cn } from '@/lib/utils';
 
 interface DriverAvatarProps {
@@ -43,14 +42,21 @@ export function DriverAvatar({
       }
 
       // Fallback: look for profile_photo document
-      const { data: doc } = await supabase
-        .from('documents')
-        .select('file_url')
-        .eq('driver_id', driverId)
-        .eq('document_type', 'profile_photo')
-        .order('created_at', { ascending: false })
-        .limit(1)
-        .maybeSingle();
+      const { adminPageSelect } = await import('@/lib/adminPageGatedData');
+      const { rows: docs } = await adminPageSelect<{ file_url: string | null }>(
+        'drivers',
+        'documents',
+        {
+          columns: ['file_url'],
+          filters: [
+            { op: 'eq', col: 'driver_id', val: driverId },
+            { op: 'eq', col: 'document_type', val: 'profile_photo' },
+          ],
+          order: [{ col: 'created_at', asc: false }],
+          limit: 1,
+        },
+      );
+      const doc = docs[0];
 
       if (!cancelled && doc?.file_url) {
         const signed = await getSignedDocumentUrl(doc.file_url);

@@ -296,9 +296,17 @@ export default function Services() {
       if (areasRes.data && areasRes.data.length > 0) {
         const areaIds = areasRes.data.map(a => a.id);
         
+        const { adminPageSelect } = await import('@/lib/adminPageGatedData');
         const [driverServiceAreasRes, driversPrimaryRes, pricingRes, cancellationRes, vehicleAssignRes] = await Promise.all([
           supabase.from('driver_service_areas').select('driver_id, service_area_id').in('service_area_id', areaIds),
-          supabase.from('drivers').select('id, service_area_id').not('service_area_id', 'is', null).in('service_area_id', areaIds),
+          adminPageSelect<{ id: string; service_area_id: string | null }>('services', 'drivers', {
+            columns: ['id', 'service_area_id'],
+            filters: [
+              { op: 'not_null', col: 'service_area_id' },
+              { op: 'in', col: 'service_area_id', val: areaIds },
+            ],
+            limit: 5000,
+          }),
           supabase.from('fare_pricing_settings').select('service_area_id, base_fare_pence').in('service_area_id', areaIds),
           supabase.from('service_area_cancellation_fees').select('service_area_id').in('service_area_id', areaIds),
           supabase.from('service_area_vehicle_pricing').select('service_area_id').eq('is_enabled', true).in('service_area_id', areaIds),
@@ -311,7 +319,8 @@ export default function Services() {
           if (!driversPerArea[dsa.service_area_id]) driversPerArea[dsa.service_area_id] = new Set();
           driversPerArea[dsa.service_area_id].add(dsa.driver_id);
         });
-        (driversPrimaryRes.data || []).forEach((d: any) => {
+        (driversPrimaryRes.rows || []).forEach((d) => {
+          if (!d.service_area_id) return;
           if (!driversPerArea[d.service_area_id]) driversPerArea[d.service_area_id] = new Set();
           driversPerArea[d.service_area_id].add(d.id);
         });
@@ -547,25 +556,42 @@ export default function Services() {
     setIsLoadingAssigned(true);
     setAssignedDrivers([]);
     try {
+      const { adminLookupByIds, adminPageSelect } = await import('@/lib/adminPageGatedData');
       const [primaryRes, multiRes] = await Promise.all([
-        supabase
-          .from('drivers')
-          .select('id, first_name, last_name, driver_code, phone')
-          .eq('service_area_id', area.id),
+        adminPageSelect<{
+          id: string;
+          first_name: string | null;
+          last_name: string | null;
+          driver_code: string | null;
+          phone: string | null;
+        }>('services', 'drivers', {
+          columns: ['id', 'first_name', 'last_name', 'driver_code', 'phone'],
+          filters: [{ op: 'eq', col: 'service_area_id', val: area.id }],
+          limit: 2000,
+        }),
         supabase
           .from('driver_service_areas')
-          .select('driver_id, drivers:driver_id (id, first_name, last_name, driver_code, phone)')
+          .select('driver_id')
           .eq('service_area_id', area.id),
       ]);
 
-      if (primaryRes.error) throw primaryRes.error;
       if (multiRes.error) throw multiRes.error;
 
-      const primaryIds = new Set((primaryRes.data || []).map((d: any) => d.id));
-      const multiIds = new Set((multiRes.data || []).map((r: any) => r.driver_id));
+      const multiDriverIds = (multiRes.data || []).map((r: any) => r.driver_id as string).filter(Boolean);
+      const multiDrivers = await adminLookupByIds<{
+        id: string;
+        first_name: string | null;
+        last_name: string | null;
+        driver_code: string | null;
+        phone: string | null;
+      }>('services', 'drivers', multiDriverIds, ['id', 'first_name', 'last_name', 'driver_code', 'phone']);
+      const multiById = new Map(multiDrivers.map((d) => [d.id, d]));
+
+      const primaryIds = new Set(primaryRes.rows.map((d) => d.id));
+      const multiIds = new Set(multiDriverIds);
       const map: Record<string, any> = {};
 
-      (primaryRes.data || []).forEach((d: any) => {
+      primaryRes.rows.forEach((d) => {
         map[d.id] = {
           id: d.id,
           name: `${d.first_name || ''} ${d.last_name || ''}`.trim() || 'Unnamed driver',
@@ -575,8 +601,8 @@ export default function Services() {
           isMulti: multiIds.has(d.id),
         };
       });
-      (multiRes.data || []).forEach((row: any) => {
-        const d = row.drivers;
+      multiDriverIds.forEach((id) => {
+        const d = multiById.get(id);
         if (!d) return;
         if (map[d.id]) {
           map[d.id].isMulti = true;
@@ -617,12 +643,12 @@ export default function Services() {
       // 2) Clear primary assignment if it points to this area
       const driver = assignedDrivers.find(d => d.id === driverId);
       if (driver?.isPrimary) {
-        const { error: updateErr } = await supabase
-          .from('drivers')
-          .update({ service_area_id: null })
-          .eq('id', driverId)
-          .eq('service_area_id', area.id);
-        if (updateErr) throw updateErr;
+        const { adminPageMutate } = await import('@/lib/adminPageGatedData');
+        await adminPageMutate('services', 'drivers', 'update', {
+          id: driverId,
+          patch: { service_area_id: null },
+          filters: [{ op: 'eq', col: 'service_area_id', val: area.id }],
+        });
       }
 
       toast.success('Driver removed from service area');

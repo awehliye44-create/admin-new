@@ -60,6 +60,7 @@ import {
   fetchDashboardChartRows,
   fetchDashboardPeriodStats,
 } from '@/lib/adminDashboardStats';
+import { adminLookupByIds, adminPageSelect } from '@/lib/adminPageGatedData';
 import { ADMIN_DASHBOARD_LIVE_FLEET_CAP } from '@/lib/adminQueryBounds';
 
 
@@ -417,13 +418,13 @@ export default function Dashboard() {
       else chartStart = startOfWeek(subWeeks(now, 3));
       const chartEnd = period === 'custom' && customDateTo ? endOfDay(customDateTo) : now;
 
-      const [stats, recentR, cTrips] = await Promise.all([
+      const [stats, recentPage, cTrips] = await Promise.all([
         fetchDashboardPeriodStats(scope),
-        supabase
-          .from('trips')
-          .select('id, passenger_name, pickup_address, dropoff_address, driver:drivers!trips_driver_id_fkey(first_name, last_name)')
-          .order('created_at', { ascending: false })
-          .limit(5),
+        adminPageSelect<Record<string, unknown>>('dashboard', 'trips', {
+          columns: ['id', 'passenger_name', 'pickup_address', 'dropoff_address', 'driver_id'],
+          order: [{ col: 'created_at', asc: false }],
+          limit: 5,
+        }),
         fetchDashboardChartRows({
           startIso: chartStart.toISOString(),
           endIso: chartEnd.toISOString(),
@@ -431,7 +432,21 @@ export default function Dashboard() {
         }),
       ]);
 
-      if (recentR.error) throw recentR.error;
+      const recentDriverIds = recentPage.rows
+        .map((r) => r.driver_id as string | null | undefined)
+        .filter((id): id is string => Boolean(id));
+      const recentDrivers = await adminLookupByIds<{
+        id: string;
+        first_name: string | null;
+        last_name: string | null;
+      }>('dashboard', 'drivers', recentDriverIds, ['id', 'first_name', 'last_name']);
+      const recentDriverById = new Map(recentDrivers.map((d) => [d.id, d]));
+      const recentR = {
+        data: recentPage.rows.map((r) => ({
+          ...r,
+          driver: r.driver_id ? recentDriverById.get(r.driver_id as string) ?? null : null,
+        })),
+      };
 
       let chartData: BookingDataPoint[] = [];
       if (timePeriod === 'daily') {
@@ -473,19 +488,25 @@ export default function Dashboard() {
   const { data: liveDrivers = [] } = useQuery({
     queryKey: ['dashboard-live-drivers', selectedServiceArea],
     queryFn: async () => {
-      let q = supabase
-        .from('drivers')
-        .select('id, first_name, last_name, is_online, current_lat, current_lng, heading, current_trip_id, last_location_updated_at')
-        .is('deleted_at', null)
-        .neq('driver_status', 'deleted')
-        .not('current_lat', 'is', null)
-        .not('current_lng', 'is', null)
-        .order('is_online', { ascending: false })
-        .limit(ADMIN_DASHBOARD_LIVE_FLEET_CAP);
-      if (selectedServiceArea !== 'all') q = q.eq('service_area_id', selectedServiceArea);
-      const { data, error } = await q;
-      if (error) throw error;
-      return (data || []) as LiveFleetDriver[];
+      const filters: import('@/lib/adminPageGatedData').AdminPageFilter[] = [
+        { op: 'is_null', col: 'deleted_at' },
+        { op: 'neq', col: 'driver_status', val: 'deleted' },
+        { op: 'not_null', col: 'current_lat' },
+        { op: 'not_null', col: 'current_lng' },
+      ];
+      if (selectedServiceArea !== 'all') {
+        filters.push({ op: 'eq', col: 'service_area_id', val: selectedServiceArea });
+      }
+      const { rows } = await adminPageSelect<LiveFleetDriver>('dashboard', 'drivers', {
+        columns: [
+          'id', 'first_name', 'last_name', 'is_online', 'current_lat', 'current_lng',
+          'heading', 'current_trip_id', 'last_location_updated_at',
+        ],
+        filters,
+        order: [{ col: 'is_online', asc: false }],
+        limit: ADMIN_DASHBOARD_LIVE_FLEET_CAP,
+      });
+      return rows;
     },
     staleTime: 15_000,
     refetchInterval: () => (isAdminPageLiveActive() ? 60_000 : false),
@@ -669,29 +690,53 @@ export default function Dashboard() {
     queryFn: async () => {
       const { startIso, endIso } = userStatsRange;
       const driverCount = async (col?: string, val?: string | boolean) => {
-        let q: any = supabase.from('drivers').select('id', { count: 'exact', head: true })
-          .is('deleted_at', null).neq('driver_status', 'deleted')
-          .gte('created_at', startIso).lte('created_at', endIso);
-        if (selectedServiceArea !== 'all') q = q.eq('service_area_id', selectedServiceArea);
-        if (col) q = q.eq(col, val);
-        const { count, error } = await q;
-        if (error) throw error;
+        const filters: import('@/lib/adminPageGatedData').AdminPageFilter[] = [
+          { op: 'is_null', col: 'deleted_at' },
+          { op: 'neq', col: 'driver_status', val: 'deleted' },
+          { op: 'gte', col: 'created_at', val: startIso },
+          { op: 'lte', col: 'created_at', val: endIso },
+        ];
+        if (selectedServiceArea !== 'all') {
+          filters.push({ op: 'eq', col: 'service_area_id', val: selectedServiceArea });
+        }
+        if (col) filters.push({ op: 'eq', col, val });
+        const { count } = await adminPageSelect('dashboard', 'drivers', {
+          columns: ['id'],
+          filters,
+          count_only: true,
+          limit: 1,
+        });
         return count ?? 0;
       };
       const tripCount = async (status?: string | string[]) => {
-        let q: any = supabase.from('trips').select('id', { count: 'exact', head: true })
-          .gte('created_at', startIso).lte('created_at', endIso);
-        if (selectedServiceArea !== 'all') q = q.eq('service_area_id', selectedServiceArea);
-        if (typeof status === 'string') q = q.eq('status', status);
-        else if (status) q = q.in('status', status);
-        const { count, error } = await q;
-        if (error) throw error;
+        const filters: import('@/lib/adminPageGatedData').AdminPageFilter[] = [
+          { op: 'gte', col: 'created_at', val: startIso },
+          { op: 'lte', col: 'created_at', val: endIso },
+        ];
+        if (selectedServiceArea !== 'all') {
+          filters.push({ op: 'eq', col: 'service_area_id', val: selectedServiceArea });
+        }
+        if (typeof status === 'string') filters.push({ op: 'eq', col: 'status', val: status });
+        else if (status) filters.push({ op: 'in', col: 'status', val: status });
+        const { count } = await adminPageSelect('dashboard', 'trips', {
+          columns: ['id'],
+          filters,
+          count_only: true,
+          limit: 1,
+        });
         return count ?? 0;
       };
       const [totalDrivers, onlineDrivers, pendingDrivers, inactiveDrivers, totalRiders, totalTrips, completedTrips, cancelledTrips, activeTrips] = await Promise.all([
         driverCount(), driverCount('is_online', true), driverCount('approval_status', 'pending'), driverCount('approval_status', 'rejected'),
-        supabase.from('customers').select('id', { count: 'exact', head: true }).gte('created_at', startIso).lte('created_at', endIso)
-          .then(r => { if (r.error) throw r.error; return r.count ?? 0; }),
+        adminPageSelect('dashboard', 'customers', {
+          columns: ['id'],
+          filters: [
+            { op: 'gte', col: 'created_at', val: startIso },
+            { op: 'lte', col: 'created_at', val: endIso },
+          ],
+          count_only: true,
+          limit: 1,
+        }).then((r) => r.count ?? 0),
         tripCount(), tripCount('completed'), tripCount('cancelled'), tripCount([...ACTIVE_TRIP_DB_STATUSES]),
       ]);
       return { totalDrivers, onlineDrivers, pendingDrivers, inactiveDrivers, totalRiders, totalTrips, completedTrips, cancelledTrips, activeTrips };

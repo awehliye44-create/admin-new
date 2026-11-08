@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
+import { adminPageSelect } from '@/lib/adminPageGatedData';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -184,6 +185,8 @@ export type InitialPaymentAction = 'capture' | 'refund' | 'partial_refund';
 export function PaymentControlsCard({
   tripId,
   variant = 'finance',
+  /** Canonical page grant for trip field hydrate (exact page — no OR-list). */
+  pageSlug = 'trip-history',
   initialAction = null,
   initialPaymentAction = null,
   onInitialActionConsumed,
@@ -191,6 +194,7 @@ export function PaymentControlsCard({
 }: {
   tripId: string;
   variant?: PaymentControlsVariant;
+  pageSlug?: 'trip-history' | 'payment-sessions' | 'financial-reconciliation';
   initialAction?: FinanceRecoveryAction | null;
   initialPaymentAction?: InitialPaymentAction | null;
   onInitialActionConsumed?: () => void;
@@ -222,12 +226,21 @@ export function PaymentControlsCard({
     queryKey: ['admin-payment-capture-context', tripId],
     enabled: !!tripId && isAdmin,
     queryFn: async () => {
-      const [tripRes, paymentsRes, ledgerRes, sessionRes] = await Promise.all([
-        supabase
-          .from('trips')
-          .select('payment_method, payment_status, status, financial_outcome, cancellation_reason, final_fare_pence, final_customer_fare_pence, gross_fare_pence, capture_amount_pence, authorised_amount_pence, estimated_fare, tip_pence, tip_amount_pence, fare_breakdown, arrival_cancellation_applied, arrival_cancellation_fee, no_show_charge_pence, cancellation_fee_pence, driver_net_pence, total_waiting_charge_pence, waiting_charge_pence, pickup_waiting_charge_pence, discount_pence, offer_discount_pence, voucher_discount_pence, discount_source, refund_amount_pence, fare_snapshot_json, provider_fee_pence')
-          .eq('id', tripId)
-          .single(),
+      const [tripPage, paymentsRes, ledgerRes, sessionRes] = await Promise.all([
+        adminPageSelect<TripCaptureFields>(pageSlug, 'trips', {
+          columns: [
+            'payment_method', 'payment_status', 'status', 'financial_outcome', 'cancellation_reason',
+            'final_fare_pence', 'final_customer_fare_pence', 'gross_fare_pence', 'capture_amount_pence',
+            'authorised_amount_pence', 'estimated_fare', 'tip_pence', 'tip_amount_pence', 'fare_breakdown',
+            'arrival_cancellation_applied', 'arrival_cancellation_fee', 'no_show_charge_pence',
+            'cancellation_fee_pence', 'driver_net_pence', 'total_waiting_charge_pence',
+            'waiting_charge_pence', 'pickup_waiting_charge_pence', 'discount_pence',
+            'offer_discount_pence', 'voucher_discount_pence', 'discount_source', 'refund_amount_pence',
+            'fare_snapshot_json', 'provider_fee_pence',
+          ],
+          filters: [{ op: 'eq', col: 'id', val: tripId }],
+          limit: 1,
+        }),
         supabase
           .from('payments')
           .select('captured_amount_pence, amount_pence, status, fee_type, metadata')
@@ -242,6 +255,7 @@ export function PaymentControlsCard({
           .select('refunded_amount_pence, captured_amount_pence, authorised_amount_pence, total_authorised_amount_pence, status, provider_state, purpose')
           .eq('trip_id', tripId),
       ]);
+      const tripRes = { data: tripPage.rows[0] ?? null, error: tripPage.rows[0] ? null : new Error('Trip not found') };
       if (tripRes.error) throw tripRes.error;
       const payments = (paymentsRes.data ?? []) as unknown as Parameters<typeof summarizeTripPayments>[0];
       const summary = summarizeTripPayments(payments);

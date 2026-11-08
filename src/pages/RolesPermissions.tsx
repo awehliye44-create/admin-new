@@ -71,6 +71,7 @@ import {
   canEditStaff,
   canCreateStaff,
 } from '../../shared/rolesPermissionsSSOT';
+import { getPermissionMatrixPageGroups, getAdminPage } from '../../shared/adminPageCatalogSSOT';
 import { format } from 'date-fns';
 import { toast } from 'sonner';
 
@@ -639,19 +640,8 @@ export default function RolesPermissions() {
     );
   };
 
-  // Permission page groups for the matrix
-  const PAGE_GROUPS = [
-    { label: 'Dashboard', pages: ['dashboard'] },
-    { label: 'Operations', pages: ['fleet-tracking', 'active-trips', 'auto-dispatch', 'scheduled-rides', 'missed-cancelled', 'trip-history', 'manual-trip', 'dispatch-metrics', 'driver-demand-zones', 'staff-work-patterns'] },
-    { label: 'Fleet', pages: ['drivers', 'vehicles', 'vehicle-types', 'documents', 'document-management'] },
-    { label: 'Service Areas', pages: ['regions', 'services'] },
-    { label: 'Pricing', pages: ['promo-codes', 'custom-zones', 'zone-pricing', 'corporate-fares', 'fare-simulator'] },
-    { label: 'Corporate', pages: ['corporate-accounts', 'account-requests', 'corporate-billing', 'corporate-reports', 'corporate-settings'] },
-    { label: 'Riders & Support', pages: ['riders', 'pending-customer-signups', 'rider-feedback', 'suspensions', 'complaints', 'live-chat', 'tickets', 'categories'] },
-    { label: 'Finance', pages: ['payment-sessions', 'financial-reconciliation', 'payments-trip-shortfall-recapture', 'driver-wallet-ledger', 'commission-wallet', 'payout-ledger', 'disputes', 'dispute-settings', 'invoices', 'invoice-templates', 'statement-runs'] },
-    { label: 'Documents', pages: ['onecab-documents', 'content'] },
-    { label: 'Settings', pages: ['general-settings', 'integrations', 'webhooks', 'system', 'roles', 'user-directory', 'notifications', 'alert-sounds'] },
-  ];
+  // Permission page groups — SSOT catalog (sidebar + gate + matrix)
+  const PAGE_GROUPS = getPermissionMatrixPageGroups();
 
 
   const [togglingPerm, setTogglingPerm] = useState<string | null>(null);
@@ -1059,8 +1049,8 @@ export default function RolesPermissions() {
                           </TableRow>
                           {group.pages.map(page => (
                             <TableRow key={page}>
-                              <TableCell className="sticky left-0 bg-background z-10 capitalize text-sm">
-                                {page.replace(/-/g, ' ')}
+                              <TableCell className="sticky left-0 bg-background z-10 text-sm" title={pageHelpText(page)}>
+                                {getAdminPage(page)?.label ?? page.replace(/-/g, ' ')}
                               </TableCell>
                               {roles.map(role => {
                                 const r = role.id;

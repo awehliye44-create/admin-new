@@ -7,9 +7,13 @@
  *  - Delegation / "cannot grant what you don't have" rules
  *  - Help copy used by the Admin Panel UI
  *
+ * Navigable page slugs / matrix groups live in `adminPageCatalogSSOT.ts`.
+ *
  * These are PURE functions. The backend (RPC + RLS) is the enforcement
  * authority — this module keeps the UI aligned with it and is unit tested.
  */
+
+import { pageCatalogHelpText } from './adminPageCatalogSSOT';
 
 export type StaffRoleKey =
   | 'super_admin'
@@ -245,10 +249,8 @@ export const PAGE_HELP: Record<string, string> = {
 };
 
 export function pageHelpText(slug: string): string {
-  return (
-    PAGE_HELP[slug] ??
-    `Allows the role to open the ${slug.replace(/-/g, ' ')} page. Actions on that page may require separate permissions.`
-  );
+  return pageCatalogHelpText(slug) || PAGE_HELP[slug] ||
+    `Allows the role to open the ${slug.replace(/-/g, ' ')} page. Actions on that page may require separate permissions.`;
 }
 
 /* ------------------------------------------------------------------ */

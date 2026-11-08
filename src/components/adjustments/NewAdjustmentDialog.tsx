@@ -38,13 +38,31 @@ export function NewAdjustmentDialog({ open, onOpenChange }: NewAdjustmentDialogP
     queryKey: ['adjustment-drivers-search', driverSearch],
     queryFn: async () => {
       if (driverSearch.length < 2) return [];
-      const { data, error } = await supabase
-        .from('drivers')
-        .select('id, first_name, last_name, driver_code, region:regions(currency_code)')
-        .or(`first_name.ilike.%${driverSearch}%,last_name.ilike.%${driverSearch}%,driver_code.ilike.%${driverSearch}%`)
-        .limit(10);
-      if (error) throw error;
-      return data || [];
+      const { adminPageSelect } = await import('@/lib/adminPageGatedData');
+      const like = `%${driverSearch}%`;
+      const { rows } = await adminPageSelect('disputes', 'drivers', {
+        columns: ['id', 'first_name', 'last_name', 'driver_code', 'region_id'],
+        or_groups: [
+          [{ op: 'ilike', col: 'first_name', val: like }],
+          [{ op: 'ilike', col: 'last_name', val: like }],
+          [{ op: 'ilike', col: 'driver_code', val: like }],
+        ],
+        limit: 10,
+      });
+      const regionIds = [...new Set(rows.map((r) => r.region_id as string | null).filter(Boolean))] as string[];
+      let regionById = new Map<string, { currency_code: string | null }>();
+      if (regionIds.length > 0) {
+        const { data: regions, error } = await supabase
+          .from('regions')
+          .select('id, currency_code')
+          .in('id', regionIds);
+        if (error) throw error;
+        regionById = new Map((regions ?? []).map((r) => [r.id, { currency_code: r.currency_code }]));
+      }
+      return rows.map((r) => ({
+        ...r,
+        region: r.region_id ? regionById.get(String(r.region_id)) ?? null : null,
+      }));
     },
     enabled: driverSearch.length >= 2 && !selectedDriverId,
   });

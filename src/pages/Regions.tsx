@@ -217,15 +217,20 @@ export default function Regions() {
       // Fetch all stats in parallel (not N+1)
       if (parsedData.length > 0) {
         const regionIds = parsedData.map(r => r.id);
+        const { adminPageSelect } = await import('@/lib/adminPageGatedData');
         const [driversRes, areasRes] = await Promise.all([
-          supabase.from('drivers').select('region_id').in('region_id', regionIds),
+          adminPageSelect<{ region_id: string | null }>('regions', 'drivers', {
+            columns: ['region_id'],
+            filters: [{ op: 'in', col: 'region_id', val: regionIds }],
+            limit: 10000,
+          }),
           supabase.from('service_areas').select('region_id').in('region_id', regionIds).is('archived_at', null),
         ]);
         
         const stats: Record<string, RegionStats> = {};
         for (const region of parsedData) {
           stats[region.id] = {
-            drivers: driversRes.data?.filter(d => d.region_id === region.id).length || 0,
+            drivers: driversRes.rows.filter((d) => d.region_id === region.id).length || 0,
             serviceAreas: areasRes.data?.filter(a => a.region_id === region.id).length || 0,
           };
         }

@@ -8,6 +8,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { toast } from 'sonner';
 import { supabase } from '@/integrations/supabase/client';
+import { adminPageSelect } from '@/lib/adminPageGatedData';
 import { useQuery } from '@tanstack/react-query';
 import { useRegions } from '@/hooks/useRegions';
 import { getCurrencySymbol } from '@/lib/regionSettings';
@@ -115,26 +116,41 @@ export default function CorporateReports() {
   const { data: tripData = [], isLoading } = useQuery<CorporateReportTripRow[]>({
     queryKey: ['corporate-trip-reports', dateRange, regionFilter, serviceAreaFilter, selectedAccount],
     queryFn: async () => {
-      let query = supabase
-        .from('trips')
-        .select(`
-          id, created_at, status, financial_outcome, service_area_id, corporate_account_id,
-          corporate_account:corporate_accounts!trips_corporate_account_id_fkey(id, company_name)
-        `)
-        .not('corporate_account_id', 'is', null)
-        .gte('created_at', dateRangeDates.start);
-      
+      const filters: import('@/lib/adminPageGatedData').AdminPageFilter[] = [
+        { op: 'not_null', col: 'corporate_account_id' },
+        { op: 'gte', col: 'created_at', val: dateRangeDates.start },
+      ];
       if (serviceAreaFilter !== 'all') {
-        query = query.eq('service_area_id', serviceAreaFilter);
+        filters.push({ op: 'eq', col: 'service_area_id', val: serviceAreaFilter });
       }
-      
       if (selectedAccount !== 'all') {
-        query = query.eq('corporate_account_id', selectedAccount);
+        filters.push({ op: 'eq', col: 'corporate_account_id', val: selectedAccount });
       }
-      
-      const { data: trips, error } = await query;
-      if (error) throw error;
-      return trips ?? [];
+      const { rows } = await adminPageSelect<Record<string, unknown>>('corporate-reports', 'trips', {
+        columns: [
+          'id', 'created_at', 'status', 'financial_outcome', 'service_area_id', 'corporate_account_id',
+        ],
+        filters,
+        limit: 500,
+      });
+      const accountIds = [...new Set(
+        rows.map((r) => r.corporate_account_id as string | null).filter((id): id is string => Boolean(id)),
+      )];
+      let accountById = new Map<string, { id: string; company_name: string }>();
+      if (accountIds.length > 0) {
+        const { data: accounts, error } = await supabase
+          .from('corporate_accounts')
+          .select('id, company_name')
+          .in('id', accountIds);
+        if (error) throw error;
+        accountById = new Map((accounts ?? []).map((a) => [a.id, a]));
+      }
+      return rows.map((r) => ({
+        ...r,
+        corporate_account: r.corporate_account_id
+          ? accountById.get(r.corporate_account_id as string) ?? null
+          : null,
+      })) as CorporateReportTripRow[];
     },
   });
 

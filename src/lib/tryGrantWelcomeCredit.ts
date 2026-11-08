@@ -48,11 +48,17 @@ export async function tryGrantWelcomeCredit(driverId: string): Promise<WelcomeGr
 
   const attempts: WelcomeGrantAttempt[] = [];
 
-  const { data: driver } = await supabase
-    .from('drivers')
-    .select('id, service_area_id')
-    .eq('id', id)
-    .maybeSingle();
+  const { adminPageSelect } = await import('@/lib/adminPageGatedData');
+  const { rows: driverRows } = await adminPageSelect<{ id: string; service_area_id: string | null }>(
+    'drivers',
+    'drivers',
+    {
+      columns: ['id', 'service_area_id'],
+      filters: [{ op: 'eq', col: 'id', val: id }],
+      limit: 1,
+    },
+  );
+  const driver = driverRows[0] ?? null;
 
   const { data: assignments } = await supabase
     .from('driver_service_areas')
