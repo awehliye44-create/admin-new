@@ -77,7 +77,8 @@ serve(async (req) => {
       return errorResponse('Validation failed', 400, { validation_errors: validation.errors });
     }
 
-    const { pickup_lat, pickup_lng, vehicle_type_id, max_distance_km = 10 } = validation.data!;
+    // Default Ride Now radius: 27 km ≈ 16.77 miles (client may override).
+    const { pickup_lat, pickup_lng, vehicle_type_id, max_distance_km = 27 } = validation.data!;
 
     console.log('Finding drivers for pickup:', { pickup_lat, pickup_lng, vehicle_type_id });
 

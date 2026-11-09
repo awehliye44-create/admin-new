@@ -343,7 +343,8 @@ export async function evaluateRideNowVehicleAvailability(
   },
 ): Promise<RideNowAvailabilityResult> {
   const pickup = { lat: input.pickup_lat, lng: input.pickup_lng };
-  const maxDistanceKm = input.max_distance_km ?? 10;
+  // Default Ride Now radius: 27 km ≈ 16.77 miles.
+  const maxDistanceKm = input.max_distance_km ?? 27;
 
   try {
     const regionCtx = await resolvePickupRegionContext(supabase, pickup);
@@ -412,7 +413,8 @@ export async function evaluateRideNowAvailabilityForVehicleTypes(
   if (ids.length === 0) return out;
 
   const pickup = { lat: input.pickup_lat, lng: input.pickup_lng };
-  const maxDistanceKm = input.max_distance_km ?? 10;
+  // Default Ride Now radius: 27 km ≈ 16.77 miles.
+  const maxDistanceKm = input.max_distance_km ?? 27;
 
   try {
     const regionCtx = await resolvePickupRegionContext(supabase, pickup);
