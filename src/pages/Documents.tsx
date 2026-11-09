@@ -245,11 +245,16 @@ export default function Documents() {
     setIsSaving(true);
     try {
       const isReReject = selectedDocument.status === 'approved' && reviewStatus === 'rejected';
+      const { data: authData, error: authError } = await supabase.auth.getUser();
+      if (authError || !authData.user?.id) {
+        throw new Error('Your admin session expired. Sign in again, then retry approve/reject.');
+      }
 
-      const updatePayload: Record<string, any> = {
+      const updatePayload: Record<string, unknown> = {
         status: reviewStatus,
         rejection_reason: reviewStatus === 'rejected' ? rejectionReason.trim() : null,
         reviewed_at: new Date().toISOString(),
+        reviewed_by: authData.user.id,
       };
 
       // On re-rejection, clear the file so the driver must re-upload
@@ -257,24 +262,50 @@ export default function Documents() {
         updatePayload.file_url = null;
       }
 
-      await adminPageMutate('documents', 'documents', 'update', {
-        id: selectedDocument.id,
-        patch: updatePayload,
-      });
+      const result = await adminPageMutate<{ status?: string; id?: string }>(
+        'documents',
+        'documents',
+        'update',
+        {
+          id: selectedDocument.id,
+          patch: updatePayload,
+        },
+      );
+
+      const savedStatus = result.row?.status;
+      if (!result.row) {
+        throw new Error(
+          'Review did not update any document row. Refresh the list and try again.',
+        );
+      }
+      if (savedStatus !== reviewStatus) {
+        throw new Error(
+          `Review did not stick (status is still “${savedStatus ?? 'unknown'}”). Refresh and retry, or check staff document permissions.`,
+        );
+      }
 
       toast.success(
         isReReject
           ? 'Document re-rejected — driver will be prompted to re-upload'
-          : `Document ${reviewStatus === 'approved' ? 'approved' : 'rejected'} successfully`
+          : reviewStatus === 'approved'
+            ? 'Document approved — driver eligibility will refresh automatically'
+            : 'Document rejected — driver can re-upload from My Documents',
       );
       setIsReviewOpen(false);
       setSelectedDocument(null);
       setReviewStatus('');
       setRejectionReason('');
       refreshData();
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error('Error reviewing document:', err);
-      toast.error(err.message || 'Failed to review document');
+      const raw = err instanceof Error ? err.message : typeof err === 'object' && err && 'message' in err
+        ? String((err as { message?: unknown }).message || '')
+        : '';
+      const friendly =
+        /syntax error at or near/i.test(raw)
+          ? 'Document review failed on the server. Refresh and retry — if it persists, the admin mutate fix may not be applied yet.'
+          : raw || 'Failed to review document';
+      toast.error(friendly);
     } finally {
       setIsSaving(false);
     }
@@ -639,16 +670,23 @@ export default function Documents() {
                 </div>
               )}
               {reviewStatus === 'approved' && (
-                <p className="text-sm text-muted-foreground">
-                  This will approve the document and mark it as verified.
-                </p>
+                <div className="space-y-2 rounded-md border border-emerald-200 bg-emerald-50/60 p-3 text-sm text-emerald-950">
+                  <p className="font-medium">Approve this document?</p>
+                  <ul className="list-disc space-y-1 pl-4 text-muted-foreground">
+                    <li>Marks it verified for this driver.</li>
+                    <li>When every required document is approved and valid, onboarding unlocks automatically — no extra step.</li>
+                    <li>Expired or missing required docs still keep the driver offline.</li>
+                  </ul>
+                </div>
               )}
             </div>
             <DialogFooter>
-              <Button variant="outline" onClick={() => setIsReviewOpen(false)}>Cancel</Button>
+              <Button variant="outline" onClick={() => setIsReviewOpen(false)} disabled={isSaving}>
+                Cancel
+              </Button>
               <Button 
                 onClick={handleReview} 
-                disabled={isSaving}
+                disabled={isSaving || (reviewStatus === 'rejected' && !rejectionReason.trim())}
                 variant={reviewStatus === 'rejected' ? 'destructive' : 'default'}
               >
                 {isSaving ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
