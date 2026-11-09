@@ -239,7 +239,7 @@ export function DriverDetailsDialog({
     const allTypes = typesRes.rows;
     const docsPage = docsRes as Awaited<ReturnType<typeof adminPageSelect>>;
     const driverPage = driverRes as Awaited<ReturnType<typeof adminPageSelect>>;
-    const assignedServiceAreaId = (driverPage.rows[0]?.service_area_id as string | null) ?? null;
+    const assignedServiceAreaId = ((driverPage.rows[0] as { service_area_id?: string | null } | undefined)?.service_area_id) ?? null;
     let assignedServiceAreaName: string | null = null;
     if (assignedServiceAreaId) {
       const { rows: saRows } = await adminServiceAreasLookup<{ name: string }>(

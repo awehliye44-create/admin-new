@@ -89,7 +89,7 @@ export default function Dispatch() {
             service_area: r.service_area_id
               ? { region: (saById.get(r.service_area_id as string) as any)?.region ?? null }
               : null,
-          })) as Trip[],
+          })) as unknown as Trip[],
         );
       } catch (err) {
         console.error('Error fetching trips:', err);

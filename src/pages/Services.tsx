@@ -599,7 +599,7 @@ export default function Services() {
         driver_code: string | null;
         phone: string | null;
       }>('services', 'drivers', multiDriverIds, ['id', 'first_name', 'last_name', 'driver_code', 'phone']);
-      const multiById = new Map(multiDrivers.map((d) => [d.id, d]));
+      const multiById = new globalThis.Map(multiDrivers.map((d) => [d.id, d]));
 
       const primaryIds = new Set(primaryRes.rows.map((d) => d.id));
       const multiIds = new Set(multiDriverIds);

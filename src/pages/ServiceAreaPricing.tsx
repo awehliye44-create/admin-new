@@ -124,7 +124,7 @@ export default function ServiceAreaPricing() {
 
       if (vtRes.error) throw vtRes.error;
 
-      const areasData = (areasPage.rows || []) as ServiceArea[];
+      const areasData = (areasPage.rows || []) as unknown as ServiceArea[];
       setServiceAreas(areasData);
       setAllVehicleTypes(vtRes.data || []);
 
