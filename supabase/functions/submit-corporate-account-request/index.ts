@@ -147,7 +147,12 @@ Deno.serve(async (req) => {
 
     const parsed = parseSubmitBody(body);
     if (!parsed.ok) {
-      return jsonResponse({ error: "Validation failed", codes: parsed.errors }, 400);
+      // Never silent-fail corporate signup — client must show a retryable message.
+      return jsonResponse({
+        error: "Please check the form fields and try again.",
+        code: "VALIDATION_FAILED",
+        codes: parsed.errors,
+      }, 400);
     }
 
     const addressText = parsed.row.address ?? "";
@@ -224,6 +229,32 @@ Deno.serve(async (req) => {
       }
     }
 
+    // Idempotent resume: Auth-only orphan / Edge timeout after success must not
+    // create duplicate request rows on retry.
+    if (userId) {
+      const { data: existing, error: existingErr } = await service
+        .from("corporate_account_requests")
+        .select("id, status, created_at")
+        .eq("user_id", userId)
+        .in("status", ["pending", "approved"])
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (!existingErr && existing?.id) {
+        return jsonResponse({
+          success: true,
+          request_id: existing.id,
+          status: existing.status,
+          created_at: existing.created_at,
+          resumed: true,
+          message:
+            existing.status === "approved"
+              ? "Your corporate account is already approved."
+              : "Request already received. ONECAB will contact you — you can close this page.",
+        });
+      }
+    }
+
     const insertRow = {
       ...parsed.row,
       city: resolvedCity,
@@ -240,8 +271,35 @@ Deno.serve(async (req) => {
       .single();
 
     if (error) {
+      // Race: concurrent retry inserted first — return the existing row.
+      if (userId && (error.code === "23505" || /duplicate|unique/i.test(error.message ?? ""))) {
+        const { data: raced } = await service
+          .from("corporate_account_requests")
+          .select("id, status, created_at")
+          .eq("user_id", userId)
+          .order("created_at", { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        if (raced?.id) {
+          return jsonResponse({
+            success: true,
+            request_id: raced.id,
+            status: raced.status,
+            created_at: raced.created_at,
+            resumed: true,
+            message: "Request already received. ONECAB will contact you — you can close this page.",
+          });
+        }
+      }
       console.error("[submit-corporate-account-request] insert error:", error);
       return jsonResponse({ error: "Could not submit request. Please try again." }, 500);
+    }
+
+    if (!data?.id) {
+      return jsonResponse({
+        error: "Could not confirm your request. Please try again.",
+        code: "SUBMIT_UNCONFIRMED",
+      }, 500);
     }
 
     return jsonResponse({
@@ -249,9 +307,13 @@ Deno.serve(async (req) => {
       request_id: data.id,
       status: data.status,
       created_at: data.created_at,
+      message: "Request received. ONECAB will contact you — you can close this page.",
     });
   } catch (err) {
     console.error("[submit-corporate-account-request] error:", err);
-    return jsonResponse({ error: "Internal error" }, 500);
+    return jsonResponse({
+      error: "Something went wrong. Please try again in a moment.",
+      code: "INTERNAL_ERROR",
+    }, 500);
   }
 });
