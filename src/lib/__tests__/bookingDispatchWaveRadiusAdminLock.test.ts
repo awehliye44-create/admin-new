@@ -78,6 +78,12 @@ describe('Admin Auto-Dispatch Rules page', () => {
     expect(save).toMatch(/\.update\(dbData\)\s*\.eq\('singleton', true\)\s*\.select\(GLOBAL_DISPATCH_SETTINGS_SELECT\)\s*\.single\(\)/);
     expect(save).toContain("throw new Error('Booking dispatch radius did not persist')");
     expect(save).toContain('setSettings(savedSettings)');
+    // Legacy dispatch_settings mirror must not fail the global SSOT save.
+    expect(save).toContain('Legacy dispatch_settings mirror sync failed');
+    expect(save.indexOf('adminPageMutate(')).toBeGreaterThan(save.indexOf('.update(dbData)'));
+    expect(save.indexOf('Legacy dispatch_settings mirror sync failed')).toBeLessThan(
+      save.indexOf("toast.success('Global dispatch settings saved')"),
+    );
     expect(PAGE).toContain('onClick={handleReload}');
     expect(PAGE).toMatch(/const handleReload = async \(\) => \{[\s\S]*?await loadDispatchSettings\(\);/);
   });

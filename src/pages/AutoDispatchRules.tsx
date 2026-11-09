@@ -444,29 +444,36 @@ export default function AutoDispatchRules() {
         throw new Error('Booking dispatch radius did not persist');
       }
 
-      // Keep legacy dispatch_settings aligned for older SQL readers (incl. distance_penalty_per_km).
-      await adminPageMutate('auto-dispatch', 'dispatch_settings', 'update', {
-        filters: [{ op: 'not_null', col: 'id' }],
-        patch: {
-          max_driver_find_time_minutes: settings.maxDriverFindTimeMinutes,
-          stacked_rides_enabled: !!settings.stackedRidesEnabled,
-          wave1_offer_expiry_seconds: settings.wave1OfferExpirySeconds,
-          wave2_offer_expiry_seconds: settings.wave2OfferExpirySeconds,
-          wave3_offer_expiry_seconds: settings.wave3OfferExpirySeconds,
-          wave1_size: settings.wave1Size,
-          wave2_size: settings.wave2Size,
-          wave3_size: settings.wave3Size,
-          distance_penalty_per_km: savedSettings.distancePenaltyPerKm,
-          waiting_bonus_per_minute: savedSettings.waitingBonusPerMinute,
-          max_waiting_bonus_minutes: savedSettings.maxWaitingBonusMinutes,
-          fairness_idle_minutes: savedSettings.fairnessIdleMinutes,
-          fairness_boost_score: savedSettings.fairnessBoostScore,
-          search_radius_start_km: savedSettings.bookingWave1RadiusMeters / 1000,
-          search_radius_expand_km: savedSettings.bookingWave2RadiusMeters / 1000,
-          search_radius_max_km: savedSettings.bookingWave3RadiusMeters / 1000,
-          updated_at: new Date().toISOString(),
-        },
-      });
+      // Legacy per-area dispatch_settings mirrors are not the booking-radius SSOT.
+      // A sync failure must not roll back or hide a successful global save (that was
+      // toasting "Failed to save settings" after Wave 3 had already persisted).
+      try {
+        await adminPageMutate('auto-dispatch', 'dispatch_settings', 'update', {
+          filters: [{ op: 'not_null', col: 'id' }],
+          patch: {
+            max_driver_find_time_minutes: settings.maxDriverFindTimeMinutes,
+            stacked_rides_enabled: !!settings.stackedRidesEnabled,
+            wave1_offer_expiry_seconds: settings.wave1OfferExpirySeconds,
+            wave2_offer_expiry_seconds: settings.wave2OfferExpirySeconds,
+            wave3_offer_expiry_seconds: settings.wave3OfferExpirySeconds,
+            wave1_size: settings.wave1Size,
+            wave2_size: settings.wave2Size,
+            wave3_size: settings.wave3Size,
+            distance_penalty_per_km: savedSettings.distancePenaltyPerKm,
+            waiting_bonus_per_minute: savedSettings.waitingBonusPerMinute,
+            max_waiting_bonus_minutes: savedSettings.maxWaitingBonusMinutes,
+            fairness_idle_minutes: savedSettings.fairnessIdleMinutes,
+            fairness_boost_score: savedSettings.fairnessBoostScore,
+            search_radius_start_km: savedSettings.bookingWave1RadiusMeters / 1000,
+            search_radius_expand_km: savedSettings.bookingWave2RadiusMeters / 1000,
+            search_radius_max_km: savedSettings.bookingWave3RadiusMeters / 1000,
+            updated_at: new Date().toISOString(),
+          },
+        });
+      } catch (legacyErr) {
+        console.warn('Legacy dispatch_settings mirror sync failed (global SSOT saved):', legacyErr);
+        toast.warning('Dispatch settings saved; legacy per-area mirror sync failed');
+      }
 
       setSettings(savedSettings);
       setHasChanges(false);
@@ -474,7 +481,10 @@ export default function AutoDispatchRules() {
       toast.success('Global dispatch settings saved');
     } catch (err) {
       console.error('Error saving settings:', err);
-      toast.error('Failed to save settings');
+      const message = err instanceof Error && err.message.trim()
+        ? err.message
+        : (err as { message?: string })?.message?.trim() || 'Failed to save settings';
+      toast.error(message);
     } finally {
       setIsSaving(false);
     }
