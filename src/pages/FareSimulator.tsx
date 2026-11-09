@@ -64,16 +64,8 @@ interface CustomZone {
   name: string;
   zone_type: string;
   color: string | null;
-}
-
-interface ZonePricingRule {
-  id: string;
-  zone_id: string;
-  vehicle_type_id: string | null;
-  rule_type: string;
-  value: number;
-  applies_to: string;
-  is_active: boolean;
+  center_lat: number | null;
+  center_lng: number | null;
 }
 
 interface FareBreakdown {
@@ -95,6 +87,8 @@ interface FareBreakdown {
   appliedRules: string[];
   currencyCode: string;
   distanceUnit: string;
+  airportCharge: number;
+  tripFare: number;
 }
 
 export default function FareSimulator() {
@@ -224,11 +218,11 @@ export default function FareSimulator() {
   });
 
   const { data: customZones = [] } = useQuery({
-    queryKey: ['custom-zones'],
+    queryKey: ['custom-zones-with-centers'],
     queryFn: async () => {
       const { data, error } = await supabase
         .from('custom_zones')
-        .select('id, name, zone_type, color')
+        .select('id, name, zone_type, color, center_lat, center_lng')
         .eq('is_active', true)
         .order('name');
       if (error) throw error;
@@ -236,200 +230,145 @@ export default function FareSimulator() {
     },
   });
 
-  const { data: zonePricingRules = [] } = useQuery({
-    queryKey: ['zone-pricing-rules'],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from('zone_pricing_rules')
-        .select('id, zone_id, vehicle_type_id, rule_type, value, applies_to, is_active')
-        .eq('is_active', true);
-      if (error) throw error;
-      return data as ZonePricingRule[];
-    },
-  });
-
   const currencySymbol = getCurrencySymbol(currentRegionSettings.currencyCode);
   const fmt = (pence: number) => `${currencySymbol}${(pence / 100).toFixed(2)}`;
 
-  const calculateFare = () => {
+  const pointForZone = (zoneId: string): { lat: number; lng: number } | null => {
+    const zone = customZones.find((z) => z.id === zoneId);
+    if (!zone) return null;
+    if (zone.center_lat != null && zone.center_lng != null) {
+      return { lat: Number(zone.center_lat), lng: Number(zone.center_lng) };
+    }
+    return null;
+  };
+
+  const calculateFare = async () => {
     if (!formData.service_area_id) {
       toast({ title: "Please select a service area", variant: "destructive" });
       return;
     }
 
-    if (!fareSettings) {
-      toast({ title: "No Fare Engine settings found for this service area. Configure the Fare Engine first.", variant: "destructive" });
-      return;
-    }
-
+    // Live booking SSOT — no client-side meter / zone arithmetic.
     setIsCalculating(true);
+    try {
+      const pickup =
+        (formData.pickup_zone_id && pointForZone(formData.pickup_zone_id)) ||
+        (formData.dropoff_zone_id && pointForZone(formData.dropoff_zone_id)) ||
+        null;
+      const dropoff =
+        (formData.dropoff_zone_id && pointForZone(formData.dropoff_zone_id)) ||
+        pickup;
 
-    setTimeout(() => {
-      const s = fareSettings;
-      const appliedRules: string[] = [];
-
-      // Base fare calculation (mirrors fareEngine.ts logic)
-      const base = s.base_fare_pence;
-      const bands = s.distance_pricing_bands ?? [];
-      let distCharge: number;
-      if (bands.length > 0) {
-        const sorted = [...bands].sort((a, b) => (a.from ?? 0) - (b.from ?? 0));
-        let charge = 0;
-        for (const b of sorted) {
-          const upper = b.to == null ? Infinity : b.to;
-          const span = Math.max(0, Math.min(formData.distance_km, upper) - (b.from ?? 0));
-          if (span > 0) charge += span * (b.rate_pence ?? 0);
-        }
-        distCharge = Math.round(charge);
-      } else {
-        distCharge = Math.round(formData.distance_km * s.per_km_rate_pence);
-      }
-      const timeCharge = Math.round(formData.duration_minutes * s.per_min_rate_pence);
-      const booking = s.booking_fee_pence;
-
-      appliedRules.push(`Base fare: ${fmt(base)}`);
-      if (bands.length > 0) {
-        appliedRules.push(`Distance (tiered ${bands.length} bands): ${formData.distance_km} → ${fmt(distCharge)}`);
-      } else {
-        appliedRules.push(`Distance: ${formData.distance_km} × ${fmt(s.per_km_rate_pence)} = ${fmt(distCharge)}`);
-      }
-      appliedRules.push(`Time: ${formData.duration_minutes}min × ${fmt(s.per_min_rate_pence)}/min = ${fmt(timeCharge)}`);
-      appliedRules.push(`Booking fee: ${fmt(booking)}`);
-
-      let subtotal: number;
-      let surgeMultiplier = 1;
-
-      if (s.pricing_mode === 'dynamic') {
-        surgeMultiplier = s.enable_surge ? (formData.surge_override ?? s.surge_multiplier_default) : 1;
-        const zoneMultiplier = s.zone_multiplier;
-        const trafficMultiplier = s.traffic_multiplier;
-        const rawSubtotal = base + distCharge + timeCharge;
-        const multiplied = Math.round(rawSubtotal * surgeMultiplier * zoneMultiplier * trafficMultiplier);
-        subtotal = multiplied + booking;
-
-        if (surgeMultiplier > 1) appliedRules.push(`Surge multiplier: ${surgeMultiplier}x`);
-        if (zoneMultiplier !== 1) appliedRules.push(`Zone multiplier: ${zoneMultiplier}x`);
-        if (trafficMultiplier !== 1) appliedRules.push(`Traffic multiplier: ${trafficMultiplier}x`);
-        appliedRules.push(`Pricing mode: Dynamic`);
-      } else {
-        subtotal = base + distCharge + timeCharge + booking;
-        appliedRules.push(`Pricing mode: Fixed`);
-      }
-
-      const minimumApplied = subtotal < s.minimum_fare_pence;
-      let quotedFare = Math.max(subtotal, s.minimum_fare_pence);
-      if (minimumApplied) {
-        appliedRules.push(`Minimum fare applied: ${fmt(s.minimum_fare_pence)}`);
-      }
-
-      // Zone adjustments (on top of Fare Engine)
-      let zoneSurcharge = 0;
-      let zoneDiscount = 0;
-
-      if (formData.pickup_zone_id) {
-        const pickupZone = customZones.find(z => z.id === formData.pickup_zone_id);
-        const pickupRules = zonePricingRules.filter(
-          r => r.zone_id === formData.pickup_zone_id && 
-          (r.applies_to === 'both' || r.applies_to === 'pickup')
-        );
-        pickupRules.forEach(rule => {
-          if (rule.rule_type === 'multiplier' && rule.value > 1) {
-            const surcharge = Math.round(quotedFare * (rule.value - 1));
-            zoneSurcharge += surcharge;
-            appliedRules.push(`Pickup zone "${pickupZone?.name}": ${rule.value}x multiplier (+${fmt(surcharge)})`);
-          } else if (rule.rule_type === 'flat_rate') {
-            const flatPence = Math.round(rule.value * 100);
-            zoneSurcharge += flatPence;
-            appliedRules.push(`Pickup zone "${pickupZone?.name}": +${fmt(flatPence)} flat rate`);
-          } else if (rule.rule_type === 'percentage_discount') {
-            const discount = Math.round(quotedFare * (rule.value / 100));
-            zoneDiscount += discount;
-            appliedRules.push(`Pickup zone "${pickupZone?.name}": ${rule.value}% discount (-${fmt(discount)})`);
-          }
+      if (!pickup || !dropoff) {
+        toast({
+          title: "Select pickup/dropoff zones with map centres",
+          description: "The live fare engine needs coordinates. Zones without a centre cannot be simulated.",
+          variant: "destructive",
         });
+        setIsCalculating(false);
+        return;
       }
 
-      if (formData.dropoff_zone_id) {
-        const dropoffZone = customZones.find(z => z.id === formData.dropoff_zone_id);
-        const dropoffRules = zonePricingRules.filter(
-          r => r.zone_id === formData.dropoff_zone_id && 
-          (r.applies_to === 'both' || r.applies_to === 'dropoff')
-        );
-        dropoffRules.forEach(rule => {
-          if (rule.rule_type === 'multiplier' && rule.value > 1) {
-            const surcharge = Math.round(quotedFare * (rule.value - 1));
-            zoneSurcharge += surcharge;
-            appliedRules.push(`Dropoff zone "${dropoffZone?.name}": ${rule.value}x multiplier (+${fmt(surcharge)})`);
-          } else if (rule.rule_type === 'flat_rate') {
-            const flatPence = Math.round(rule.value * 100);
-            zoneSurcharge += flatPence;
-            appliedRules.push(`Dropoff zone "${dropoffZone?.name}": +${fmt(flatPence)} flat rate`);
-          } else if (rule.rule_type === 'percentage_discount') {
-            const discount = Math.round(quotedFare * (rule.value / 100));
-            zoneDiscount += discount;
-            appliedRules.push(`Dropoff zone "${dropoffZone?.name}": ${rule.value}% discount (-${fmt(discount)})`);
+      const { data, error } = await supabase.functions.invoke("calculate-fare", {
+        body: {
+          service_area_id: formData.service_area_id,
+          vehicle_type_id: formData.vehicle_type_id || undefined,
+          estimated_distance_km: formData.distance_km,
+          estimated_duration_min: formData.duration_minutes,
+          pickup,
+          dropoff,
+          source: "admin_fare_simulator",
+        },
+      });
+      if (error) throw error;
+      if (!data?.success) {
+        throw new Error(data?.error || "calculate-fare failed");
+      }
+
+      const rows = Array.isArray(data.vehicleFares) ? data.vehicleFares : [];
+      const row =
+        (formData.vehicle_type_id
+          ? rows.find((r: { vehicleTypeId?: string }) => r.vehicleTypeId === formData.vehicle_type_id)
+          : null) ??
+        rows.find((r: { hasFareConfig?: boolean; fare?: unknown }) => r.hasFareConfig !== false && r.fare) ??
+        rows[0];
+      const fare = row?.fare;
+      const breakdown = row?.breakdown;
+      if (!fare) {
+        throw new Error("No priced vehicle returned from calculate-fare");
+      }
+
+      const appliedRules: string[] = [
+        "Source: calculate-fare (pricing-engine SSOT)",
+      ];
+      if (Array.isArray(fare.fareDetails)) {
+        for (const line of fare.fareDetails as Array<{ label?: string; amount?: number }>) {
+          if (line?.label != null && line?.amount != null) {
+            appliedRules.push(`${line.label}: ${currencySymbol}${Number(line.amount).toFixed(2)}`);
           }
-        });
-      }
-
-      // Waiting charge
-      let waitingCharge = 0;
-      if (s.recalculate_on_waiting && formData.waiting_minutes > 0) {
-        const billable = Math.max(0, formData.waiting_minutes - s.free_waiting_minutes);
-        waitingCharge = Math.round(billable * s.waiting_per_minute_pence);
-        if (billable > 0) {
-          appliedRules.push(`Waiting: ${formData.waiting_minutes}min (free: ${s.free_waiting_minutes}min, billable: ${billable}min) = ${fmt(waitingCharge)}`);
         }
       }
-
-      // Stop charges
-      let stopCharge = 0;
-      if (s.recalculate_on_stop_added && formData.extra_stops > 0) {
-        stopCharge = formData.extra_stops * s.extra_stop_flat_fee_pence;
-        appliedRules.push(`Extra stops: ${formData.extra_stops} × ${fmt(s.extra_stop_flat_fee_pence)} = ${fmt(stopCharge)}`);
+      if (fare.fixedFareApplied || fare.fareSource === "route_fixed") {
+        appliedRules.push(`Fixed route pricing applied (${fare.zoneApplied || fare.matchedRouteId || "route"})`);
+      }
+      if (Number(fare.surcharge ?? 0) > 0) {
+        appliedRules.push(`Zone flat addition: ${currencySymbol}${Number(fare.surcharge).toFixed(2)} (once per trip)`);
       }
 
-      let fareAfterZones = quotedFare + zoneSurcharge - zoneDiscount;
+      const totalFarePence = Math.round(Number(fare.totalFarePence ?? 0));
+      const tripFarePence = Math.round(Number(fare.tripFare ?? 0) * 100);
+      const airportPence = Math.round(Number(fare.airportCharge ?? 0) * 100);
+      const zoneSurcharge = Math.round(Number(fare.surcharge ?? breakdown?.surcharge ?? 0) * 100);
+      const baseFare = Math.round(Number(fare.baseFare ?? breakdown?.base_fare ?? 0) * 100);
+      const distanceFare = Math.round(Number(fare.distanceCost ?? breakdown?.distance_cost ?? 0) * 100);
+      const timeFare = Math.round(Number(fare.timeCost ?? breakdown?.time_cost ?? 0) * 100);
+      const bookingFee = Math.round(Number(fare.bookingFee ?? breakdown?.booking_fee ?? 0) * 100);
+      const minimumFare = Math.round(Number(fare.minimumFare ?? breakdown?.minimum_fare ?? 0) * 100);
+      const surgeMultiplier = Number(fare.appliedSurgeMultiplier ?? 1) || 1;
 
-      // Corporate discount
+      // Optional simulator-only overlays (not part of live booking SSOT).
       let corporateDiscount = 0;
-      if (formData.is_corporate && formData.corporate_discount > 0) {
-        corporateDiscount = Math.round(fareAfterZones * (formData.corporate_discount / 100));
-        appliedRules.push(`Corporate discount: ${formData.corporate_discount}% (-${fmt(corporateDiscount)})`);
-      }
-
-      // Promo discount
       let promoDiscount = 0;
-      if (formData.promo_code && formData.promo_discount > 0) {
-        promoDiscount = Math.round((fareAfterZones - corporateDiscount) * (formData.promo_discount / 100));
-        appliedRules.push(`Promo "${formData.promo_code}": ${formData.promo_discount}% (-${fmt(promoDiscount)})`);
+      let fareAfterSsot = totalFarePence;
+      if (formData.is_corporate && formData.corporate_discount > 0) {
+        corporateDiscount = Math.round(fareAfterSsot * (formData.corporate_discount / 100));
+        appliedRules.push(`Simulator overlay — corporate ${formData.corporate_discount}% (-${fmt(corporateDiscount)})`);
       }
-
-      const finalFare = Math.max(0, fareAfterZones - corporateDiscount - promoDiscount + waitingCharge + stopCharge);
+      if (formData.promo_code && formData.promo_discount > 0) {
+        promoDiscount = Math.round((fareAfterSsot - corporateDiscount) * (formData.promo_discount / 100));
+        appliedRules.push(`Simulator overlay — promo "${formData.promo_code}" ${formData.promo_discount}% (-${fmt(promoDiscount)})`);
+      }
+      const finalFare = Math.max(0, fareAfterSsot - corporateDiscount - promoDiscount);
 
       setFareBreakdown({
-        baseFare: base,
-        distanceFare: distCharge,
-        timeFare: timeCharge,
-        bookingFee: booking,
+        baseFare,
+        distanceFare,
+        timeFare,
+        bookingFee,
         zoneSurcharge,
-        zoneDiscount,
+        zoneDiscount: 0,
         corporateDiscount,
         promoDiscount,
-        waitingCharge,
-        stopCharge,
-        subtotal,
-        minimumFare: s.minimum_fare_pence,
+        waitingCharge: 0,
+        stopCharge: 0,
+        subtotal: tripFarePence,
+        minimumFare,
         finalFare,
-        pricingMode: s.pricing_mode,
+        pricingMode: String(fare.tripPricingMode || fare.fareSource || "NORMAL_DISTANCE_TIME"),
         surgeMultiplier,
         appliedRules,
-        currencyCode: currentRegionSettings.currencyCode,
-        distanceUnit: currentRegionSettings.distanceUnit,
+        currencyCode: data.currencyCode || currentRegionSettings.currencyCode,
+        distanceUnit: data.distanceUnit || currentRegionSettings.distanceUnit,
+        airportCharge: airportPence,
+        tripFare: tripFarePence,
       });
-
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : "Fare calculation failed";
+      toast({ title: "Fare calculation failed", description: message, variant: "destructive" });
+      setFareBreakdown(null);
+    } finally {
       setIsCalculating(false);
-    }, 300);
+    }
   };
 
   const resetSimulator = () => {
@@ -459,7 +398,7 @@ export default function FareSimulator() {
           <div>
             <h1 className="text-2xl font-bold text-foreground">Fare Simulator</h1>
             <p className="text-muted-foreground">
-              Test fare calculations powered by the <strong>Fare Engine</strong> — the single source of truth for all pricing.
+              Test live booking fares via <strong>calculate-fare</strong> — the same pricing-engine SSOT used by Customer, WhatsApp, website, and corporate.
             </p>
           </div>
           <Button variant="outline" onClick={resetSimulator}>
@@ -472,10 +411,10 @@ export default function FareSimulator() {
         <div className="flex items-start gap-3 rounded-lg border border-primary/30 bg-primary/5 p-4">
           <Calculator className="h-5 w-5 text-primary mt-0.5 shrink-0" />
           <div>
-            <p className="font-semibold text-sm">Powered by Fare Engine</p>
+            <p className="font-semibold text-sm">Powered by calculate-fare</p>
            <p className="text-sm text-muted-foreground">
-              This simulator uses <code className="text-xs bg-muted px-1 rounded">fare_pricing_settings</code> configured per service area.
-              Vehicle Types no longer control pricing. Select a service area to begin.
+              Invokes the live Edge function (meter + fixed zone routes + zone Flat Rate Addition once per trip).
+              Select zones that have map centres so the engine can detect containment.
               {currentRegionSettings.regionName && (
                 <span className="block mt-1">
                   <strong>Currency ({currentRegionSettings.currencyCode}) and distance unit ({currentRegionSettings.distanceUnit}) are set by Region "{currentRegionSettings.regionName}".</strong>
@@ -786,7 +725,7 @@ export default function FareSimulator() {
                   Fare Breakdown
                 </CardTitle>
                 <CardDescription>
-                  {fareBreakdown ? `Calculated using Fare Engine (${fareBreakdown.pricingMode} mode)` : "Configure trip details and click Calculate"}
+                  {fareBreakdown ? `calculate-fare SSOT (${fareBreakdown.pricingMode})` : "Configure trip details and click Calculate"}
                 </CardDescription>
               </CardHeader>
               <CardContent>
@@ -833,29 +772,15 @@ export default function FareSimulator() {
                       
                       {fareBreakdown.zoneSurcharge > 0 && (
                         <div className="flex justify-between text-sm text-orange-500">
-                          <span>Zone Surcharges</span>
+                          <span>Zone Flat Addition</span>
                           <span>+{fmt(fareBreakdown.zoneSurcharge)}</span>
                         </div>
                       )}
-                      
-                      {fareBreakdown.zoneDiscount > 0 && (
-                        <div className="flex justify-between text-sm text-green-500">
-                          <span>Zone Discounts</span>
-                          <span>-{fmt(fareBreakdown.zoneDiscount)}</span>
-                        </div>
-                      )}
 
-                      {fareBreakdown.waitingCharge > 0 && (
+                      {fareBreakdown.airportCharge > 0 && (
                         <div className="flex justify-between text-sm text-orange-500">
-                          <span>Waiting Charge</span>
-                          <span>+{fmt(fareBreakdown.waitingCharge)}</span>
-                        </div>
-                      )}
-
-                      {fareBreakdown.stopCharge > 0 && (
-                        <div className="flex justify-between text-sm text-orange-500">
-                          <span>Extra Stop Charges</span>
-                          <span>+{fmt(fareBreakdown.stopCharge)}</span>
+                          <span>Airport Charge</span>
+                          <span>+{fmt(fareBreakdown.airportCharge)}</span>
                         </div>
                       )}
 
@@ -906,7 +831,7 @@ export default function FareSimulator() {
                     <Info className="h-5 w-5" />
                     Applied Rules
                   </CardTitle>
-                  <CardDescription>Fare Engine rules that affected this calculation</CardDescription>
+                  <CardDescription>Lines returned by calculate-fare for this quote</CardDescription>
                 </CardHeader>
                 <CardContent>
                   <div className="space-y-2">

@@ -5,9 +5,11 @@ import {
   ZONE_ROUTE_PRICING_SELECT,
   FARE_PRICING_SETTINGS_QUOTE_SELECT,
   CUSTOM_ZONES_QUOTE_SELECT,
+  ZONE_PRICING_RULES_QUOTE_SELECT,
   zonesContainingPoint,
   type FarePricingRow,
   type ZoneRoutePricingRow,
+  type ZonePricingRuleRow,
   type ZoneRow,
   type LatLng,
 } from "../_shared/pricing-engine.ts";
@@ -228,6 +230,15 @@ Deno.serve(async (req) => {
         .then((r) => r),
     );
 
+    // Geofence Flat Rate Addition / min / max — applied once per trip in pricing-engine.
+    const zonePricingRulesPromise = timedMs(() =>
+      supabase
+        .from("zone_pricing_rules")
+        .select(ZONE_PRICING_RULES_QUOTE_SELECT)
+        .eq("is_active", true)
+        .then((r) => r),
+    );
+
     // Surge RPC only needs service_area_id + pickup — independent of zone table load.
     const surgePromise = pickup
       ? timedMs(() =>
@@ -335,6 +346,7 @@ Deno.serve(async (req) => {
       surgeTimed,
       fareSettingsTimed,
       zonesTimed,
+      zoneRulesTimed,
     ] = await Promise.all([
       vehicleCataloguePromise,
       airportPromise,
@@ -342,6 +354,7 @@ Deno.serve(async (req) => {
       surgePromise,
       fareSettingsPromise,
       zonesPromise,
+      zonePricingRulesPromise,
     ]);
 
     const {
@@ -395,6 +408,14 @@ Deno.serve(async (req) => {
       console.warn("[calculate-fare] zone_route_pricing query failed (using empty routes):", routesErr.message);
     }
 
+    const { data: zoneRulesData, error: zoneRulesErr } = zoneRulesTimed.value;
+    if (zoneRulesErr) {
+      console.warn(
+        "[calculate-fare] zone_pricing_rules query failed (using empty rules):",
+        zoneRulesErr.message,
+      );
+    }
+
     const { data: saPricingData, error: saPricingErr } = airportTimed.value;
     if (saPricingErr) {
       console.warn(
@@ -415,11 +436,12 @@ Deno.serve(async (req) => {
     }
     const zones = (zonesData || []) as unknown as ZoneRow[];
     const zoneRoutes = (routesData || []) as unknown as ZoneRoutePricingRow[];
+    const zonePricingRules = (zoneRulesData || []) as unknown as ZonePricingRuleRow[];
     const serviceAreaPricingSettings =
       (saPricingData as Record<string, unknown> | null) ?? null;
 
     console.log(
-      `[calculate-fare] zones=${zones.length} routes=${zoneRoutes.length}`,
+      `[calculate-fare] zones=${zones.length} routes=${zoneRoutes.length} zoneRules=${zonePricingRules.length}`,
     );
 
     let surgeResolution: SurgeResolution = {
@@ -536,6 +558,7 @@ Deno.serve(async (req) => {
           stops,
           zones,
           zoneRoutes,
+          zonePricingRules,
           serviceAreaId: service_area_id,
           serviceAreaPricingSettings,
           vehicleTypeId: vtId,

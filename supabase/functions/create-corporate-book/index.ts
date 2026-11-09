@@ -295,14 +295,27 @@ Deno.serve(async (req) => {
       }),
     });
     const fareBody = await fareRes.json().catch(() => ({}));
-    if (!fareRes.ok) {
+    if (!fareRes.ok || fareBody?.success === false) {
       return json(502, { error: "Unable to calculate fare", code: "FARE_QUOTE_FAILED" });
     }
+    // calculate-fare SSOT returns vehicleFares[].fare.totalFarePence — not top-level estimated_*.
+    const vehicleFares = Array.isArray(fareBody.vehicleFares) ? fareBody.vehicleFares : [];
+    const matchedFare =
+      (vehicleTypeId
+        ? vehicleFares.find((row: { vehicleTypeId?: string }) => row.vehicleTypeId === vehicleTypeId)
+        : null) ??
+      vehicleFares.find((row: { fare?: { totalFarePence?: number }; hasFareConfig?: boolean }) =>
+        row?.hasFareConfig !== false && typeof row?.fare?.totalFarePence === "number"
+      ) ??
+      vehicleFares[0];
+    const totalFarePenceRaw = matchedFare?.fare?.totalFarePence;
     const estimatedFarePence = Math.round(
       Number(
-        fareBody.estimated_fare_pence ??
-          (fareBody.estimatedFare != null ? Number(fareBody.estimatedFare) * 100 : NaN) ??
-          (fareBody.estimated_fare != null ? Number(fareBody.estimated_fare) * 100 : NaN),
+        typeof totalFarePenceRaw === "number"
+          ? totalFarePenceRaw
+          : fareBody.estimated_fare_pence ??
+            (fareBody.estimatedFare != null ? Number(fareBody.estimatedFare) * 100 : NaN) ??
+            (fareBody.estimated_fare != null ? Number(fareBody.estimated_fare) * 100 : NaN),
       ),
     );
     if (!Number.isFinite(estimatedFarePence) || estimatedFarePence <= 0) {
@@ -361,7 +374,6 @@ Deno.serve(async (req) => {
       currency_code: currencyCode,
       payment_method: paymentMethod || "card",
       booking_source: "corporate_portal",
-      corporate_account_id: corporateAccountId,
       // Personal customer receivables must never fold into corporate preauth.
       receivable_fold_forbidden: true,
       canonical_fare_version: [
@@ -379,7 +391,11 @@ Deno.serve(async (req) => {
 
     return await createRevolutPreauthResponse({
       supabase: admin,
-      environment: (Deno.env.get("REVOLUT_ENVIRONMENT") as "sandbox" | "production") || "sandbox",
+      environment: (() => {
+        const raw = (Deno.env.get("REVOLUT_ENVIRONMENT") || "sandbox").toLowerCase();
+        // ProviderEnvironment is "test" | "live" (sandbox → test).
+        return raw === "production" || raw === "live" ? "live" : "test";
+      })(),
       authorisedAmountPence: estimatedFarePence,
       estimatedTotalPence: estimatedFarePence,
       bufferPence: 0,

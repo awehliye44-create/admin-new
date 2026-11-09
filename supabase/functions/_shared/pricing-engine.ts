@@ -8,9 +8,20 @@
 //   STEP 1  Detect pickup/dropoff zones (highest priority wins)
 //   STEP 2  Apply zone-route overrides (fixed fare + airport surcharge)
 //   STEP 3  Apply base distance + time pricing (skipped if fixed fare)
-//   STEP 4  Waiting / cancellation hooks (consumed by lifecycle endpoints)
-//   STEP 5  Apply offers (only on the ride fare, not on fees)
+//   STEP 4  Apply zone_pricing_rules Flat Rate Addition once per trip (either endpoint)
+//   STEP 5  Waiting / cancellation hooks (consumed by lifecycle endpoints)
+//   STEP 6  Apply offers (only on the ride fare, not on fees)
 // ─────────────────────────────────────────────────────────────────────────────
+
+import {
+  applyZonePricingToRideFare,
+  resolveZonePricingAdjustment,
+  ZONE_PRICING_RULES_QUOTE_SELECT,
+  type ZonePricingRuleRow,
+} from "./zonePricingRulesSSOT.ts";
+
+export { ZONE_PRICING_RULES_QUOTE_SELECT };
+export type { ZonePricingRuleRow };
 
 export type LatLng = { lat: number; lng: number };
 
@@ -117,7 +128,8 @@ export interface FareBreakdown {
   airport_dropoff_fee: number;
   /** Canonical lines for apps — built once from the same numbers as final_fare. */
   fare_details: FareDetailLine[];
-  surcharge: number;            // reserved (currently 0; populated by future zone surcharge rules)
+  /** Zone Flat Rate Addition total (money units); already included in trip_fare. */
+  surcharge: number;
   distance_cost: number;
   time_cost: number;
   /**
@@ -569,12 +581,21 @@ export function buildFareDetails(input: {
   subtotalBeforeMinimum?: number;
   distancePricingMode?: DistancePricingMode;
   distanceBandSummary?: string | null;
+  /** Zone Flat Rate Addition (already included in tripFare). */
+  zoneFlatAddition?: number;
+  zoneDetailLabels?: string[];
 }): FareDetailLine[] {
   const airport = round2(input.airportCharge);
   const tripFare = round2(input.tripFare);
+  const zoneFlat = round2(input.zoneFlatAddition ?? 0);
 
   if (input.pricingMode === "ROUTE_PRICING") {
-    const lines: FareDetailLine[] = [{ label: "Trip fare", amount: tripFare }];
+    const routeBase = round2(Math.max(0, tripFare - zoneFlat));
+    const lines: FareDetailLine[] = [{ label: "Trip fare", amount: routeBase }];
+    if (zoneFlat > 0) {
+      const label = input.zoneDetailLabels?.[0] ?? "Zone flat addition";
+      lines.push({ label, amount: zoneFlat });
+    }
     if (airport > 0) {
       lines.push({ label: "Airport charge", amount: airport });
     }
@@ -600,6 +621,11 @@ export function buildFareDetails(input: {
     if (adjustment > 0) {
       lines.push({ label: "Minimum fare adjustment", amount: adjustment });
     }
+  }
+
+  if (zoneFlat > 0) {
+    const label = input.zoneDetailLabels?.[0] ?? "Zone flat addition";
+    lines.push({ label, amount: zoneFlat });
   }
 
   if (lines.length === 0) {
@@ -846,6 +872,8 @@ export interface CalculateFareInput {
    * into the same unit before multiplying so admin intent matches engine output.
    */
   distanceUnit?: string | null;
+  /** Active `zone_pricing_rules` rows (Flat Rate Addition / min / max). */
+  zonePricingRules?: ZonePricingRuleRow[] | null;
 }
 
 const KM_PER_MILE = 1.609344;
@@ -1198,9 +1226,42 @@ export function calculateFareSingleLeg(input: CalculateFareInput): FareBreakdown
     distanceBandsUsed = distanceResult.bands;
   }
 
-  const surcharge = 0;
-  const tripFare = round2(rideFare);
-  const finalFare = round2(tripFare + airportCharge + surcharge);
+  // Zone Flat Rate Addition — once per matching rule; either endpoint for `both`.
+  // Applied on top of meter OR fixed route fare (never replaces the fixed fare).
+  // Prefer full containment sets (all overlapping zones), not only the route-match primary.
+  const pickupForRules =
+    input.pickupContainingZones && input.pickupContainingZones.length > 0
+      ? input.pickupContainingZones
+      : input.pickup
+        ? zonesContainingPoint(input.pickup, zones)
+        : pickupZone
+          ? [pickupZone]
+          : [];
+  const dropoffForRules =
+    input.dropoffContainingZones && input.dropoffContainingZones.length > 0
+      ? input.dropoffContainingZones
+      : input.dropoff
+        ? zonesContainingPoint(input.dropoff, zones)
+        : dropoffZone
+          ? [dropoffZone]
+          : [];
+  const pickupIds = new Set(pickupForRules.map((z) => z.id).filter(Boolean));
+  const dropoffIds = new Set(dropoffForRules.map((z) => z.id).filter(Boolean));
+  const zoneAdj = resolveZonePricingAdjustment({
+    rules: input.zonePricingRules,
+    pickupZoneIds: pickupIds,
+    dropoffZoneIds: dropoffIds,
+    vehicleTypeId: input.vehicleTypeId ?? null,
+  });
+  const zoned = applyZonePricingToRideFare({
+    rideFare,
+    adjustment: zoneAdj,
+  });
+  // trip_fare includes flat addition; surcharge is the flat amount for display.
+  // final_fare = trip_fare + airport only (do not add surcharge again).
+  const surcharge = zoned.surcharge;
+  const tripFare = zoned.tripFare;
+  const finalFare = round2(tripFare + airportCharge);
   const tripPricingMode: TripPricingMode = fixedApplied
     ? "ROUTE_PRICING"
     : "NORMAL_DISTANCE_TIME";
@@ -1217,6 +1278,8 @@ export function calculateFareSingleLeg(input: CalculateFareInput): FareBreakdown
     subtotalBeforeMinimum: fixedApplied ? 0 : subtotalBeforeMinimum,
     distancePricingMode: fixedApplied ? "flat" : distancePricingMode,
     distanceBandSummary: fixedApplied ? null : distanceBandSummary,
+    zoneFlatAddition: surcharge,
+    zoneDetailLabels: zoneAdj.detailLabels,
   });
 
   const isDynamic = String(pricing.pricing_mode || "fixed").toLowerCase() === "dynamic";
@@ -1311,6 +1374,7 @@ export function calculateFare(input: CalculateFareInput): FareBreakdown {
   }
 
   // Special-zone intermediate(s): price each directional crossing independently.
+  // Zone Flat Rate Addition is trip-scoped — apply once after combining legs.
   const shares = allocateLegDistanceShare(
     legs,
     input.distanceKm,
@@ -1319,6 +1383,7 @@ export function calculateFare(input: CalculateFareInput): FareBreakdown {
   const legBreakdowns = legs.map((leg, i) =>
     calculateFareSingleLeg({
       ...input,
+      zonePricingRules: [],
       pickup: leg.from,
       dropoff: leg.to,
       pickupZoneId: leg.fromZone?.id ?? null,
@@ -1331,6 +1396,67 @@ export function calculateFare(input: CalculateFareInput): FareBreakdown {
     })
   );
 
-  const fallback = calculateFareSingleLeg({ ...input, stops: [] });
-  return combineLegBreakdowns(legBreakdowns, fallback);
+  const fallback = calculateFareSingleLeg({
+    ...input,
+    zonePricingRules: [],
+    stops: [],
+  });
+  const combined = combineLegBreakdowns(legBreakdowns, fallback);
+  return applyTripScopedZonePricingRules(combined, input);
+}
+
+/** Apply zone_pricing_rules once on a combined multi-leg breakdown. */
+function applyTripScopedZonePricingRules(
+  breakdown: FareBreakdown,
+  input: CalculateFareInput,
+): FareBreakdown {
+  const pickupZones =
+    input.pickupContainingZones ??
+    (input.pickup ? zonesContainingPoint(input.pickup, input.zones ?? []) : []);
+  const dropoffZones =
+    input.dropoffContainingZones ??
+    (input.dropoff ? zonesContainingPoint(input.dropoff, input.zones ?? []) : []);
+  const adj = resolveZonePricingAdjustment({
+    rules: input.zonePricingRules,
+    pickupZoneIds: pickupZones.map((z) => z.id),
+    dropoffZoneIds: dropoffZones.map((z) => z.id),
+    vehicleTypeId: input.vehicleTypeId ?? null,
+  });
+  if (adj.flatAddition <= 0 && adj.minFare <= 0 && adj.maxFare == null) {
+    return breakdown;
+  }
+  // Ride fare before prior surcharge (legs had no zone rules).
+  const rideFare = breakdown.trip_fare;
+  const zoned = applyZonePricingToRideFare({
+    rideFare,
+    adjustment: adj,
+  });
+  const tripFare = zoned.tripFare;
+  const surcharge = zoned.surcharge;
+  const airportCharge = breakdown.airport_charge;
+  const finalFare = round2(tripFare + airportCharge);
+  const fareDetails = buildFareDetails({
+    pricingMode: breakdown.pricing_mode,
+    tripFare,
+    airportCharge,
+    baseFare: breakdown.base_fare,
+    distanceCost: breakdown.distance_cost,
+    timeCost: breakdown.time_cost,
+    bookingFee: breakdown.booking_fee,
+    minimumApplied: breakdown.minimum_applied,
+    minimumFare: breakdown.minimum_fare,
+    subtotalBeforeMinimum: breakdown.subtotal_before_minimum,
+    distancePricingMode: breakdown.distance_pricing_mode,
+    distanceBandSummary: breakdown.distance_band_summary,
+    zoneFlatAddition: surcharge,
+    zoneDetailLabels: adj.detailLabels,
+  });
+  return {
+    ...breakdown,
+    trip_fare: tripFare,
+    surcharge,
+    fare_details: fareDetails,
+    final_fare: finalFare,
+    final_fare_pence: Math.round(finalFare * 100),
+  };
 }

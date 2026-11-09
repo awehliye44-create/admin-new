@@ -21,7 +21,8 @@ describe('demand zone booking surge lock', () => {
   it('create-trip-after-payment re-validates surge at booking via assertBookingSurgeAtPickup', () => {
     const src = read('supabase/functions/create-trip-after-payment/index.ts');
     expect(src).toContain('assertBookingSurgeAtPickup');
-    expect(src).toContain('surgeQuote: body.surge_quote');
+    // Current call site null-coalesces the client quote before assertion.
+    expect(src).toContain('surgeQuote: (body.surge_quote ?? null)');
     expect(src).toContain('surgeMultiplier: surgeCheck.multiplier');
     expect(src).toContain('code: surgeCheck.code');
     expect(src).toContain('failure_stage: "surge_quote"');
@@ -33,12 +34,18 @@ describe('demand zone booking surge lock', () => {
     expect(src).toContain('surgeQuote: payload.surge_quote');
   });
 
-  it('estimate-fare resolves pickup zone surge outside the fare engine', () => {
+  it('estimate-fare proxies calculate-fare SSOT and preserves surge in the response', () => {
     const src = read('supabase/functions/estimate-fare/index.ts');
-    expect(src).toContain('resolve_zone_surge');
-    expect(src).toContain('zone_surge_multiplier: 1');
-    expect(src).toContain('parseRpcSurgeResolution');
-    expect(src).toContain('surge_quote: q.surgeQuote');
+    // Shared live fare path — no parallel FareEngine / local zone arithmetic.
+    expect(src).toContain('/functions/v1/calculate-fare');
+    expect(src).toContain('source: "estimate-fare"');
+    expect(src).not.toContain('new FareEngine');
+    expect(src).not.toContain('zone_surge_multiplier');
+    expect(src).not.toContain('from "../_shared/fareEngine.ts"');
+    // Surge is resolved inside calculate-fare; estimate-fare must still surface it.
+    expect(src).toContain('surge_quote');
+    expect(src).toContain('surgeQuote');
+    expect(src).toContain('appliedSurgeMultiplier');
   });
 
   it('demand zones RBAC migration seeds page access and staff policies', () => {

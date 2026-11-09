@@ -1,28 +1,24 @@
 import { createClient } from "npm:@supabase/supabase-js@2.57.2";
-import {
-  FareEngine,
-  type FarePricingSettings,
-} from "../_shared/fareEngine.ts";
 import { getDirections } from "../_shared/googleMaps.ts";
-import {
-  resolvePricingZone,
-  resolveZoneRoutePricing,
-  applyZoneRoutePricing,
-} from "../_shared/zoneRoutePricing.ts";
-import {
-  buildSurgeQuote,
-  parseRpcSurgeResolution,
-  type SurgeResolution,
-} from "../_shared/demandZoneSurgeSSOT.ts";
+import { resolvePricingZone } from "../_shared/zoneRoutePricing.ts";
 
+/**
+ * Website / legacy single-fare quote envelope.
+ *
+ * Fare math is delegated to `calculate-fare` (pricing-engine SSOT) — same path as
+ * Customer app, WhatsApp, corporate, and Manual Trip. This function only:
+ *   1) resolves route distance/duration
+ *   2) proxies calculate-fare
+ *   3) attaches commission / tip-chip envelope fields website clients still expect
+ *
+ * Do not reintroduce FareEngine / zoneRoutePricing local arithmetic here.
+ */
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers":
     "authorization, x-client-info, apikey, content-type",
 };
-
-// ─── Helpers ───────────────────────────────────────────────────────────────
 
 interface ZoneInfo {
   zone_id: string;
@@ -31,6 +27,7 @@ interface ZoneInfo {
 }
 
 async function resolveZoneWithType(
+  // deno-lint-ignore no-explicit-any
   supabase: any,
   lat: number,
   lng: number,
@@ -43,14 +40,15 @@ async function resolveZoneWithType(
     .select("zone_type")
     .eq("id", z.zone_id)
     .maybeSingle();
-  const is_airport = (data?.zone_type ?? "").toLowerCase().trim() === "airport";
+  const zoneType = (data as { zone_type?: string } | null)?.zone_type ?? "";
+  const is_airport = zoneType.toLowerCase().trim() === "airport";
   return { ...z, is_airport };
 }
 
 interface ChipPreset {
   id: string;
   label: string;
-  value: number; // FLAT = currency units; PERCENT = % of totalFare
+  value: number;
 }
 
 interface OfferSettings {
@@ -89,19 +87,36 @@ function computeDriverKeep(
   return { driverKeepPence, commissionPence };
 }
 
-function buildFareDetails(
-  baseFarePence: number,
+function moneyLinesToPence(
+  lines: Array<{ label?: string; amount?: number }> | null | undefined,
   airportChargePence: number,
-  currency: string,
-) {
-  const out = [{ label: "Fare", amountPence: baseFarePence }];
-  if (airportChargePence > 0) {
-    out.push({ label: "Airport charge", amountPence: airportChargePence });
+): { label: string; amountPence: number }[] {
+  if (!Array.isArray(lines) || lines.length === 0) {
+    return airportChargePence > 0
+      ? [
+        { label: "Fare", amountPence: 0 },
+        { label: "Airport charge", amountPence: airportChargePence },
+      ]
+      : [{ label: "Fare", amountPence: 0 }];
   }
-  return out;
+  return lines.map((line) => ({
+    label: String(line.label ?? "Fare"),
+    amountPence: Math.round(Number(line.amount ?? 0) * 100),
+  }));
 }
 
-// ─── Handler ───────────────────────────────────────────────────────────────
+type CalculateFareVehicleRow = {
+  vehicleTypeId?: string;
+  name?: string;
+  slug?: string;
+  description?: string;
+  icon?: string;
+  capacity?: number | null;
+  displayOrder?: number;
+  hasFareConfig?: boolean;
+  fare?: Record<string, unknown> | null;
+  breakdown?: Record<string, unknown> | null;
+};
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -117,7 +132,6 @@ Deno.serve(async (req) => {
     const {
       service_area_id,
       vehicle_type_id,
-      stops_count = 0,
       pickup_lat,
       pickup_lng,
       dropoff_lat,
@@ -168,8 +182,7 @@ Deno.serve(async (req) => {
       .eq("id", service_area_id)
       .single();
 
-    const regionCurrency = (saData?.region as any)?.currency_code;
-    const regionDistanceUnit = (saData?.region as any)?.distance_unit ?? 'km';
+    const regionCurrency = (saData?.region as { currency_code?: string } | null)?.currency_code;
     const regionId = saData?.region_id ?? null;
 
     if (!regionCurrency) {
@@ -182,10 +195,8 @@ Deno.serve(async (req) => {
       );
     }
 
-    // Resolve zones once + check airport type
     let pickupZone: ZoneInfo | null = null;
     let dropoffZone: ZoneInfo | null = null;
-
     if (
       regionId &&
       pickup_lat != null && pickup_lng != null &&
@@ -196,130 +207,118 @@ Deno.serve(async (req) => {
         resolveZoneWithType(supabase, dropoff_lat, dropoff_lng, regionId),
       ]);
     }
-
     const isAirportTrip =
       (pickupZone?.is_airport === true) || (dropoffZone?.is_airport === true);
 
-    // ─── Zone-based automatic surge (pickup zone only, server resolved) ───
-    let surgeResolution: SurgeResolution = {
-      zone_id: null,
-      confirmed_demand_level: null,
-      applied_multiplier: 1,
-      surge_enabled: false,
-      reason: "NO_SETTINGS",
-    };
-
-    if (pickup_lat != null && pickup_lng != null) {
-      const { data: surgeData, error: surgeErr } = await supabase.rpc(
-        "resolve_zone_surge",
-        {
-          _service_area_id: service_area_id,
-          _pickup_lat: pickup_lat,
-          _pickup_lng: pickup_lng,
-        },
+    // Proxy the live booking SSOT (pricing-engine + zone_pricing_rules + fixed routes).
+    const calculateFareUrl = `${supabaseUrl}/functions/v1/calculate-fare`;
+    const fareRes = await fetch(calculateFareUrl, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${serviceKey}`,
+        apikey: serviceKey,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        service_area_id,
+        vehicle_type_id: vehicle_type_id || undefined,
+        estimated_distance_km,
+        estimated_duration_min,
+        pickup: pickup_lat != null && pickup_lng != null
+          ? { lat: pickup_lat, lng: pickup_lng }
+          : undefined,
+        dropoff: dropoff_lat != null && dropoff_lng != null
+          ? { lat: dropoff_lat, lng: dropoff_lng }
+          : undefined,
+        stops: Array.isArray(waypoints) ? waypoints : [],
+        source: "estimate-fare",
+      }),
+    });
+    const farePayload = await fareRes.json().catch(() => ({}));
+    if (!fareRes.ok || farePayload?.success === false) {
+      console.error("[estimate-fare] calculate-fare failed:", farePayload);
+      return new Response(
+        JSON.stringify({
+          error: farePayload?.error || "Fare calculation failed",
+          code: "CALCULATE_FARE_FAILED",
+        }),
+        { status: 502, headers: { ...corsHeaders, "Content-Type": "application/json" } },
       );
-      if (surgeErr) {
-        console.error("[estimate-fare] resolve_zone_surge failed:", surgeErr);
-        return new Response(
-          JSON.stringify({
-            error: "SURGE_RESOLUTION_FAILED",
-            error_code: "SURGE_RESOLUTION_FAILED",
-          }),
-          { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } },
-        );
-      }
-      surgeResolution = parseRpcSurgeResolution(surgeData);
     }
 
-    const surgeIssuedAtMs = Date.now();
+    const currencyCode =
+      (typeof farePayload.currencyCode === "string" && farePayload.currencyCode) ||
+      regionCurrency;
+    const vehicleFares = (Array.isArray(farePayload.vehicleFares)
+      ? farePayload.vehicleFares
+      : []) as CalculateFareVehicleRow[];
 
-    // ─── Quote helper: returns the full pricing envelope for one vehicle ───
-    async function quoteForVehicle(
-      vtId: string,
-      engineSettings: any,
-      savRow: {
-        commission_percentage: number;
-        offer_settings: OfferSettings | null;
-        airport_charge_pence: number;
-      },
-    ) {
-      const zoneResolution = await resolveZoneRoutePricing({
-        supabase,
-        from_zone_id: pickupZone?.zone_id ?? null,
-        to_zone_id: dropoffZone?.zone_id ?? null,
-        vehicle_type_id: vtId,
-        service_area_id,
-      });
+    const vtIds = vehicleFares
+      .map((row) => row.vehicleTypeId)
+      .filter((id): id is string => typeof id === "string" && id.length > 0);
 
-      let baseFarePence = 0;
-      let airportChargePence = 0;
-      let pricingMode: "NORMAL_DISTANCE_TIME" | "ROUTE_PRICING";
-      let meterBreakdown: any = null;
+    const { data: savRows } = vtIds.length > 0
+      ? await supabase
+        .from("service_area_vehicle_pricing")
+        .select("vehicle_type_id, commission_percentage, offer_settings, airport_charge_pence")
+        .eq("service_area_id", service_area_id)
+        .eq("is_enabled", true)
+        .in("vehicle_type_id", vtIds)
+      : { data: [] as Array<Record<string, unknown>> };
 
-      if (zoneResolution.row) {
-        const q = applyZoneRoutePricing(zoneResolution.row);
-        baseFarePence = q.base_fare_pence;
-        // Route pricing has its OWN airport_charge field (admin set per-route)
-        airportChargePence = isAirportTrip ? q.airport_charge_pence : 0;
-        pricingMode = "ROUTE_PRICING";
-      } else {
-        // Surge is applied once, below, from the resolved pickup zone — never inside the engine.
-        const engine = new FareEngine({
-          ...engineSettings,
-          zone_surge_multiplier: 1,
-          distance_unit: regionDistanceUnit,
-        } as FarePricingSettings);
-        meterBreakdown = engine.estimateFare({
-          estimated_distance_km,
-          estimated_duration_min,
-          stops_count,
-        });
-        baseFarePence = meterBreakdown.quoted_fare_pence;
-        // Normal pricing: airport charge from the vehicle's SAV row
-        airportChargePence = isAirportTrip ? (savRow.airport_charge_pence ?? 0) : 0;
-        pricingMode = "NORMAL_DISTANCE_TIME";
-      }
+    const savByVt = new Map(
+      (savRows || []).map((r: Record<string, unknown>) => [r.vehicle_type_id as string, r]),
+    );
 
-      // Zone surge applies to the metered fare only. Fixed admin route prices
-      // and airport charges are never surged.
-      const surgeApplies = pricingMode === "NORMAL_DISTANCE_TIME" &&
-        surgeResolution.surge_enabled &&
-        surgeResolution.applied_multiplier > 1;
-
-      const surgeQuote = buildSurgeQuote({
-        quoteId: crypto.randomUUID(),
-        serviceAreaId: service_area_id,
-        baseFarePence,
-        resolution: surgeApplies
-          ? surgeResolution
-          : { ...surgeResolution, applied_multiplier: 1 },
-        pickupLat: pickup_lat ?? 0,
-        pickupLng: pickup_lng ?? 0,
-        issuedAtMs: surgeIssuedAtMs,
-      });
-
-      const baseFareBeforeSurgePence = baseFarePence;
-      const surgeAmountPence = surgeQuote.surge_amount_pence;
-      baseFarePence = surgeQuote.final_fare_pence;
-
-
-      const totalFarePence = baseFarePence + airportChargePence;
-      const commissionPct = Number(savRow.commission_percentage ?? 0);
-      const { driverKeepPence, commissionPence } = computeDriverKeep(
-        baseFarePence, airportChargePence, commissionPct,
+    const mapVehicle = (row: CalculateFareVehicleRow) => {
+      const vtId = row.vehicleTypeId as string;
+      const fare = (row.fare ?? {}) as Record<string, unknown>;
+      const breakdown = (row.breakdown ?? {}) as Record<string, unknown>;
+      const totalFarePence = Math.round(Number(fare.totalFarePence ?? 0));
+      const airportChargePence = Math.round(Number(fare.airportCharge ?? 0) * 100);
+      const tripFarePence = Math.round(Number(fare.tripFare ?? 0) * 100);
+      const baseFarePence = Math.max(0, totalFarePence - airportChargePence);
+      const surgeQuote = fare.surge_quote ?? null;
+      const appliedSurgeMultiplier = Number(fare.appliedSurgeMultiplier ?? 1) || 1;
+      const surgeAmountPence = Math.round(
+        Number((surgeQuote as { surge_amount_pence?: number } | null)?.surge_amount_pence ?? 0),
       );
-      const chips = computeChipsPence(totalFarePence, savRow.offer_settings);
-      const fareDetails = buildFareDetails(baseFarePence, airportChargePence, regionCurrency);
-      if (surgeAmountPence > 0) {
-        fareDetails.splice(1, 0, {
-          label: `Demand surge (x${surgeQuote.applied_multiplier})`,
-          amountPence: surgeAmountPence,
-        });
-        fareDetails[0] = { label: "Fare", amountPence: baseFareBeforeSurgePence };
-      }
+      const baseFareBeforeSurgePence = Math.max(0, baseFarePence - surgeAmountPence);
+      const pricingMode =
+        String(fare.tripPricingMode ?? breakdown.pricing_mode ?? "NORMAL_DISTANCE_TIME") ===
+            "ROUTE_PRICING"
+          ? "ROUTE_PRICING"
+          : "NORMAL_DISTANCE_TIME";
+      const sav = savByVt.get(vtId) as {
+        commission_percentage?: number;
+        offer_settings?: OfferSettings | null;
+      } | undefined;
+      const commissionPct = Number(sav?.commission_percentage ?? 0);
+      const { driverKeepPence, commissionPence } = computeDriverKeep(
+        baseFarePence,
+        airportChargePence,
+        commissionPct,
+      );
+      const chips = computeChipsPence(
+        totalFarePence,
+        (sav?.offer_settings as OfferSettings | null) ?? null,
+      );
+      const fareDetails = moneyLinesToPence(
+        fare.fareDetails as Array<{ label?: string; amount?: number }> | undefined,
+        airportChargePence,
+      );
 
       return {
+        vehicleTypeId: vtId,
+        vehicleTypeName: row.name || "Vehicle",
+        vehicleSlug: row.slug,
+        vehicleIcon: row.icon,
+        vehicleCapacity: row.capacity ?? null,
+        vehicleDescription: row.description || null,
+        vehicleFeatures: null,
+        displayOrder: row.displayOrder ?? 0,
         pricingMode,
+        currencyCode,
         baseFarePence,
         airportChargePence,
         totalFarePence,
@@ -328,147 +327,78 @@ Deno.serve(async (req) => {
         driverTierCommissionPercent: commissionPct,
         chips,
         fareDetails,
-        meterBreakdown,
-        surgeQuote,
-        baseFareBeforeSurgePence,
-        surgeAmountPence,
-        appliedSurgeMultiplier: surgeQuote.applied_multiplier,
-        demandLevel: surgeQuote.confirmed_demand_level,
+        quotedFarePence: totalFarePence,
+        finalTotalPence: totalFarePence,
+        fareEngineConfigId: null,
+        fareLocked: pricingMode === "ROUTE_PRICING",
         zoneDebug: {
           pickup_zone: pickupZone,
           dropoff_zone: dropoffZone,
           is_airport_trip: isAirportTrip,
-          route_pricing_row_id: zoneResolution.pricing_row_id,
-          route_pricing_source: zoneResolution.source,
-          demand_zone_id: surgeQuote.zone_id,
-          demand_surge_reason: surgeResolution.reason,
+          route_pricing_row_id: breakdown.matched_route_id ?? fare.matchedRouteId ?? null,
+          route_pricing_source: pricingMode === "ROUTE_PRICING" ? "zone_route_pricing" : "meter",
+          demand_zone_id: (surgeQuote as { zone_id?: string } | null)?.zone_id ?? null,
+          demand_surge_reason: null,
+          zone_flat_addition: fare.surcharge ?? breakdown.surcharge ?? 0,
+          source: "calculate-fare",
         },
+        surgeQuote,
+        appliedSurgeMultiplier,
+        surgeAmountPence,
+        demandLevel: (surgeQuote as { confirmed_demand_level?: string } | null)
+          ?.confirmed_demand_level ?? null,
+        fareSnapshotJson: {
+          config_id: null,
+          pricing_mode: pricingMode,
+          base_fare_pence: baseFarePence,
+          base_fare_before_surge_pence: baseFareBeforeSurgePence,
+          surge_amount_pence: surgeAmountPence,
+          surge_multiplier: appliedSurgeMultiplier,
+          surge_quote: surgeQuote,
+          airport_charge_pence: airportChargePence,
+          total_fare_pence: totalFarePence,
+          trip_fare_pence: tripFarePence,
+          zone_surcharge: fare.surcharge ?? breakdown.surcharge ?? 0,
+          commission_pct: commissionPct,
+          currency_code: currencyCode,
+          source: "calculate-fare",
+          snapshot_at: new Date().toISOString(),
+        },
+        freeWaitingMinutes: null,
+        waitingPerMinutePence: null,
+        extraStopFlatFeePence: null,
       };
+    };
 
-    }
+    const vehicles = vehicleFares
+      .filter((row) => row.vehicleTypeId && row.hasFareConfig !== false && row.fare)
+      .map(mapVehicle)
+      .sort((a, b) => a.displayOrder - b.displayOrder);
 
-    // ─── BATCH MODE ───
+    // BATCH MODE (website Choose Ride style)
     if (!vehicle_type_id) {
-      const { data: savRows, error: savErr } = await supabase
-        .from("service_area_vehicle_pricing")
-        .select("vehicle_type_id, commission_percentage, offer_settings, airport_charge_pence")
-        .eq("service_area_id", service_area_id)
-        .eq("is_enabled", true);
-
-      if (savErr) {
-        return new Response(
-          JSON.stringify({ error: "Failed to fetch vehicle pricing" }),
-          { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } },
-        );
-      }
-
-      const assignedVtIds = (savRows || []).map((r: any) => r.vehicle_type_id);
-      if (assignedVtIds.length === 0) {
-        return new Response(
-          JSON.stringify({ error: "No active vehicle types in this service area", vehicles: [] }),
-          { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
-        );
-      }
-
-      const savByVt = new Map(
-        (savRows || []).map((r: any) => [r.vehicle_type_id, r]),
-      );
-
-      const { data: allFareSettings } = await supabase
-        .from("fare_pricing_settings").select("*").eq("service_area_id", service_area_id);
-      const fareMap = new Map<string | null, any>();
-      for (const fs of allFareSettings || []) fareMap.set(fs.vehicle_type_id, fs);
-      const defaultSettings = fareMap.get(null) || null;
-
-      const { data: vtMeta } = await supabase
-        .from("vehicle_types")
-        .select("id, name, slug, description, icon, capacity, features, display_order")
-        .in("id", assignedVtIds).eq("is_active", true);
-      const vtMetaMap = new Map((vtMeta || []).map((v: any) => [v.id, v]));
-
-      const vehicles: any[] = [];
-      for (const vtId of assignedVtIds) {
-        const meta = vtMetaMap.get(vtId);
-        const engineSettings = fareMap.get(vtId) || defaultSettings;
-        const savRow = savByVt.get(vtId);
-        if (!meta || !engineSettings || !savRow) continue;
-
-        const q = await quoteForVehicle(vtId, engineSettings, savRow as any);
-
-        vehicles.push({
-          vehicleTypeId: vtId,
-          vehicleTypeName: meta.name,
-          vehicleSlug: meta.slug,
-          vehicleIcon: meta.icon,
-          vehicleCapacity: meta.capacity,
-          vehicleDescription: meta.description,
-          vehicleFeatures: meta.features,
-          displayOrder: meta.display_order ?? 0,
-          pricingMode: q.pricingMode,
-          currencyCode: regionCurrency,
-          baseFarePence: q.baseFarePence,
-          airportChargePence: q.airportChargePence,
-          totalFarePence: q.totalFarePence,
-          driverKeepPence: q.driverKeepPence,
-          driverTierCommissionPercent: q.driverTierCommissionPercent,
-          chips: q.chips,
-          fareDetails: q.fareDetails,
-          // Back-compat for existing clients still reading these:
-          quotedFarePence: q.totalFarePence,
-          finalTotalPence: q.totalFarePence,
-          fareEngineConfigId: engineSettings.id,
-          fareLocked: q.pricingMode === "ROUTE_PRICING" || engineSettings.pricing_mode === "fixed",
-          zoneDebug: q.zoneDebug,
-          surgeQuote: q.surgeQuote,
-          appliedSurgeMultiplier: q.appliedSurgeMultiplier,
-          surgeAmountPence: q.surgeAmountPence,
-          demandLevel: q.demandLevel,
-          fareSnapshotJson: {
-            config_id: engineSettings.id,
-            pricing_mode: q.pricingMode,
-            base_fare_pence: q.baseFarePence,
-            base_fare_before_surge_pence: q.baseFareBeforeSurgePence,
-            surge_amount_pence: q.surgeAmountPence,
-            surge_multiplier: q.appliedSurgeMultiplier,
-            surge_quote: q.surgeQuote,
-            airport_charge_pence: q.airportChargePence,
-            total_fare_pence: q.totalFarePence,
-            commission_pct: q.driverTierCommissionPercent,
-            currency_code: regionCurrency,
-            snapshot_at: new Date().toISOString(),
-          },
-
-          freeWaitingMinutes: engineSettings.free_waiting_minutes,
-          waitingPerMinutePence: engineSettings.waiting_per_minute_pence,
-          extraStopFlatFeePence: engineSettings.extra_stop_flat_fee_pence,
-        });
-      }
-
-      vehicles.sort((a, b) => a.displayOrder - b.displayOrder);
-
       return new Response(
         JSON.stringify({
           estimatedDistanceKm: estimated_distance_km,
           estimatedDurationMin: estimated_duration_min,
-          currencyCode: regionCurrency,
+          currencyCode,
           vehicles,
-          zoneContext: { pickup_zone: pickupZone, dropoff_zone: dropoffZone, is_airport_trip: isAirportTrip },
+          zoneContext: {
+            pickup_zone: pickupZone,
+            dropoff_zone: dropoffZone,
+            is_airport_trip: isAirportTrip,
+          },
+          source: "calculate-fare",
           ...(directions_polyline ? { routePolyline: directions_polyline } : {}),
         }),
         { headers: { ...corsHeaders, "Content-Type": "application/json" } },
       );
     }
 
-    // ─── SINGLE VEHICLE MODE ───
-    const { data: savRow } = await supabase
-      .from("service_area_vehicle_pricing")
-      .select("commission_percentage, offer_settings, airport_charge_pence")
-      .eq("service_area_id", service_area_id)
-      .eq("vehicle_type_id", vehicle_type_id)
-      .eq("is_enabled", true)
-      .maybeSingle();
-
-    if (!savRow) {
+    // SINGLE VEHICLE MODE
+    const single =
+      vehicles.find((v) => v.vehicleTypeId === vehicle_type_id) ?? vehicles[0];
+    if (!single) {
       return new Response(
         JSON.stringify({
           error: "Vehicle type is not available in this service area",
@@ -478,69 +408,12 @@ Deno.serve(async (req) => {
       );
     }
 
-    let engineSettings: any = null;
-    const { data: vtSettings } = await supabase
-      .from("fare_pricing_settings").select("*")
-      .eq("service_area_id", service_area_id)
-      .eq("vehicle_type_id", vehicle_type_id).maybeSingle();
-    engineSettings = vtSettings;
-    if (!engineSettings) {
-      const { data: defaults } = await supabase
-        .from("fare_pricing_settings").select("*")
-        .eq("service_area_id", service_area_id).is("vehicle_type_id", null).maybeSingle();
-      engineSettings = defaults;
-    }
-    if (!engineSettings) {
-      return new Response(
-        JSON.stringify({ error: "Fare pricing settings not found" }),
-        { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } },
-      );
-    }
-
-    const q = await quoteForVehicle(vehicle_type_id, engineSettings, savRow as any);
-
     return new Response(
       JSON.stringify({
-        pricingMode: q.pricingMode,
-        currencyCode: regionCurrency,
-        vehicleTypeId: vehicle_type_id,
-        baseFarePence: q.baseFarePence,
-        airportChargePence: q.airportChargePence,
-        totalFarePence: q.totalFarePence,
-        driverKeepPence: q.driverKeepPence,
-        driverTierCommissionPercent: q.driverTierCommissionPercent,
-        chips: q.chips,
-        fareDetails: q.fareDetails,
-        // Back-compat
-        quotedFarePence: q.totalFarePence,
-        finalTotalPence: q.totalFarePence,
+        ...single,
         estimatedDistanceKm: estimated_distance_km,
         estimatedDurationMin: estimated_duration_min,
-        fareEngineConfigId: engineSettings.id,
-        fareLocked: q.pricingMode === "ROUTE_PRICING" || engineSettings.pricing_mode === "fixed",
-        zoneDebug: q.zoneDebug,
-        surgeQuote: q.surgeQuote,
-        appliedSurgeMultiplier: q.appliedSurgeMultiplier,
-        surgeAmountPence: q.surgeAmountPence,
-        demandLevel: q.demandLevel,
-        fareSnapshotJson: {
-          config_id: engineSettings.id,
-          pricing_mode: q.pricingMode,
-          base_fare_pence: q.baseFarePence,
-          base_fare_before_surge_pence: q.baseFareBeforeSurgePence,
-          surge_amount_pence: q.surgeAmountPence,
-          surge_multiplier: q.appliedSurgeMultiplier,
-          surge_quote: q.surgeQuote,
-          airport_charge_pence: q.airportChargePence,
-          total_fare_pence: q.totalFarePence,
-          commission_pct: q.driverTierCommissionPercent,
-          currency_code: regionCurrency,
-          snapshot_at: new Date().toISOString(),
-        },
-
-        freeWaitingMinutes: engineSettings.free_waiting_minutes,
-        waitingPerMinutePence: engineSettings.waiting_per_minute_pence,
-        extraStopFlatFeePence: engineSettings.extra_stop_flat_fee_pence,
+        source: "calculate-fare",
         ...(directions_polyline ? { routePolyline: directions_polyline } : {}),
       }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } },

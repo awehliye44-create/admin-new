@@ -44,12 +44,50 @@ interface VehicleType {
   slug: string;
 }
 
+/** Live fare engine (pricing-engine) only applies Flat Rate Addition + min/max. */
+const SUPPORTED_RULE_TYPE = 'flat_rate' as const;
+
 const RULE_TYPES = [
-  { value: 'multiplier', label: 'Fare Multiplier', icon: Percent, description: 'Multiply fare by a factor (e.g., 1.5x)' },
-  { value: 'flat_rate', label: 'Flat Rate Addition', icon: DollarSign, description: 'Add a fixed amount to fare' },
-  { value: 'fixed_fare', label: 'Fixed Fare', icon: CircleDollarSign, description: 'Override with a fixed fare' },
-  { value: 'percentage_discount', label: 'Percentage Discount', icon: Percent, description: 'Apply a percentage discount' },
-];
+  {
+    value: 'flat_rate',
+    label: 'Flat Rate Addition',
+    icon: DollarSign,
+    description: 'Add a fixed amount once on top of meter or fixed-route fare',
+    supported: true,
+  },
+  {
+    value: 'multiplier',
+    label: 'Fare Multiplier',
+    icon: Percent,
+    description: 'Not applied by live booking fares',
+    supported: false,
+  },
+  {
+    value: 'fixed_fare',
+    label: 'Fixed Fare',
+    icon: CircleDollarSign,
+    description: 'Not applied — use Zone Route Pricing for fixed OD fares',
+    supported: false,
+  },
+  {
+    value: 'percentage_discount',
+    label: 'Percentage Discount',
+    icon: Percent,
+    description: 'Not applied by live booking fares',
+    supported: false,
+  },
+] as const;
+
+function isSupportedRuleType(type: string): boolean {
+  return type === SUPPORTED_RULE_TYPE;
+}
+
+/** Empty input → NULL (no floor/cap). Explicit 0 is stored as 0, not coerced to NULL. */
+function normalizeOptionalMoney(value: number | null | undefined): number | null {
+  if (value === null || value === undefined) return null;
+  if (!Number.isFinite(value) || value < 0) return null;
+  return value;
+}
 
 const APPLIES_TO_OPTIONS = [
   { value: 'both', label: 'Pickup & Dropoff' },
@@ -76,13 +114,27 @@ export default function ZonePricing() {
   const [zoneFilter, setZoneFilter] = useState<string>("all");
   const [enableTimeRestrictions, setEnableTimeRestrictions] = useState(false);
 
-  const [formData, setFormData] = useState({
+  const [formData, setFormData] = useState<{
+    zone_id: string;
+    vehicle_type_id: string;
+    rule_type: string;
+    value: number;
+    min_fare: number | null;
+    max_fare: number | null;
+    applies_to: string;
+    time_restrictions: {
+      days: number[];
+      start_time: string;
+      end_time: string;
+    };
+    is_active: boolean;
+  }>({
     zone_id: "",
     vehicle_type_id: "",
-    rule_type: "multiplier",
+    rule_type: SUPPORTED_RULE_TYPE,
     value: 1.0,
-    min_fare: 0,
-    max_fare: null as number | null,
+    min_fare: null,
+    max_fare: null,
     applies_to: "both",
     time_restrictions: {
       days: [0, 1, 2, 3, 4, 5, 6],
@@ -133,13 +185,16 @@ export default function ZonePricing() {
 
   const createMutation = useMutation({
     mutationFn: async (data: typeof formData) => {
+      if (!isSupportedRuleType(data.rule_type)) {
+        throw new Error('Only Flat Rate Addition is supported by live booking fares.');
+      }
       const { error } = await supabase.from('zone_pricing_rules').insert({
         zone_id: data.zone_id,
         vehicle_type_id: data.vehicle_type_id || null,
-        rule_type: data.rule_type,
+        rule_type: SUPPORTED_RULE_TYPE,
         value: data.value,
-        min_fare: data.min_fare || null,
-        max_fare: data.max_fare || null,
+        min_fare: normalizeOptionalMoney(data.min_fare),
+        max_fare: normalizeOptionalMoney(data.max_fare),
         applies_to: data.applies_to,
         time_restrictions: enableTimeRestrictions ? data.time_restrictions : null,
         is_active: data.is_active,
@@ -158,13 +213,16 @@ export default function ZonePricing() {
 
   const updateMutation = useMutation({
     mutationFn: async ({ id, data }: { id: string; data: typeof formData }) => {
+      if (!isSupportedRuleType(data.rule_type)) {
+        throw new Error('Only Flat Rate Addition is supported by live booking fares. Switch the rule type before saving.');
+      }
       const { error } = await supabase.from('zone_pricing_rules').update({
         zone_id: data.zone_id,
         vehicle_type_id: data.vehicle_type_id || null,
-        rule_type: data.rule_type,
+        rule_type: SUPPORTED_RULE_TYPE,
         value: data.value,
-        min_fare: data.min_fare || null,
-        max_fare: data.max_fare || null,
+        min_fare: normalizeOptionalMoney(data.min_fare),
+        max_fare: normalizeOptionalMoney(data.max_fare),
         applies_to: data.applies_to,
         time_restrictions: enableTimeRestrictions ? data.time_restrictions : null,
         is_active: data.is_active,
@@ -210,9 +268,9 @@ export default function ZonePricing() {
     setFormData({
       zone_id: "",
       vehicle_type_id: "",
-      rule_type: "multiplier",
+      rule_type: SUPPORTED_RULE_TYPE,
       value: 1.0,
-      min_fare: 0,
+      min_fare: null,
       max_fare: null,
       applies_to: "both",
       time_restrictions: {
@@ -233,10 +291,11 @@ export default function ZonePricing() {
     setFormData({
       zone_id: rule.zone_id,
       vehicle_type_id: rule.vehicle_type_id || "",
-      rule_type: rule.rule_type,
+      // Legacy unsupported types must be switched to Flat Rate Addition before save.
+      rule_type: isSupportedRuleType(rule.rule_type) ? rule.rule_type : SUPPORTED_RULE_TYPE,
       value: rule.value,
-      min_fare: rule.min_fare || 0,
-      max_fare: rule.max_fare,
+      min_fare: rule.min_fare == null ? null : Number(rule.min_fare),
+      max_fare: rule.max_fare == null ? null : Number(rule.max_fare),
       applies_to: rule.applies_to,
       time_restrictions: rule.time_restrictions || {
         days: [0, 1, 2, 3, 4, 5, 6],
@@ -252,6 +311,14 @@ export default function ZonePricing() {
     e.preventDefault();
     if (!formData.zone_id) {
       toast({ title: "Please select a zone", variant: "destructive" });
+      return;
+    }
+    if (!isSupportedRuleType(formData.rule_type)) {
+      toast({
+        title: "Unsupported rule type",
+        description: "Live booking fares only apply Flat Rate Addition. Multiplier, percentage discount, and fixed fare are not saved.",
+        variant: "destructive",
+      });
       return;
     }
     if (editingRule) {
@@ -277,7 +344,7 @@ export default function ZonePricing() {
   };
 
   const getRuleTypeInfo = (type: string) => {
-    return RULE_TYPES.find(t => t.value === type) || RULE_TYPES[0];
+    return RULE_TYPES.find((t) => t.value === type) || RULE_TYPES[0];
   };
 
   const formatRuleValue = (rule: ZonePricingRule) => {
@@ -304,9 +371,9 @@ export default function ZonePricing() {
 
   const stats = {
     total: rules.length,
-    active: rules.filter(r => r.is_active).length,
-    multipliers: rules.filter(r => r.rule_type === 'multiplier').length,
-    discounts: rules.filter(r => r.rule_type === 'percentage_discount').length,
+    active: rules.filter((r) => r.is_active).length,
+    flatRate: rules.filter((r) => r.rule_type === SUPPORTED_RULE_TYPE).length,
+    unsupported: rules.filter((r) => !isSupportedRuleType(r.rule_type)).length,
   };
 
   const toggleDay = (day: number) => {
@@ -341,7 +408,8 @@ export default function ZonePricing() {
                 <DialogHeader>
                   <DialogTitle>{editingRule ? "Edit Pricing Rule" : "Create Pricing Rule"}</DialogTitle>
                   <DialogDescription>
-                    Define how fares are calculated for this zone
+                    Flat Rate Addition is applied once on top of meter or fixed-route fare.
+                    Multiplier, percentage discount, and fixed fare cannot be saved — they are not used by live bookings.
                   </DialogDescription>
                 </DialogHeader>
                 <div className="grid gap-4 py-4 max-h-[60vh] overflow-y-auto">
@@ -393,19 +461,31 @@ export default function ZonePricing() {
                       <Label>Rule Type *</Label>
                       <Select
                         value={formData.rule_type}
-                        onValueChange={(value) => setFormData({ ...formData, rule_type: value })}
+                        onValueChange={(value) => {
+                          if (!isSupportedRuleType(value)) return;
+                          setFormData({ ...formData, rule_type: value });
+                        }}
                       >
                         <SelectTrigger>
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
                           {RULE_TYPES.map((type) => (
-                            <SelectItem key={type.value} value={type.value}>
-                              {type.label}
+                            <SelectItem
+                              key={type.value}
+                              value={type.value}
+                              disabled={!type.supported}
+                            >
+                              {type.supported
+                                ? type.label
+                                : `${type.label} (not used in live fares)`}
                             </SelectItem>
                           ))}
                         </SelectContent>
                       </Select>
+                      <p className="text-xs text-muted-foreground">
+                        Live booking fares only apply Flat Rate Addition (once per matching rule).
+                      </p>
                     </div>
 
                     <div className="grid gap-2">
@@ -415,7 +495,7 @@ export default function ZonePricing() {
                         step="0.01"
                         value={formData.value}
                         onChange={(e) => setFormData({ ...formData, value: parseFloat(e.target.value) || 0 })}
-                        placeholder={formData.rule_type === 'multiplier' ? "1.5" : "5.00"}
+                        placeholder="1.00"
                       />
                     </div>
                   </div>
@@ -443,20 +523,40 @@ export default function ZonePricing() {
                       <Input
                         type="number"
                         step="0.01"
-                        value={formData.min_fare || ""}
-                        onChange={(e) => setFormData({ ...formData, min_fare: parseFloat(e.target.value) || 0 })}
-                        placeholder="0.00"
+                        min="0"
+                        value={formData.min_fare ?? ""}
+                        onChange={(e) => {
+                          const raw = e.target.value;
+                          setFormData({
+                            ...formData,
+                            min_fare: raw === "" ? null : Number.parseFloat(raw),
+                          });
+                        }}
+                        placeholder="Leave empty for none"
                       />
+                      <p className="text-xs text-muted-foreground">
+                        Empty = NULL (no floor). Explicit 0 is saved as 0.
+                      </p>
                     </div>
                     <div className="grid gap-2">
                       <Label>Max Fare (£)</Label>
                       <Input
                         type="number"
                         step="0.01"
-                        value={formData.max_fare || ""}
-                        onChange={(e) => setFormData({ ...formData, max_fare: e.target.value ? parseFloat(e.target.value) : null })}
-                        placeholder="No limit"
+                        min="0"
+                        value={formData.max_fare ?? ""}
+                        onChange={(e) => {
+                          const raw = e.target.value;
+                          setFormData({
+                            ...formData,
+                            max_fare: raw === "" ? null : Number.parseFloat(raw),
+                          });
+                        }}
+                        placeholder="Leave empty for none"
                       />
+                      <p className="text-xs text-muted-foreground">
+                        Empty = NULL (no cap). Explicit 0 is saved as 0.
+                      </p>
                     </div>
                   </div>
 
@@ -565,20 +665,20 @@ export default function ZonePricing() {
           </Card>
           <Card>
             <CardHeader className="flex flex-row items-center justify-between pb-2">
-              <CardTitle className="text-sm font-medium">Multipliers</CardTitle>
-              <Percent className="h-4 w-4 text-blue-500" />
+              <CardTitle className="text-sm font-medium">Flat Rate (live)</CardTitle>
+              <DollarSign className="h-4 w-4 text-blue-500" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold text-blue-500">{stats.multipliers}</div>
+              <div className="text-2xl font-bold text-blue-500">{stats.flatRate}</div>
             </CardContent>
           </Card>
           <Card>
             <CardHeader className="flex flex-row items-center justify-between pb-2">
-              <CardTitle className="text-sm font-medium">Discounts</CardTitle>
-              <DollarSign className="h-4 w-4 text-purple-500" />
+              <CardTitle className="text-sm font-medium">Unsupported (legacy)</CardTitle>
+              <Percent className="h-4 w-4 text-amber-500" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold text-purple-500">{stats.discounts}</div>
+              <div className="text-2xl font-bold text-amber-500">{stats.unsupported}</div>
             </CardContent>
           </Card>
         </div>
@@ -660,10 +760,20 @@ export default function ZonePricing() {
                         </TableCell>
                         <TableCell>{getVehicleTypeName(rule.vehicle_type_id)}</TableCell>
                         <TableCell>
-                          <Badge variant="outline" className="gap-1">
-                            <ruleTypeInfo.icon className="h-3 w-3" />
-                            {ruleTypeInfo.label}
-                          </Badge>
+                          <div className="flex flex-col gap-1">
+                            <Badge variant="outline" className="gap-1 w-fit">
+                              <ruleTypeInfo.icon className="h-3 w-3" />
+                              {ruleTypeInfo.label}
+                            </Badge>
+                            {!isSupportedRuleType(rule.rule_type) && (
+                              <span className="text-xs text-amber-600">Not applied to live fares</span>
+                            )}
+                            {rule.min_fare != null && (
+                              <span className="text-xs text-muted-foreground">
+                                Min £{Number(rule.min_fare).toFixed(2)}
+                              </span>
+                            )}
+                          </div>
                         </TableCell>
                         <TableCell>
                           <span className="font-mono font-medium">{formatRuleValue(rule)}</span>

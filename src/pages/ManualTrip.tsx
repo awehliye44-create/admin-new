@@ -333,6 +333,61 @@ export default function ManualTrip() {
     setEstimatedDuration(durationMinutes);
   }, [pickupCoords, dropoffCoords]);
 
+  // Live booking fare SSOT (calculate-fare) — same engine as Customer / WhatsApp / website.
+  useEffect(() => {
+    if (
+      !selectedServiceAreaId ||
+      !pickupCoords ||
+      !dropoffCoords ||
+      estimatedDistance == null ||
+      estimatedDuration == null
+    ) {
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const { data, error } = await supabase.functions.invoke('calculate-fare', {
+          body: {
+            service_area_id: selectedServiceAreaId,
+            vehicle_type_id: selectedVehicleTypeId || undefined,
+            estimated_distance_km: estimatedDistance,
+            estimated_duration_min: estimatedDuration,
+            pickup: pickupCoords,
+            dropoff: dropoffCoords,
+            source: 'admin_manual_trip',
+          },
+        });
+        if (cancelled || error || !data?.success) return;
+        const rows = Array.isArray(data.vehicleFares) ? data.vehicleFares : [];
+        const row =
+          (selectedVehicleTypeId
+            ? rows.find((r: { vehicleTypeId?: string }) => r.vehicleTypeId === selectedVehicleTypeId)
+            : null) ??
+          rows.find((r: { hasFareConfig?: boolean; fare?: { totalFarePence?: number } }) =>
+            r.hasFareConfig !== false && typeof r?.fare?.totalFarePence === 'number'
+          ) ??
+          rows[0];
+        const pence = row?.fare?.totalFarePence;
+        if (typeof pence === 'number' && Number.isFinite(pence) && pence > 0) {
+          setEstimatedFare((pence / 100).toFixed(2));
+        }
+      } catch (err) {
+        console.warn('[ManualTrip] calculate-fare quote failed:', err);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    selectedServiceAreaId,
+    selectedVehicleTypeId,
+    pickupCoords,
+    dropoffCoords,
+    estimatedDistance,
+    estimatedDuration,
+  ]);
+
   const handleCustomerSelect = (customerId: string) => {
     setSelectedCustomerId(customerId);
     if (customerId && customerId !== 'new') {
@@ -1204,6 +1259,9 @@ export default function ManualTrip() {
                   <Label htmlFor="estimatedFare">
                     Estimated Fare ({getCurrencySymbol(currencyCode)})
                   </Label>
+                  <p className="text-xs text-muted-foreground mb-2">
+                    Prefills from calculate-fare (live booking SSOT). You can override if needed.
+                  </p>
                   <div className="relative">
                     <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">
                       {getCurrencySymbol(currencyCode)}
