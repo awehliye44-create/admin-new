@@ -89,6 +89,9 @@ Deno.test("find-drivers remains the availability SSOT (no corporate-only calcula
   assertEquals(findDrivers.includes("findDriversAvailabilitySSOT"), true);
   assertEquals(ssot.includes("driver_vehicle_categories"), true);
   assertEquals(ssot.includes("is_default"), true);
+  // Driver-controllable (Pet-Friendly): assignment AND drivers.is_pet_friendly.
+  assertEquals(ssot.includes("driver_controllable"), true);
+  assertEquals(ssot.includes("is_pet_friendly"), true);
   assertEquals(ssot.includes("driver_service_areas"), true);
   assertEquals(ssot.includes('.eq("is_online", true)'), true);
   assertEquals(ssot.includes('.eq("approval_status", "approved")'), true);

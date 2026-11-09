@@ -6,7 +6,10 @@
  * - pickup inside an active region polygon
  * - driver assigned to a service area in that region
  * - online, approved, active, documents approved, lat/lng present
- * - matching vehicle category (default type excludes explicit disables)
+ * - matching vehicle category (default type excludes explicit disables;
+ *   non-default requires enabled Admin assignment; driver_controllable types
+ *   e.g. Pet-Friendly also require drivers.is_pet_friendly = true — same as
+ *   auto-dispatch; Admin assignment is never cleared by the driver toggle)
  * - within max_distance_km of pickup (Distance Matrix with Haversine fallback)
  *
  * Scheduled bookings must NOT call this gate for “nearby right now” —
@@ -211,7 +214,7 @@ async function filterDriversByVehicleCategory(
 
   const { data: vType, error: vTypeError } = await supabase
     .from("vehicle_types")
-    .select("is_default")
+    .select("is_default, driver_controllable")
     .eq("id", vehicleTypeId)
     .maybeSingle();
   if (vTypeError) {
@@ -243,7 +246,29 @@ async function filterDriversByVehicleCategory(
     console.error("[findDriversAvailabilitySSOT] enabled categories failed:", vcError);
     return [];
   }
-  return (vehicleCategories || []).map((vc) => vc.driver_id);
+  const assignedIds = (vehicleCategories || []).map((vc) => vc.driver_id as string);
+  if (assignedIds.length === 0) return [];
+
+  // Pet-Friendly (and any future driver_controllable type): Admin assignment is
+  // capability; drivers.is_pet_friendly is the driver's on/off toggle. Both required.
+  // Fail closed if the toggle cannot be read (parity with auto-dispatch).
+  if (vType?.driver_controllable === true) {
+    const { data: toggledOn, error: toggleErr } = await supabase
+      .from("drivers")
+      .select("id")
+      .in("id", assignedIds)
+      .eq("is_pet_friendly", true);
+    if (toggleErr) {
+      console.error(
+        "[findDriversAvailabilitySSOT] pet_friendly toggle read failed:",
+        toggleErr.message,
+      );
+      return [];
+    }
+    return (toggledOn || []).map((row) => row.id as string);
+  }
+
+  return assignedIds;
 }
 
 async function rankDriversByPickupDistance(

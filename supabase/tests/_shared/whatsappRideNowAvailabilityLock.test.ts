@@ -18,6 +18,9 @@ Deno.test("findDriversAvailabilitySSOT encodes Customer eligibility rules", asyn
   assertEquals(ssot.includes("driver_service_areas"), true);
   assertEquals(ssot.includes("driver_vehicle_categories"), true);
   assertEquals(ssot.includes("is_default"), true);
+  // Pet-Friendly OFF must not count toward Ride Now availability (parity with dispatch).
+  assertEquals(ssot.includes("driver_controllable"), true);
+  assertEquals(ssot.includes("is_pet_friendly"), true);
   assertEquals(ssot.includes("assertRideNowVehicleAvailableOrError"), true);
   assertEquals(ssot.includes("isImmediateRideNowBooking"), true);
   assertEquals(ssot.includes("evaluateRideNowAvailabilityForVehicleTypes"), true);
