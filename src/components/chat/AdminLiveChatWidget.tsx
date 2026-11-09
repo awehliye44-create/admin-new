@@ -20,7 +20,7 @@ import { ADMIN_SUPPORT_INBOX_PAGE_SIZE } from "@/lib/adminQueryBounds";
  * Floating Live Chat widget for the Admin Panel.
  * Rendered inside AdminShell (already behind ProtectedRoute) and additionally
  * gated on an authenticated admin user, so it is only visible when signed in.
- * Anchored bottom-left; opens a compact inbox + chat panel backed by the same
+ * Anchored bottom-right (clear of the sidebar footer); opens a compact inbox + chat panel backed by the same
  * support conversation SSOT as the Admin → Live Chat page.
  */
 export function AdminLiveChatWidget() {
@@ -97,7 +97,7 @@ export function AdminLiveChatWidget() {
     <>
       {isOpen && (
         <div
-          className="fixed bottom-20 left-4 z-50 flex h-[70vh] max-h-[640px] w-[min(92vw,420px)] flex-col overflow-hidden rounded-lg border bg-background shadow-2xl"
+          className="fixed bottom-20 right-4 z-50 flex h-[70vh] max-h-[640px] w-[min(92vw,420px)] flex-col overflow-hidden rounded-lg border bg-background shadow-2xl"
           role="dialog"
           aria-label="Live Chat widget"
         >
@@ -160,7 +160,7 @@ export function AdminLiveChatWidget() {
 
       <Button
         size="icon"
-        className="fixed bottom-4 left-4 z-50 h-12 w-12 rounded-full shadow-lg"
+        className="fixed bottom-4 right-4 z-50 h-12 w-12 rounded-full shadow-lg"
         aria-label={isOpen ? "Close Live Chat" : "Open Live Chat"}
         onClick={() => setIsOpen((v) => !v)}
       >

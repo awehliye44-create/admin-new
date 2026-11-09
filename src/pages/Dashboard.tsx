@@ -475,7 +475,7 @@ export default function Dashboard() {
 
       return {
         stats: stats as Stats,
-        recentTrips: (recentR.data || []) as RecentTrip[],
+        recentTrips: (recentR.data || []) as unknown as RecentTrip[],
         bookingChartData: chartData,
       };
     },

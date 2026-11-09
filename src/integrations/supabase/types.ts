@@ -29506,6 +29506,44 @@ export type Database = {
       }
     }
     Functions: {
+      _admin_page_build_or_groups: {
+        Args: { p_allowed_cols: string[]; p_or_groups: Json; p_table: string }
+        Returns: string
+      }
+      _admin_page_build_where: {
+        Args: { p_allowed_cols: string[]; p_args: Json; p_table: string }
+        Returns: string
+      }
+      _admin_page_col_expr: {
+        Args: { p_col: string; p_table: string }
+        Returns: string
+      }
+      _admin_page_columns: { Args: { p_table: string }; Returns: string[] }
+      _admin_page_mutate_columns: {
+        Args: { p_table: string }
+        Returns: string[]
+      }
+      _admin_page_mutate_pages: {
+        Args: { p_op: string; p_table: string }
+        Returns: string[]
+      }
+      _admin_page_pred_group: {
+        Args: { p_allowed_cols: string[]; p_filters: Json; p_table: string }
+        Returns: string
+      }
+      _admin_page_pred_one: {
+        Args: { p_allowed_cols: string[]; p_filter: Json; p_table: string }
+        Returns: string
+      }
+      _admin_page_quote_json_scalar: { Args: { p_val: Json }; Returns: string }
+      _admin_page_table_allowed: {
+        Args: { p_page_slug: string; p_table: string }
+        Returns: boolean
+      }
+      _admin_service_areas_lookup_page_allowed: {
+        Args: { p_page_slug: string }
+        Returns: boolean
+      }
       _on_active: { Args: { tid: string }; Returns: boolean }
       _on_sched: { Args: { tid: string }; Returns: boolean }
       abort_driver_payout_submission_claim: {
@@ -29580,6 +29618,14 @@ export type Database = {
         }
         Returns: Json
       }
+      admin_assert_staff_any_page: {
+        Args: { p_page_slugs: string[] }
+        Returns: string
+      }
+      admin_assert_staff_page: {
+        Args: { p_page_slug: string }
+        Returns: undefined
+      }
       admin_assign_staff_role: {
         Args: {
           _correlation_id?: string
@@ -29602,6 +29648,19 @@ export type Database = {
           _username: string
         }
         Returns: string
+      }
+      admin_dashboard_chart_rows: {
+        Args: {
+          p_end: string
+          p_limit?: number
+          p_service_area_id?: string
+          p_start: string
+        }
+        Returns: Json
+      }
+      admin_dashboard_period_stats: {
+        Args: { p_end: string; p_service_area_id?: string; p_start: string }
+        Returns: Json
       }
       admin_decide_customer_identity: {
         Args: {
@@ -29627,6 +29686,10 @@ export type Database = {
       admin_delete_staff_role: {
         Args: { _correlation_id?: string; _role_id: string }
         Returns: undefined
+      }
+      admin_document_type_in_use: {
+        Args: { p_document_type_id: string }
+        Returns: boolean
       }
       admin_driver_financial_repair_lock: {
         Args: { p_acquire?: boolean; p_driver_id: string }
@@ -29818,6 +29881,8 @@ export type Database = {
           verification_stage: string
         }[]
       }
+      admin_list_riders_page: { Args: { p_args?: Json }; Returns: Json }
+      admin_list_riders_with_trip_stats: { Args: never; Returns: Json }
       admin_live_chat_driver_identity: {
         Args: { p_ids: string[] }
         Returns: {
@@ -29831,6 +29896,19 @@ export type Database = {
       admin_minimise_deleted_customer: {
         Args: { p_customer_id: string }
         Returns: string
+      }
+      admin_page_mutate: {
+        Args: {
+          p_args?: Json
+          p_op: string
+          p_page_slug: string
+          p_table: string
+        }
+        Returns: Json
+      }
+      admin_page_select: {
+        Args: { p_args?: Json; p_page_slug: string; p_table: string }
+        Returns: Json
       }
       admin_remove_corporate_account: {
         Args: { p_account_id: string }
@@ -29884,6 +29962,10 @@ export type Database = {
         }
         Returns: string
       }
+      admin_service_areas_lookup: {
+        Args: { p_args?: Json; p_page_slug: string }
+        Returns: Json
+      }
       admin_set_driver_operational_status: {
         Args: {
           p_driver_id: string
@@ -29925,6 +30007,7 @@ export type Database = {
         }
         Returns: undefined
       }
+      admin_sidebar_badge_counts: { Args: never; Returns: Json }
       admin_unlock_customer_name_edit: {
         Args: { p_customer_id: string }
         Returns: Json
@@ -32548,6 +32631,10 @@ export type Database = {
         Args: { p_driver_id: string }
         Returns: boolean
       }
+      recalculate_driver_documents_approved_internal: {
+        Args: { p_driver_id: string }
+        Returns: boolean
+      }
       recalculate_driver_wallet: {
         Args: { p_driver_id: string }
         Returns: undefined
@@ -33066,11 +33153,16 @@ export type Database = {
         Args: { _action_key: string; _user_id: string }
         Returns: boolean
       }
+      staff_has_any_page_access: {
+        Args: { p_page_slugs: string[] }
+        Returns: boolean
+      }
       staff_has_company_funds_read_access: {
         Args: { p_page_slug?: string }
         Returns: boolean
       }
       staff_has_page_access: { Args: { p_page_slug: string }; Returns: boolean }
+      staff_is_active_owner: { Args: never; Returns: boolean }
       staff_role_id_of: { Args: { _user_id: string }; Returns: string }
       staff_role_of: {
         Args: { _user_id: string }

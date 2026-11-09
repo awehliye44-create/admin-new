@@ -363,7 +363,7 @@ export default function FleetTracking() {
       });
 
       // Fetch driver service area assignments
-      const driverIds = driversWithTrips.map(d => d.id);
+      const driverIds = driversWithTrips.map(d => (d as unknown as { id: string }).id);
       if (driverIds.length > 0) {
         const { adminPageSelect } = await import('@/lib/adminPageGatedData');
         const { rows: dsaData } = await adminPageSelect<{ driver_id: string; service_area_id: string }>(

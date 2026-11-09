@@ -40,7 +40,13 @@ export function NewAdjustmentDialog({ open, onOpenChange }: NewAdjustmentDialogP
       if (driverSearch.length < 2) return [];
       const { adminPageSelect } = await import('@/lib/adminPageGatedData');
       const like = `%${driverSearch}%`;
-      const { rows } = await adminPageSelect('disputes', 'drivers', {
+      const { rows } = await adminPageSelect<{
+        id: string;
+        first_name: string;
+        last_name: string;
+        driver_code: string | null;
+        region_id: string | null;
+      }>('disputes', 'drivers', {
         columns: ['id', 'first_name', 'last_name', 'driver_code', 'region_id'],
         or_groups: [
           [{ op: 'ilike', col: 'first_name', val: like }],

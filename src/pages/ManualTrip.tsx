@@ -193,11 +193,11 @@ export default function ManualTrip() {
         setCorporateAccounts(corporateRes.data || []);
         setVehicleTypes(vehicleTypesRes.data || []);
         setCustomers(customersRes.data || []);
-        setServiceAreas(serviceAreasRes.data || []);
+        setServiceAreas((serviceAreasRes.data || []) as unknown as ServiceArea[]);
 
         // Auto-select first service area if available
         if (serviceAreasRes.data && serviceAreasRes.data.length > 0) {
-          setSelectedServiceAreaId(serviceAreasRes.data[0].id);
+          setSelectedServiceAreaId(String(serviceAreasRes.data[0].id));
         }
       } catch (err) {
         console.error('Error fetching data:', err);
