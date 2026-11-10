@@ -1,0 +1,1 @@
+ALTER TABLE public.document_types ALTER COLUMN reminder_days_before_expiry SET DEFAULT ARRAY[7, 3, 1];

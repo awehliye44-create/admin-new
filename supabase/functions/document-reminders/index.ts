@@ -102,7 +102,7 @@ for (const doc of (documents || []) as unknown as DocumentToRemind[]) {
         continue;
       }
 
-      const reminderDays = docType.reminder_days_before_expiry || [30, 14, 7, 3, 1];
+      const reminderDays = docType.reminder_days_before_expiry || [7, 3, 1];
       const alreadySent = doc.reminder_sent_days || [];
       
       // Calculate days until expiry

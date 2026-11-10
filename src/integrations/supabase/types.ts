@@ -31435,6 +31435,10 @@ export type Database = {
         Args: { p_driver_id: string; p_reason?: string }
         Returns: undefined
       }
+      force_driver_offline_for_document_ineligibility: {
+        Args: { p_driver_id: string }
+        Returns: undefined
+      }
       generate_invoice_number: { Args: never; Returns: string }
       generate_lost_property_case_number: {
         Args: { p_service_area_id: string }
