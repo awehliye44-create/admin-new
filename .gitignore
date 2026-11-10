@@ -30,6 +30,9 @@ test-results/
 # Supabase CLI local cache (not source of truth)
 supabase/.temp/
 
+# Local Docker / deleted-cloud staging secrets (never commit)
+.staging/
+
 # Revolut Business API client credentials — NEVER commit private key or local secrets dir
 secrets/
 secrets/revolut-business/
