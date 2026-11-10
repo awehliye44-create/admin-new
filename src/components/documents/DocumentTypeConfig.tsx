@@ -1,3 +1,4 @@
+import { DEFAULT_DOCUMENT_REMINDER_DAYS_INPUT, reminderDaysInputValue } from "@/lib/documentReminderDefaults";
 import { useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -37,7 +38,7 @@ export function DocumentTypeConfig() {
     has_expiry: false,
     is_required: true,
     show_in_driver_app: true,
-    reminder_days: "30,14,7,3,1",
+    reminder_days: DEFAULT_DOCUMENT_REMINDER_DAYS_INPUT,
   });
 
   const [createForm, setCreateForm] = useState({
@@ -47,7 +48,7 @@ export function DocumentTypeConfig() {
     is_required: true,
     has_expiry: false,
     show_in_driver_app: true,
-    reminder_days: "30,14,7,3,1",
+    reminder_days: DEFAULT_DOCUMENT_REMINDER_DAYS_INPUT,
   });
 
   const handleEdit = (docType: DocumentType) => {
@@ -58,7 +59,7 @@ export function DocumentTypeConfig() {
       has_expiry: docType.has_expiry,
       is_required: docType.is_required,
       show_in_driver_app: docType.show_in_driver_app,
-      reminder_days: docType.reminder_days_before_expiry.join(","),
+      reminder_days: reminderDaysInputValue(docType.reminder_days_before_expiry),
     });
     setIsEditOpen(true);
   };
@@ -150,7 +151,7 @@ export function DocumentTypeConfig() {
           setCreateForm({
             name: '', slug: '', description: '',
             is_required: true, has_expiry: false, show_in_driver_app: true,
-            reminder_days: "30,14,7,3,1",
+            reminder_days: DEFAULT_DOCUMENT_REMINDER_DAYS_INPUT,
           });
         },
       }
@@ -161,7 +162,7 @@ export function DocumentTypeConfig() {
     setCreateForm({
       name: '', slug: '', description: '',
       is_required: true, has_expiry: false, show_in_driver_app: true,
-      reminder_days: "30,14,7,3,1",
+      reminder_days: DEFAULT_DOCUMENT_REMINDER_DAYS_INPUT,
     });
     setIsCreateOpen(true);
   };
@@ -411,10 +412,10 @@ export function DocumentTypeConfig() {
                   onChange={(e) =>
                     setFormData({ ...formData, reminder_days: e.target.value })
                   }
-                  placeholder="30,14,7,3,1"
+                  placeholder={DEFAULT_DOCUMENT_REMINDER_DAYS_INPUT}
                 />
                 <p className="text-xs text-muted-foreground">
-                  Enter comma-separated days (e.g., 30,14,7,3,1). Reminders will be sent to
+                  Enter comma-separated days (e.g., 7,3,1). Reminders will be sent to
                   drivers on these days before expiry.
                 </p>
               </div>
@@ -509,7 +510,7 @@ export function DocumentTypeConfig() {
                 <Input
                   value={createForm.reminder_days}
                   onChange={(e) => setCreateForm(prev => ({ ...prev, reminder_days: e.target.value }))}
-                  placeholder="30,14,7,3,1"
+                  placeholder={DEFAULT_DOCUMENT_REMINDER_DAYS_INPUT}
                 />
               </div>
             )}
