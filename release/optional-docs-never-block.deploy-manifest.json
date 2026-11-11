@@ -1,7 +1,7 @@
 {
   "release_id": "optional-docs-never-block-go-online",
   "backend_branch": "release/optional-docs-never-block-go-online",
-  "backend_commit": "728cc2c35d3c05a84c239361b382c8378d1c872a",
+  "backend_commit": "c5b91e01",
   "base": "origin/main@46e7e3ec",
   "do_not_deploy_until_approved": true,
   "sql_migration": {
@@ -42,6 +42,14 @@
     {
       "name": "scheduled-dispatch",
       "reason": "imports scheduledActivationExclusiveRescue \u2192 rideOfferDriverEligibility \u2192 evaluateDriverDocumentState"
+    },
+    {
+      "name": "expire-offers",
+      "reason": "dynamic import scheduledActivationExclusiveRescue \u2192 rideOfferDriverEligibility \u2192 evaluateDriverDocumentState"
+    },
+    {
+      "name": "decline-trip",
+      "reason": "dynamic import scheduledActivationExclusiveRescue \u2192 rideOfferDriverEligibility \u2192 evaluateDriverDocumentState"
     }
   ],
   "edge_functions_explicitly_out_of_scope": [
