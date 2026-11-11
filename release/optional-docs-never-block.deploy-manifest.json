@@ -1,14 +1,23 @@
 {
   "release_id": "optional-docs-never-block-go-online",
   "backend_branch": "release/optional-docs-never-block-go-online",
-  "backend_commit": "583640d6a8836e54f245cfd4625e24426258a838",
+  "backend_commit": "bf662db45f5ff0036b6f798f6e4aa552b9b172a1",
   "base": "origin/main@46e7e3ec",
-  "do_not_deploy_until_approved": true,
+  "do_not_deploy_until_approved": false,
+  "documentation_only_correction": {
+    "purpose": "Align release manifest with artifacts actually deployed to production; no production mutations.",
+    "supersedes_backend_commit": "583640d6a8836e54f245cfd4625e24426258a838",
+    "supersedes_driver_tip": "154091f433b4dbcedb3c8d2957130b935d2d1f39",
+    "note": "154091f4 was never published; production Driver OTA used rebuilt tip 691d1c1c on baseline 826bc18."
+  },
   "sql_migration": {
     "file": "supabase/migrations/20270101130000_optional_documents_never_block_go_online.sql",
     "orders_after": "20261231184000_force_offline_clear_intent_on_document_ineligibility.sql",
-    "applies": false,
-    "changes": "CREATE OR REPLACE get_driver_document_eligibility_internal \u2014 remove optional expiry Go Online block",
+    "applies": true,
+    "applied_in_production": true,
+    "production_version": "20270101130000",
+    "production_name": "optional_documents_never_block_go_online",
+    "changes": "CREATE OR REPLACE get_driver_document_eligibility_internal — remove optional expiry Go Online block",
     "does_not": [
       "mutate document rows",
       "alter RLS policies",
@@ -29,27 +38,27 @@
     },
     {
       "name": "accept-offer",
-      "reason": "imports _shared/driverEligibility.ts \u2192 evaluateDriverDocumentState"
+      "reason": "imports _shared/driverEligibility.ts → evaluateDriverDocumentState"
     },
     {
       "name": "send-driver-notification",
-      "reason": "imports rideOfferDriverEligibility + newWorkInvitationEligibilitySSOT \u2192 evaluateDriverDocumentState"
+      "reason": "imports rideOfferDriverEligibility + newWorkInvitationEligibilitySSOT → evaluateDriverDocumentState"
     },
     {
       "name": "auto-dispatch",
-      "reason": "imports newWorkInvitationEligibilitySSOT \u2192 evaluateDriverDocumentState"
+      "reason": "imports newWorkInvitationEligibilitySSOT → evaluateDriverDocumentState"
     },
     {
       "name": "scheduled-dispatch",
-      "reason": "imports scheduledActivationExclusiveRescue \u2192 rideOfferDriverEligibility \u2192 evaluateDriverDocumentState"
+      "reason": "imports scheduledActivationExclusiveRescue → rideOfferDriverEligibility → evaluateDriverDocumentState"
     },
     {
       "name": "expire-offers",
-      "reason": "dynamic import scheduledActivationExclusiveRescue \u2192 rideOfferDriverEligibility \u2192 evaluateDriverDocumentState"
+      "reason": "dynamic import scheduledActivationExclusiveRescue → rideOfferDriverEligibility → evaluateDriverDocumentState"
     },
     {
       "name": "decline-trip",
-      "reason": "dynamic import scheduledActivationExclusiveRescue \u2192 rideOfferDriverEligibility \u2192 evaluateDriverDocumentState"
+      "reason": "dynamic import scheduledActivationExclusiveRescue → rideOfferDriverEligibility → evaluateDriverDocumentState"
     }
   ],
   "edge_functions_explicitly_out_of_scope": [
@@ -60,18 +69,21 @@
     "unrelated admin page RPCs"
   ],
   "driver_ota": {
-    "branch": "release/mk0010-optional-docs-eligibility-rc",
-    "base": "origin/master@3ea1bb4",
+    "branch": "release/mk0010-optional-docs-on-prod-ota",
+    "production_baseline": "826bc18fe99024414d549c0b034e158232f1b126",
+    "base": "origin/master@826bc18fe99024414d549c0b034e158232f1b126",
     "commits": [
-      "fc7cef5e \u2014 MK0010 photo/document upload fixes (from 84f1df7)",
-      "154091f4 \u2014 optional document never-block eligibility (from 24007eb)"
+      "826bc18fe99024414d549c0b034e158232f1b126 — My Documents Required then Optional sections (production baseline)",
+      "be4690eb37e824a46c6e8370e9f746f7e6426074 — MK0010 iOS photo picker + HEIC upload hardening",
+      "691d1c1cee2cfa4cfbf3b1991b26378ae85d0a64 — optional documents never independently block Go Online"
     ],
     "native_build_required": false,
     "platforms": [
       "android",
       "ios"
     ],
-    "tip": "154091f433b4dbcedb3c8d2957130b935d2d1f39"
+    "tip": "691d1c1cee2cfa4cfbf3b1991b26378ae85d0a64",
+    "superseded_unpublished_tip": "154091f433b4dbcedb3c8d2957130b935d2d1f39"
   },
   "release_order": [
     "1. Apply SQL migration 20270101130000",
@@ -82,19 +94,83 @@
     "6. Production verification checklist"
   ],
   "backend_commits": [
-    "5dca20eee \u2014 policy fix migration + Edge evaluator + lock tests",
-    "867cd15da \u2014 rollback SQL + deploy manifest",
-    "728cc2c35 \u2014 stamp RC commit IDs on manifest",
-    "92940ad813aef04118b8c2a01cf19e719d107f0f \u2014 include expire-offers/decline-trip in Edge list"
+    "5dca20eee5fff7f4a485bd3b2ac5318c4b2d03de — policy fix migration + Edge evaluator + lock tests",
+    "867cd15da6ba70091da3b1125f3bde855716277d — rollback SQL + deploy manifest",
+    "728cc2c35d3c05a84c239361b382c8378d1c872a — stamp RC commit IDs on manifest",
+    "92940ad813aef04118b8c2a01cf19e719d107f0f — include expire-offers/decline-trip in Edge list",
+    "583640d6a8836e54f245cfd4625e24426258a838 — point deploy manifest at final backend RC tip",
+    "bf662db45f5ff0036b6f798f6e4aa552b9b172a1 — approved backend release tip (docs stamp)"
   ],
   "preflight": {
     "production_project": "thazislrdkjpvvghtvzo",
-    "production_migration_head": "20261231184000",
+    "production_migration_head_before_deploy": "20261231184000",
     "migration_20270101130000_already_applied": false,
     "android_rollback_group": "2c3f4f3f-4ad6-4769-9675-a4f3107d9c03",
     "ios_rollback_group": "ccd5ae18-2c03-40ef-b8a8-bf4452d25bda",
     "android_runtime": "1.0.6(64)",
     "ios_runtime": "1.0.6(4)",
-    "driver_ota_blocked_reason": "Approved RC 154091f4 is based on 3ea1bb4 but production channel tip is newer (Required/Optional sections + Live Chat). Publishing 154091f4 would regress those OTAs."
+    "driver_ota_blocked_reason_historical": "Approved RC 154091f4 was based on 3ea1bb4 but production channel tip was newer (Required/Optional sections + Live Chat). Publishing 154091f4 would have regressed those OTAs. Driver RC was rebuilt on 826bc18 → tip 691d1c1c before publish."
+  },
+  "production_deployment": {
+    "status": "deployed",
+    "deployed_at": "2026-11-11",
+    "production_project": "thazislrdkjpvvghtvzo",
+    "backend_commit": "bf662db45f5ff0036b6f798f6e4aa552b9b172a1",
+    "driver_commit": "691d1c1cee2cfa4cfbf3b1991b26378ae85d0a64",
+    "driver_production_baseline": "826bc18fe99024414d549c0b034e158232f1b126",
+    "sql_migration": "20270101130000_optional_documents_never_block_go_online",
+    "edge_function_versions": {
+      "validate-driver": {
+        "version": 307,
+        "rollback_version": 306
+      },
+      "accept-offer": {
+        "version": 548,
+        "rollback_version": 547
+      },
+      "send-driver-notification": {
+        "version": 595,
+        "rollback_version": 594
+      },
+      "auto-dispatch": {
+        "version": 747,
+        "rollback_version": 746
+      },
+      "scheduled-dispatch": {
+        "version": 635,
+        "rollback_version": 634
+      },
+      "expire-offers": {
+        "version": 651,
+        "rollback_version": 650
+      },
+      "decline-trip": {
+        "version": 453,
+        "rollback_version": 452
+      }
+    },
+    "android_ota": {
+      "channel": "production",
+      "runtime": "1.0.6(64)",
+      "group_id": "f385a302-9433-4707-892e-92de39275f99",
+      "update_id": "01a1c9d6-e171-7328-a1db-f6449d6d7f3d",
+      "git_commit": "691d1c1cee2cfa4cfbf3b1991b26378ae85d0a64",
+      "rollback_group_id": "2c3f4f3f-4ad6-4769-9675-a4f3107d9c03"
+    },
+    "ios_ota": {
+      "channel": "production",
+      "runtime": "1.0.6(4)",
+      "group_id": "9da2b7b4-b828-42c6-86f4-179240055f04",
+      "update_id": "01a1c9d7-b676-76f8-8426-1a1ccda190d5",
+      "git_commit": "691d1c1cee2cfa4cfbf3b1991b26378ae85d0a64",
+      "rollback_group_id": "ccd5ae18-2c03-40ef-b8a8-bf4452d25bda"
+    },
+    "eligibility_recalc": {
+      "active_drivers_processed": 8,
+      "flag_drift": 0,
+      "online_count_unchanged": 2,
+      "auto_online": false
+    },
+    "mk0010_device_verification": "PENDING"
   }
 }
