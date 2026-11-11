@@ -1,7 +1,7 @@
 {
   "release_id": "optional-docs-never-block-go-online",
   "backend_branch": "release/optional-docs-never-block-go-online",
-  "backend_commit": "c5b91e01",
+  "backend_commit": "92940ad813aef04118b8c2a01cf19e719d107f0f",
   "base": "origin/main@46e7e3ec",
   "do_not_deploy_until_approved": true,
   "sql_migration": {
@@ -84,6 +84,7 @@
   "backend_commits": [
     "5dca20eee \u2014 policy fix migration + Edge evaluator + lock tests",
     "867cd15da \u2014 rollback SQL + deploy manifest",
-    "728cc2c35 \u2014 stamp RC commit IDs on manifest"
+    "728cc2c35 \u2014 stamp RC commit IDs on manifest",
+    "92940ad813aef04118b8c2a01cf19e719d107f0f \u2014 include expire-offers/decline-trip in Edge list"
   ]
 }
