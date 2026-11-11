@@ -115,9 +115,6 @@ export function evaluateDriverDocumentStateFromSnapshot(args: {
   let approvedValidCount = 0;
 
   const mandatoryRules = requiredRules.filter((r) => r.mandatory !== false);
-  const optionalExpiryRules = requiredRules.filter(
-    (r) => r.mandatory === false && r.expiry_required,
-  );
 
   for (const rule of mandatoryRules) {
     const slug = rule.slug;
@@ -156,15 +153,8 @@ export function evaluateDriverDocumentStateFromSnapshot(args: {
     pending_documents.push(slug);
   }
 
-  // Optional + expiry_required: missing OK; expired current row blocks.
-  for (const rule of optionalExpiryRules) {
-    const slug = rule.slug;
-    const doc = pickBestDocumentForSlug(args.documents, slug);
-    if (!doc) continue;
-    if (rule.expiry_required && (doc.expiry_date == null || isExpired(doc.expiry_date, now))) {
-      if (!expired_documents.includes(slug)) expired_documents.push(slug);
-    }
-  }
+  // Optional documents never independently block Go Online (any status).
+  // Expiry remains enforced at upload when expiry_required is configured.
 
   const allRequiredApproved = (
       mandatoryRules.length === 0
