@@ -1,7 +1,7 @@
 {
   "release_id": "optional-docs-never-block-go-online",
   "backend_branch": "release/optional-docs-never-block-go-online",
-  "backend_commit": "867cd15da6ba70091da3b1125f3bde855716277d",
+  "backend_commit": "728cc2c35d3c05a84c239361b382c8378d1c872a",
   "base": "origin/main@46e7e3ec",
   "do_not_deploy_until_approved": true,
   "sql_migration": {
@@ -55,15 +55,15 @@
     "branch": "release/mk0010-optional-docs-eligibility-rc",
     "base": "origin/master@3ea1bb4",
     "commits": [
-      "fc7cef5e \u2014 MK0010 photo/document upload fixes",
-      "154091f4 \u2014 optional document never-block eligibility"
+      "fc7cef5e \u2014 MK0010 photo/document upload fixes (from 84f1df7)",
+      "154091f4 \u2014 optional document never-block eligibility (from 24007eb)"
     ],
     "native_build_required": false,
     "platforms": [
       "android",
       "ios"
     ],
-    "tip": "154091f4"
+    "tip": "154091f433b4dbcedb3c8d2957130b935d2d1f39"
   },
   "release_order": [
     "1. Apply SQL migration 20270101130000",
@@ -74,7 +74,8 @@
     "6. Production verification checklist"
   ],
   "backend_commits": [
-    "5dca20eee \u2014 policy fix migration + Edge evaluator",
-    "867cd15da \u2014 deploy manifest + rollback SQL"
+    "5dca20eee \u2014 policy fix migration + Edge evaluator + lock tests",
+    "867cd15da \u2014 rollback SQL + deploy manifest",
+    "728cc2c35 \u2014 stamp RC commit IDs on manifest"
   ]
 }
