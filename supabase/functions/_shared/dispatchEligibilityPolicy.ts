@@ -52,6 +52,7 @@ export const PERMANENT_DISPATCH_REJECT_REASONS = new Set<string>([
   "outside_service_area",
   "outside_radius",
   "exceeds_driver_max_pickup_distance",
+  "exceeds_fleet_max_pickup_distance",
   "driver_declined_with_cooldown",
   "cooldown_after_decline",
   "negotiation_decline_permanent_exclusion",
@@ -119,7 +120,12 @@ export function canonicalizeDispatchRejectReason(
       return "vehicle_not_approved";
     case "outside_radius":
     case "exceeds_driver_max_pickup_distance":
+      // Legacy per-driver preference → keep historical alias mapping.
       return "outside_service_area";
+    case "exceeds_fleet_max_pickup_distance":
+      // Distinct fleet SSOT reason — do not collapse into outside_service_area
+      // until Admin/ops consumers are updated (audit-before-map).
+      return "exceeds_fleet_max_pickup_distance";
     case "cooldown_after_decline":
       return "driver_declined_with_cooldown";
     case "negotiation_decline_permanent_exclusion":

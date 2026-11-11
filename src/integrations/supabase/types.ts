@@ -13651,6 +13651,7 @@ export type Database = {
           expected_stop_waiting_minutes: number
           fairness_boost_score: number
           fairness_idle_minutes: number
+          fleet_max_pickup_distance_miles: number
           id: string
           local_activation_minutes_before_pickup: number
           locked_driver_response_minutes: number
@@ -13739,6 +13740,7 @@ export type Database = {
           expected_stop_waiting_minutes?: number
           fairness_boost_score?: number
           fairness_idle_minutes?: number
+          fleet_max_pickup_distance_miles?: number
           id?: string
           local_activation_minutes_before_pickup?: number
           locked_driver_response_minutes?: number
@@ -13827,6 +13829,7 @@ export type Database = {
           expected_stop_waiting_minutes?: number
           fairness_boost_score?: number
           fairness_idle_minutes?: number
+          fleet_max_pickup_distance_miles?: number
           id?: string
           local_activation_minutes_before_pickup?: number
           locked_driver_response_minutes?: number

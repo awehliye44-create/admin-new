@@ -51,6 +51,13 @@ import {
   type BookingDispatchWaveRadiiMeters,
   type BookingDispatchWaveRadiusIssue,
 } from '../../shared/bookingDispatchRadiusSSOT';
+import {
+  FLEET_MAX_PICKUP_DISTANCE_MILES_FAILSAFE,
+  FLEET_MAX_PICKUP_DISTANCE_MILES_MAX,
+  FLEET_MAX_PICKUP_DISTANCE_MILES_MIN,
+  resolveFleetMaxPickupDistanceMiles,
+  validateFleetMaxPickupDistanceMiles,
+} from '../../shared/fleetMaxPickupDistanceSSOT';
 
 /** Mirrors global_dispatch_settings_customer_nearby_radius_range. */
 const CUSTOMER_NEARBY_RADIUS_DEFAULT_METERS = 25000;
@@ -90,6 +97,12 @@ interface DispatchSettings {
 
   /** Customer map display only — never a dispatch or towards-destination radius. */
   customerNearbyDriversRadiusMeters: number;
+
+  /**
+   * Fleet-wide maximum pickup distance (miles). Applies to every driver on every
+   * offer path. Independent of booking wave radii. Invalid/missing → 17.8 failsafe at runtime.
+   */
+  fleetMaxPickupDistanceMiles: number;
 
   // Stacked Rides (policy layer)
   stackedRidesEnabled: boolean;
@@ -142,6 +155,7 @@ const defaultSettings: DispatchSettings = {
   presenceMaxAgeSeconds: 60,
   maxDriverFindTimeMinutes: 3,
   customerNearbyDriversRadiusMeters: CUSTOMER_NEARBY_RADIUS_DEFAULT_METERS,
+  fleetMaxPickupDistanceMiles: FLEET_MAX_PICKUP_DISTANCE_MILES_FAILSAFE,
   stackedRidesEnabled: false,
   maxStackedRides: 1,
   stackedSearchRadiusMeters: 2000,
@@ -208,6 +222,9 @@ const mapDbToSettings = (data: Record<string, unknown>): DispatchSettings => {
   customerNearbyDriversRadiusMeters: Number(
     data.customer_nearby_drivers_radius_meters ?? defaultSettings.customerNearbyDriversRadiusMeters,
   ),
+  fleetMaxPickupDistanceMiles: resolveFleetMaxPickupDistanceMiles(
+    data.fleet_max_pickup_distance_miles ?? defaultSettings.fleetMaxPickupDistanceMiles,
+  ),
   stackedRidesEnabled: Boolean(data.stacked_rides_enabled),
   maxStackedRides: Number(data.max_stacked_rides ?? defaultSettings.maxStackedRides),
   stackedSearchRadiusMeters: Number(data.stacked_search_radius_meters ?? defaultSettings.stackedSearchRadiusMeters),
@@ -255,6 +272,7 @@ const mapSettingsToDb = (settings: DispatchSettings) => ({
   presence_max_age_seconds: settings.presenceMaxAgeSeconds,
   max_driver_find_time_minutes: settings.maxDriverFindTimeMinutes,
   customer_nearby_drivers_radius_meters: Math.round(settings.customerNearbyDriversRadiusMeters),
+  fleet_max_pickup_distance_miles: settings.fleetMaxPickupDistanceMiles,
   stacked_rides_enabled: !!settings.stackedRidesEnabled,
   max_stacked_rides: settings.maxStackedRides,
   max_active_rides_per_driver: settings.maxStackedRides + 1,
@@ -395,6 +413,11 @@ export default function AutoDispatchRules() {
       toast.error(
         `Customer map nearby drivers radius must be between ${fromKm(CUSTOMER_NEARBY_RADIUS_MIN_METERS / 1000)} and ${fromKm(CUSTOMER_NEARBY_RADIUS_MAX_METERS / 1000)} ${unitShort}`,
       );
+      return;
+    }
+    const fleetMaxIssues = validateFleetMaxPickupDistanceMiles(settings.fleetMaxPickupDistanceMiles);
+    if (fleetMaxIssues.length > 0) {
+      toast.error(fleetMaxIssues[0]?.message ?? 'Invalid fleet maximum pickup distance');
       return;
     }
     if (settings.baseDriverCommissionPercent < 0 || settings.baseDriverCommissionPercent > 100) {
@@ -644,6 +667,40 @@ export default function AutoDispatchRules() {
                 {fromKm(BOOKING_DISPATCH_WAVE_RADIUS_DEFAULTS_METERS.wave1 / 1000)} / {fromKm(BOOKING_DISPATCH_WAVE_RADIUS_DEFAULTS_METERS.wave2 / 1000)} / {fromKm(BOOKING_DISPATCH_WAVE_RADIUS_DEFAULTS_METERS.wave3 / 1000)} {unitShort}.
                 Separate from the Customer map nearby-drivers radius, the stacked-ride radius and towards-destination matching.
               </p>
+            </div>
+
+            {/* Fleet max pickup — hard cap for every driver on every offer path */}
+            <div>
+              <h4 className="text-sm font-semibold mb-1">Fleet Maximum Pickup Distance (miles)</h4>
+              <p className="text-xs text-muted-foreground mb-3">
+                Hard cap applied to every eligible driver (including those without a driver settings row).
+                Independent of wave radii. Invalid or missing values fall back to {FLEET_MAX_PICKUP_DISTANCE_MILES_FAILSAFE} miles at dispatch time.
+              </p>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="fleet-max-pickup-miles">Maximum pickup (miles)</Label>
+                  <Input
+                    id="fleet-max-pickup-miles"
+                    type="number"
+                    step="0.1"
+                    min={FLEET_MAX_PICKUP_DISTANCE_MILES_MIN}
+                    max={FLEET_MAX_PICKUP_DISTANCE_MILES_MAX}
+                    value={Number.isFinite(settings.fleetMaxPickupDistanceMiles) ? settings.fleetMaxPickupDistanceMiles : ''}
+                    onChange={(e) => {
+                      const entered = parseFloat(e.target.value);
+                      updateSetting(
+                        'fleetMaxPickupDistanceMiles',
+                        Number.isFinite(entered) ? entered : Number.NaN,
+                      );
+                    }}
+                    disabled={isLoading}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Allowed range {FLEET_MAX_PICKUP_DISTANCE_MILES_MIN}–{FLEET_MAX_PICKUP_DISTANCE_MILES_MAX} miles.
+                    Default / failsafe {FLEET_MAX_PICKUP_DISTANCE_MILES_FAILSAFE}.
+                  </p>
+                </div>
+              </div>
             </div>
 
             {/* Wave Sizes */}

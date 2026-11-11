@@ -28,6 +28,7 @@ import {
   effectiveOfferExpirySeconds,
   effectiveRadiusMeters,
   extractDriverTierName,
+  fleetMaxPickupMetersFromSettings,
   loadDispatchSettings,
   loadServiceAreaTierPriorityMap,
   maxBroadcastRounds,
@@ -35,6 +36,10 @@ import {
   waveDriverCapForRound,
   waveOfferExpirySeconds,
 } from "../_shared/dispatch-settings.ts";
+import {
+  EXCEEDS_FLEET_MAX_PICKUP_DISTANCE,
+  exceedsFleetMaxPickupDistance,
+} from "../../../shared/fleetMaxPickupDistanceSSOT.ts";
 import {
   enrichOfferSnapshotDriverNet,
 } from "../_shared/driverOfferNetPreview.ts";
@@ -1803,6 +1808,23 @@ Deno.serve(async (req) => {
             continue;
           }
 
+          // Fleet max pickup SSOT (stacked) — offer distance is dropoff → new pickup
+          const fleetMaxPickupMetersStacked = fleetMaxPickupMetersFromSettings(
+            dispatchSettings as Record<string, unknown>,
+          );
+          if (exceedsFleetMaxPickupDistance(
+            distanceFromDropoff,
+            dispatchSettings.fleet_max_pickup_distance_miles,
+          )) {
+            logEligibility(driver.id, false, EXCEEDS_FLEET_MAX_PICKUP_DISTANCE, {
+              stacked_gate: true,
+              distance_meters: Math.round(distanceFromDropoff),
+              max_meters: Math.round(fleetMaxPickupMetersStacked),
+              fleet_max_pickup_distance_miles: dispatchSettings.fleet_max_pickup_distance_miles,
+            });
+            continue;
+          }
+
           // Gate 9: max detour (estimate: ~2 min per km at urban speed) â driver â new pickup
           const detourMinutes = (distanceFromDriver / 1000) * 2;
           if (detourMinutes > stackedMaxDetourMinutes) {
@@ -2111,11 +2133,10 @@ Deno.serve(async (req) => {
     );
 
 
-    // Build map of drivers with max_pickup_distance preference (in meters)
-    const maxDistanceMap = new Map<string, number>(
-      (allDriverSettings || [])
-        .filter(ds => ds.max_pickup_distance_miles != null && ds.max_pickup_distance_miles > 0)
-        .map(ds => [ds.driver_id, ds.max_pickup_distance_miles * 1609.34]) // Convert miles to meters
+    // Fleet-wide max pickup (global_dispatch_settings) — applies to every driver,
+    // including those with no driver_settings row. Per-driver max_pickup is no longer a gate.
+    const fleetMaxPickupMeters = fleetMaxPickupMetersFromSettings(
+      dispatchSettings as Record<string, unknown>,
     );
 
     // Build set of drivers with auto_accept enabled
@@ -2219,8 +2240,14 @@ Deno.serve(async (req) => {
       if (!d.current_lat || !d.current_lng) { logEligibility(d.id, false, "no_location"); continue; }
       const dist = calculateDistance(pickupLat, pickupLng, d.current_lat!, d.current_lng!);
       if (dist > effectiveRadiusM) { logEligibility(d.id, false, "outside_radius", { distance_meters: Math.round(dist), radius_meters: effectiveRadiusM }); continue; }
-      const maxDist = maxDistanceMap.get(d.id);
-      if (maxDist && dist > maxDist) { logEligibility(d.id, false, "exceeds_driver_max_pickup_distance", { distance_meters: Math.round(dist), max_meters: Math.round(maxDist) }); continue; }
+      if (exceedsFleetMaxPickupDistance(dist, dispatchSettings.fleet_max_pickup_distance_miles)) {
+        logEligibility(d.id, false, EXCEEDS_FLEET_MAX_PICKUP_DISTANCE, {
+          distance_meters: Math.round(dist),
+          max_meters: Math.round(fleetMaxPickupMeters),
+          fleet_max_pickup_distance_miles: dispatchSettings.fleet_max_pickup_distance_miles,
+        });
+        continue;
+      }
       // Note: towards_destination filter is logged inside the .filter() chain below.
     }
 
@@ -2258,10 +2285,14 @@ Deno.serve(async (req) => {
       }))
       .filter(d => d.distance_meters! <= effectiveRadiusM)
       .filter(d => {
-        // Enforce driver's max_pickup_distance preference
-        const maxDist = maxDistanceMap.get(d.id);
-        if (maxDist && d.distance_meters! > maxDist) {
-          console.log(`[auto-dispatch] Skipping driver ${d.id} - pickup ${Math.round(d.distance_meters!)}m exceeds their max ${Math.round(maxDist)}m`);
+        // Fleet max pickup SSOT — every driver, settings row or not
+        if (exceedsFleetMaxPickupDistance(
+          d.distance_meters!,
+          dispatchSettings.fleet_max_pickup_distance_miles,
+        )) {
+          console.log(
+            `[auto-dispatch] Skipping driver ${d.id} - pickup ${Math.round(d.distance_meters!)}m exceeds fleet max ${Math.round(fleetMaxPickupMeters)}m`,
+          );
           return false;
         }
         return true;
@@ -2324,6 +2355,18 @@ Deno.serve(async (req) => {
             });
             return false;
           }
+        }
+        const stackedDist = d.distance_from_current_dropoff ?? d.distance_meters ?? 0;
+        if (exceedsFleetMaxPickupDistance(
+          stackedDist,
+          dispatchSettings.fleet_max_pickup_distance_miles,
+        )) {
+          logEligibility(d.id, false, EXCEEDS_FLEET_MAX_PICKUP_DISTANCE, {
+            stacked_gate: true,
+            distance_meters: Math.round(stackedDist),
+            max_meters: Math.round(fleetMaxPickupMeters),
+          });
+          return false;
         }
         return true;
       });

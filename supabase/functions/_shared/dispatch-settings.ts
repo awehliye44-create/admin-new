@@ -12,6 +12,11 @@ import {
   bookingDispatchWaveRadiiFromRow,
   type BookingDispatchWaveRadiiMeters,
 } from "../../../shared/bookingDispatchRadiusSSOT.ts";
+import {
+  FLEET_MAX_PICKUP_DISTANCE_MILES_FAILSAFE,
+  fleetMaxPickupMetersFromDispatchRow,
+  resolveFleetMaxPickupDistanceMiles,
+} from "../../../shared/fleetMaxPickupDistanceSSOT.ts";
 
 /**
  * Mirrors Postgres NOT NULL DEFAULT values on public.dispatch_settings (20260601100000).
@@ -511,6 +516,7 @@ const GLOBAL_DISPATCH_DIRECT_OVERLAY_FIELDS = [
   "stacked_search_radius_meters",
   "driver_fare_display",
   "towards_destination_match_radius_meters",
+  "fleet_max_pickup_distance_miles",
 ] as const;
 
 /** Booking wave radii: global row only. Per-area dispatch_settings km columns are never read. */
@@ -527,7 +533,10 @@ export function overlayGlobalDispatchSettings(
   for (const key of GLOBAL_BOOKING_RADIUS_FIELDS) {
     delete merged[key];
   }
-  if (!globalRow) return merged;
+  if (!globalRow) {
+    merged.fleet_max_pickup_distance_miles = FLEET_MAX_PICKUP_DISTANCE_MILES_FAILSAFE;
+    return merged;
+  }
   for (const key of GLOBAL_DISPATCH_DIRECT_OVERLAY_FIELDS) {
     const value = globalRow[key];
     if (value !== null && value !== undefined) {
@@ -545,7 +554,26 @@ export function overlayGlobalDispatchSettings(
       merged[key] = value;
     }
   }
+  // Fleet max must always resolve (failsafe 17.8) — never leave dispatch uncapped.
+  merged.fleet_max_pickup_distance_miles = resolveFleetMaxPickupDistanceMiles(
+    globalRow.fleet_max_pickup_distance_miles ?? merged.fleet_max_pickup_distance_miles,
+  );
   return merged;
+}
+
+/** Metres from resolved dispatch settings (failsafe 17.8 mi when missing/invalid). */
+export function fleetMaxPickupMetersFromSettings(
+  settings: Record<string, unknown> | null | undefined,
+): number {
+  return fleetMaxPickupMetersFromDispatchRow(settings ?? null);
+}
+
+export function fleetMaxPickupMilesFromSettings(
+  settings: Record<string, unknown> | null | undefined,
+): number {
+  return resolveFleetMaxPickupDistanceMiles(
+    settings?.fleet_max_pickup_distance_miles ?? FLEET_MAX_PICKUP_DISTANCE_MILES_FAILSAFE,
+  );
 }
 
 async function loadGlobalDispatchSettingsRow(
