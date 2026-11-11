@@ -1,7 +1,7 @@
 {
   "release_id": "optional-docs-never-block-go-online",
   "backend_branch": "release/optional-docs-never-block-go-online",
-  "backend_commit": "92940ad813aef04118b8c2a01cf19e719d107f0f",
+  "backend_commit": "583640d6a8836e54f245cfd4625e24426258a838",
   "base": "origin/main@46e7e3ec",
   "do_not_deploy_until_approved": true,
   "sql_migration": {
@@ -86,5 +86,15 @@
     "867cd15da \u2014 rollback SQL + deploy manifest",
     "728cc2c35 \u2014 stamp RC commit IDs on manifest",
     "92940ad813aef04118b8c2a01cf19e719d107f0f \u2014 include expire-offers/decline-trip in Edge list"
-  ]
+  ],
+  "preflight": {
+    "production_project": "thazislrdkjpvvghtvzo",
+    "production_migration_head": "20261231184000",
+    "migration_20270101130000_already_applied": false,
+    "android_rollback_group": "2c3f4f3f-4ad6-4769-9675-a4f3107d9c03",
+    "ios_rollback_group": "ccd5ae18-2c03-40ef-b8a8-bf4452d25bda",
+    "android_runtime": "1.0.6(64)",
+    "ios_runtime": "1.0.6(4)",
+    "driver_ota_blocked_reason": "Approved RC 154091f4 is based on 3ea1bb4 but production channel tip is newer (Required/Optional sections + Live Chat). Publishing 154091f4 would regress those OTAs."
+  }
 }
