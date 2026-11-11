@@ -1,14 +1,14 @@
 {
   "release_id": "optional-docs-never-block-go-online",
   "backend_branch": "release/optional-docs-never-block-go-online",
-  "backend_commit": "5dca20eee",
+  "backend_commit": "867cd15da6ba70091da3b1125f3bde855716277d",
   "base": "origin/main@46e7e3ec",
   "do_not_deploy_until_approved": true,
   "sql_migration": {
     "file": "supabase/migrations/20270101130000_optional_documents_never_block_go_online.sql",
     "orders_after": "20261231184000_force_offline_clear_intent_on_document_ineligibility.sql",
     "applies": false,
-    "changes": "CREATE OR REPLACE get_driver_document_eligibility_internal — remove optional expiry Go Online block",
+    "changes": "CREATE OR REPLACE get_driver_document_eligibility_internal \u2014 remove optional expiry Go Online block",
     "does_not": [
       "mutate document rows",
       "alter RLS policies",
@@ -29,19 +29,19 @@
     },
     {
       "name": "accept-offer",
-      "reason": "imports _shared/driverEligibility.ts → evaluateDriverDocumentState"
+      "reason": "imports _shared/driverEligibility.ts \u2192 evaluateDriverDocumentState"
     },
     {
       "name": "send-driver-notification",
-      "reason": "imports rideOfferDriverEligibility + newWorkInvitationEligibilitySSOT → evaluateDriverDocumentState"
+      "reason": "imports rideOfferDriverEligibility + newWorkInvitationEligibilitySSOT \u2192 evaluateDriverDocumentState"
     },
     {
       "name": "auto-dispatch",
-      "reason": "imports newWorkInvitationEligibilitySSOT → evaluateDriverDocumentState"
+      "reason": "imports newWorkInvitationEligibilitySSOT \u2192 evaluateDriverDocumentState"
     },
     {
       "name": "scheduled-dispatch",
-      "reason": "imports scheduledActivationExclusiveRescue → rideOfferDriverEligibility → evaluateDriverDocumentState"
+      "reason": "imports scheduledActivationExclusiveRescue \u2192 rideOfferDriverEligibility \u2192 evaluateDriverDocumentState"
     }
   ],
   "edge_functions_explicitly_out_of_scope": [
@@ -55,11 +55,15 @@
     "branch": "release/mk0010-optional-docs-eligibility-rc",
     "base": "origin/master@3ea1bb4",
     "commits": [
-      "fc7cef5e — MK0010 photo/document upload fixes",
-      "154091f4 — optional document never-block eligibility"
+      "fc7cef5e \u2014 MK0010 photo/document upload fixes",
+      "154091f4 \u2014 optional document never-block eligibility"
     ],
     "native_build_required": false,
-    "platforms": ["android", "ios"]
+    "platforms": [
+      "android",
+      "ios"
+    ],
+    "tip": "154091f4"
   },
   "release_order": [
     "1. Apply SQL migration 20270101130000",
@@ -68,5 +72,9 @@
     "4. Driver Android OTA",
     "5. Driver iOS OTA",
     "6. Production verification checklist"
+  ],
+  "backend_commits": [
+    "5dca20eee \u2014 policy fix migration + Edge evaluator",
+    "867cd15da \u2014 deploy manifest + rollback SQL"
   ]
 }
