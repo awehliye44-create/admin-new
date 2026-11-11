@@ -2,7 +2,10 @@
  * Lock: stop-workflow Phase 2 — post-canonical notify/audit off Driver critical path.
  *
  * Notifications are NOT removed — scheduleEdgeBackground / waitUntil.
- * Waiting SSOT + payment capture stay on-path.
+ * Waiting SSOT stays on-path. Revolut capture is durably enqueued on-path
+ * (trip_capture_jobs) so Complete→Rate is not gated; processing uses the
+ * existing finalize-trip-and-capture flow (cron + waitUntil accelerator).
+ * Inline invokeFinalizeTripCapture remains only as enqueue fail-safe.
  *
  * Run: deno test --allow-read supabase/tests/_shared/stopWorkflowPhase2PerfLock.test.ts
  */
@@ -103,26 +106,40 @@ Deno.test("arrive_stop + drive_to_next keep notifications via waitUntil", async 
   assertStringIncludes(src, "finalizeStopWaitingCharge");
 });
 
-Deno.test("complete_trip does not move payment capture; trip_completed notify off-path", async () => {
+Deno.test("complete_trip durably enqueues capture; trip_completed notify off-path", async () => {
   const src = await Deno.readTextFile(stopWorkflowPath);
   assertStringIncludes(src, "complete_trip_p2");
   assertStringIncludes(src, 'event: "trip_completed"');
+  assertStringIncludes(src, "enqueueTripCaptureJob");
+  assertStringIncludes(src, "stampTripCaptureRequested");
+  assertStringIncludes(src, "complete_trip_capture_job");
+  assertStringIncludes(src, "processTripCaptureJobByTripId");
   assertStringIncludes(src, "invokeFinalizeTripCapture");
   assertStringIncludes(src, "assertPlatformCollectedCompletionPaymentGate");
+  assertStringIncludes(src, "payment_capture_deferred");
   const completeIdx = src.lastIndexOf("case 'complete_trip'");
   const completeBlock = src.slice(completeIdx);
-  const captureIdx = completeBlock.indexOf("invokeFinalizeTripCapture");
+  const enqueueIdx = completeBlock.indexOf("enqueueTripCaptureJob");
   const notifyBgIdx = completeBlock.indexOf("complete_trip_p2");
-  assertEquals(captureIdx > 0 && notifyBgIdx > captureIdx, true);
-  // Payment capture must not be inside scheduleEdgeBackground.
+  assertEquals(enqueueIdx > 0 && notifyBgIdx > enqueueIdx, true);
+  // Notify/audit P2 must not own capture invoke.
   const bgAroundNotify = completeBlock.slice(
     completeBlock.lastIndexOf("scheduleEdgeBackground", notifyBgIdx),
     notifyBgIdx + 500,
   );
   assertEquals(bgAroundNotify.includes("invokeFinalizeTripCapture"), false);
-  // Tap audit is P2 with notify after financial durability.
   assertEquals(bgAroundNotify.includes("COMPLETE_TRIP_TAPPED"), true);
-  // Between financial success log and waitUntil schedule, no on-path tap audit.
+  // Accelerator waitUntil may process the durable job, but only after enqueue.
+  const accelIdx = completeBlock.indexOf("complete_trip_capture_job");
+  assertEquals(accelIdx > enqueueIdx, true);
+  assertEquals(
+    completeBlock.slice(enqueueIdx, accelIdx).includes("enqueueTripCaptureJob"),
+    true,
+  );
+  // Inline capture remains only as enqueue fail-safe (auto_capture_trigger).
+  assertStringIncludes(completeBlock, "enqueue_fallback");
+  assertStringIncludes(completeBlock, "auto_capture_enqueued");
+  // Between financial success log and notify waitUntil, no on-path tap audit.
   const successIdx = completeBlock.indexOf('[stop-workflow] COMPLETE_TRIP success');
   const scheduleIdx = completeBlock.lastIndexOf(
     "scheduleEdgeBackground",

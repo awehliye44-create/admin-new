@@ -55,6 +55,15 @@ Deno.test("trusted tip ignores body inflation except tip-submit source", () => {
     }),
     250,
   );
+  // Deferred fare capture job never trusts trip tip (fare-only).
+  assertEquals(
+    resolveTrustedCaptureTipPence({
+      source: "trip-capture-job",
+      bodyTipPence: 9999,
+      trip: { tip_amount_pence: 250, tip_pence: 250 },
+    }),
+    0,
+  );
 });
 
 Deno.test("lovable publish endpoints requireAdmin", async () => {

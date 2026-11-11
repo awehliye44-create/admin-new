@@ -21,11 +21,20 @@ export function durableSettlementColumns(
   ) {
     return { payment_status: "captured", payment_hold_status: "captured" };
   }
+  // Tip shortfall / tip_* statuses are not fare payment_shortfall.
+  const tipOutcome =
+    s.startsWith("tip_") ||
+    s.includes("tip_shortfall") ||
+    s.includes("tip_authorisation") ||
+    s.includes("tip_authorization") ||
+    s.includes("tip_window") ||
+    s.includes("tip_not_collected");
   if (
-    s.includes("shortfall") ||
-    s.includes("recovery") ||
-    s === "partial_capture_only" ||
-    s === "payment_recovery_required"
+    !tipOutcome &&
+    (s.includes("shortfall") ||
+      s.includes("recovery") ||
+      s === "partial_capture_only" ||
+      s === "payment_recovery_required")
   ) {
     return {
       payment_status: "payment_shortfall",
