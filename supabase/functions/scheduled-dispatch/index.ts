@@ -39,6 +39,7 @@ import {
   TERMINAL_TRIP_STATUS_POSTGREST_LIST,
 } from "../_shared/tripTerminalDispatch.ts";
 import { assertPaymentGate, PaymentGateError } from "../_shared/paymentGate.ts";
+import { resolvePaymentGateBlockedTrip } from "../_shared/paymentGateBlockedResolutionSSOT.ts";
 import {
   loadStackedRideConfig,
   logStackedRideDisabledSafeGuard,
@@ -521,6 +522,14 @@ Deno.serve(async (req) => {
                   updated_at: now.toISOString(),
                 })
                 .eq("id", trip.id);
+              try {
+                await resolvePaymentGateBlockedTrip(supabase, trip.id);
+              } catch (resolveErr) {
+                console.warn("[scheduled-dispatch] payment_gate_blocked resolve failed", {
+                  trip_id: trip.id,
+                  error: String(resolveErr),
+                });
+              }
               continue;
             }
             const { data: assignRows, error } = await supabase
@@ -613,6 +622,14 @@ Deno.serve(async (req) => {
                   updated_at: now.toISOString(),
                 })
                 .eq("id", trip.id);
+              try {
+                await resolvePaymentGateBlockedTrip(supabase, trip.id);
+              } catch (resolveErr) {
+                console.warn("[scheduled-dispatch] payment_gate_blocked resolve failed", {
+                  trip_id: trip.id,
+                  error: String(resolveErr),
+                });
+              }
               continue;
             }
             const searchingExpiresAt = new Date(
@@ -829,6 +846,14 @@ Deno.serve(async (req) => {
               updated_at: now.toISOString(),
             })
             .eq("id", trip.id);
+          try {
+            await resolvePaymentGateBlockedTrip(supabase, trip.id);
+          } catch (resolveErr) {
+            console.warn("[scheduled-dispatch] activation payment_gate_blocked resolve failed", {
+              trip_id: trip.id,
+              error: String(resolveErr),
+            });
+          }
           continue;
         }
 

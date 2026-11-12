@@ -1,4 +1,4 @@
-import type { CreateOrderParams } from "./revolutOrders.ts";
+import type { CreateOrderParams, RevolutOrder } from "./revolutOrders.ts";
 import type { SupabaseClient } from "npm:@supabase/supabase-js@2.57.2";
 import {
   buildPreauthIdempotencyKey,
@@ -495,6 +495,8 @@ export async function createRevolutPreauthResponse(
           await markPaymentSessionAuthorised(supabase, {
             providerOrderId: existing.id,
             clientActionId,
+            captureDeadline: existing.capture_deadline ?? null,
+            captureDeadlineSource: "provider_retrieve",
           });
           bookingWaterfall.completeStep(
             "revolut_order_created",
@@ -1452,6 +1454,8 @@ async function attemptRevolutSavedCardCharge(args: {
         await markPaymentSessionAuthorised(args.supabase, {
           providerOrderId: args.orderId,
           clientActionId: args.clientActionId,
+          captureDeadline: resolved.order?.capture_deadline ?? null,
+          captureDeadlineSource: "provider_retrieve",
         });
         args.edgeTiming.markPersistEnd();
       }
@@ -1647,7 +1651,7 @@ async function resolveSavedCardPaymentOutcome(args: {
   };
   logStep: (step: string, details?: unknown) => void;
 }): Promise<
-  | { kind: "authorised" }
+  | { kind: "authorised"; order?: RevolutOrder }
   | { kind: "requires_3ds"; paymentId: string; acsUrl: string }
   | { kind: "failed"; reason?: string }
   | { kind: "in_flight"; paymentState?: string }
@@ -1704,7 +1708,7 @@ async function resolveSavedCardPaymentOutcome(args: {
         elapsed_ms: Date.now() - settleStartedAt,
       });
       if (isRevolutAuthorisedState(orderState)) {
-        return { kind: "authorised" };
+        return { kind: "authorised", order };
       }
       if (["FAILED", "CANCELLED", "CANCELED", "DECLINED"].includes(orderState)) {
         return { kind: "failed", reason: orderState };
@@ -1728,7 +1732,7 @@ async function resolveSavedCardPaymentOutcome(args: {
     const order = await retrieveRevolutOrder(args.environment, args.secretKey, args.orderId);
     const orderState = String(order.state ?? "").toUpperCase();
     if (isRevolutAuthorisedState(orderState)) {
-      return { kind: "authorised" };
+      return { kind: "authorised", order };
     }
     return { kind: "in_flight", paymentState: `${finalState}/order:${orderState}` };
   }

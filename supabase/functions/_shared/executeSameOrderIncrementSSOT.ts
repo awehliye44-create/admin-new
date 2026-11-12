@@ -1065,6 +1065,23 @@ export async function executeSameOrderIncrement(args: {
         };
       }
 
+      try {
+        const { persistCaptureDeadlineFromOrder } = await import("./captureDeadlinePersistenceSSOT.ts");
+        await persistCaptureDeadlineFromOrder(args.supabase, {
+          order: coverageOrder,
+          sessionId,
+          providerOrderId: orderId,
+          source: "provider_increment",
+        });
+      } catch (deadlineErr) {
+        logIncrementEvent("increment_capture_deadline_persist_failed", {
+          payment_session_id: maskId(sessionId),
+          provider_order_id: maskId(orderId),
+          message: (deadlineErr as Error).message,
+          source: args.source,
+        });
+      }
+
       logIncrementEvent("increment_provider_confirmed", {
         payment_session_id: maskId(sessionId),
         provider_order_id: maskId(orderId),

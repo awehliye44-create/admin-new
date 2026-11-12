@@ -41,6 +41,8 @@ export interface RevolutOrder {
   completed_amount?: number;
   currency?: string;
   capture_mode?: string;
+  /** Revolut authorisation capture deadline (ISO). Persist — never invent a TTL. */
+  capture_deadline?: string;
   /** Required for same-order incremental authorisation. */
   authorisation_type?: string;
   merchant_order_ext_ref?: string;

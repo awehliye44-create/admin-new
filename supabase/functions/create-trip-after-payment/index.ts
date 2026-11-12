@@ -54,6 +54,13 @@ import {
   shouldSkipPlatformPreauthForCommissionWallet,
   type ServiceAreaCommissionWalletConfig,
 } from "../_shared/commissionWalletSSOT.ts";
+import {
+  evaluateScheduledAdvanceWindow,
+  resolveScheduledAdvanceWindowPolicy,
+} from "../_shared/scheduledAdvanceWindowSSOT.ts";
+import { extractCaptureDeadlineFromRevolutOrder } from "../_shared/captureDeadlinePersistenceSSOT.ts";
+import { ensureScheduledCaptureCoverage } from "../_shared/scheduledBookingPaymentCoverageSSOT.ts";
+import { isCardFundedPaymentMethod } from "../_shared/scheduledCaptureCoverageSSOT.ts";
 
 declare const EdgeRuntime: { waitUntil: (promise: Promise<unknown>) => void };
 
@@ -681,6 +688,8 @@ serveWithEdgeTiming("create-trip-after-payment", corsHeaders, async (req) => {
       await markPaymentSessionAuthorised(supabase, {
         providerOrderId: order.id,
         clientActionId: body.client_action_id ?? null,
+        captureDeadline: extractCaptureDeadlineFromRevolutOrder(order),
+        captureDeadlineSource: "provider_retrieve",
       });
     }
     log("Revolut order confirmed for booking", { status: order.state, amount: order.amount });
@@ -1176,6 +1185,103 @@ serveWithEdgeTiming("create-trip-after-payment", corsHeaders, async (req) => {
         .eq("singleton", true)
         .maybeSingle();
       scheduledDispatchConfig = resolveScheduledDispatchConfig(globalCfg);
+    }
+
+    // Scheduled advance window (UTC elapsed hours) — authoritative; clients are advisory only.
+    if (isScheduled) {
+      const { data: globalAdvance } = await supabase
+        .from("global_dispatch_settings")
+        .select("scheduled_rides_enabled, min_advance_time_minutes, max_advance_days")
+        .eq("singleton", true)
+        .maybeSingle();
+      const advance = evaluateScheduledAdvanceWindow({
+        scheduledAtIso: String(body.scheduled_at ?? ""),
+        policy: resolveScheduledAdvanceWindowPolicy(globalAdvance),
+      });
+      if (!advance.ok) {
+        return failBookingAfterAuthorizedPayment(
+          supabase,
+          verifiedRevolutOrder,
+          {
+            ...reversalContext,
+            failureStage: "scheduled_advance_window",
+            failureReason: advance.code,
+          },
+          400,
+          advance.reason,
+          {
+            code: advance.code,
+            min_advance_minutes: advance.minAdvanceMinutes,
+            max_advance_days: advance.maxAdvanceDays,
+          },
+        );
+      }
+    }
+
+    // Card scheduled: capture-deadline coverage BEFORE trip insert (payment-first).
+    if (isScheduled && !skipPlatformPreauth && isCardFundedPaymentMethod(body.payment_method ?? "card")) {
+      const sessionForCoverage = loadedPaymentSession ??
+        (paymentSessionId
+          ? await loadPaymentSession(supabase, { sessionId: paymentSessionId })
+          : null);
+      let merchant: Awaited<ReturnType<typeof resolveRevolutMerchantContext>> | null = null;
+      try {
+        merchant = await resolveRevolutMerchantContext(supabase, "live");
+      } catch (merchantErr) {
+        log("capture coverage merchant resolve failed", { error: String(merchantErr) });
+      }
+      const coverage = await ensureScheduledCaptureCoverage({
+        supabase,
+        scheduledAtIso: String(body.scheduled_at ?? ""),
+        estimatedDurationMinutes: Number(body.estimated_duration ?? 30),
+        paymentMethod: body.payment_method ?? "card",
+        session: {
+          id: (sessionForCoverage?.id as string | undefined) ?? paymentSessionId,
+          status: sessionForCoverage?.status as string | undefined,
+          provider_state: (sessionForCoverage?.provider_state as string | undefined) ?? "AUTHORISED",
+          released_at: sessionForCoverage?.released_at as string | null | undefined,
+          captured_at: sessionForCoverage?.captured_at as string | null | undefined,
+          capture_deadline: sessionForCoverage?.capture_deadline as string | null | undefined,
+          provider_order_id:
+            (sessionForCoverage?.provider_order_id as string | undefined) ??
+            verifiedRevolutOrder?.id ??
+            null,
+          trip_id: sessionForCoverage?.trip_id as string | null | undefined,
+          metadata: (sessionForCoverage?.metadata as Record<string, unknown> | null) ?? null,
+        },
+        knownOrder: verifiedRevolutOrder,
+        revolut: merchant && verifiedRevolutOrder
+          ? {
+            environment: merchant.environment,
+            secretKey: merchant.secretKey,
+            orderId: verifiedRevolutOrder.id,
+          }
+          : null,
+      });
+      if (!coverage.ok) {
+        log("REJECTED — scheduled capture coverage failed", {
+          code: coverage.code,
+          definitive: coverage.definitive,
+          reason: coverage.reason,
+        });
+        return failBookingAfterAuthorizedPayment(
+          supabase,
+          verifiedRevolutOrder,
+          {
+            ...reversalContext,
+            failureStage: "capture_deadline_coverage",
+            failureReason: coverage.code,
+          },
+          coverage.definitive ? 402 : 503,
+          coverage.customerMessage,
+          {
+            code: coverage.code,
+            definitive: coverage.definitive,
+            required_until: coverage.evaluation.requiredUntilIso,
+            capture_deadline: coverage.evaluation.captureDeadlineIso,
+          },
+        );
+      }
     }
 
     // Passenger expected-interval overlap (scheduled↔scheduled and NOW↔scheduled).

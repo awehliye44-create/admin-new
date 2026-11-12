@@ -11,9 +11,9 @@ import {
   validateScheduledActivationConfig,
 } from "../scheduledRidesPolicySSOT.ts";
 
-Deno.test("booking defaults: min advance 20, max days 30, fallback 9", () => {
+Deno.test("booking defaults: min advance 20, max days 5, fallback 9", () => {
   assertEquals(SCHEDULED_BOOKING_POLICY_DEFAULTS.min_advance_time_minutes, 20);
-  assertEquals(SCHEDULED_BOOKING_POLICY_DEFAULTS.max_advance_days, 30);
+  assertEquals(SCHEDULED_BOOKING_POLICY_DEFAULTS.max_advance_days, 5);
   assertEquals(
     SCHEDULED_BOOKING_POLICY_DEFAULTS.urgent_dispatch_trigger_minutes_before_pickup,
     9,

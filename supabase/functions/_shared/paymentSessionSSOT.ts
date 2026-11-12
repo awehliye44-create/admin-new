@@ -135,6 +135,9 @@ export async function markPaymentSessionAuthorised(
     clientActionId?: string | null;
     providerPaymentId?: string | null;
     authorisedAt?: string;
+    /** Revolut capture_deadline — persist when present; never clear with NULL. */
+    captureDeadline?: string | null;
+    captureDeadlineSource?: string | null;
   },
 ): Promise<void> {
   const now = args.authorisedAt ?? new Date().toISOString();
@@ -151,6 +154,12 @@ export async function markPaymentSessionAuthorised(
     failure_reason: null,
   };
   if (args.providerPaymentId) patch.provider_payment_id = args.providerPaymentId;
+  const deadline = String(args.captureDeadline ?? "").trim();
+  if (deadline) {
+    patch.capture_deadline = deadline;
+    patch.capture_deadline_source = args.captureDeadlineSource ?? "provider_create";
+    patch.capture_deadline_updated_at = now;
+  }
 
   await patchPaymentSession(supabase, {
     clientActionId: args.clientActionId,

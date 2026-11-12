@@ -87,6 +87,8 @@ export async function applySavedCardOrderReconcile(
     await markPaymentSessionAuthorised(args.supabase, {
       providerOrderId,
       clientActionId,
+      captureDeadline: args.order.capture_deadline ?? null,
+      captureDeadlineSource: args.verifiedBy === "webhook" ? "provider_webhook" : "provider_retrieve",
     });
     applied = true;
   } else if (!args.dryRun && mapping.terminal) {

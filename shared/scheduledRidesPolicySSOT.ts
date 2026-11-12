@@ -33,7 +33,7 @@ export type ScheduledBookingPolicy = {
 export const SCHEDULED_BOOKING_POLICY_DEFAULTS: ScheduledBookingPolicy = {
   scheduled_rides_enabled: true,
   min_advance_time_minutes: 20,
-  max_advance_days: 30,
+  max_advance_days: 5,
   scheduled_ride_incentives_enabled: false,
   scheduled_response_window_minutes: 10,
   urgent_dispatch_trigger_minutes_before_pickup: 9,

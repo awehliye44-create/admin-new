@@ -6,15 +6,19 @@ import {
   errorResponse,
 } from "../_shared/security.ts";
 import { findPassengerScheduleOverlap } from "../_shared/passengerScheduleOverlapSSOT.ts";
+import {
+  evaluateScheduledAdvanceWindow,
+  resolveScheduledAdvanceWindowPolicy,
+} from "../_shared/scheduledAdvanceWindowSSOT.ts";
 
 /**
  * validate-scheduled-booking
  *
  * Called by customer apps BEFORE creating a scheduled trip.
- * Validates against admin-configured rules in dispatch_settings:
+ * Validates against admin-configured rules in global_dispatch_settings:
  *   - scheduled_rides_enabled
- *   - min_advance_time_minutes  (advance only — NOT overlap)
- *   - max_advance_days
+ *   - min_advance_time_minutes
+ *   - max_advance_days (as UTC elapsed hours = days × 24)
  * Plus passenger expected-interval overlap (reuse corporate window math).
  *
  * Body: {
@@ -66,38 +70,27 @@ serve(async (req) => {
       });
     }
 
-    if (!ds.scheduled_rides_enabled) {
-      return successResponse({
-        valid: false,
-        reason: "Scheduled rides are not available in this area.",
-        code: "DISABLED",
-      });
-    }
-
-    const scheduledDate = new Date(scheduled_at);
     const now = new Date();
-    const minutesUntilPickup = (scheduledDate.getTime() - now.getTime()) / 60000;
+    const policy = resolveScheduledAdvanceWindowPolicy(ds);
+    const window = evaluateScheduledAdvanceWindow({
+      scheduledAtIso: String(scheduled_at),
+      nowMs: now.getTime(),
+      policy,
+    });
 
-    const minAdvance = ds.min_advance_time_minutes ?? 20;
-    if (minutesUntilPickup < minAdvance) {
+    if (!window.ok) {
       return successResponse({
         valid: false,
-        reason: `Pickup must be at least ${minAdvance} minutes from now.`,
-        code: "TOO_SOON",
-        min_advance_minutes: minAdvance,
+        reason: window.reason,
+        code: window.code,
+        min_advance_minutes: window.minAdvanceMinutes,
+        max_advance_days: window.maxAdvanceDays,
+        max_advance_hours: window.maxAdvanceDays * 24,
       });
     }
 
-    const maxDays = ds.max_advance_days ?? 30;
-    const daysUntilPickup = minutesUntilPickup / 1440;
-    if (daysUntilPickup > maxDays) {
-      return successResponse({
-        valid: false,
-        reason: `Pickup cannot be more than ${maxDays} days in the future.`,
-        code: "TOO_FAR",
-        max_advance_days: maxDays,
-      });
-    }
+    const minAdvance = window.minAdvanceMinutes;
+    const maxDays = window.maxAdvanceDays;
 
     // Passenger overlap — best-effort when JWT present (CTAP is authoritative).
     const authHeader = req.headers.get("Authorization") ?? "";
@@ -144,6 +137,7 @@ serve(async (req) => {
       valid: true,
       min_advance_minutes: minAdvance,
       max_advance_days: maxDays,
+      max_advance_hours: maxDays * 24,
     });
   } catch (err) {
     console.error("[validate-scheduled-booking] Error:", err);

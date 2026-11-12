@@ -200,6 +200,28 @@ Deno.serve(async (req) => {
         return json(400, { error: "scheduled_at must be a valid ISO timestamp" });
       }
 
+      {
+        const { evaluateScheduledAdvanceWindow, resolveScheduledAdvanceWindowPolicy } =
+          await import("../_shared/scheduledAdvanceWindowSSOT.ts");
+        const { data: globalAdvance } = await admin
+          .from("global_dispatch_settings")
+          .select("scheduled_rides_enabled, min_advance_time_minutes, max_advance_days")
+          .eq("singleton", true)
+          .maybeSingle();
+        const advance = evaluateScheduledAdvanceWindow({
+          scheduledAtIso: scheduledAt,
+          policy: resolveScheduledAdvanceWindowPolicy(globalAdvance),
+        });
+        if (!advance.ok) {
+          return json(400, {
+            error: advance.reason,
+            code: advance.code,
+            min_advance_minutes: advance.minAdvanceMinutes,
+            max_advance_days: advance.maxAdvanceDays,
+          });
+        }
+      }
+
       const { data: rows, error: ovErr } = await admin
         .from("trips")
         .select("id, scheduled_at, estimated_duration_minutes, status, passenger_id, corporate_account_id")

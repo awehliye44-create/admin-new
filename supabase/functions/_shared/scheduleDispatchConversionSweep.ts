@@ -223,6 +223,14 @@ export async function runScheduleDispatchConversionSweep(
           })
             .eq("id", trip.id)
             .not("status", "in", TERMINAL_TRIP_STATUS_POSTGREST_LIST);
+          try {
+            const { resolvePaymentGateBlockedTrip } = await import("./paymentGateBlockedResolutionSSOT.ts");
+            await resolvePaymentGateBlockedTrip(supabase, trip.id);
+          } catch (resolveErr) {
+            console.warn(
+              `[schedule-dispatch] payment_gate_blocked resolve failed for ${trip.id}: ${String(resolveErr)}`,
+            );
+          }
           skipped++;
           results.push({ trip_id: trip.id, action: "payment_gate_blocked", detail: e.message });
           continue;

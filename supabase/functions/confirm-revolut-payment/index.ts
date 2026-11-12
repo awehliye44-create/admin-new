@@ -112,6 +112,8 @@ serveWithEdgeTiming("confirm-revolut-payment", corsHeaders, async (req) => {
         await markPaymentSessionAuthorised(supabase, {
           providerOrderId: order.id,
           clientActionId: body.client_action_id ?? order.metadata?.client_action_id ?? null,
+          captureDeadline: order.capture_deadline ?? null,
+          captureDeadlineSource: "provider_retrieve",
         });
         if (saveCardEligible) {
           // Save-eligible booking: keep Finding unblocked, but use setup poll +
@@ -193,6 +195,8 @@ serveWithEdgeTiming("confirm-revolut-payment", corsHeaders, async (req) => {
       await markPaymentSessionAuthorised(supabase, {
         providerOrderId: order.id,
         clientActionId: body.client_action_id ?? order.metadata?.client_action_id ?? null,
+        captureDeadline: order.capture_deadline ?? null,
+        captureDeadlineSource: "provider_retrieve",
       });
 
       if (
@@ -402,6 +406,8 @@ serveWithEdgeTiming("confirm-revolut-payment", corsHeaders, async (req) => {
       await markPaymentSessionAuthorised(supabase, {
         providerOrderId: orderId,
         clientActionId: body.client_action_id ?? fresh?.metadata?.client_action_id ?? null,
+        captureDeadline: fresh?.capture_deadline ?? null,
+        captureDeadlineSource: "provider_retrieve",
       });
       return json({
         confirmed: true,

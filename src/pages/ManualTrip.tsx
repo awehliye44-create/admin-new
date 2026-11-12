@@ -583,18 +583,21 @@ export default function ManualTrip() {
           const scheduledAt = new Date(`${scheduledDate}T${scheduledTime}`);
           const now = new Date();
           const minutesUntilPickup = (scheduledAt.getTime() - now.getTime()) / 60000;
-          const daysUntilPickup = minutesUntilPickup / 1440;
 
-          const minAdvance = dsRow.min_advance_time_minutes ?? 30;
+          const minAdvance = dsRow.min_advance_time_minutes ?? 20;
           if (minutesUntilPickup < minAdvance) {
             toast.error(`Scheduled pickup must be at least ${minAdvance} minutes from now.`);
             setIsSubmitting(false);
             return;
           }
 
-          const maxDays = dsRow.max_advance_days ?? 30;
-          if (daysUntilPickup > maxDays) {
-            toast.error(`Scheduled pickup cannot be more than ${maxDays} days in the future.`);
+          // Phase 1: max_advance_days × 24 elapsed hours (UTC) — not calendar days.
+          const maxDays = dsRow.max_advance_days ?? 5;
+          const maxAdvanceMs = maxDays * 24 * 60 * 60 * 1000;
+          if (scheduledAt.getTime() - now.getTime() > maxAdvanceMs) {
+            toast.error(
+              `Scheduled pickup cannot be more than ${maxDays * 24} hours (${maxDays} days) from now.`,
+            );
             setIsSubmitting(false);
             return;
           }
