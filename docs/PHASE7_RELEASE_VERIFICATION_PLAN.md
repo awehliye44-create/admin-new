@@ -1,5 +1,7 @@
 # Phase 7 — Final code-level release verification & coordinated deployment plan
 
+**Status:** Verification complete — see `docs/PHASE7_PRODUCTION_READINESS_REPORT.md`  
+**Admin RC tip:** `89f17e2a` · **Driver tip:** `0898190`  
 **Scope:** Verification and deployment planning only.  
 **Not in scope:** Physical-device testing, simulator retest loops, production deploy, OTA publish, or production configuration changes without explicit Owner approval.
 
