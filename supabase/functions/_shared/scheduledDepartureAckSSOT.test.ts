@@ -1,5 +1,5 @@
 /**
- * Phase 5 departure acknowledgement SSOT tests.
+ * Phase 5 departure acknowledgement SSOT tests (strict 45s).
  * Run: deno test --no-check --allow-read supabase/functions/_shared/scheduledDepartureAckSSOT.test.ts
  */
 import {
@@ -23,10 +23,11 @@ import {
 import { PHASE5_ACK_BOUNDARY } from "./scheduledConfirmedActivationSSOT.ts";
 import { SCHEDULED_ACTIVATION_EXCLUSIVE_REASON } from "./scheduledActivationExclusiveSSOT.ts";
 
-Deno.test("Phase 5 default execution mode is departure_ack", () => {
+Deno.test("Phase 5 defaults fail-closed: departure_ack disabled until OTA rollout", () => {
+  assertEquals(SCHEDULED_JIT_ACTIVATION_DEFAULTS.departureAckEnabled, false);
   assertEquals(
     resolveJitExecutionMode(SCHEDULED_JIT_ACTIVATION_DEFAULTS),
-    "departure_ack",
+    "ack_nro",
   );
   assertEquals(
     resolveJitExecutionMode({
@@ -35,16 +36,48 @@ Deno.test("Phase 5 default execution mode is departure_ack", () => {
     }),
     "departure_ack",
   );
+  assertEquals(resolveDepartureAckConfig(null).enabled, false);
+  assertEquals(resolveDepartureAckConfig({}).enabled, false);
+});
+
+Deno.test("strict 45s: ack at deadline rejected; timeout due at deadline", () => {
+  const deadline = Date.parse("2026-11-12T19:35:45.000Z");
   assertEquals(
-    resolveJitExecutionMode({
-      autoActivateEnabled: false,
-      departureAckEnabled: false,
+    canAcknowledgeDeparture({
+      nowMs: deadline - 1,
+      deadlineMs: deadline,
+      ackStatus: "pending",
+      graceSeconds: 10, // must be ignored
     }),
-    "ack_nro",
+    true,
+  );
+  assertEquals(
+    canAcknowledgeDeparture({
+      nowMs: deadline,
+      deadlineMs: deadline,
+      ackStatus: "pending",
+      graceSeconds: 10,
+    }),
+    false,
+  );
+  assertEquals(
+    isDepartureAckTimedOut({
+      nowMs: deadline,
+      deadlineMs: deadline,
+      graceSeconds: 10,
+    }),
+    true,
+  );
+  assertEquals(
+    isDepartureAckTimedOut({
+      nowMs: deadline - 1,
+      deadlineMs: deadline,
+    }),
+    false,
   );
 });
 
-Deno.test("due deadline arms arm_ack with 45s countdown — not activate_now", () => {
+Deno.test("due deadline arms arm_ack with exactly 45s — not activate_now", () => {
   const pickup = Date.parse("2026-11-12T20:30:00.000Z");
   const nowMs = pickup - 14 * 60_000;
   const d = decideConfirmedScheduledActivation({
@@ -88,48 +121,10 @@ Deno.test("compatible active journey defers countdown", () => {
   }
 });
 
-Deno.test("ack deadline + grace gates timeout rescue", () => {
-  const deadline = Date.parse("2026-11-12T19:35:00.000Z");
-  assertEquals(
-    isDepartureAckTimedOut({
-      nowMs: deadline + 5_000,
-      deadlineMs: deadline,
-      graceSeconds: 10,
-    }),
-    false,
-  );
-  assertEquals(
-    isDepartureAckTimedOut({
-      nowMs: deadline + 10_000,
-      deadlineMs: deadline,
-      graceSeconds: 10,
-    }),
-    true,
-  );
-  assertEquals(
-    canAcknowledgeDeparture({
-      nowMs: deadline + 5_000,
-      deadlineMs: deadline,
-      ackStatus: "pending",
-      graceSeconds: 10,
-    }),
-    true,
-  );
-  assertEquals(
-    canAcknowledgeDeparture({
-      nowMs: deadline + 11_000,
-      deadlineMs: deadline,
-      ackStatus: "pending",
-      graceSeconds: 10,
-    }),
-    false,
-  );
-});
-
-Deno.test("rescue gate: pending ack waits even without open offer (offline reconnect)", () => {
+Deno.test("rescue gate: pending ack waits until exact deadline; grace ignored", () => {
   const deadline = Date.parse("2026-11-12T19:35:00.000Z");
   const mid = shouldRescueAwaitingActivation({
-    nowMs: deadline + 1_000,
+    nowMs: deadline - 1,
     ackStatus: "pending",
     ackDeadlineAt: new Date(deadline).toISOString(),
     graceSeconds: 10,
@@ -137,15 +132,15 @@ Deno.test("rescue gate: pending ack waits even without open offer (offline recon
   });
   assertEquals(mid.rescue, false);
 
-  const late = shouldRescueAwaitingActivation({
-    nowMs: deadline + 15_000,
+  const atDeadline = shouldRescueAwaitingActivation({
+    nowMs: deadline,
     ackStatus: "pending",
     ackDeadlineAt: new Date(deadline).toISOString(),
     graceSeconds: 10,
     hasOpenLiveOffer: false,
   });
-  assertEquals(late.rescue, true);
-  assertEquals(late.reason, "acknowledgement_timeout");
+  assertEquals(atDeadline.rescue, true);
+  assertEquals(atDeadline.reason, "acknowledgement_timeout");
 });
 
 Deno.test("soft presence reasons do not hard-block departure ack arm", () => {
@@ -170,16 +165,6 @@ Deno.test("countdown constant and exclusive timeout reason", () => {
   );
 });
 
-Deno.test("config resolves ack settings; auto_activate cannot enable no-ack", () => {
-  const cfg = resolveDepartureAckConfig({
-    scheduled_departure_ack_enabled: true,
-    scheduled_departure_ack_seconds: 45,
-    scheduled_departure_ack_grace_seconds: 10,
-  });
-  assertEquals(cfg.enabled, true);
-  assertEquals(cfg.countdownSeconds, 45);
-});
-
 Deno.test("source lock: runner arms departure ack; never activate_now", async () => {
   const runner = await Deno.readTextFile(
     new URL("./runConfirmedJitActivationPass.ts", import.meta.url),
@@ -196,4 +181,6 @@ Deno.test("source lock: runner arms departure ack; never activate_now", async ()
   assert(checkin.includes("SCHEDULED_DEPARTURE_ACK_SUCCESS"));
   assert(checkin.includes("heading_to_pickup"));
   assert(checkin.includes("buildDepartureAckAcknowledgedFields"));
+  assert(checkin.includes("scheduled_ack_deadline_at"));
+  assert(checkin.includes("ACK_EXPIRED"));
 });

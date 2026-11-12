@@ -65,17 +65,19 @@ Deno.test("long-distance JIT deadline is not delayed by fixed timing clamp", () 
   assert(sticky.deadlineMs < Date.parse("2026-11-12T19:59:00.000Z"));
 });
 
-Deno.test("DB auto_activate cannot enable no-ack; Phase 5 resolve is departure_ack", () => {
-  assertEquals(resolveJitExecutionMode(SCHEDULED_JIT_ACTIVATION_DEFAULTS), "departure_ack");
+Deno.test("DB auto_activate cannot enable no-ack; Phase 5 defaults fail-closed to ack_nro", () => {
+  assertEquals(resolveJitExecutionMode(SCHEDULED_JIT_ACTIVATION_DEFAULTS), "ack_nro");
   assertEquals(
     resolveJitExecutionMode({ autoActivateEnabled: true, departureAckEnabled: true }),
     "departure_ack",
   );
   const cfg = resolveScheduledJitActivationConfig({
     jit_auto_activate_enabled: true,
+    scheduled_departure_ack_enabled: false,
   });
   assertEquals(cfg.autoActivateEnabled, false);
-  assertEquals(resolveJitExecutionMode(cfg), "departure_ack");
+  assertEquals(cfg.departureAckEnabled, false);
+  assertEquals(resolveJitExecutionMode(cfg), "ack_nro");
 });
 
 Deno.test("due deadline with ack_nro fallback arms exclusive NRO not activate_now", () => {
@@ -364,6 +366,7 @@ Deno.test("source lock: Phase 5 departure_ack; auto-activate fail-closed; no act
     new URL("./scheduledJitActivationSSOT.ts", import.meta.url),
   );
   assert(ssot.includes("autoActivateEnabled: false"));
+  assert(ssot.includes("departureAckEnabled: false"));
   assert(ssot.includes('return "departure_ack"'));
   assert(!/return \{\s*action: \"activate_now\"/.test(ssot));
   assert(!ssot.includes("clampJitDeadlineToFixedFloor"));

@@ -4,22 +4,22 @@
 -- Reuses awaiting_activation_accept + exclusive rescue → instant dispatch.
 
 ALTER TABLE public.global_dispatch_settings
-  ADD COLUMN IF NOT EXISTS scheduled_departure_ack_enabled boolean NOT NULL DEFAULT true,
+  ADD COLUMN IF NOT EXISTS scheduled_departure_ack_enabled boolean NOT NULL DEFAULT false,
   ADD COLUMN IF NOT EXISTS scheduled_departure_ack_seconds integer NOT NULL DEFAULT 45,
-  ADD COLUMN IF NOT EXISTS scheduled_departure_ack_grace_seconds integer NOT NULL DEFAULT 10;
+  ADD COLUMN IF NOT EXISTS scheduled_departure_ack_grace_seconds integer NOT NULL DEFAULT 0;
 
 COMMENT ON COLUMN public.global_dispatch_settings.scheduled_departure_ack_enabled IS
-  'Phase 5: when true, JIT due arms 45s departure acknowledgement (Heading to Pickup / Cancel). When false, falls back to Phase 4 exclusive NRO arm with lockedDriverResponseMinutes.';
+  'Phase 5: MUST stay false until compatible Driver OTA adoption is verified. When true, JIT due arms exactly 45s departure acknowledgement (Heading to Pickup / Cancel). When false, Phase 4 exclusive NRO (lockedDriverResponseMinutes) remains.';
 COMMENT ON COLUMN public.global_dispatch_settings.scheduled_departure_ack_seconds IS
-  'Phase 5: backend-authoritative departure acknowledgement countdown seconds (default 45).';
+  'Phase 5: backend-authoritative departure acknowledgement countdown seconds (default 45). Offer expires_at and UI countdown must match this deadline.';
 COMMENT ON COLUMN public.global_dispatch_settings.scheduled_departure_ack_grace_seconds IS
-  'Phase 5: grace after deadline before timeout rescue (in-flight ack / reconnect). Default 10.';
+  'DEPRECATED: must not extend the driver acknowledgement window. Authoritative deadline is exactly scheduled_departure_ack_seconds. Default 0.';
 
 UPDATE public.global_dispatch_settings
 SET
-  scheduled_departure_ack_enabled = COALESCE(scheduled_departure_ack_enabled, true),
+  scheduled_departure_ack_enabled = false,
   scheduled_departure_ack_seconds = COALESCE(scheduled_departure_ack_seconds, 45),
-  scheduled_departure_ack_grace_seconds = COALESCE(scheduled_departure_ack_grace_seconds, 10),
+  scheduled_departure_ack_grace_seconds = 0,
   jit_auto_activate_enabled = false
 WHERE singleton = true;
 

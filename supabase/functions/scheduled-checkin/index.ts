@@ -105,7 +105,7 @@ Deno.serve(async (req) => {
     const { data: trip, error: tripError } = await supabase
       .from("trips")
       .select(
-        "id, status, scheduled_status, is_scheduled, dispatch_mode, driver_id, confirmed_driver_id, scheduled_at, pickup_latitude, pickup_longitude, passenger_id, pickup_address, scheduled_committed_at, driver_checked_in_at",
+        "id, status, scheduled_status, is_scheduled, dispatch_mode, driver_id, confirmed_driver_id, scheduled_at, pickup_latitude, pickup_longitude, passenger_id, pickup_address, scheduled_committed_at, driver_checked_in_at, scheduled_ack_status, scheduled_ack_deadline_at, scheduled_ack_driver_id, scheduled_ack_nonce",
       )
       .eq("id", trip_id)
       .single();
@@ -239,7 +239,6 @@ Deno.serve(async (req) => {
         nowMs,
         deadlineMs: ackDeadlineAt ? Date.parse(String(ackDeadlineAt)) : null,
         ackStatus,
-        graceSeconds: ackCfg.graceSeconds,
       })
     ) {
       return errorResponse(
@@ -249,12 +248,26 @@ Deno.serve(async (req) => {
       );
     }
 
+    // Stale ack from a replaced/reassigned driver must not reclaim the booking.
+    const ackDriverId = String(
+      (trip as { scheduled_ack_driver_id?: string }).scheduled_ack_driver_id ?? "",
+    ).trim();
+    if (ackDriverId && ackDriverId !== driverId) {
+      return errorResponse(
+        "ACK_DRIVER_MISMATCH",
+        "Departure acknowledgement is not valid for this driver.",
+        409,
+      );
+    }
+
     const nowIso = now.toISOString();
-    const ackFields = ackStatus === "pending" || ackCfg.enabled
+    const ackFields = ackStatus === "pending" ||
+        (ackCfg.enabled && String(trip.scheduled_status) === "awaiting_activation_accept")
       ? buildDepartureAckAcknowledgedFields({ nowIso })
       : {};
 
-    const { data: activatedRows, error: updateError } = await supabase
+    // Strict CAS: pending ack + confirmed driver + still before deadline when stamped.
+    let activateQuery = supabase
       .from("trips")
       .update({
         driver_id: driverId,
@@ -268,7 +281,21 @@ Deno.serve(async (req) => {
       })
       .eq("id", trip_id)
       .eq("scheduled_status", "awaiting_activation_accept")
-      .or(`confirmed_driver_id.eq.${driverId},driver_id.eq.${driverId}`)
+      .eq("confirmed_driver_id", driverId)
+      .is("driver_id", null);
+
+    if (ackStatus === "pending") {
+      activateQuery = activateQuery.eq("scheduled_ack_status", "pending");
+      if (ackDeadlineAt) {
+        // Reject late ack even if worker has not converted yet.
+        activateQuery = activateQuery.gt(
+          "scheduled_ack_deadline_at",
+          nowIso,
+        );
+      }
+    }
+
+    const { data: activatedRows, error: updateError } = await activateQuery
       .select("id");
 
     if (updateError) {

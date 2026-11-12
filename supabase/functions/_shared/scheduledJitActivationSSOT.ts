@@ -64,9 +64,11 @@ export const SCHEDULED_JIT_ACTIVATION_DEFAULTS: ScheduledJitActivationConfig = {
   etaSpikeMaxRelativeJump: 1.35,
   maxEarlyPullAheadOfFixedMinutes: 20, // unused for clamp — retained for column compat
   autoActivateEnabled: false,
-  departureAckEnabled: true,
+  // Fail closed until capability-aware OTA rollout enables the flag.
+  departureAckEnabled: false,
   departureAckSeconds: 45,
-  departureAckGraceSeconds: 10,
+  /** @deprecated Ignored for deadline math — driver window is exactly 45s. */
+  departureAckGraceSeconds: 0,
 };
 
 export type ScheduledJitDbRow = {

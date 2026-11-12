@@ -80,30 +80,39 @@ Deno.test("scheduled-dispatch STEP 4 uses expiry SSOT + clears confirmed/pending
 });
 
 Deno.test("Admin ScheduledRides uses presentation SSOT + excludes active driver_id", async () => {
+  // Classification: previously asserted PostgREST helper string /
+  // embed join names that Phase 3 board refactor inlined. Semantics remain:
+  // open scheduled board excludes active trip statuses + requires null driver_id.
   const src = await Deno.readTextFile(
     new URL("../../../src/pages/ScheduledRides.tsx", import.meta.url),
   );
+  const membership = await Deno.readTextFile(
+    new URL("../../../src/lib/adminScheduledBoardMembership.ts", import.meta.url),
+  );
   assertStringIncludes(src, "resolveAdminScheduledRidePresentation");
   assertStringIncludes(src, "resolveAdminScheduledTimeCue");
-  assertStringIncludes(src, "adminScheduledBoardExcludedStatusInFilter");
-  assertStringIncludes(src, ".is('driver_id', null)");
-  assertStringIncludes(
-    src,
-    "confirmed_driver:drivers!trips_confirmed_driver_id_fkey",
-  );
+  assertStringIncludes(src, "ADMIN_SCHEDULED_BOARD_EXCLUDED_TRIP_STATUSES");
+  assertStringIncludes(membership, "adminScheduledBoardExcludedStatusInFilter");
+  assertStringIncludes(membership, "ADMIN_SCHEDULED_BOARD_EXCLUDED_TRIP_STATUSES");
+  // Query builder uses is_null driver_id (equivalent to .is('driver_id', null)).
+  assertStringIncludes(src, "is_null");
+  assertStringIncludes(src, "driver_id");
+  assertStringIncludes(src, "not_in");
+  assertStringIncludes(src, "confirmed_driver_id");
   assert(!/getScheduleStatus/.test(src), "Overdue getScheduleStatus must be removed");
   assert(!/SelectItem value="overdue"/.test(src), "Overdue filter must be removed");
   assert(!/\? 'Pending'/.test(src), "Pending fallback label must be gone");
   // View Details must use the same ownership SSOT (not driver_id-only).
   assertStringIncludes(src, "Pre-confirmed Driver");
   assertStringIncludes(src, "detailPresentation");
-  // Scheduled Jobs Now / At
+  // Scheduled Jobs Now / At — UI invokes Edge; kind is stamped server-side.
   assertStringIncludes(src, "handleMakeAvailableScheduledJobsAt");
-  assertStringIncludes(src, "pending_release_kind: 'jobs'");
+  assertStringIncludes(src, "make_available_now");
+  assertStringIncludes(src, "make_available_at");
   assertStringIncludes(src, "Scheduled Jobs At");
-  // Cancel clears preconfirm + pending release (no stale ownership after cancel).
-  assertStringIncludes(src, "confirmed_driver_id: null");
-  assertStringIncludes(src, "pending_release_kind: null");
+  // Cancel pending release path retained (no stale ownership after cancel).
+  assertStringIncludes(src, "cancel_pending_release");
+  assertStringIncludes(src, "pending_release_kind");
 });
 
 Deno.test("HELD insert migration preserves admin_held without broadcast stamp", async () => {
