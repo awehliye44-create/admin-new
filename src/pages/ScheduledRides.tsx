@@ -44,6 +44,7 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
@@ -249,7 +250,8 @@ export default function ScheduledRides() {
           columns: [
             'id', 'trip_number', 'trip_code', 'status', 'scheduled_status', 'pending_release_kind',
             'pending_release_at', 'pending_release_driver_id', 'confirmed_driver_id',
-            'scheduled_broadcast_at', 'passenger_name', 'passenger_phone', 'pickup_address',
+            'scheduled_broadcast_at', 'scheduled_ack_status', 'scheduled_ack_deadline_at',
+            'scheduled_hold_reason', 'passenger_name', 'passenger_phone', 'pickup_address',
             'dropoff_address', 'pickup_latitude', 'pickup_longitude', 'dropoff_latitude',
             'dropoff_longitude', 'estimated_fare', 'fare', 'final_fare_pence',
             'final_customer_fare_pence', 'estimated_total_pence', 'gross_fare_pence',
@@ -739,8 +741,8 @@ export default function ScheduledRides() {
   });
 
   const todayCount = trips.filter(t => t.scheduled_at && isToday(new Date(t.scheduled_at))).length;
-  const heldCount = trips.filter(
-    (t) => resolveAdminScheduledRidePresentation(t).statusKey === 'held',
+  const needsAttentionCount = trips.filter(
+    (t) => resolveAdminScheduledRidePresentation(t).needsAttention,
   ).length;
   const unassignedCount = trips.filter(
     (t) => resolveAdminScheduledRidePresentation(t).driverKind === 'unassigned',
@@ -779,8 +781,8 @@ export default function ScheduledRides() {
           <CardContent className="pt-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-muted-foreground">Held</p>
-                <p className="text-2xl font-bold text-amber-600">{heldCount}</p>
+                <p className="text-sm text-muted-foreground">Needs attention</p>
+                <p className="text-2xl font-bold text-amber-600">{needsAttentionCount}</p>
               </div>
               <AlertTriangle className="h-8 w-8 text-amber-500" />
             </div>
@@ -1013,6 +1015,14 @@ export default function ScheduledRides() {
                               <UserPlus className="h-4 w-4 mr-2" />
                               Assign Driver
                             </DropdownMenuItem>
+                            {trip.pending_release_kind ? (
+                              <DropdownMenuItem onClick={() => void handleCancelPendingRelease(trip)}>
+                                <XCircle className="h-4 w-4 mr-2" />
+                                Cancel pending {trip.pending_release_kind}
+                              </DropdownMenuItem>
+                            ) : null}
+                            <DropdownMenuSeparator />
+                            <DropdownMenuLabel className="text-amber-700">Emergency</DropdownMenuLabel>
                             <DropdownMenuItem onClick={() => { setSelectedTrip(trip); setReleaseAtLocal(''); setIsDispatchOpen(true); }}>
                               <Play className="h-4 w-4 mr-2" />
                               Broadcast
@@ -1031,12 +1041,6 @@ export default function ScheduledRides() {
                               >
                                 <ListPlus className="h-4 w-4 mr-2" />
                                 Make Available in Scheduled Jobs
-                              </DropdownMenuItem>
-                            ) : null}
-                            {trip.pending_release_kind ? (
-                              <DropdownMenuItem onClick={() => void handleCancelPendingRelease(trip)}>
-                                <XCircle className="h-4 w-4 mr-2" />
-                                Cancel pending {trip.pending_release_kind}
                               </DropdownMenuItem>
                             ) : null}
                             <DropdownMenuSeparator />

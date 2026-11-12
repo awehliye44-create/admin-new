@@ -18,7 +18,7 @@ describe('adminScheduledRidePresentation — ownership SSOT', () => {
     expect(p.belongsOnLiveScheduledBoard).toBe(true);
   });
 
-  it('AVAILABLE → Status Available + Driver Unassigned', () => {
+  it('AVAILABLE / Requested → published scheduled + Driver Unassigned', () => {
     const p = resolveAdminScheduledRidePresentation({
       scheduled_status: 'scheduled',
       status: 'scheduled',
@@ -26,7 +26,8 @@ describe('adminScheduledRidePresentation — ownership SSOT', () => {
       driver_id: null,
       confirmed_driver_id: null,
     });
-    expect(p.statusLabel).toBe('Available');
+    expect(p.statusKey).toBe('available');
+    expect(p.statusLabel).toBe('Requested');
     expect(p.driverKind).toBe('unassigned');
   });
 
@@ -51,7 +52,7 @@ describe('adminScheduledRidePresentation — ownership SSOT', () => {
       confirmed_driver_id: 'conf-1',
       confirmed_driver: { first_name: 'Ahmed', last_name: 'Osman' },
     });
-    expect(p.statusLabel).toBe('Pre-confirmed');
+    expect(p.statusLabel).toBe('Confirmed');
     expect(p.statusKey).toBe('pre_confirmed');
     expect(p.driverKind).toBe('pre_confirmed');
     expect(p.driverDisplayName).toBe('Ahmed Osman');
@@ -84,15 +85,49 @@ describe('adminScheduledRidePresentation — ownership SSOT', () => {
     expect(!(p.statusLabel === 'Driver Assigned' && p.driverKind === 'unassigned')).toBe(true);
   });
 
-  it('Finding Driver when activated/broadcasting with no accepted driver', () => {
+  it('Searching when activated/broadcasting with no accepted driver', () => {
     const p = resolveAdminScheduledRidePresentation({
       scheduled_status: 'converted_to_instant',
       status: 'searching',
       driver_id: null,
       confirmed_driver_id: null,
     });
-    expect(p.statusLabel).toBe('Finding Driver');
+    expect(p.statusKey).toBe('finding_driver');
+    expect(p.statusLabel).toBe('Searching');
     expect(p.driverKind).toBe('unassigned');
+  });
+
+  it('Phase 5 alert pending / timeout monitoring labels', () => {
+    const pending = resolveAdminScheduledRidePresentation({
+      scheduled_status: 'awaiting_activation_accept',
+      status: 'scheduled',
+      confirmed_driver_id: 'conf-1',
+      scheduled_ack_status: 'pending',
+      confirmed_driver: { first_name: 'A', last_name: 'B' },
+    });
+    expect(pending.statusKey).toBe('alert_pending');
+    expect(pending.statusLabel).toBe('Alert pending');
+    expect(pending.needsAttention).toBe(true);
+
+    const timedOut = resolveAdminScheduledRidePresentation({
+      scheduled_status: 'converted_to_instant',
+      status: 'searching',
+      confirmed_driver_id: null,
+      scheduled_ack_status: 'timed_out',
+    });
+    expect(timedOut.statusKey).toBe('alert_timeout');
+    expect(timedOut.needsAttention).toBe(true);
+  });
+
+  it('JIT pending when confirmed awaiting activation without ack', () => {
+    const p = resolveAdminScheduledRidePresentation({
+      scheduled_status: 'awaiting_activation_accept',
+      status: 'scheduled',
+      confirmed_driver_id: 'conf-1',
+      confirmed_driver: { first_name: 'A', last_name: 'B' },
+    });
+    expect(p.statusKey).toBe('jit_pending');
+    expect(p.statusLabel).toBe('JIT pending');
   });
 
   it('ACTIVE ACCEPTED → Driver Assigned + name; not Pending; off Scheduled board', () => {

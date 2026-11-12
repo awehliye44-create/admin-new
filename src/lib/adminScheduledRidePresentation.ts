@@ -22,9 +22,15 @@ export type AdminScheduledStatusKey =
   | 'held'
   | 'available'
   | 'pre_confirmed'
+  | 'jit_pending'
+  | 'alert_pending'
+  | 'alert_acked'
+  | 'alert_timeout'
   | 'finding_driver'
   | 'driver_assigned'
+  | 'active_pickup'
   | 'payment_blocked'
+  | 'needs_attention'
   | 'expired'
   | 'cancelled'
   | 'awaiting_accept'
@@ -45,6 +51,10 @@ export type AdminScheduledRidePresentationInput = {
   status?: string | null;
   scheduled_broadcast_at?: string | null;
   scheduled_at?: string | null;
+  /** Phase 5 departure-ack column — monitoring only when present. */
+  scheduled_ack_status?: string | null;
+  scheduled_ack_deadline_at?: string | null;
+  scheduled_hold_reason?: string | null;
   driver?: AdminScheduledDriverRef;
   confirmed_driver?: AdminScheduledDriverRef;
 };
@@ -59,6 +69,8 @@ export type AdminScheduledRidePresentation = {
   driverBadge: 'PRE-CONFIRMED' | null;
   /** Live Scheduled Rides board only — not Active Trips / Missed / Cancelled. */
   belongsOnLiveScheduledBoard: boolean;
+  /** Ops should open the row (payment / hold / unmapped / alert timeout). */
+  needsAttention: boolean;
   unmapped?: boolean;
 };
 
@@ -108,7 +120,9 @@ export function resolveAdminScheduledRidePresentation(
   const confirmedId = nonEmptyId(trip.confirmed_driver_id);
   const scheduled = norm(trip.scheduled_status);
   const status = norm(trip.status);
+  const ack = norm(trip.scheduled_ack_status);
   const published = Boolean(trip.scheduled_broadcast_at);
+  const holdReason = norm(trip.scheduled_hold_reason);
 
   const onBoard = belongsOnLiveAdminScheduledBoard({
     is_scheduled: trip.is_scheduled ?? true,
@@ -140,6 +154,14 @@ export function resolveAdminScheduledRidePresentation(
   let statusClassName: string;
   let unmapped = false;
 
+  const activePickupStatuses = new Set([
+    'driver_en_route',
+    'arrived',
+    'in_progress',
+    'passenger_on_board',
+    'trip_started',
+  ]);
+
   if (status === 'expired' || status === 'expired_no_driver' || scheduled === 'expired' || scheduled === 'no_driver_found') {
     statusKey = 'expired';
     statusLabel = 'Expired';
@@ -153,13 +175,39 @@ export function resolveAdminScheduledRidePresentation(
     statusKey = 'cancelled';
     statusLabel = 'Cancelled';
     statusClassName = 'bg-gray-100 text-gray-700';
+  } else if (ack === 'pending') {
+    // Phase 5 — departure acknowledgement armed (45s).
+    statusKey = 'alert_pending';
+    statusLabel = 'Alert pending';
+    statusClassName = 'bg-amber-100 text-amber-900';
+  } else if (ack === 'acknowledged') {
+    statusKey = 'alert_acked';
+    statusLabel = 'Alert acknowledged';
+    statusClassName = 'bg-emerald-100 text-emerald-900';
+  } else if (ack === 'timed_out') {
+    statusKey = 'alert_timeout';
+    statusLabel = 'Alert timeout';
+    statusClassName = 'bg-rose-100 text-rose-900';
+  } else if (driverId && activePickupStatuses.has(status)) {
+    statusKey = 'active_pickup';
+    statusLabel = 'Active pickup';
+    statusClassName = 'bg-green-100 text-green-800';
   } else if (driverId) {
     statusKey = 'driver_assigned';
     statusLabel = 'Driver Assigned';
     statusClassName = 'bg-green-100 text-green-700';
+  } else if (
+    confirmedId &&
+    (scheduled === 'awaiting_activation_accept' || scheduled === 'awaiting_confirmation') &&
+    !ack
+  ) {
+    // Phase 4 — confirmed, waiting JIT / activation accept (no Phase 5 arm yet).
+    statusKey = 'jit_pending';
+    statusLabel = 'JIT pending';
+    statusClassName = 'bg-violet-100 text-violet-900';
   } else if (confirmedId) {
     statusKey = 'pre_confirmed';
-    statusLabel = 'Pre-confirmed';
+    statusLabel = 'Confirmed';
     statusClassName = 'bg-emerald-100 text-emerald-800';
   } else if (scheduled === 'awaiting_activation_accept') {
     statusKey = 'awaiting_accept';
@@ -174,18 +222,21 @@ export function resolveAdminScheduledRidePresentation(
     FINDING_TRIP_STATUSES.has(status)
   ) {
     statusKey = 'finding_driver';
-    statusLabel = 'Finding Driver';
+    statusLabel = 'Searching';
     statusClassName = 'bg-blue-100 text-blue-700';
   } else if (scheduled === 'admin_held') {
     statusKey = 'held';
-    statusLabel = 'Held';
+    statusLabel = holdReason && holdReason !== 'admin_manual' ? 'Needs attention' : 'Held';
     statusClassName = 'bg-amber-100 text-amber-800';
+    if (holdReason && holdReason !== 'admin_manual') {
+      statusKey = 'needs_attention';
+    }
   } else if (
     published &&
     (scheduled === 'scheduled' || scheduled === 'pending' || scheduled === '')
   ) {
     statusKey = 'available';
-    statusLabel = 'Available';
+    statusLabel = 'Requested';
     statusClassName = 'bg-indigo-100 text-indigo-700';
   } else if (scheduled === 'scheduled' || scheduled === 'pending' || scheduled === '') {
     // Unpublished scheduled row — Held-equivalent board state.
@@ -205,9 +256,17 @@ export function resolveAdminScheduledRidePresentation(
         status: trip.status ?? null,
         driver_id: trip.driver_id ?? null,
         confirmed_driver_id: trip.confirmed_driver_id ?? null,
+        scheduled_ack_status: trip.scheduled_ack_status ?? null,
       });
     }
   }
+
+  const needsAttention =
+    unmapped ||
+    statusKey === 'payment_blocked' ||
+    statusKey === 'needs_attention' ||
+    statusKey === 'alert_timeout' ||
+    statusKey === 'alert_pending';
 
   return {
     statusKey,
@@ -218,6 +277,7 @@ export function resolveAdminScheduledRidePresentation(
     driverDisplayName,
     driverBadge,
     belongsOnLiveScheduledBoard: onBoard,
+    needsAttention,
     unmapped,
   };
 }
