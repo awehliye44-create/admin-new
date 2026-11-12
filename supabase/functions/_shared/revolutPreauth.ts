@@ -636,6 +636,12 @@ export async function createRevolutPreauthResponse(
   }
 
   let order;
+  // Advance-window clock must outlive the order-create try block: post-order
+  // session link (below) runs after that try/catch closes. Declaring these
+  // inside the try caused ReferenceError "advanceWindowValidatedAt is not defined"
+  // on every successful Instant + Scheduled preauth (MK P0 2026-11-12).
+  let advanceWindowValidatedAt: string | null = null;
+  let advanceWindowValidatedScheduledAt: string | null = null;
   const orderCreateFailed = async (err: unknown) => {
     const revolutErr = err as { message?: string; status?: number };
     // Plain objects thrown by revolutMerchantRequest stringify as [object Object].
@@ -701,8 +707,7 @@ export async function createRevolutPreauthResponse(
     // Scheduled advance window — validate BEFORE creating a Revolut order / session.
     // Stamp validated clock onto the payment session so finalisation latency cannot
     // auto-TOO_SOON within the bounded payment completion window.
-    let advanceWindowValidatedAt: string | null = null;
-    let advanceWindowValidatedScheduledAt: string | null = null;
+    // (Declarations hoisted above try — Instant leaves both null; Scheduled stamps.)
     {
       const whenRaw = String(bookingSnapshot?.when ?? "").trim().toUpperCase();
       const scheduledAtRaw = String(bookingSnapshot?.scheduled_at ?? "").trim();
