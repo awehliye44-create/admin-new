@@ -38,6 +38,18 @@ import {
 } from "./paymentSessionSSOT.ts";
 import type { BookingWaterfallCollector } from "./bookingWaterfallTelemetry.ts";
 import type { BookingCommitBody } from "./bookingSSOT.ts";
+import { assertPaymentGate, PaymentGateError } from "./paymentGate.ts";
+import {
+  attemptScheduledMarketplaceAutoPublish,
+  SCHEDULED_MARKETPLACE_AUTO_PUBLISH_VIA,
+} from "./scheduledMarketplaceAutoPublishSSOT.ts";
+import { notifyScheduledMarketplaceOpen } from "./scheduledMarketplaceNotifySSOT.ts";
+import { assertPaymentGate, PaymentGateError } from "./paymentGate.ts";
+import {
+  attemptScheduledMarketplaceAutoPublish,
+  SCHEDULED_MARKETPLACE_AUTO_PUBLISH_VIA,
+} from "./scheduledMarketplaceAutoPublishSSOT.ts";
+import { notifyScheduledMarketplaceOpen } from "./scheduledMarketplaceNotifySSOT.ts";
 
 export type TripStopRow = {
   trip_id: string;
@@ -361,7 +373,89 @@ export function buildBookingPostCommitTasks(ctx: BookingPostCommitContext): Prom
     }
   }
 
-  if (!ctx.isScheduled) {
+  if (ctx.isScheduled) {
+    // Phase 3: after fare enrich gates, auto-publish to Scheduled Jobs Requested.
+    // Create remains admin_held until this CAS Make Available (idempotent).
+    tasks.push((async () => {
+      const enrich = await fareEnrich.catch((e) => {
+        ctx.log("fare enrich before scheduled marketplace publish", { err: String(e) });
+        return AIRPORT_ABSENT_DISPATCH;
+      });
+      if (enrich.holdBroadcast || !enrich.allowDispatch) {
+        ctx.log("SCHEDULED_MARKETPLACE_AUTO_PUBLISH_BLOCKED", {
+          trip_id: ctx.tripId,
+          reason: enrich.reason,
+        });
+        return;
+      }
+      try {
+        await assertPaymentGate(ctx.supabase, ctx.tripId);
+      } catch (gateErr) {
+        const detail = gateErr instanceof PaymentGateError
+          ? gateErr.message
+          : String((gateErr as Error)?.message ?? gateErr);
+        ctx.log("SCHEDULED_MARKETPLACE_AUTO_PUBLISH_PAYMENT_GATE", {
+          trip_id: ctx.tripId,
+          detail,
+        });
+        await ctx.supabase
+          .from("trips")
+          .update({
+            scheduled_status: "payment_gate_blocked",
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", ctx.tripId)
+          .eq("scheduled_status", "admin_held");
+        return;
+      }
+      const { data: tripRow } = await ctx.supabase
+        .from("trips")
+        .select(
+          "id, dispatch_mode, status, scheduled_status, scheduled_at, scheduled_broadcast_at, driver_id, confirmed_driver_id, broadcast_enabled, airport_charge_pence, pending_release_kind, pending_release_at, booking_source, service_area_id, vehicle_type_id, vehicle_type, completed_at, cancelled_at, pickup_address, trip_code, trip_number",
+        )
+        .eq("id", ctx.tripId)
+        .maybeSingle();
+      if (!tripRow) {
+        ctx.log("SCHEDULED_MARKETPLACE_AUTO_PUBLISH_MISSING_TRIP", { trip_id: ctx.tripId });
+        return;
+      }
+      const nowIso = new Date().toISOString();
+      const result = await attemptScheduledMarketplaceAutoPublish(ctx.supabase, {
+        tripId: ctx.tripId,
+        trip: tripRow,
+        nowIso,
+        via: SCHEDULED_MARKETPLACE_AUTO_PUBLISH_VIA.post_commit,
+        allowUnknownBookingSource: true,
+        stampRetryOnFailure: true,
+      });
+      ctx.log("SCHEDULED_MARKETPLACE_AUTO_PUBLISH", result);
+      if (result.published) {
+        const { data: published } = await ctx.supabase
+          .from("trips")
+          .select(
+            "id, service_area_id, pickup_address, scheduled_at, trip_code, trip_number, scheduled_status, scheduled_broadcast_at, confirmed_driver_id, driver_id, dispatch_mode, status",
+          )
+          .eq("id", ctx.tripId)
+          .maybeSingle();
+        if (published) {
+          try {
+            const notify = await notifyScheduledMarketplaceOpen(ctx.supabase, published);
+            ctx.log("SCHEDULED_MARKETPLACE_NOTIFY", {
+              trip_id: ctx.tripId,
+              notified: notify.notified,
+              suppressed: notify.suppressed,
+              via: "post_commit_auto_publish",
+            });
+          } catch (notifyErr) {
+            ctx.log("SCHEDULED_MARKETPLACE_NOTIFY_FAILED", {
+              trip_id: ctx.tripId,
+              error: String(notifyErr),
+            });
+          }
+        }
+      }
+    })());
+  } else {
     tasks.push((async () => {
       const enrich = await fareEnrich.catch((e) => {
         ctx.log("fare enrich before dispatch", { err: String(e) });

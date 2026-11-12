@@ -1,9 +1,10 @@
 /**
- * Admin HELD scheduled create lock — Hard Rule #1.
+ * Admin HELD scheduled create lock — Hard Rule #1 (create stamp).
  *
- * New scheduled bookings start admin_held with no marketplace broadcast_at.
- * T−urgent convert_at is still stamped. Drivers must not see the job until
- * Admin Assign/Broadcast release (or T−urgent emergency convert).
+ * New scheduled bookings still INSERT as admin_held with null marketplace
+ * broadcast_at + T−urgent convert_at. Phase 3 auto-publishes after post-commit
+ * payment/airport gates via Make Available CAS (see
+ * scheduledMarketplaceAutoPublishSSOT) — not at insert time.
  *
  * Run: deno test --allow-read supabase/tests/_shared/adminHeldScheduledCreateLock.test.ts
  */
@@ -77,7 +78,7 @@ Deno.test("Admin HELD: immediate NOW booking is unchanged", () => {
   assertEquals(row.is_scheduled, false);
 });
 
-Deno.test("Admin HELD: T−urgent convert list includes admin_held; Step 2 broadcast filter stays scheduled-only", async () => {
+Deno.test("Admin HELD: T−urgent convert includes admin_held; Phase 3 marketplace publish is gated", async () => {
   assert(
     (NO_PRECONFIRMED_CONVERT_SCHEDULED_STATUSES as readonly string[]).includes(
       "admin_held",
@@ -86,9 +87,14 @@ Deno.test("Admin HELD: T−urgent convert list includes admin_held; Step 2 broad
   const dispatchSrc = await Deno.readTextFile(
     new URL("../../functions/scheduled-dispatch/index.ts", import.meta.url),
   );
-  // Marketplace auto-broadcast must not pick admin_held (still eq scheduled).
-  assertStringIncludes(dispatchSrc, '.eq("scheduled_status", "scheduled")');
+  // Phase 3: STEP 0b may publish admin_held after payment/airport gates — not raw NRO.
+  assertStringIncludes(dispatchSrc, "auto-publish recovery");
   assertStringIncludes(dispatchSrc, "NO_PRECONFIRMED_CONVERT_SCHEDULED_STATUSES");
+  // Pre-confirmed activation still skips admin_held.
+  assertStringIncludes(
+    dispatchSrc,
+    '.in("scheduled_status", ["scheduled", "driver_assigned", "scheduled_committed"])',
+  );
 });
 
 Deno.test("Admin HELD: bookingSSOT does not stamp marketplace broadcast at create", async () => {

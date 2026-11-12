@@ -234,13 +234,14 @@ Deno.test("get-active-trip never treats HELD/preconfirm clocks as live", async (
   assertStringIncludes(src, "Preconfirm / HELD / activation-armed stay on Rides→Scheduled");
 });
 
-Deno.test("Assign Now Admin UI pins status=scheduled with preconfirm", async () => {
+Deno.test("Assign Now Admin UI uses atomic payment-gated RPC (preconfirm)", async () => {
   const src = await Deno.readTextFile(
     new URL("../../../src/pages/ScheduledRides.tsx", import.meta.url),
   );
-  assertStringIncludes(src, "scheduled_status: 'driver_assigned'");
-  assertStringIncludes(src, "status: 'scheduled'");
-  assertStringIncludes(src, "driver_id: null");
+  // Phase 1+: Assign Now must not client-patch driver_assigned — RPC owns status=scheduled.
+  assertStringIncludes(src, "admin_assign_scheduled_driver");
+  assertStringIncludes(src, "PAYMENT_GATE_NOT_SATISFIED");
+  assertStringIncludes(src, "notify_driver_assigned");
 });
 
 Deno.test("customerBusyGate ignores HELD/preconfirm clocks for Help busy", async () => {

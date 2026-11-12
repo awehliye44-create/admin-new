@@ -1514,9 +1514,10 @@ export default function ScheduledRides() {
           <AlertDialogHeader>
             <AlertDialogTitle>Make Available in Scheduled Jobs</AlertDialogTitle>
             <AlertDialogDescription>
-              Publishes for advance driver PRE-CONFIRMATION only. Does not start
-              Broadcast / New Ride Offer. Leave empty for Now, or set At
-              (NOW &lt; time &lt; scheduled pickup; backend cron).
+              Emergency / override publication for advance driver PRE-CONFIRMATION.
+              Valid customer bookings auto-publish after payment and pricing gates
+              (Phase 3). Does not start Broadcast / New Ride Offer. Leave empty for
+              Now, or set At (NOW &lt; time &lt; scheduled pickup; backend cron).
             </AlertDialogDescription>
           </AlertDialogHeader>
           <div className="py-2">
