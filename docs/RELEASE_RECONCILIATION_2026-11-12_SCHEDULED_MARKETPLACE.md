@@ -11,11 +11,12 @@
 
 | Question | Answer |
 |---|---|
-| **GO / NO-GO for further coordinated deploy of this release** | **NO-GO — nothing required remains pending** |
+| **GO / NO-GO for further coordinated deploy of this release** | **NO-GO — release code is already live; no undeployed migration/Edge/OTA gap for this defect class** |
 | **Why** | Migrations `20270218120000`–`20270218130300`, required Edge bundles, Admin Pages, Driver production OTAs, Customer hotfix OTAs, and Hub/Corporate payment-first live markers are already in production |
 | **Phase 5** | **Not enabled** (`scheduled_departure_ack_enabled=false`, `jit_auto_activate_enabled=false`) |
 | **MK-261112-006** | Remains `cancelled` — do not resurrect |
-| **Next action** | Wait for explicit Owner approval before any *new* release; do not re-run this release sequence |
+| **MK-261112-007** | **Active ops incident** — pre-fix booking with `capture_deadline=null` + future ideal `scheduled_broadcast_at`; marketplace closed by design until provider deadline is persisted (see §10) |
+| **Next action** | Owner approval for **safe recovery** of MK-007 (provider retrieve → persist deadline → auto-publish). Do **not** re-run the full release sequence |
 
 Publication ≠ device adoption. Driver/Customer OTA groups are published; install/adopt rates were not measured.
 
@@ -306,7 +307,7 @@ Isolated concurrency evidence (`/tmp/conc_out4.txt`): all 10 cases `ok`, includi
 1. Device adoption rates for Driver `bf0ac45e` / `7c3d82c1` and Customer latest groups  
 2. Optional: merge Driver hotfix → `master` and Customer hotfix → `master` for git lineage only  
 3. Optional separate track: rebase corporate anti-stuck onto current Hub main without regressing hold insert  
-4. Continue leaving MK-007-class premature holds to auto-publish recovery (do not hand-mutate)
+4. **MK-261112-007 ops recovery** — see §10 (provider capture_deadline persist, then auto-publish). Do not invent deadline / force-publish
 
 ### Coordinated deployment sequence (if Owner re-approves a *replay*)
 
@@ -346,3 +347,76 @@ Reason: required migrations, Edge, Admin, Hub payment-first, Driver OTA, and Cus
 - No discard/reset/commit of dirty or stashed work  
 - No Phase 5 enablement  
 - No mutation of MK-261112-006 or live payment authorisations  
+
+---
+
+## 10. Incident — MK-261112-007 (2026-11-12 ~18:30 UTC investigation)
+
+### Live booking disposition
+
+| Field | Value |
+|---|---|
+| Trip ID | `2905e0f7-0910-4893-b0aa-23dde3c3265a` |
+| Trip code | `MK-261112-007` |
+| Created | `2026-11-12 17:19:52.801704+00` (**~47 min before** Edge v321/v520 deploy @ 18:06) |
+| Scheduled pickup | `2026-11-13 07:00:00+00` |
+| Booking source | `choose_ride` |
+| Creation path | **Revolut webhook-finalised** (`metadata.mutation_source=webhook`, `finalized_by=finalize_paid_booking_session`, `ORDER_AUTHORISED`); session had preauth `client_action_id` |
+| Payment method | `APPLE_PAY` / Revolut order `6af5f531-114e-adbb-b293-6550060114c4` |
+| `status` / `scheduled_status` | `scheduled` / `scheduled` |
+| `scheduled_hold_reason` | `null` |
+| `scheduled_broadcast_at` | `2026-11-13 06:47:00+00` (**future ideal JIT anchor — marketplace closed**) |
+| `scheduled_convert_at` | `2026-11-13 06:51:00+00` |
+| `scheduled_publish_attempts` | `0` |
+| Payment session | `a42d07d1-ed6e-441b-901e-a34cd454c161` — `payment_authorised`, £43.43 |
+| Authoritative `capture_deadline` | **`null`** |
+| Payment gate | **`PAYMENT_GATE_NOT_SATISFIED: CAPTURE_DEADLINE_MISSING`** |
+| `scheduled_marketplace_is_open(...)` | **`false`** (`broadcast_due=false`) |
+| Marketplace open | **No** — missing from **backend** Requested listing (not Driver-banner-only) |
+
+**Same class as MK-261112-006** (premature ideal `scheduled_broadcast_at` + missing capture deadline), **different disposition**: MK-006 cancelled; MK-007 still active and fare/auth preserved.
+
+### Why drivers do not see it
+
+Requested tab requires marketplace open (`scheduled_broadcast_at <= now()` among other gates). Future stamp ⇒ **RPC returns empty for this trip**. Auto-publish recovery classifies premature stamp as publishable, but **`assert_payment_gate` fail-closes** on missing deadline — so dispatch correctly refuses to open marketplace. Banner/list OTA cannot surface what the backend does not list.
+
+### Nearby eligible drivers (MK SA)
+
+| Driver | Online | Vehicle match | Wallet gate | Docs (internal) | Notes |
+|---|---|---|---|---|---|
+| `c40dd8a6-…` AHMED OSMAN WEHLIYE | yes | **yes** | **pass** | approved / expiring_soon PHL (still eligible) | **Primary nearby eligible** |
+| `56136f5f-…` Ahmed Osman Wehliye | yes | no | pass | — | SA online; wrong vehicle type |
+| Others | mostly offline / incomplete onboarding | — | — | — | 1 online+approved+onboarded+vehicle total |
+
+Commitment sample (`15m` ETA to 07:00 pickup): feasible. Banner count cannot be open while marketplace closed.
+
+### Production deployment status (not local)
+
+| Item | Live? |
+|---|---|
+| Migrations 300 / 301 / 302 (+303) | **Recorded in prod** |
+| revolut-webhook / CTAP / confirm / scheduled-dispatch | **v321 / v520 / v183 / v641** (deployed 18:06Z) |
+| Capture deadline persistence + auto-publish + Realtime | **In deployed Edge/SQL** |
+| Driver OTA Android `1.0.6(64)` | group `bf0ac45e-…` published |
+| Driver OTA iOS `1.0.6(4)` | group `7c3d82c1-…` published |
+| Device OTA adoption for affected drivers | **Not evidenced** (and **not the blocker** — backend marketplace closed) |
+| Phase 5 flags | both **false** |
+
+**Gap:** none undeployed for this class. MK-007 is a **pre-fix row** created under the old webhook/finalize path that stamped ideal future broadcast and never persisted provider `capture_deadline`.
+
+### Safe recovery (requires Owner approval — not executed)
+
+1. **Preserve** trip id, fare (£43.43), payment session, Revolut authorisation.  
+2. **Retrieve** Revolut order `6af5f531-…` and read provider `capture_deadline` (use existing `extractCaptureDeadlineFromRevolutOrder` / retrieve SSOT — **never invent**).  
+3. If provider returns a deadline: **persist** onto session `a42d07d1-…` via `persistCaptureDeadlineOnSession` (`source=provider_retrieve`).  
+4. Re-run `assert_payment_gate` — must pass.  
+5. Allow **`scheduled-dispatch` auto-publish recovery** (premature ideal stamp → `broadcast_at=now()`) — do **not** hand-force publish to hide the defect.  
+6. If provider returns **no** deadline: **stop** — leave held/closed; escalate payment coverage (fail-closed). Do not bypass gate.
+
+### Explicit non-actions
+
+- Do not resurrect / mutate MK-006  
+- Do not invent capture deadline  
+- Do not manually `scheduled_broadcast_at = now()` while gate fails  
+- Do not enable Phase 5  
+- Do not duplicate implementation — correction already live for new creates  
