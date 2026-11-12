@@ -26,11 +26,10 @@ Safety conditions **2–5** remain valid from the pre-deploy gate (concurrency r
 
 | Repo | Branch | SHA |
 |---|---|---|
-| Backend (`admin-new`) | `fix/scheduled-marketplace-dispatch-timing-parity` | *(see Final report after commit)* |
-| Customer (`onecab-customer-native`) | `fix/scheduled-booking-handoff-advance` | *(see Final report after commit)* |
+| Backend (`admin-new`) | `fix/scheduled-marketplace-dispatch-timing-parity` | `b9535ec5ab11791fc3cfcf0a10a3425f0d920a03` |
+| Customer (`onecab-customer-native`) | `fix/scheduled-booking-handoff-advance` | `e28ba4ca7a1ccfbf00d6798e63958dc34e104bf0` |
 
-Prior accepted tip (superseded for handoff/CTAP code-merge): backend `cfad376a…`, Customer `8a131fb…`.
-
+Prior tip (superseded for handoff/CTAP code-merge): backend `cfad376a…`, Customer `8a131fb…`. Includes marketplace/NRO timing + advance clock; this tip adds financial-outcome safety.
 ## Required migration
 
 | Migration | Purpose |
