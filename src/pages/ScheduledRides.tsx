@@ -83,6 +83,11 @@ import {
   resolveAdminScheduledRidePresentation,
   resolveAdminScheduledTimeCue,
 } from '@/lib/adminScheduledRidePresentation';
+import {
+  buildAdminScheduledOpsSnapshot,
+  formatCountdownLabel,
+  resolveDepartureAckCountdownSeconds,
+} from '@/lib/adminScheduledRideMonitoring';
 import { validateAdminScheduledActionAt } from '@/lib/adminScheduledActionAt';
 import {
   ADMIN_SCHEDULED_BOARD_EXCLUDED_TRIP_STATUSES,
@@ -145,6 +150,20 @@ interface ScheduledTrip {
   pending_release_driver_id: string | null;
   confirmed_driver_id: string | null;
   scheduled_broadcast_at?: string | null;
+  scheduled_ack_status?: string | null;
+  scheduled_ack_deadline_at?: string | null;
+  scheduled_ack_armed_at?: string | null;
+  scheduled_ack_acknowledged_at?: string | null;
+  scheduled_ack_resolved_at?: string | null;
+  scheduled_ack_resolution_reason?: string | null;
+  scheduled_hold_reason?: string | null;
+  scheduled_publish_attempts?: number | null;
+  scheduled_jit_activate_at?: string | null;
+  scheduled_jit_eta_minutes?: number | null;
+  scheduled_jit_eta_observed_at?: string | null;
+  excluded_driver_ids?: string[] | null;
+  payment_state?: string | null;
+  airport_charge_pence?: number | null;
   passenger_name: string | null;
   passenger_phone: string | null;
   customer_id?: string | null;
@@ -251,7 +270,11 @@ export default function ScheduledRides() {
             'id', 'trip_number', 'trip_code', 'status', 'scheduled_status', 'pending_release_kind',
             'pending_release_at', 'pending_release_driver_id', 'confirmed_driver_id',
             'scheduled_broadcast_at', 'scheduled_ack_status', 'scheduled_ack_deadline_at',
-            'scheduled_hold_reason', 'passenger_name', 'passenger_phone', 'pickup_address',
+            'scheduled_ack_armed_at', 'scheduled_ack_acknowledged_at', 'scheduled_ack_resolved_at',
+            'scheduled_ack_resolution_reason', 'scheduled_hold_reason', 'scheduled_publish_attempts',
+            'scheduled_jit_activate_at', 'scheduled_jit_eta_minutes', 'scheduled_jit_eta_observed_at',
+            'excluded_driver_ids', 'payment_state', 'airport_charge_pence',
+            'passenger_name', 'passenger_phone', 'pickup_address',
             'dropoff_address', 'pickup_latitude', 'pickup_longitude', 'dropoff_latitude',
             'dropoff_longitude', 'estimated_fare', 'fare', 'final_fare_pence',
             'final_customer_fare_pence', 'estimated_total_pence', 'gross_fare_pence',
@@ -709,6 +732,29 @@ export default function ScheduledRides() {
     }
   };
 
+  const handleHoldExceptional = async (trip: ScheduledTrip) => {
+    const reason = requireEmergencyReason('Emergency Hold (exceptional)');
+    if (!reason) return;
+    setIsSaving(true);
+    try {
+      const result = await invokeAdminScheduledRideAction({
+        action: 'hold_exceptional',
+        tripId: trip.id,
+        reason,
+      });
+      if (!result.success) {
+        toast.error(result.message || result.error || 'Failed to hold ride');
+        return;
+      }
+      toast.success('Ride held (exceptional)');
+      fetchData();
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to hold ride');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
   /** Resolve currency: trip snapshot → region (single source of truth) */
   const resolveTripCurrency = (trip: ScheduledTrip): string =>
     trip.currency_code || trip.service_area?.region?.currency_code || '';
@@ -735,6 +781,10 @@ export default function ScheduledRides() {
     if (timeFilter === 'unassigned') {
       const presentation = resolveAdminScheduledRidePresentation(trip);
       return matchesSearch && presentation.driverKind === 'unassigned';
+    }
+    if (timeFilter === 'needs_attention') {
+      const presentation = resolveAdminScheduledRidePresentation(trip);
+      return matchesSearch && presentation.needsAttention;
     }
     
     return matchesSearch;
@@ -809,7 +859,7 @@ export default function ScheduledRides() {
               Scheduled Rides
             </CardTitle>
             <CardDescription>
-              Pre-booked rides awaiting dispatch
+              Monitor automatic scheduled workflow — intervene only when needed
             </CardDescription>
           </div>
           <div className="flex flex-col gap-2 md:flex-row md:items-center">
@@ -831,6 +881,7 @@ export default function ScheduledRides() {
                 <SelectItem value="today">Today</SelectItem>
                 <SelectItem value="tomorrow">Tomorrow</SelectItem>
                 <SelectItem value="unassigned">Unassigned</SelectItem>
+                <SelectItem value="needs_attention">Needs attention</SelectItem>
               </SelectContent>
             </Select>
             <Button variant="outline" onClick={() => fetchData()} disabled={isLoading}>
@@ -977,19 +1028,35 @@ export default function ScheduledRides() {
                         )}
                       </TableCell>
                       <TableCell>
-                        <Badge variant="outline" className={presentation.statusClassName}>
-                          {presentation.statusLabel}
-                        </Badge>
-                        {trip.pending_release_kind && trip.pending_release_at ? (
-                          <div className="text-[10px] text-muted-foreground mt-1">
-                            {trip.pending_release_kind} at{' '}
-                            {format(new Date(trip.pending_release_at), 'MMM d, h:mm a')}
-                          </div>
-                        ) : trip.service_area ? (
-                          <div className="text-xs text-muted-foreground mt-1">
-                            {trip.service_area.name}
-                          </div>
-                        ) : null}
+                        <div className="space-y-1">
+                          <Badge variant="outline" className={presentation.statusClassName}>
+                            {presentation.statusLabel}
+                          </Badge>
+                          {presentation.needsAttention ? (
+                            <Badge variant="outline" className="text-[10px] bg-rose-50 text-rose-800">
+                              Needs attention
+                            </Badge>
+                          ) : null}
+                          {(() => {
+                            const countdown = resolveDepartureAckCountdownSeconds(trip);
+                            if (countdown == null) return null;
+                            return (
+                              <div className="text-[10px] text-amber-800 font-medium">
+                                Ack {formatCountdownLabel(countdown)}
+                              </div>
+                            );
+                          })()}
+                          {trip.pending_release_kind && trip.pending_release_at ? (
+                            <div className="text-[10px] text-muted-foreground">
+                              {trip.pending_release_kind} at{' '}
+                              {format(new Date(trip.pending_release_at), 'MMM d, h:mm a')}
+                            </div>
+                          ) : trip.service_area ? (
+                            <div className="text-xs text-muted-foreground">
+                              {trip.service_area.name}
+                            </div>
+                          ) : null}
+                        </div>
                       </TableCell>
                       <TableCell className="font-medium">
                         <div>
@@ -1043,6 +1110,13 @@ export default function ScheduledRides() {
                                 Make Available in Scheduled Jobs
                               </DropdownMenuItem>
                             ) : null}
+                            <DropdownMenuItem
+                              disabled={isSaving}
+                              onClick={() => void handleHoldExceptional(trip)}
+                            >
+                              <AlertTriangle className="h-4 w-4 mr-2" />
+                              Hold
+                            </DropdownMenuItem>
                             <DropdownMenuSeparator />
                             <DropdownMenuItem 
                               onClick={() => { setSelectedTrip(trip); setCancelReason(''); setIsCancelOpen(true); }}
@@ -1081,28 +1155,115 @@ export default function ScheduledRides() {
             <div className="space-y-6">
               {(() => {
                 const detailPresentation = resolveAdminScheduledRidePresentation(selectedTrip);
+                const ops = buildAdminScheduledOpsSnapshot(selectedTrip);
                 return (
-                  <div className="flex flex-wrap items-center gap-2">
-                    <Badge variant="outline" className={detailPresentation.statusClassName}>
-                      {detailPresentation.statusLabel}
-                    </Badge>
-                    {detailPresentation.driverKind === 'unassigned' ? (
-                      <Badge variant="outline" className="bg-yellow-100 text-yellow-700">
-                        Unassigned
+                  <>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Badge variant="outline" className={detailPresentation.statusClassName}>
+                        {detailPresentation.statusLabel}
                       </Badge>
-                    ) : (
-                      <>
-                        <span className="text-sm font-medium">
-                          {detailPresentation.driverDisplayName || 'Driver'}
-                        </span>
-                        {detailPresentation.driverBadge ? (
-                          <Badge variant="outline" className="text-[10px] bg-emerald-50 text-emerald-800">
-                            {detailPresentation.driverBadge}
-                          </Badge>
-                        ) : null}
-                      </>
-                    )}
-                  </div>
+                      {detailPresentation.needsAttention ? (
+                        <Badge variant="outline" className="bg-rose-50 text-rose-800">
+                          Needs attention
+                        </Badge>
+                      ) : null}
+                      {detailPresentation.driverKind === 'unassigned' ? (
+                        <Badge variant="outline" className="bg-yellow-100 text-yellow-700">
+                          Unassigned
+                        </Badge>
+                      ) : (
+                        <>
+                          <span className="text-sm font-medium">
+                            {detailPresentation.driverDisplayName || 'Driver'}
+                          </span>
+                          {detailPresentation.driverBadge ? (
+                            <Badge variant="outline" className="text-[10px] bg-emerald-50 text-emerald-800">
+                              {detailPresentation.driverBadge}
+                            </Badge>
+                          ) : null}
+                        </>
+                      )}
+                    </div>
+
+                    <div className="rounded-lg border bg-muted/30 p-3 space-y-3">
+                      <Label className="text-xs text-muted-foreground flex items-center gap-1">
+                        <Timer className="h-3 w-3" />
+                        Automatic workflow
+                      </Label>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
+                        <div>
+                          <p className="text-xs text-muted-foreground">Target arrival</p>
+                          <p className="font-medium">{ops.targetArrivalLabel}</p>
+                        </div>
+                        <div>
+                          <p className="text-xs text-muted-foreground">JIT departure deadline</p>
+                          <p className="font-medium">{ops.jitDeadlineLabel}</p>
+                        </div>
+                        <div>
+                          <p className="text-xs text-muted-foreground">Driver-to-pickup ETA</p>
+                          <p className="font-medium">{ops.driverToPickupEtaLabel}</p>
+                        </div>
+                        <div>
+                          <p className="text-xs text-muted-foreground">Ack deadline / countdown</p>
+                          <p className="font-medium">
+                            {ops.ackDeadlineLabel}
+                            {ops.ackCountdownLabel !== '—' ? ` · ${ops.ackCountdownLabel}` : ''}
+                          </p>
+                        </div>
+                        <div>
+                          <p className="text-xs text-muted-foreground">Payment readiness</p>
+                          <p className={`font-medium ${ops.readiness.paymentOk ? '' : 'text-orange-700'}`}>
+                            {ops.readiness.paymentLabel}
+                          </p>
+                        </div>
+                        <div>
+                          <p className="text-xs text-muted-foreground">Airport pricing</p>
+                          <p className={`font-medium ${ops.readiness.airportOk ? '' : 'text-orange-700'}`}>
+                            {ops.readiness.airportLabel}
+                          </p>
+                        </div>
+                      </div>
+                      {ops.compatibleJourneyLabel ? (
+                        <p className="text-xs text-violet-800 bg-violet-50 border border-violet-100 rounded px-2 py-1">
+                          {ops.compatibleJourneyLabel}
+                        </p>
+                      ) : null}
+                      {ops.replacementSearchLabel ? (
+                        <p className="text-xs text-blue-800 bg-blue-50 border border-blue-100 rounded px-2 py-1">
+                          {ops.replacementSearchLabel}
+                        </p>
+                      ) : null}
+                      {ops.events.length > 0 ? (
+                        <div className="space-y-1">
+                          <p className="text-xs text-muted-foreground">Operational events</p>
+                          <ul className="space-y-1">
+                            {ops.events.map((ev) => (
+                              <li key={ev.key} className="text-xs flex justify-between gap-2">
+                                <span
+                                  className={
+                                    ev.tone === 'bad'
+                                      ? 'text-rose-700'
+                                      : ev.tone === 'warn'
+                                        ? 'text-amber-800'
+                                        : ev.tone === 'ok'
+                                          ? 'text-emerald-800'
+                                          : 'text-foreground'
+                                  }
+                                >
+                                  {ev.label}
+                                </span>
+                                <span className="text-muted-foreground shrink-0">
+                                  {ev.at
+                                    ? format(new Date(ev.at), 'MMM d, h:mm:ss a')
+                                    : '—'}
+                                </span>
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      ) : null}
+                    </div>
+                  </>
                 );
               })()}
 

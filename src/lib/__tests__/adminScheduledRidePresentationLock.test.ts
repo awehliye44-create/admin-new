@@ -10,12 +10,24 @@ describe('adminScheduledRidePresentation — ownership SSOT', () => {
     const p = resolveAdminScheduledRidePresentation({
       scheduled_status: 'admin_held',
       status: 'scheduled',
+      scheduled_broadcast_at: '2026-09-23T10:00:00Z',
       driver_id: null,
       confirmed_driver_id: null,
     });
     expect(p.statusLabel).toBe('Held');
     expect(p.driverKind).toBe('unassigned');
     expect(p.belongsOnLiveScheduledBoard).toBe(true);
+  });
+
+  it('unpublished scheduled → Awaiting publication', () => {
+    const p = resolveAdminScheduledRidePresentation({
+      scheduled_status: 'scheduled',
+      status: 'scheduled',
+      driver_id: null,
+      confirmed_driver_id: null,
+    });
+    expect(p.statusKey).toBe('awaiting_publication');
+    expect(p.statusLabel).toBe('Awaiting publication');
   });
 
   it('AVAILABLE / Requested → published scheduled + Driver Unassigned', () => {
@@ -42,6 +54,7 @@ describe('adminScheduledRidePresentation — ownership SSOT', () => {
     expect(p.statusKey).toBe('payment_blocked');
     expect(p.statusLabel).toBe('Payment blocked');
     expect(p.belongsOnLiveScheduledBoard).toBe(true);
+    expect(p.needsAttention).toBe(true);
   });
 
   it('PRE-CONFIRMED → Pre-confirmed + confirmed driver name (not Unassigned / not Driver Assigned)', () => {
@@ -57,7 +70,6 @@ describe('adminScheduledRidePresentation — ownership SSOT', () => {
     expect(p.driverKind).toBe('pre_confirmed');
     expect(p.driverDisplayName).toBe('Ahmed Osman');
     expect(p.driverBadge).toBe('PRE-CONFIRMED');
-    // FORBIDDEN contradictions
     expect(p.statusLabel).not.toBe('Driver Assigned');
     expect(p.driverKind).not.toBe('unassigned');
   });
@@ -95,9 +107,11 @@ describe('adminScheduledRidePresentation — ownership SSOT', () => {
     expect(p.statusKey).toBe('finding_driver');
     expect(p.statusLabel).toBe('Searching');
     expect(p.driverKind).toBe('unassigned');
+    // Automatic rematch — not a manual intervention requirement.
+    expect(p.needsAttention).toBe(false);
   });
 
-  it('Phase 5 alert pending / timeout monitoring labels', () => {
+  it('Phase 5/6: ack pending is monitor-only; never Heading to pickup', () => {
     const pending = resolveAdminScheduledRidePresentation({
       scheduled_status: 'awaiting_activation_accept',
       status: 'scheduled',
@@ -106,17 +120,40 @@ describe('adminScheduledRidePresentation — ownership SSOT', () => {
       confirmed_driver: { first_name: 'A', last_name: 'B' },
     });
     expect(pending.statusKey).toBe('alert_pending');
-    expect(pending.statusLabel).toBe('Alert pending');
-    expect(pending.needsAttention).toBe(true);
+    expect(pending.statusLabel).toBe('Awaiting departure ack');
+    expect(pending.statusLabel.toLowerCase()).not.toContain('heading');
+    expect(pending.needsAttention).toBe(false);
 
-    const timedOut = resolveAdminScheduledRidePresentation({
+    const timedOutRecovering = resolveAdminScheduledRidePresentation({
       scheduled_status: 'converted_to_instant',
       status: 'searching',
       confirmed_driver_id: null,
       scheduled_ack_status: 'timed_out',
     });
-    expect(timedOut.statusKey).toBe('alert_timeout');
-    expect(timedOut.needsAttention).toBe(true);
+    expect(timedOutRecovering.statusKey).toBe('alert_timeout');
+    expect(timedOutRecovering.needsAttention).toBe(false);
+  });
+
+  it('FORBIDDEN: Heading to pickup before successful departure acknowledgement', () => {
+    const withoutAck = resolveAdminScheduledRidePresentation({
+      scheduled_status: 'converted_to_instant',
+      status: 'en_route_to_pickup',
+      driver_id: 'drv-1',
+      scheduled_ack_status: null,
+      driver: { first_name: 'A', last_name: 'B' },
+    });
+    expect(withoutAck.statusLabel.toLowerCase()).not.toContain('heading');
+    expect(withoutAck.statusLabel).toBe('Driver Assigned');
+
+    const withAck = resolveAdminScheduledRidePresentation({
+      scheduled_status: 'converted_to_instant',
+      status: 'en_route_to_pickup',
+      driver_id: 'drv-1',
+      scheduled_ack_status: 'acknowledged',
+      driver: { first_name: 'A', last_name: 'B' },
+    });
+    expect(withAck.statusKey).toBe('heading_to_pickup');
+    expect(withAck.statusLabel).toBe('Heading to pickup');
   });
 
   it('JIT pending when confirmed awaiting activation without ack', () => {
@@ -189,6 +226,7 @@ describe('adminScheduledRidePresentation — ownership SSOT', () => {
     });
     expect(expired.statusLabel).toBe('Expired');
     expect(expired.driverKind).toBe('unassigned');
+    expect(expired.needsAttention).toBe(true);
   });
 
   it('never invents Overdue lifecycle label', () => {
@@ -202,6 +240,7 @@ describe('adminScheduledRidePresentation — ownership SSOT', () => {
       id: 'trip-uuid-1',
       scheduled_status: 'admin_held',
       status: 'scheduled',
+      scheduled_broadcast_at: '2026-09-23T10:00:00Z',
       driver_id: null,
       confirmed_driver_id: null,
     };
