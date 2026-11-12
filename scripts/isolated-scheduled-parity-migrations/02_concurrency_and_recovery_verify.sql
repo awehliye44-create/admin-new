@@ -20,25 +20,46 @@ DECLARE
   v_ps_inst uuid := '33333333-3333-3333-3333-333333333399';
   v_trip uuid;
   v_trip2 uuid;
+  v_ctap_trip uuid := gen_random_uuid();
+  v_hold_ps uuid;
   v_driver uuid;
   v_row public.trips%ROWTYPE;
   v_err text;
   v_sess public.payment_sessions%ROWTYPE;
   v_deadline timestamptz := now() + interval '3 days';
+  v_run text := replace(gen_random_uuid()::text, '-', '');
 BEGIN
+  -- Always mint fresh ids so re-runs never collide with ledger/unique indexes.
+  v_ps_a := gen_random_uuid();
+  v_ps_b := gen_random_uuid();
+  v_ps_c := gen_random_uuid();
+  v_ps_d := gen_random_uuid();
+  v_ps_e := gen_random_uuid();
+  v_ps_inst := gen_random_uuid();
+
   SELECT id INTO v_sa FROM public.service_areas WHERE trip_id_prefix IS NOT NULL LIMIT 1;
   IF v_sa IS NULL THEN
     RAISE EXCEPTION 'no service_area with trip_id_prefix for fixture';
   END IF;
-  SELECT id, user_id INTO v_cust, v_user FROM public.customers WHERE user_id IS NOT NULL LIMIT 1;
+  SELECT c.id, c.user_id
+    INTO v_cust, v_user
+  FROM public.customers c
+  WHERE c.user_id IS NOT NULL
+    AND NOT EXISTS (
+      SELECT 1 FROM public.trips t
+      WHERE t.passenger_id = c.id
+        AND t.cancelled_at IS NULL
+        AND t.completed_at IS NULL
+        AND t.status IN (
+          'searching','scheduled','accepted','arrived','in_progress',
+          'en_route','driver_assigned'
+        )
+    )
+  ORDER BY c.created_at DESC
+  LIMIT 1;
   IF v_cust IS NULL OR v_user IS NULL THEN
-    RAISE EXCEPTION 'no customers row with user_id for fixture';
+    RAISE EXCEPTION 'no idle customer with user_id for fixture';
   END IF;
-
-  -- Clean prior fixture sessions/trips if re-run.
-  DELETE FROM public.trips WHERE payment_session_id IN (v_ps_a, v_ps_b, v_ps_c, v_ps_d, v_ps_e, v_ps_inst)
-     OR id = '44444444-4444-4444-4444-444444444401';
-  DELETE FROM public.payment_sessions WHERE id IN (v_ps_a, v_ps_b, v_ps_c, v_ps_d, v_ps_e, v_ps_inst);
 
   -- Distinct scheduled_at per case to avoid customer overlap trigger.
   INSERT INTO public.payment_sessions (
@@ -46,19 +67,19 @@ BEGIN
     service_area_id, payment_method, payment_provider, provider_order_id,
     client_action_id, idempotency_key, booking_snapshot, capture_deadline, currency
   ) VALUES
-  (v_ps_a, v_cust, v_user, 'authorised_hold', 'AUTHORISED', 800, v_sa, 'APPLE_PAY', 'revolut', 'ord-a', 'caa', 'idemp-a',
+  (v_ps_a, v_cust, v_user, 'authorised_hold', 'AUTHORISED', 800, v_sa, 'APPLE_PAY', 'revolut', 'ord-a-'||v_run, 'caa-'||v_run, 'idemp-a-'||v_run,
     jsonb_build_object('when','scheduled','is_scheduled',true,'scheduled_at',(now()+interval '26 hours')::text,'estimated_duration_minutes',20,'payment_method','APPLE_PAY','passenger_id',v_cust::text,'booking_source','choose_ride','pickup',jsonb_build_object('address','A','lat',52.04,'lng',-0.76),'dropoff',jsonb_build_object('address','B','lat',52.05,'lng',-0.75),'customer_payable_pence',500,'gross_fare_pence',500),
     v_deadline, 'gbp'),
-  (v_ps_b, v_cust, v_user, 'authorised_hold', 'AUTHORISED', 800, v_sa, 'APPLE_PAY', 'revolut', 'ord-b', 'cab', 'idemp-b',
+  (v_ps_b, v_cust, v_user, 'authorised_hold', 'AUTHORISED', 800, v_sa, 'APPLE_PAY', 'revolut', 'ord-b-'||v_run, 'cab-'||v_run, 'idemp-b-'||v_run,
     jsonb_build_object('when','scheduled','is_scheduled',true,'scheduled_at',(now()+interval '30 hours')::text,'estimated_duration_minutes',20,'payment_method','APPLE_PAY','passenger_id',v_cust::text,'booking_source','choose_ride','pickup',jsonb_build_object('address','A','lat',52.04,'lng',-0.76),'dropoff',jsonb_build_object('address','B','lat',52.05,'lng',-0.75),'customer_payable_pence',500,'gross_fare_pence',500),
     v_deadline, 'gbp'),
-  (v_ps_c, v_cust, v_user, 'authorised_hold', 'AUTHORISED', 800, v_sa, 'APPLE_PAY', 'revolut', 'ord-c', 'cac', 'idemp-c',
+  (v_ps_c, v_cust, v_user, 'authorised_hold', 'AUTHORISED', 800, v_sa, 'APPLE_PAY', 'revolut', 'ord-c-'||v_run, 'cac-'||v_run, 'idemp-c-'||v_run,
     jsonb_build_object('when','scheduled','is_scheduled',true,'scheduled_at',(now()+interval '34 hours')::text,'estimated_duration_minutes',20,'payment_method','APPLE_PAY','passenger_id',v_cust::text,'booking_source','choose_ride','pickup',jsonb_build_object('address','A','lat',52.04,'lng',-0.76),'dropoff',jsonb_build_object('address','B','lat',52.05,'lng',-0.75),'customer_payable_pence',500,'gross_fare_pence',500),
     NULL, 'gbp'),
-  (v_ps_d, v_cust, v_user, 'authorised_hold', 'AUTHORISED', 800, v_sa, 'APPLE_PAY', 'revolut', 'ord-d', 'cad', 'idemp-d',
+  (v_ps_d, v_cust, v_user, 'authorised_hold', 'AUTHORISED', 800, v_sa, 'APPLE_PAY', 'revolut', 'ord-d-'||v_run, 'cad-'||v_run, 'idemp-d-'||v_run,
     jsonb_build_object('when','scheduled','is_scheduled',true,'scheduled_at',(now()+interval '38 hours')::text,'estimated_duration_minutes',20,'payment_method','APPLE_PAY','passenger_id',v_cust::text,'booking_source','choose_ride','pickup',jsonb_build_object('address','A','lat',52.04,'lng',-0.76),'dropoff',jsonb_build_object('address','B','lat',52.05,'lng',-0.75),'customer_payable_pence',500,'gross_fare_pence',500),
     now() + interval '10 minutes', 'gbp'),
-  (v_ps_e, v_cust, v_user, 'authorised_hold', 'AUTHORISED', 800, v_sa, 'APPLE_PAY', 'revolut', 'ord-e', 'cae', 'idemp-e',
+  (v_ps_e, v_cust, v_user, 'authorised_hold', 'AUTHORISED', 800, v_sa, 'APPLE_PAY', 'revolut', 'ord-e-'||v_run, 'cae-'||v_run, 'idemp-e-'||v_run,
     jsonb_build_object('when','scheduled','is_scheduled',true,'scheduled_at',(now()+interval '42 hours')::text,'estimated_duration_minutes',20,'payment_method','APPLE_PAY','passenger_id',v_cust::text,'booking_source','choose_ride','pickup',jsonb_build_object('address','A','lat',52.04,'lng',-0.76),'dropoff',jsonb_build_object('address','B','lat',52.05,'lng',-0.75),'customer_payable_pence',500,'gross_fare_pence',500),
     v_deadline, 'gbp');
 
@@ -92,15 +113,15 @@ BEGIN
     pickup_address, pickup_latitude, pickup_longitude,
     dropoff_address, dropoff_latitude, dropoff_longitude
   ) VALUES (
-    '44444444-4444-4444-4444-444444444401', v_cust, 'scheduled', true, now() + interval '30 hours', 'scheduled', 'scheduled',
-    'choose_ride', v_ps_b, 'revolut', 'ord-b', 'cab', v_sa, 'admin_held', 'publication_pending', NULL,
+    v_ctap_trip, v_cust, 'scheduled', true, now() + interval '30 hours', 'scheduled', 'scheduled',
+    'choose_ride', v_ps_b, 'revolut', 'ord-b-'||v_run, 'cab-'||v_run, v_sa, 'admin_held', 'publication_pending', NULL,
     'APPLE_PAY', 'Pickup A', 52.04, -0.76, 'Dropoff B', 52.05, -0.75
   );
   v_trip := public.finalize_paid_booking_session(v_ps_b);
   SELECT * INTO v_sess FROM public.payment_sessions WHERE id = v_ps_b;
   INSERT INTO _parity_results VALUES (
     'ctap_wins_webhook_adopts',
-    v_trip = '44444444-4444-4444-4444-444444444401'::uuid
+    v_trip = v_ctap_trip
       AND v_sess.trip_id = v_trip
       AND v_sess.status = 'trip_created'
       AND (SELECT count(*) FROM public.trips WHERE payment_session_id = v_ps_b) = 1,
@@ -161,7 +182,7 @@ BEGIN
     service_area_id, payment_method, payment_provider, provider_order_id,
     client_action_id, idempotency_key, booking_snapshot, capture_deadline, currency
   ) VALUES (
-    v_ps_inst, v_cust, v_user, 'authorised_hold', 'AUTHORISED', 800, v_sa, 'CARD', 'revolut', 'ord-inst', 'cain', 'idemp-inst',
+    v_ps_inst, v_cust, v_user, 'authorised_hold', 'AUTHORISED', 800, v_sa, 'CARD', 'revolut', 'ord-inst-'||v_run, 'cain-'||v_run, 'idemp-inst-'||v_run,
     jsonb_build_object(
       'when', 'now',
       'is_scheduled', false,
@@ -190,9 +211,9 @@ BEGIN
     id, customer_id, user_id, client_action_id, idempotency_key, status, provider_state,
     authorised_amount_pence, service_area_id, payment_method, currency
   ) VALUES (
-    '33333333-3333-3333-3333-333333333390', v_cust, v_user, 'hold-caa', 'hold-idemp',
+    gen_random_uuid(), v_cust, v_user, 'hold-caa-'||v_run, 'hold-idemp-'||v_run,
     'authorised_hold', 'AUTHORISED', 800, v_sa, 'APPLE_PAY', 'gbp'
-  ) ON CONFLICT (id) DO NOTHING;
+  ) RETURNING id INTO v_hold_ps;
   INSERT INTO public.trips (
     passenger_id, status, is_scheduled, scheduled_at, trip_type, booking_source,
     scheduled_hold_reason, payment_method, service_area_id, payment_session_id,
@@ -200,7 +221,7 @@ BEGIN
     dropoff_address, dropoff_latitude, dropoff_longitude
   ) VALUES (
     v_cust, 'scheduled', true, now() + interval '90 hours', 'scheduled', 'choose_ride', 'payment_gate',
-    'APPLE_PAY', v_sa, '33333333-3333-3333-3333-333333333390',
+    'APPLE_PAY', v_sa, v_hold_ps,
     'Pickup A', 52.04, -0.76, 'Dropoff B', 52.05, -0.75
   ) RETURNING * INTO v_row;
   INSERT INTO _parity_results VALUES (

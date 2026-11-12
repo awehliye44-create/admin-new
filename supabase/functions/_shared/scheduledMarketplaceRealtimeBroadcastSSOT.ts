@@ -57,7 +57,11 @@ export async function broadcastScheduledMarketplaceChanged(
     serviceAreaId,
     reason: input.reason,
   });
-  const channel = supabase.channel(channelName);
+  // Private topic — clients must set config.private=true; Realtime RLS scopes
+  // receive to drivers assigned to this service area.
+  const channel = supabase.channel(channelName, {
+    config: { private: true },
+  });
 
   return await new Promise<boolean>((resolve) => {
     let settled = false;

@@ -54,6 +54,7 @@ import {
   notifyCustomerTripLifecycle,
 } from "../_shared/customerTripLifecycleNotify.ts";
 import { notifyScheduledMarketplaceOpen } from "../_shared/scheduledMarketplaceNotifySSOT.ts";
+import { broadcastScheduledMarketplaceChanged } from "../_shared/scheduledMarketplaceRealtimeBroadcastSSOT.ts";
 import {
   attemptScheduledMarketplaceAutoPublish,
   evaluateScheduledMarketplaceAutoPublishEligibility,
@@ -1710,6 +1711,19 @@ Deno.serve(async (req) => {
             })
             .eq("id", trip.id)
             .in("status", ["expired", "expired_no_driver"]);
+
+          try {
+            await broadcastScheduledMarketplaceChanged(supabase, {
+              tripId: String(trip.id),
+              serviceAreaId: trip.service_area_id ?? null,
+              reason: "expired",
+            });
+          } catch (broadcastErr) {
+            console.warn(
+              "[scheduled-dispatch] expire marketplace broadcast non-fatal",
+              broadcastErr instanceof Error ? broadcastErr.message : String(broadcastErr),
+            );
+          }
 
           await logSnapshot(supabase, {
             tripId: trip.id,

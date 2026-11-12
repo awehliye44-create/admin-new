@@ -22,6 +22,25 @@ Deno.test("marketplace realtime channel + event are stable", () => {
   assertEquals(SCHEDULED_MARKETPLACE_REALTIME_EVENT, "scheduled_marketplace_changed");
 });
 
+Deno.test("marketplace broadcast uses private channel config", async () => {
+  const src = await Deno.readTextFile(
+    new URL(
+      "supabase/functions/_shared/scheduledMarketplaceRealtimeBroadcastSSOT.ts",
+      root,
+    ),
+  );
+  assertStringIncludes(src, "private: true");
+  const migration = await Deno.readTextFile(
+    new URL(
+      "supabase/migrations/20270218130300_scheduled_marketplace_realtime_private_auth.sql",
+      root,
+    ),
+  );
+  assertStringIncludes(migration, "scheduled-marketplace:%");
+  assertStringIncludes(migration, "current_driver_profile_id");
+  assertStringIncludes(migration, "driver_service_areas");
+});
+
 Deno.test("broadcast payload is invalidate-only (no passenger fields)", () => {
   const payload = buildScheduledMarketplaceRealtimePayload({
     tripId: "trip-1",
