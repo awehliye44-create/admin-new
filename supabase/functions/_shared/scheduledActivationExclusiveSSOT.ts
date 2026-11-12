@@ -8,7 +8,10 @@
  * - Never treat push delivery failure as a decline.
  */
 
-import { buildScheduledUrgentConversionPatch } from "./scheduledDispatchConfig.ts";
+import {
+  buildScheduledUrgentConversionPatch,
+  resolveConversionBroadcastEnabled,
+} from "./scheduledDispatchConfig.ts";
 import { DRIVER_NEW_RIDE_OFFER_DATA_TYPE } from "./rideOfferClientPushData.ts";
 import { DRIVER_NEW_RIDE_OFFER_TITLE } from "./negotiationPushCopy.ts";
 import { rideOfferPushBodyDriverNet } from "./driverOfferPushCopy.ts";
@@ -208,6 +211,8 @@ export function buildExclusiveFailureConversionPatch(input: {
   existingExcludedDriverIds?: unknown;
   maxExistingBroadcastRound?: number | null;
   maxBroadcastSequences?: number | null;
+  /** Preserve airport / fare-enrich hold when currently false. */
+  currentBroadcastEnabled?: boolean | null;
 }): Record<string, unknown> {
   const excluded = mergeExcludedDriverIds(
     input.existingExcludedDriverIds,
@@ -219,6 +224,9 @@ export function buildExclusiveFailureConversionPatch(input: {
       searchingExpiresAtIso: input.searchingExpiresAtIso,
       maxExistingBroadcastRound: input.maxExistingBroadcastRound,
       maxBroadcastSequences: input.maxBroadcastSequences,
+      broadcastEnabled: resolveConversionBroadcastEnabled({
+        currentBroadcastEnabled: input.currentBroadcastEnabled,
+      }),
     }),
     driver_id: null,
     confirmed_driver_id: null,

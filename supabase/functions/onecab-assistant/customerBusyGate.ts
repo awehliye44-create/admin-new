@@ -42,6 +42,9 @@ const SCHEDULED_PREACTIVATION_STATUSES = new Set([
   "awaiting_activation_accept",
   "driver_assigned",
   "scheduled_committed",
+  "scheduled",
+  "pending",
+  "payment_gate_blocked",
 ]);
 
 export type CustomerAssistantBusySnapshot = {

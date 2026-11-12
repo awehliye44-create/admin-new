@@ -59,12 +59,15 @@ function isScheduledTrip(row: TripRow): boolean {
   return row.is_scheduled === true;
 }
 
-/** Keep in sync with activeTripRestoreCore — HELD / preconfirm / activation-armed. */
+/** Keep in sync with activeTripRestoreCore — HELD / preconfirm / marketplace list-only. */
 const SCHEDULED_PREACTIVATION_STATUSES = new Set([
   "admin_held",
   "awaiting_activation_accept",
   "driver_assigned",
   "scheduled_committed",
+  "scheduled",
+  "pending",
+  "payment_gate_blocked",
 ]);
 
 function scheduledDispatchWindowReached(row: TripRow, nowMs: number): boolean {

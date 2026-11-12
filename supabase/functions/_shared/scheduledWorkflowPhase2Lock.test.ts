@@ -22,11 +22,12 @@ Deno.test("conversion patch can preserve airport broadcast hold", async () => {
   assertStringIncludes(src, "input.broadcastEnabled !== false");
 });
 
-Deno.test("scheduled-dispatch orders bounded STEP batches", async () => {
+Deno.test("scheduled-dispatch orders bounded STEP batches and holds airport Broadcast At", async () => {
   const src = await read("../scheduled-dispatch/index.ts");
   assertStringIncludes(src, '.order("pending_release_at", { ascending: true })');
   assertStringIncludes(src, '.order("scheduled_at", { ascending: true })');
   assertStringIncludes(src, "resolveConversionBroadcastEnabled");
+  assertStringIncludes(src, "pending Broadcast At held");
 });
 
 Deno.test("cancel_confirmed rematch does not stamp terminal cancelled_at", async () => {

@@ -464,7 +464,7 @@ Deno.serve(async (req) => {
       const { data: dueReleases, error: dueErr } = await supabase
         .from("trips")
         .select(
-          "id, pending_release_kind, pending_release_at, pending_release_driver_id, confirmed_driver_id, driver_id, scheduled_status, status, dispatch_mode, passenger_id",
+          "id, pending_release_kind, pending_release_at, pending_release_driver_id, confirmed_driver_id, driver_id, scheduled_status, status, dispatch_mode, passenger_id, broadcast_enabled",
         )
         .not("pending_release_kind", "is", null)
         .not("pending_release_at", "is", null)
@@ -672,6 +672,10 @@ Deno.serve(async (req) => {
             const maxExistingBroadcastRound = Number(
               priorBroadcastOffers?.[0]?.broadcast_round ?? 0,
             );
+            const allowBroadcast = resolveConversionBroadcastEnabled({
+              currentBroadcastEnabled: (trip as { broadcast_enabled?: boolean | null })
+                .broadcast_enabled,
+            });
             const { data: broadcastRows, error } = await supabase
               .from("trips")
               .update(
@@ -682,6 +686,8 @@ Deno.serve(async (req) => {
                     ? maxExistingBroadcastRound
                     : 0,
                   maxBroadcastSequences: instantMaxSequences,
+                  currentBroadcastEnabled: (trip as { broadcast_enabled?: boolean | null })
+                    .broadcast_enabled,
                 }),
               )
               .eq("id", trip.id)
@@ -716,10 +722,15 @@ Deno.serve(async (req) => {
             await logSnapshot(supabase, {
               tripId: trip.id,
               action: "admin_pending_broadcast_executed",
-              metadata: {},
+              metadata: { broadcast_enabled: allowBroadcast },
             });
-            // Broadcast At = NRO path (broadcasting). Kick auto-dispatch now —
-            // STEP 2 only activates on Local/Long T for published Scheduled Jobs.
+            // Broadcast At = NRO path. Never kick dispatch while airport hold remains.
+            if (!allowBroadcast) {
+              console.warn(
+                `[scheduled-dispatch] pending Broadcast At held (airport/fare) for ${trip.id}`,
+              );
+              continue;
+            }
             await triggerAutoDispatch({
               supabaseUrl,
               supabaseServiceKey,

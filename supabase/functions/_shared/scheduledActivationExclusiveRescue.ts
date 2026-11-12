@@ -118,7 +118,7 @@ export async function rescueExclusiveActivationToNearby(
   const { data: trip, error: tripErr } = await supabase
     .from("trips")
     .select(
-      "id, status, scheduled_status, dispatch_mode, confirmed_driver_id, driver_id, scheduled_broadcast_at, excluded_driver_ids, passenger_id, completed_at",
+      "id, status, scheduled_status, dispatch_mode, confirmed_driver_id, driver_id, scheduled_broadcast_at, excluded_driver_ids, passenger_id, completed_at, broadcast_enabled",
     )
     .eq("id", tripId)
     .maybeSingle();
@@ -182,7 +182,10 @@ export async function rescueExclusiveActivationToNearby(
       ? maxExistingBroadcastRound
       : 0,
     maxBroadcastSequences: instantMaxSequences,
+    currentBroadcastEnabled: (trip as { broadcast_enabled?: boolean | null })
+      .broadcast_enabled,
   });
+  const allowBroadcast = patch.broadcast_enabled !== false;
 
   const { data: updatedRows, error: updateErr } = await supabase
     .from("trips")
@@ -204,7 +207,16 @@ export async function rescueExclusiveActivationToNearby(
     trip_id: tripId,
     reason: args.reason,
     excluded_driver_id: excludeDriverId,
+    broadcast_enabled: allowBroadcast,
   });
+
+  if (!allowBroadcast) {
+    console.warn("SCHEDULED_ACTIVATION_RESCUE_BROADCAST_HELD", {
+      trip_id: tripId,
+      reason: args.reason,
+    });
+    return { ok: true, rescued: true, tripId, reason: `${args.reason}:broadcast_held` };
+  }
 
   // DB convert already committed. Detect Edge failure and retry once.
   // expire-offers (10s) remains the durable recovery if both attempts fail.

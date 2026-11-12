@@ -7,7 +7,10 @@
  * - Broadcast → open NRO / auto-dispatch path now (or At via pending_release)
  */
 
-import { buildScheduledUrgentConversionPatch } from "./scheduledDispatchConfig.ts";
+import {
+  buildScheduledUrgentConversionPatch,
+  resolveConversionBroadcastEnabled,
+} from "./scheduledDispatchConfig.ts";
 
 export const PENDING_RELEASE_KINDS = ["assign", "broadcast", "jobs"] as const;
 export type PendingReleaseKind = (typeof PENDING_RELEASE_KINDS)[number];
@@ -94,6 +97,8 @@ export function buildBroadcastNowPatch(input: {
   searchingExpiresAtIso: string;
   maxExistingBroadcastRound?: number | null;
   maxBroadcastSequences?: number | null;
+  /** Preserve airport / fare-enrich hold when currently false. */
+  currentBroadcastEnabled?: boolean | null;
 }): Record<string, unknown> {
   return {
     ...buildScheduledUrgentConversionPatch({
@@ -101,6 +106,9 @@ export function buildBroadcastNowPatch(input: {
       searchingExpiresAtIso: input.searchingExpiresAtIso,
       maxExistingBroadcastRound: input.maxExistingBroadcastRound,
       maxBroadcastSequences: input.maxBroadcastSequences,
+      broadcastEnabled: resolveConversionBroadcastEnabled({
+        currentBroadcastEnabled: input.currentBroadcastEnabled,
+      }),
     }),
     scheduled_broadcast_at: input.nowIso,
     confirmed_driver_id: null,
