@@ -287,6 +287,19 @@ export function isNoPreconfirmedConvertScheduledStatus(
   );
 }
 
+/**
+ * Airport / fare-enrich hold sets broadcast_enabled=false. Conversion must not
+ * silently reopen dispatch until mandatory airport pricing is persisted.
+ * Rematch after driver cancel passes forceOpen=true.
+ */
+export function resolveConversionBroadcastEnabled(input: {
+  currentBroadcastEnabled?: boolean | null;
+  forceOpen?: boolean;
+}): boolean {
+  if (input.forceOpen === true) return true;
+  return input.currentBroadcastEnabled !== false;
+}
+
 /** Patch that flips a no-accept scheduled job onto the instant nearby-card path. */
 export function buildScheduledUrgentConversionPatch(input: {
   nowIso: string;
@@ -304,12 +317,17 @@ export function buildScheduledUrgentConversionPatch(input: {
    * find-driver search window (typically 6 minutes).
    */
   maxBroadcastSequences?: number | null;
+  /**
+   * When false, preserve airport / fare-enrich broadcast hold.
+   * Rematch paths that must reopen dispatch pass true (default).
+   */
+  broadcastEnabled?: boolean;
 }): {
   dispatch_mode: "instant";
   scheduled_status: "converted_to_instant";
   status: "searching";
   dispatch_status: "broadcasting";
-  broadcast_enabled: true;
+  broadcast_enabled: boolean;
   searching_expires_at: string;
   current_broadcast_round: number;
   max_broadcast_rounds: number;
@@ -334,7 +352,7 @@ export function buildScheduledUrgentConversionPatch(input: {
     scheduled_status: "converted_to_instant",
     status: "searching",
     dispatch_status: "broadcasting",
-    broadcast_enabled: true,
+    broadcast_enabled: input.broadcastEnabled !== false,
     searching_expires_at: input.searchingExpiresAtIso,
     // Fresh W1 of the next cycle after offer history (0 when none → next seq 1).
     current_broadcast_round: cycleEnd,

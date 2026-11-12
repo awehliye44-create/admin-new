@@ -707,19 +707,26 @@ Deno.serve(async (req) => {
           ? trip.scheduled_broadcast_at
           : releaseNowIso;
 
+      // Rematch — same trip id / fare. Do NOT stamp terminal cancelled_at while
+      // the booking is still live for rematching (Customer must not see Cancelled).
+      // Cancelling driver is excluded via decline_scheduled_ride above.
+      // Pre-window: scheduled_status=broadcasting (marketplace). Check-in open:
+      // keep broadcasting until conversion patch below flips to searching —
+      // never show Finding from this stamp alone.
       const { error: updateError } = await supabase
         .from("trips")
         .update({
           driver_id: null,
           confirmed_driver_id: null,
-          cancelled_by: "driver",
+          cancelled_by: null,
           cancellation_reason: cancellation_reason,
           cancellation_note: cancellation_note || null,
-          cancelled_at: releaseNowIso,
+          cancelled_at: null,
           scheduled_status: "broadcasting",
           scheduled_broadcast_at: broadcastAt,
           status: isCheckinOpen ? "pending" : "offered",
           dispatch_status: cancelDispatchStatus,  // §11/§12 SSOT
+          broadcast_enabled: true,
           // Reset commitment columns if present
           scheduled_driver_risk: false,
           current_offer_driver_id: null,
@@ -795,9 +802,9 @@ Deno.serve(async (req) => {
         const maxExistingBroadcastRound = Number(
           priorConvertOffers?.[0]?.broadcast_round ?? 0,
         );
-        await supabase
-          .from("trips")
-          .update(buildScheduledUrgentConversionPatch({
+          await supabase
+            .from("trips")
+            .update(buildScheduledUrgentConversionPatch({
             nowIso: convertNow.toISOString(),
             searchingExpiresAtIso: new Date(
               convertNow.getTime() + maxFindDriverMinutes * 60_000,
@@ -806,8 +813,10 @@ Deno.serve(async (req) => {
               ? maxExistingBroadcastRound
               : 0,
             maxBroadcastSequences: instantMaxSequences,
+            // Rematch must reopen dispatch (airport hold already cleared above).
+            broadcastEnabled: true,
           }))
-          .eq("id", trip_id);
+            .eq("id", trip_id);
 
         // Trigger auto-dispatch immediately — don't wait for expire-offers sweep
         try {

@@ -15,6 +15,7 @@ import {
   resolveScheduledDispatchConfig,
   shouldConvertScheduledToUrgent,
   buildScheduledUrgentConversionPatch,
+  resolveConversionBroadcastEnabled,
   NO_PRECONFIRMED_CONVERT_SCHEDULED_STATUSES,
 } from "../_shared/scheduledDispatchConfig.ts";
 import { maxBroadcastSequences } from "../_shared/dispatch-settings.ts";
@@ -410,6 +411,7 @@ Deno.serve(async (req) => {
         .eq("scheduled_status", "payment_gate_blocked")
         .is("started_at", null)
         .is("completed_at", null)
+        .order("updated_at", { ascending: true })
         .limit(50);
       for (const row of blocked ?? []) {
         try {
@@ -467,6 +469,7 @@ Deno.serve(async (req) => {
         .not("pending_release_kind", "is", null)
         .not("pending_release_at", "is", null)
         .lte("pending_release_at", now.toISOString())
+        .order("pending_release_at", { ascending: true })
         .limit(50);
 
       if (dueErr) {
@@ -1081,6 +1084,7 @@ Deno.serve(async (req) => {
         )
         .eq("scheduled_status", "awaiting_activation_accept")
         .is("driver_id", null)
+        .order("scheduled_at", { ascending: true })
         .limit(50);
 
       if (awaitingErr) {
@@ -1345,12 +1349,14 @@ Deno.serve(async (req) => {
     const { data: ridesToConvert, error: convertError } = await supabase
       .from("trips")
       .select(
-        "id, scheduled_at, scheduled_broadcast_at, scheduled_convert_at, driver_id, confirmed_driver_id, scheduled_status, status, dispatch_status, dispatch_mode",
+        "id, scheduled_at, scheduled_broadcast_at, scheduled_convert_at, driver_id, confirmed_driver_id, scheduled_status, status, dispatch_status, dispatch_mode, broadcast_enabled",
       )
       .eq("dispatch_mode", "scheduled")
       .in("scheduled_status", [...NO_PRECONFIRMED_CONVERT_SCHEDULED_STATUSES])
       .is("driver_id", null)
-      .is("confirmed_driver_id", null);
+      .is("confirmed_driver_id", null)
+      .order("scheduled_at", { ascending: true })
+      .limit(50);
 
     if (convertError) {
       console.error("[scheduled-dispatch] Error fetching rides to convert:", convertError);
@@ -1390,11 +1396,16 @@ Deno.serve(async (req) => {
           const round = Number(offer.broadcast_round ?? 0);
           return Number.isFinite(round) ? Math.max(max, Math.floor(round)) : max;
         }, 0);
+        const allowBroadcast = resolveConversionBroadcastEnabled({
+          currentBroadcastEnabled: (trip as { broadcast_enabled?: boolean | null })
+            .broadcast_enabled,
+        });
         const conversionPatch = buildScheduledUrgentConversionPatch({
           nowIso: now.toISOString(),
           searchingExpiresAtIso: searchingExpiresAt,
           maxExistingBroadcastRound,
           maxBroadcastSequences: instantMaxSequences,
+          broadcastEnabled: allowBroadcast,
         });
 
         const { data: convertedRows, error: updateError } = await supabase
@@ -1428,8 +1439,18 @@ Deno.serve(async (req) => {
         await logSnapshot(supabase, {
           tripId: trip.id,
           action: "convert_to_instant",
-          metadata: { convert_reason: decision.reason },
+          metadata: {
+            convert_reason: decision.reason,
+            broadcast_enabled: allowBroadcast,
+          },
         });
+        if (!allowBroadcast) {
+          console.warn(
+            `[scheduled-dispatch] Convert held broadcast (airport/fare enrich) for ${trip.id}`,
+          );
+          convertedToInstant++;
+          continue;
+        }
         await triggerAutoDispatch({
           supabaseUrl,
           supabaseServiceKey,
@@ -1500,14 +1521,16 @@ Deno.serve(async (req) => {
     // ============================================================
 
     const expireSelect =
-      "id, status, scheduled_status, dispatch_status, dispatch_mode, updated_at, searching_expires_at, scheduled_at, passenger_id, confirmed_driver_id, is_scheduled";
+      "id, status, scheduled_status, dispatch_status, dispatch_mode, updated_at, searching_expires_at, scheduled_at, passenger_id, confirmed_driver_id, is_scheduled, broadcast_enabled";
 
     const { data: expireConverted, error: expireConvertedError } = await supabase
       .from("trips")
       .select(expireSelect)
       .in("status", ["searching", "searching_new_driver", "offered", "broadcasting"])
       .is("driver_id", null)
-      .eq("scheduled_status", "converted_to_instant");
+      .eq("scheduled_status", "converted_to_instant")
+      .order("scheduled_at", { ascending: true })
+      .limit(50);
 
     const { data: expirePastPickup, error: expirePastError } = await supabase
       .from("trips")
@@ -1523,6 +1546,7 @@ Deno.serve(async (req) => {
       .or(
         "scheduled_status.is.null,scheduled_status.not.in.(cancelled,expired,no_driver_found)",
       )
+      .order("scheduled_at", { ascending: true })
       .limit(50);
 
     if (expireConvertedError) {
@@ -1602,6 +1626,10 @@ Deno.serve(async (req) => {
                   ? maxExistingBroadcastRound
                   : 0,
                 maxBroadcastSequences: instantMaxSequences,
+                broadcastEnabled: resolveConversionBroadcastEnabled({
+                  currentBroadcastEnabled: (trip as { broadcast_enabled?: boolean | null })
+                    .broadcast_enabled,
+                }),
               }),
               confirmed_driver_id: null,
             })

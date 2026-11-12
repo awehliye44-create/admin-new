@@ -12,6 +12,7 @@ import { shouldUseUrgentFallbackTrigger } from "./scheduledRidesPolicy.ts";
 import {
   buildScheduledUrgentConversionPatch,
   NO_PRECONFIRMED_CONVERT_SCHEDULED_STATUSES,
+  resolveConversionBroadcastEnabled,
   resolveScheduledDispatchConfig,
   shouldConvertScheduledToUrgent,
 } from "./scheduledDispatchConfig.ts";
@@ -82,7 +83,7 @@ export async function runScheduleDispatchConversionSweep(
   const { data: pendingTrips, error: tripsErr } = await supabase
     .from("trips")
     .select(
-      "id, scheduled_at, scheduled_broadcast_at, scheduled_convert_at, pickup_latitude, pickup_longitude, vehicle_type_id, service_area_id, confirmed_driver_id, driver_id, scheduled_status, status, dispatch_status, dispatch_mode, is_scheduled",
+      "id, scheduled_at, scheduled_broadcast_at, scheduled_convert_at, pickup_latitude, pickup_longitude, vehicle_type_id, service_area_id, confirmed_driver_id, driver_id, scheduled_status, status, dispatch_status, dispatch_mode, is_scheduled, broadcast_enabled",
     )
     .eq("is_scheduled", true)
     .eq("dispatch_mode", "scheduled")
@@ -243,6 +244,9 @@ export async function runScheduleDispatchConversionSweep(
         const round = Number((offer as { broadcast_round?: number | null }).broadcast_round ?? 0);
         return Number.isFinite(round) ? Math.max(max, Math.floor(round)) : max;
       }, 0);
+      const allowBroadcast = resolveConversionBroadcastEnabled({
+        currentBroadcastEnabled: (trip as { broadcast_enabled?: boolean | null }).broadcast_enabled,
+      });
       const { data: convertedRows, error: convertErr } = await supabase
         .from("trips")
         .update(buildScheduledUrgentConversionPatch({
@@ -250,6 +254,7 @@ export async function runScheduleDispatchConversionSweep(
           searchingExpiresAtIso: searchingExpiresAt,
           maxExistingBroadcastRound,
           maxBroadcastSequences: instantMaxSequences,
+          broadcastEnabled: allowBroadcast,
         }))
         .eq("id", trip.id)
         .in("scheduled_status", [...NO_PRECONFIRMED_CONVERT_SCHEDULED_STATUSES])
@@ -276,10 +281,19 @@ export async function runScheduleDispatchConversionSweep(
         .eq("trip_id", trip.id)
         .in("status", ["pending", "offered", "countered"]);
 
+      convertedToInstant++;
+      if (!allowBroadcast) {
+        results.push({
+          trip_id: trip.id,
+          action: "converted_broadcast_held",
+          detail: decision.reason,
+        });
+        continue;
+      }
+
       const triggerReason = `scheduled_convert_to_instant:${decision.reason}`;
       const dispatchResult = await deps.triggerAutoDispatch(trip.id, triggerReason);
 
-      convertedToInstant++;
       if (dispatchResult.ok) {
         dispatched++;
         results.push({

@@ -62,13 +62,18 @@ function scheduledDispatchWindowReached(row: TripRow, nowMs: number): boolean {
   const dispatchMode = String(row.dispatch_mode ?? "").toLowerCase();
   if (dispatchMode === "instant") return true;
   const scheduledStatus = String(row.scheduled_status ?? "").toLowerCase();
-  // Admin HELD / pre-confirm / awaiting activation NRO: clock alone must not
-  // treat the trip as an active restore candidate for Finding/Assigned.
+  // Admin HELD / pre-confirm / awaiting activation NRO / marketplace list-only:
+  // clock alone must not treat the trip as an active restore candidate for
+  // Finding/Assigned. Make Available stamps scheduled_broadcast_at for the
+  // Driver Requested list without starting Customer Finding.
   if (
     scheduledStatus === "admin_held" ||
     scheduledStatus === "awaiting_activation_accept" ||
     scheduledStatus === "driver_assigned" ||
-    scheduledStatus === "scheduled_committed"
+    scheduledStatus === "scheduled_committed" ||
+    scheduledStatus === "scheduled" ||
+    scheduledStatus === "pending" ||
+    scheduledStatus === "payment_gate_blocked"
   ) {
     return false;
   }
@@ -115,12 +120,52 @@ function isCustomerRestoreCandidate(row: TripRow, nowMs: number): boolean {
     return status === "scheduled" || status === "scheduled_committed" ||
       status === "accepted" || status === "confirmed";
   }
+  // Marketplace list-only / payment-blocked: never restore as Finding via clock.
+  if (
+    scheduledStatus === "scheduled" ||
+    scheduledStatus === "pending" ||
+    scheduledStatus === "payment_gate_blocked"
+  ) {
+    return false;
+  }
   const hasDriver = Boolean(row.driver_id || row.confirmed_driver_id);
   if (hasDriver && ASSIGNED_ACTIVE_SET.has(status)) return true;
   if (status === "scheduled" || status === "scheduled_committed") {
     return hasDriver || scheduledDispatchWindowReached(row, nowMs);
   }
   return scheduledDispatchWindowReached(row, nowMs);
+}
+
+/** Prefer activated / live scheduled over reserved list-only when scanning. */
+function isActivatedScheduledRestoreCandidate(row: TripRow, nowMs: number): boolean {
+  if (!isCustomerRestoreCandidate(row, nowMs)) return false;
+  const scheduledStatus = String(row.scheduled_status ?? "").toLowerCase();
+  if (
+    scheduledStatus === "admin_held" ||
+    scheduledStatus === "awaiting_activation_accept" ||
+    scheduledStatus === "driver_assigned" ||
+    scheduledStatus === "scheduled_committed" ||
+    scheduledStatus === "scheduled" ||
+    scheduledStatus === "pending" ||
+    scheduledStatus === "payment_gate_blocked"
+  ) {
+    return false;
+  }
+  return true;
+}
+
+function pickPreferredCustomerRestoreCandidate(
+  rows: TripRow[],
+  nowMs: number,
+): TripRow | null {
+  const candidates = rows.filter((row) => isCustomerRestoreCandidate(row, nowMs));
+  if (candidates.length === 0) return null;
+  return (
+    candidates.find((row) => isActivatedScheduledRestoreCandidate(row, nowMs)) ??
+    candidates.find((row) => !isScheduledTrip(row)) ??
+    candidates[0] ??
+    null
+  );
 }
 
 async function clearCustomerActiveTripPointer(
@@ -152,7 +197,13 @@ export async function findCustomerActiveTrip(
       .limit(1);
     const candidate = rows?.[0] as TripRow | undefined;
     if (candidate && isCustomerRestoreCandidate(candidate, nowMs)) {
-      trip = candidate;
+      // Reserved / list-only scheduled pointer must not mask a live activated journey.
+      const pointerIsPreactivation =
+        isScheduledTrip(candidate) &&
+        !isActivatedScheduledRestoreCandidate(candidate, nowMs);
+      if (!pointerIsPreactivation) {
+        trip = candidate;
+      }
     } else if (candidate && isRestoreTerminalTripStatus(String(candidate.status ?? ""))) {
       await clearCustomerActiveTripPointer(supabase, userId);
     }
@@ -186,10 +237,10 @@ export async function findCustomerActiveTrip(
       .or("is_scheduled.is.null,is_scheduled.eq.false")
       .order("created_at", { ascending: false })
       .limit(10);
-    trip =
-      ((instantTrips ?? []) as TripRow[]).find((candidate) =>
-        isCustomerRestoreCandidate(candidate, nowMs)
-      ) ?? null;
+    trip = pickPreferredCustomerRestoreCandidate(
+      (instantTrips ?? []) as TripRow[],
+      nowMs,
+    );
     if (!trip) {
       const { data: scheduledTrips } = await supabase
         .from("trips")
@@ -199,10 +250,10 @@ export async function findCustomerActiveTrip(
         .in("status", activeStates)
         .order("created_at", { ascending: false })
         .limit(10);
-      trip =
-        ((scheduledTrips ?? []) as TripRow[]).find((candidate) =>
-          isCustomerRestoreCandidate(candidate, nowMs)
-        ) ?? null;
+      trip = pickPreferredCustomerRestoreCandidate(
+        (scheduledTrips ?? []) as TripRow[],
+        nowMs,
+      );
     }
   }
 
