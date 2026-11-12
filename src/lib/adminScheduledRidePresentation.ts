@@ -130,7 +130,12 @@ export function resolveAdminScheduledRidePresentation(
   const scheduled = norm(trip.scheduled_status);
   const status = norm(trip.status);
   const ack = norm(trip.scheduled_ack_status);
-  const published = Boolean(trip.scheduled_broadcast_at);
+  const broadcastMs = trip.scheduled_broadcast_at
+    ? Date.parse(String(trip.scheduled_broadcast_at))
+    : NaN;
+  // Marketplace open only when broadcast_at is due — future ideal-anchor stamps are not Requested.
+  const marketplaceOpen = Number.isFinite(broadcastMs) && broadcastMs <= Date.now();
+  const published = marketplaceOpen;
   const holdReason = norm(trip.scheduled_hold_reason);
 
   const onBoard = belongsOnLiveAdminScheduledBoard({
@@ -197,7 +202,7 @@ export function resolveAdminScheduledRidePresentation(
   } else if (ack === 'pending') {
     // Strict 45s window — never "Heading to pickup" before successful ack.
     statusKey = 'alert_pending';
-    statusLabel = 'Awaiting departure ack';
+    statusLabel = 'Awaiting departure';
     statusClassName = 'bg-amber-100 text-amber-900';
   } else if (ack === 'acknowledged' && ACTIVE_PICKUP_STATUSES.has(status)) {
     statusKey = 'active_pickup';
@@ -205,7 +210,7 @@ export function resolveAdminScheduledRidePresentation(
     statusClassName = 'bg-green-100 text-green-800';
   } else if (ack === 'acknowledged' && HEADING_STATUSES.has(status)) {
     statusKey = 'heading_to_pickup';
-    statusLabel = 'Heading to pickup';
+    statusLabel = 'Driver heading to pickup';
     statusClassName = 'bg-green-100 text-green-800';
   } else if (ack === 'acknowledged') {
     statusKey = 'alert_acked';
@@ -221,7 +226,7 @@ export function resolveAdminScheduledRidePresentation(
   ) {
     statusKey = FINDING_TRIP_STATUSES.has(status) ? 'finding_driver' : 'converted_to_instant';
     statusLabel = FINDING_TRIP_STATUSES.has(status)
-      ? 'Searching'
+      ? 'Automatic fallback dispatch'
       : 'Converted to instant';
     statusClassName = 'bg-blue-100 text-blue-800';
   } else if (
@@ -231,7 +236,7 @@ export function resolveAdminScheduledRidePresentation(
     scheduled === 'offering'
   ) {
     statusKey = 'finding_driver';
-    statusLabel = 'Searching';
+    statusLabel = 'Automatic fallback dispatch';
     statusClassName = 'bg-blue-100 text-blue-700';
   } else if (driverId && ACTIVE_PICKUP_STATUSES.has(status)) {
     statusKey = 'active_pickup';
@@ -256,15 +261,22 @@ export function resolveAdminScheduledRidePresentation(
     statusClassName = 'bg-violet-100 text-violet-900';
   } else if (confirmedId && !ack) {
     statusKey = 'pre_confirmed';
-    statusLabel = 'Confirmed';
+    statusLabel = 'Confirmed — driver accepted';
     statusClassName = 'bg-emerald-100 text-emerald-800';
   } else if (scheduled === 'awaiting_activation_accept') {
     statusKey = 'awaiting_accept';
     statusLabel = 'Awaiting Accept';
     statusClassName = 'bg-emerald-100 text-emerald-800';
-  } else if (scheduled === 'admin_held' && !published) {
+  } else if (
+    (scheduled === 'admin_held' || scheduled === 'scheduled' || scheduled === 'pending' || scheduled === '') &&
+    !published &&
+    (holdReason === 'publication_pending' ||
+      holdReason === 'publication_retry' ||
+      holdReason === '' ||
+      Number.isFinite(broadcastMs))
+  ) {
     statusKey = 'awaiting_publication';
-    statusLabel = 'Awaiting publication';
+    statusLabel = 'Awaiting automatic publication';
     statusClassName = 'bg-slate-100 text-slate-800';
   } else if (scheduled === 'admin_held') {
     statusKey = holdReason && holdReason !== 'admin_manual' ? 'needs_attention' : 'held';
@@ -275,11 +287,11 @@ export function resolveAdminScheduledRidePresentation(
     (scheduled === 'scheduled' || scheduled === 'pending' || scheduled === '')
   ) {
     statusKey = 'available';
-    statusLabel = 'Requested';
+    statusLabel = 'Requested — available in Scheduled Jobs';
     statusClassName = 'bg-indigo-100 text-indigo-700';
   } else if (scheduled === 'scheduled' || scheduled === 'pending' || scheduled === '') {
     statusKey = 'awaiting_publication';
-    statusLabel = 'Awaiting publication';
+    statusLabel = 'Awaiting automatic publication';
     statusClassName = 'bg-slate-100 text-slate-800';
   } else {
     unmapped = true;

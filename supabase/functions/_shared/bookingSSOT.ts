@@ -227,8 +227,8 @@ export function buildMinimalTripInsertRow(input: MinimalTripBuildInput): Record<
     : sessionDiscount || Math.max(0, grossFarePence - finalFarePence);
   const discountSource = (body.discount_source ?? null) as DiscountSource;
 
-  // Admin HELD: new scheduled bookings must NOT open the driver marketplace.
-  // Stamp T−urgent convert only; Broadcast Now/At (Admin) sets scheduled_broadcast_at.
+  // Transitional HELD: new scheduled bookings start unpublished.
+  // Stamp T−urgent convert only; marketplace opens via auto-publish (broadcast_at=now).
   let scheduledBroadcastAt: string | null = null;
   let scheduledConvertAt: string | null = null;
   let scheduledStatus: string | null = null;

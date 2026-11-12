@@ -887,16 +887,18 @@ Deno.serve(async (req) => {
 
     // ============================================================
     // STEP 0b: Phase 3 auto-publish recovery (no Admin session required)
-    // Catches CTAP post-commit failures / webhook races. Skips Manual Trip
-    // holds, airport holds, payment blocks, and Assign/Broadcast pending.
+    // Catches CTAP post-commit failures / webhook races / premature ideal
+    // broadcast stamps. Skips Manual Trip holds, airport holds, payment
+    // blocks, and Assign/Broadcast pending.
     // ============================================================
     {
       let autoPublished = 0;
+      const recoverySelect =
+        "id, dispatch_mode, status, scheduled_status, scheduled_at, scheduled_broadcast_at, scheduled_hold_reason, scheduled_publish_attempts, driver_id, confirmed_driver_id, broadcast_enabled, airport_charge_pence, pending_release_kind, pending_release_at, booking_source, service_area_id, vehicle_type_id, vehicle_type, completed_at, cancelled_at, pickup_address, trip_code, trip_number, created_at";
+
       const { data: heldCandidates, error: heldErr } = await supabase
         .from("trips")
-        .select(
-          "id, dispatch_mode, status, scheduled_status, scheduled_at, scheduled_broadcast_at, scheduled_hold_reason, scheduled_publish_attempts, driver_id, confirmed_driver_id, broadcast_enabled, airport_charge_pence, pending_release_kind, pending_release_at, booking_source, service_area_id, vehicle_type_id, vehicle_type, completed_at, cancelled_at, pickup_address, trip_code, trip_number, created_at",
-        )
+        .select(recoverySelect)
         .eq("dispatch_mode", "scheduled")
         .in("scheduled_status", ["admin_held", "scheduled", "pending"])
         .in("scheduled_hold_reason", [...AUTO_PUBLISH_ELIGIBLE_HOLD_REASONS])
@@ -908,67 +910,98 @@ Deno.serve(async (req) => {
         .order("created_at", { ascending: true })
         .limit(50);
 
+      // Premature ideal-anchor race (MK-261112-006 class): hold null + future broadcast_at.
+      const { data: prematureCandidates, error: prematureErr } = await supabase
+        .from("trips")
+        .select(recoverySelect)
+        .eq("dispatch_mode", "scheduled")
+        .in("scheduled_status", ["scheduled", "pending"])
+        .is("scheduled_hold_reason", null)
+        .is("driver_id", null)
+        .is("confirmed_driver_id", null)
+        .is("completed_at", null)
+        .not("status", "in", TERMINAL_TRIP_STATUS_POSTGREST_LIST)
+        .gt("scheduled_at", now.toISOString())
+        .gt("scheduled_broadcast_at", now.toISOString())
+        .order("created_at", { ascending: true })
+        .limit(50);
+
       if (heldErr) {
         console.error("[scheduled-dispatch] auto-publish recovery query failed:", heldErr);
-      } else {
-        for (const trip of heldCandidates ?? []) {
-          if (isTripTerminalForDispatch(trip)) continue;
-          const eligibility = evaluateScheduledMarketplaceAutoPublishEligibility(trip, {
-            nowMs,
-            allowUnknownBookingSource: false,
-          });
-          if (!eligibility.ok) continue;
-          // Only recover unpublished / not-yet-due marketplace rows.
-          const broadcastAtMs = trip.scheduled_broadcast_at
-            ? Date.parse(String(trip.scheduled_broadcast_at))
-            : NaN;
-          const alreadyOpen = Number.isFinite(broadcastAtMs) && broadcastAtMs <= nowMs &&
-            String(trip.scheduled_status ?? "").toLowerCase() !== "admin_held";
-          if (alreadyOpen) continue;
+      }
+      if (prematureErr) {
+        console.error("[scheduled-dispatch] premature-broadcast recovery query failed:", prematureErr);
+      }
 
-          try {
-            await assertPaymentGate(supabase, trip.id);
-          } catch (gateErr) {
-            const detail = gateErr instanceof PaymentGateError
-              ? gateErr.message
-              : String((gateErr as Error)?.message ?? gateErr);
-            console.warn("[scheduled-dispatch] auto-publish recovery payment gate", {
-              trip_id: trip.id,
-              detail,
-            });
-            continue;
-          }
+      const seen = new Set<string>();
+      const recoveryCandidates = [...(heldCandidates ?? []), ...(prematureCandidates ?? [])]
+        .filter((trip) => {
+          const id = String(trip?.id ?? "");
+          if (!id || seen.has(id)) return false;
+          seen.add(id);
+          return true;
+        });
 
-          const result = await attemptScheduledMarketplaceAutoPublish(supabase, {
-            tripId: trip.id,
-            trip,
-            nowIso: now.toISOString(),
-            via: SCHEDULED_MARKETPLACE_AUTO_PUBLISH_VIA.recovery_sweep,
-            allowUnknownBookingSource: false,
-            stampRetryOnFailure: true,
+      for (const trip of recoveryCandidates) {
+        if (isTripTerminalForDispatch(trip)) continue;
+        const eligibility = evaluateScheduledMarketplaceAutoPublishEligibility(trip, {
+          nowMs,
+          allowUnknownBookingSource: false,
+        });
+        if (!eligibility.ok) continue;
+        // Only recover unpublished / not-yet-due marketplace rows.
+        const broadcastAtMs = trip.scheduled_broadcast_at
+          ? Date.parse(String(trip.scheduled_broadcast_at))
+          : NaN;
+        const alreadyOpen = Number.isFinite(broadcastAtMs) && broadcastAtMs <= nowMs &&
+          String(trip.scheduled_status ?? "").toLowerCase() !== "admin_held";
+        if (alreadyOpen) continue;
+
+        try {
+          await assertPaymentGate(supabase, trip.id);
+        } catch (gateErr) {
+          const detail = gateErr instanceof PaymentGateError
+            ? gateErr.message
+            : String((gateErr as Error)?.message ?? gateErr);
+          console.warn("[scheduled-dispatch] auto-publish recovery payment gate", {
+            trip_id: trip.id,
+            detail,
           });
-          if (!result.published) continue;
-          autoPublished++;
-          await logSnapshot(supabase, {
-            tripId: trip.id,
-            action: "scheduled_marketplace_auto_published",
-            metadata: { via: "recovery_sweep" },
-          });
-          voidBackground(
-            notifyScheduledMarketplaceOpen(supabase, {
-              ...trip,
-              scheduled_status: "scheduled",
-              scheduled_broadcast_at: now.toISOString(),
-            }).then((r) => {
-              console.log("SCHEDULED_MARKETPLACE_NOTIFY", {
-                trip_id: trip.id,
-                notified: r.notified,
-                suppressed: r.suppressed,
-                via: "auto_publish_recovery_sweep",
-              });
-            }),
-          );
+          continue;
         }
+
+        const result = await attemptScheduledMarketplaceAutoPublish(supabase, {
+          tripId: trip.id,
+          trip,
+          nowIso: now.toISOString(),
+          via: SCHEDULED_MARKETPLACE_AUTO_PUBLISH_VIA.recovery_sweep,
+          allowUnknownBookingSource: false,
+          stampRetryOnFailure: true,
+        });
+        if (!result.published) continue;
+        autoPublished++;
+        await logSnapshot(supabase, {
+          tripId: trip.id,
+          action: "scheduled_marketplace_auto_published",
+          metadata: {
+            via: "recovery_sweep",
+            premature_ideal_broadcast: Number.isFinite(broadcastAtMs) && broadcastAtMs > nowMs,
+          },
+        });
+        voidBackground(
+          notifyScheduledMarketplaceOpen(supabase, {
+            ...trip,
+            scheduled_status: "scheduled",
+            scheduled_broadcast_at: now.toISOString(),
+          }).then((r) => {
+            console.log("SCHEDULED_MARKETPLACE_NOTIFY", {
+              trip_id: trip.id,
+              notified: r.notified,
+              suppressed: r.suppressed,
+              via: "auto_publish_recovery_sweep",
+            });
+          }),
+        );
       }
       if (autoPublished > 0) {
         console.log(`[scheduled-dispatch] auto-publish recovery published=${autoPublished}`);

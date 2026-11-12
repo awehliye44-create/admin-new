@@ -13,6 +13,7 @@ import {
   classifyScheduledMarketplaceHold,
   evaluateScheduledMarketplaceAutoPublishEligibility,
   isExceptionalManualBookingSource,
+  isPrematureIdealBroadcastStamp,
   isRoutineAutoPublishBookingSource,
   SCHEDULED_MARKETPLACE_AUTO_PUBLISH_VIA,
 } from "./scheduledMarketplaceAutoPublishSSOT.ts";
@@ -147,6 +148,101 @@ Deno.test("already assigned / published are idempotent no-ops", () => {
       scheduled_broadcast_at: "2026-11-12T06:00:00.000Z",
     }, { nowMs: Date.parse("2026-11-12T07:00:00.000Z") }).reason,
     "already_published",
+  );
+});
+
+Deno.test("MK-261112-006 class: premature ideal broadcast stamp is auto-publish eligible", () => {
+  const nowMs = Date.parse("2026-11-12T17:05:00.000Z");
+  const trip = {
+    ...BASE,
+    scheduled_status: "scheduled",
+    scheduled_hold_reason: null,
+    scheduled_broadcast_at: "2026-11-12T17:17:00.000Z",
+    booking_source: "choose_ride",
+  };
+  const r = evaluateScheduledMarketplaceAutoPublishEligibility(trip, {
+    nowMs,
+    allowUnknownBookingSource: false,
+  });
+  assertEquals(r.ok, true);
+  assertEquals(r.reason, "ok");
+  assertEquals(
+    classifyScheduledMarketplaceHold(trip, nowMs).proposedAction,
+    "auto_publish",
+  );
+  assertEquals(
+    classifyScheduledMarketplaceHold(trip, nowMs).reason,
+    "premature_ideal_broadcast_stamp",
+  );
+  assert(isPrematureIdealBroadcastStamp(trip, nowMs));
+});
+
+Deno.test("premature recovery never releases safety / terminal / assigned rows", () => {
+  const nowMs = Date.parse("2026-11-12T17:05:00.000Z");
+  const prematureBase = {
+    ...BASE,
+    scheduled_status: "scheduled",
+    scheduled_hold_reason: null,
+    scheduled_broadcast_at: "2026-11-12T17:17:00.000Z",
+    booking_source: "choose_ride",
+  };
+  assertEquals(
+    isPrematureIdealBroadcastStamp({
+      ...prematureBase,
+      scheduled_hold_reason: "payment_gate",
+    }, nowMs),
+    false,
+  );
+  assertEquals(
+    isPrematureIdealBroadcastStamp({
+      ...prematureBase,
+      scheduled_hold_reason: "airport_pricing",
+    }, nowMs),
+    false,
+  );
+  assertEquals(
+    isPrematureIdealBroadcastStamp({
+      ...prematureBase,
+      scheduled_hold_reason: "admin_exceptional",
+    }, nowMs),
+    false,
+  );
+  assertEquals(
+    isPrematureIdealBroadcastStamp({
+      ...prematureBase,
+      booking_source: "admin_manual",
+    }, nowMs),
+    false,
+  );
+  assertEquals(
+    isPrematureIdealBroadcastStamp({
+      ...prematureBase,
+      status: "cancelled",
+      cancelled_at: "2026-11-12T17:21:53.000Z",
+    }, nowMs),
+    false,
+  );
+  assertEquals(
+    isPrematureIdealBroadcastStamp({
+      ...prematureBase,
+      completed_at: "2026-11-12T18:00:00.000Z",
+      status: "completed",
+    }, nowMs),
+    false,
+  );
+  assertEquals(
+    isPrematureIdealBroadcastStamp({
+      ...prematureBase,
+      confirmed_driver_id: "drv-1",
+    }, nowMs),
+    false,
+  );
+  assertEquals(
+    evaluateScheduledMarketplaceAutoPublishEligibility({
+      ...prematureBase,
+      confirmed_driver_id: "drv-1",
+    }, { nowMs }).ok,
+    false,
   );
 });
 

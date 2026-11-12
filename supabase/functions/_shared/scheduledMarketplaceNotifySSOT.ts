@@ -14,6 +14,7 @@ import {
   newWorkInvitationSuppressionLogFields,
   type NewWorkInvitationDenyReason,
 } from "./newWorkInvitationEligibilitySSOT.ts";
+import { broadcastScheduledMarketplaceChanged } from "./scheduledMarketplaceRealtimeBroadcastSSOT.ts";
 
 export type ScheduledMarketplaceNotifyTrip = {
   id: string;
@@ -123,6 +124,21 @@ export async function notifyScheduledMarketplaceOpen(
   const serviceAreaId = trip.service_area_id ? String(trip.service_area_id).trim() : "";
   if (!serviceAreaId) {
     return { notified: 0, driverIds: [], suppressed: 0 };
+  }
+
+  // Foreground live sync — invalidate Driver Scheduled Jobs before push fan-out.
+  // Payload is trip_id + reason only (no passenger PII). Failures are non-blocking.
+  try {
+    await broadcastScheduledMarketplaceChanged(supabase as any, {
+      tripId: String(trip.id),
+      serviceAreaId,
+      reason: "published",
+    });
+  } catch (broadcastErr) {
+    console.warn(
+      "[scheduledMarketplaceNotify] realtime broadcast failed",
+      broadcastErr instanceof Error ? broadcastErr.message : String(broadcastErr),
+    );
   }
 
   // Broad candidate pool — eligibility applied after union (primary + junction).

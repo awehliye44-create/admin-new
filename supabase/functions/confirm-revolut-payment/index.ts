@@ -9,6 +9,10 @@ import {
   verifyRevolutOrderConfirmedForBooking,
 } from "../_shared/revolutPaymentConfirmation.ts";
 import { markPaymentSessionAuthorised, markCardSetupOrphaned } from "../_shared/paymentSessionSSOT.ts";
+import {
+  extractCaptureDeadlineFromRevolutOrder,
+  persistCaptureDeadlineFromOrder,
+} from "../_shared/captureDeadlinePersistenceSSOT.ts";
 import { listRevolutOrderPayments, retrieveRevolutOrder } from "../_shared/revolutOrders.ts";
 import { applySavedCardOrderReconcile } from "../_shared/applySavedCardOrderReconcile.ts";
 import { mapSavedCardProviderOrderToReconcileState } from "../_shared/savedCardPaymentReconcileSSOT.ts";
@@ -109,11 +113,19 @@ serveWithEdgeTiming("confirm-revolut-payment", corsHeaders, async (req) => {
       // Booking holds: mark authorised + return immediately. Token capture must not
       // gate Finding (old poll ladder was ~82s). Post-commit / waitUntil finishes save.
       if (!isSaveCardPurpose) {
+        const captureDeadline = extractCaptureDeadlineFromRevolutOrder(order);
         await markPaymentSessionAuthorised(supabase, {
           providerOrderId: order.id,
           clientActionId: body.client_action_id ?? order.metadata?.client_action_id ?? null,
-          captureDeadline: order.capture_deadline ?? null,
+          captureDeadline,
           captureDeadlineSource: "provider_retrieve",
+        });
+        // Persist via merge SSOT so a later empty webhook cannot clear a valid deadline.
+        await persistCaptureDeadlineFromOrder(supabase, {
+          order,
+          clientActionId: body.client_action_id ?? order.metadata?.client_action_id ?? null,
+          providerOrderId: order.id,
+          source: "provider_retrieve",
         });
         if (saveCardEligible) {
           // Save-eligible booking: keep Finding unblocked, but use setup poll +
@@ -195,8 +207,14 @@ serveWithEdgeTiming("confirm-revolut-payment", corsHeaders, async (req) => {
       await markPaymentSessionAuthorised(supabase, {
         providerOrderId: order.id,
         clientActionId: body.client_action_id ?? order.metadata?.client_action_id ?? null,
-        captureDeadline: order.capture_deadline ?? null,
+        captureDeadline: extractCaptureDeadlineFromRevolutOrder(order),
         captureDeadlineSource: "provider_retrieve",
+      });
+      await persistCaptureDeadlineFromOrder(supabase, {
+        order,
+        clientActionId: body.client_action_id ?? order.metadata?.client_action_id ?? null,
+        providerOrderId: order.id,
+        source: "provider_retrieve",
       });
 
       if (
@@ -406,8 +424,14 @@ serveWithEdgeTiming("confirm-revolut-payment", corsHeaders, async (req) => {
       await markPaymentSessionAuthorised(supabase, {
         providerOrderId: orderId,
         clientActionId: body.client_action_id ?? fresh?.metadata?.client_action_id ?? null,
-        captureDeadline: fresh?.capture_deadline ?? null,
+        captureDeadline: extractCaptureDeadlineFromRevolutOrder(fresh),
         captureDeadlineSource: "provider_retrieve",
+      });
+      await persistCaptureDeadlineFromOrder(supabase, {
+        order: fresh,
+        clientActionId: body.client_action_id ?? fresh?.metadata?.client_action_id ?? null,
+        providerOrderId: orderId,
+        source: "provider_retrieve",
       });
       return json({
         confirmed: true,

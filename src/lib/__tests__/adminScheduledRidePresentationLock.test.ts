@@ -11,15 +11,16 @@ describe('adminScheduledRidePresentation — ownership SSOT', () => {
       scheduled_status: 'admin_held',
       status: 'scheduled',
       scheduled_broadcast_at: '2026-09-23T10:00:00Z',
+      scheduled_hold_reason: 'admin_exceptional',
       driver_id: null,
       confirmed_driver_id: null,
     });
-    expect(p.statusLabel).toBe('Held');
+    expect(p.statusLabel).toBe('Exceptional hold');
     expect(p.driverKind).toBe('unassigned');
     expect(p.belongsOnLiveScheduledBoard).toBe(true);
   });
 
-  it('unpublished scheduled → Awaiting publication', () => {
+  it('unpublished scheduled → Awaiting automatic publication', () => {
     const p = resolveAdminScheduledRidePresentation({
       scheduled_status: 'scheduled',
       status: 'scheduled',
@@ -27,10 +28,25 @@ describe('adminScheduledRidePresentation — ownership SSOT', () => {
       confirmed_driver_id: null,
     });
     expect(p.statusKey).toBe('awaiting_publication');
-    expect(p.statusLabel).toBe('Awaiting publication');
+    expect(p.statusLabel).toBe('Awaiting automatic publication');
   });
 
-  it('AVAILABLE / Requested → published scheduled + Driver Unassigned', () => {
+  it('future ideal-anchor broadcast_at is NOT Requested (MK-261112-006 class)', () => {
+    const future = new Date(Date.now() + 60 * 60_000).toISOString();
+    const p = resolveAdminScheduledRidePresentation({
+      scheduled_status: 'scheduled',
+      status: 'scheduled',
+      scheduled_broadcast_at: future,
+      scheduled_hold_reason: null,
+      driver_id: null,
+      confirmed_driver_id: null,
+    });
+    expect(p.statusKey).toBe('awaiting_publication');
+    expect(p.statusLabel).toBe('Awaiting automatic publication');
+    expect(p.needsAttention).toBe(false);
+  });
+
+  it('AVAILABLE / Requested → due broadcast_at + Driver Unassigned', () => {
     const p = resolveAdminScheduledRidePresentation({
       scheduled_status: 'scheduled',
       status: 'scheduled',
@@ -39,8 +55,20 @@ describe('adminScheduledRidePresentation — ownership SSOT', () => {
       confirmed_driver_id: null,
     });
     expect(p.statusKey).toBe('available');
-    expect(p.statusLabel).toBe('Requested');
+    expect(p.statusLabel).toBe('Requested — available in Scheduled Jobs');
     expect(p.driverKind).toBe('unassigned');
+  });
+
+  it('publication_pending held → Awaiting automatic publication', () => {
+    const p = resolveAdminScheduledRidePresentation({
+      scheduled_status: 'admin_held',
+      status: 'scheduled',
+      scheduled_hold_reason: 'publication_pending',
+      driver_id: null,
+      confirmed_driver_id: null,
+    });
+    expect(p.statusKey).toBe('awaiting_publication');
+    expect(p.statusLabel).toBe('Awaiting automatic publication');
   });
 
   it('payment_gate_blocked → Payment blocked on Scheduled board', () => {
@@ -57,7 +85,7 @@ describe('adminScheduledRidePresentation — ownership SSOT', () => {
     expect(p.needsAttention).toBe(true);
   });
 
-  it('PRE-CONFIRMED → Pre-confirmed + confirmed driver name (not Unassigned / not Driver Assigned)', () => {
+  it('PRE-CONFIRMED → Confirmed — driver accepted + confirmed driver name', () => {
     const p = resolveAdminScheduledRidePresentation({
       scheduled_status: 'driver_assigned',
       status: 'scheduled',
@@ -65,7 +93,7 @@ describe('adminScheduledRidePresentation — ownership SSOT', () => {
       confirmed_driver_id: 'conf-1',
       confirmed_driver: { first_name: 'Ahmed', last_name: 'Osman' },
     });
-    expect(p.statusLabel).toBe('Confirmed');
+    expect(p.statusLabel).toBe('Confirmed — driver accepted');
     expect(p.statusKey).toBe('pre_confirmed');
     expect(p.driverKind).toBe('pre_confirmed');
     expect(p.driverDisplayName).toBe('Ahmed Osman');
@@ -105,7 +133,7 @@ describe('adminScheduledRidePresentation — ownership SSOT', () => {
       confirmed_driver_id: null,
     });
     expect(p.statusKey).toBe('finding_driver');
-    expect(p.statusLabel).toBe('Searching');
+    expect(p.statusLabel).toBe('Automatic fallback dispatch');
     expect(p.driverKind).toBe('unassigned');
     // Automatic rematch — not a manual intervention requirement.
     expect(p.needsAttention).toBe(false);
@@ -120,7 +148,7 @@ describe('adminScheduledRidePresentation — ownership SSOT', () => {
       confirmed_driver: { first_name: 'A', last_name: 'B' },
     });
     expect(pending.statusKey).toBe('alert_pending');
-    expect(pending.statusLabel).toBe('Awaiting departure ack');
+    expect(pending.statusLabel).toBe('Awaiting departure');
     expect(pending.statusLabel.toLowerCase()).not.toContain('heading');
     expect(pending.needsAttention).toBe(false);
 
@@ -153,7 +181,7 @@ describe('adminScheduledRidePresentation — ownership SSOT', () => {
       driver: { first_name: 'A', last_name: 'B' },
     });
     expect(withAck.statusKey).toBe('heading_to_pickup');
-    expect(withAck.statusLabel).toBe('Heading to pickup');
+    expect(withAck.statusLabel).toBe('Driver heading to pickup');
   });
 
   it('JIT pending when confirmed awaiting activation without ack', () => {
@@ -240,6 +268,7 @@ describe('adminScheduledRidePresentation — ownership SSOT', () => {
       id: 'trip-uuid-1',
       scheduled_status: 'admin_held',
       status: 'scheduled',
+      scheduled_hold_reason: 'admin_exceptional',
       scheduled_broadcast_at: '2026-09-23T10:00:00Z',
       driver_id: null,
       confirmed_driver_id: null,

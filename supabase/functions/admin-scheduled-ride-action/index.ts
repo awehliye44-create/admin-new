@@ -43,6 +43,15 @@ const ACTIONS = new Set([
   "cancel_ride",
 ]);
 
+/** Retired staff controls — automation owns publication + fallback dispatch. */
+const RETIRED_MANUAL_SCHEDULED_CONTROLS = new Set([
+  "make_available_now",
+  "make_available_at",
+  "broadcast_now",
+  "broadcast_at",
+  "hold_exceptional",
+]);
+
 type EmergencyMutateResult = {
   success?: boolean;
   error?: string;
@@ -80,6 +89,16 @@ Deno.serve(async (req) => {
     if (!tripId) return json({ success: false, error: "trip_id required" }, 400);
     if (!ACTIONS.has(action)) {
       return json({ success: false, error: `Unsupported action: ${action}` }, 400);
+    }
+    if (RETIRED_MANUAL_SCHEDULED_CONTROLS.has(action)) {
+      return json({
+        success: false,
+        error: "RETIRED_MANUAL_SCHEDULED_CONTROL",
+        message:
+          "Manual Broadcast / Make Available / Hold are retired. "
+          + "Scheduled Jobs publication and fallback dispatch are automatic. "
+          + "Use Assign Driver only for exceptional intervention.",
+      }, 410);
     }
     if (reason.length < 3) {
       return json({ success: false, error: "reason required (min 3 chars)" }, 400);

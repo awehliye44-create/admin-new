@@ -27,6 +27,7 @@ import {
   SCHEDULED_COMMISSION_WALLET_ERROR,
   SCHEDULED_COMMISSION_WALLET_MESSAGE,
 } from "../_shared/scheduledMarketplaceCommissionWalletGate.ts";
+import { broadcastScheduledMarketplaceChanged } from "../_shared/scheduledMarketplaceRealtimeBroadcastSSOT.ts";
 
 const RATE_LIMIT_CONFIG = {
   limit: 60,
@@ -581,7 +582,7 @@ Deno.serve(async (req) => {
       // Fetch trip + driver for notifications
       const { data: tripRow } = await supabase
         .from("trips")
-        .select("passenger_id, scheduled_at, pickup_address, trip_number")
+        .select("passenger_id, scheduled_at, pickup_address, trip_number, service_area_id")
         .eq("id", trip_id)
         .single();
       const { data: driverRow } = await supabase
@@ -589,6 +590,20 @@ Deno.serve(async (req) => {
         .select("first_name, last_name")
         .eq("id", driver_id)
         .single();
+
+      // Other drivers: remove from Requested via live broadcast (no passenger PII).
+      try {
+        await broadcastScheduledMarketplaceChanged(supabase, {
+          tripId: trip_id,
+          serviceAreaId: tripRow?.service_area_id ?? null,
+          reason: "accepted",
+        });
+      } catch (broadcastErr) {
+        console.warn(
+          "[scheduled-ride-action] accept marketplace broadcast failed:",
+          broadcastErr,
+        );
+      }
 
       // §18 — Notify customer: driver confirmed (lifecycle WAV, not mute send-customer-notification).
       try {
@@ -734,7 +749,7 @@ Deno.serve(async (req) => {
       // Validate trip is confirmed, locked, and assigned to this driver
       const { data: trip, error: tripError } = await supabase
         .from("trips")
-        .select("id, driver_id, confirmed_driver_id, status, scheduled_status, is_scheduled, scheduled_at, scheduled_broadcast_at")
+        .select("id, driver_id, confirmed_driver_id, status, scheduled_status, is_scheduled, scheduled_at, scheduled_broadcast_at, service_area_id")
         .eq("id", trip_id)
         .single();
 
@@ -973,6 +988,19 @@ Deno.serve(async (req) => {
         }
       } catch (notifErr) {
         console.warn("[scheduled-ride-action] cancel_confirmed: customer notification failed:", notifErr);
+      }
+
+      try {
+        await broadcastScheduledMarketplaceChanged(supabase, {
+          tripId: trip_id,
+          serviceAreaId: trip.service_area_id ?? null,
+          reason: isCheckinOpen ? "converted" : "cancelled",
+        });
+      } catch (broadcastErr) {
+        console.warn(
+          "[scheduled-ride-action] cancel marketplace broadcast failed:",
+          broadcastErr,
+        );
       }
 
       return successResponse({

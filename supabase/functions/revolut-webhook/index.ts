@@ -13,6 +13,7 @@ import {
   listRevolutOrderPayments,
   mapRevolutStateToPaymentStatus,
   retrieveRevolutOrder,
+  cancelRevolutOrder,
 } from "../_shared/revolutOrders.ts";
 import { revolutMerchantRequest, extractRevolutProviderFeeMinor } from "../_shared/revolutApi.ts";
 import { logAuditEvent } from "../_shared/security.ts";
@@ -46,6 +47,18 @@ import {
   handleRevolutPaymentInvariantViolation,
   isRevolutWrongCaptureBeforeTripComplete,
 } from "../_shared/revolutPreauthReleaseSSOT.ts";
+import {
+  persistCaptureDeadlineFromOrder,
+  extractCaptureDeadlineFromRevolutOrder,
+} from "../_shared/captureDeadlinePersistenceSSOT.ts";
+import { ensureScheduledCaptureCoverage } from "../_shared/scheduledBookingPaymentCoverageSSOT.ts";
+import { isCardFundedPaymentMethod } from "../_shared/scheduledCaptureCoverageSSOT.ts";
+import {
+  attemptScheduledMarketplaceAutoPublish,
+  SCHEDULED_MARKETPLACE_AUTO_PUBLISH_VIA,
+} from "../_shared/scheduledMarketplaceAutoPublishSSOT.ts";
+import { notifyScheduledMarketplaceOpen } from "../_shared/scheduledMarketplaceNotifySSOT.ts";
+import { resolveRevolutMerchantContext } from "../_shared/revolutMerchantContext.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -459,7 +472,7 @@ Deno.serve(async (req) => {
       const { data: session } = await supabase
         .from("payment_sessions")
         .select(
-          "id, trip_id, status, authorised_amount_pence, captured_amount_pence, captured_at, provider_state, failure_reason, metadata, financial_operation_state, purpose, refunded_amount_pence, hold_release_state, provider_capture_id, provider_order_id",
+          "id, trip_id, status, authorised_amount_pence, captured_amount_pence, captured_at, provider_state, failure_reason, metadata, financial_operation_state, purpose, refunded_amount_pence, hold_release_state, provider_capture_id, provider_order_id, booking_snapshot, fare_snapshot, payment_method, capture_deadline",
         )
         .eq("provider_order_id", orderId)
         .eq("purpose", "RIDE_BOOKING")
@@ -787,6 +800,173 @@ Deno.serve(async (req) => {
           !alreadyOrphaned &&
           !["cancelled", "failed", "released"].includes(sessionStatus)
         ) {
+          // Persist authoritative capture_deadline before finalize (CTAP parity).
+          // Never invent a deadline — provider order / retrieve only.
+          try {
+            let orderForDeadline: Record<string, unknown> | null =
+              event.data && typeof event.data === "object"
+                ? (event.data as Record<string, unknown>)
+                : null;
+            if (
+              orderId &&
+              !extractCaptureDeadlineFromRevolutOrder(orderForDeadline)
+            ) {
+              try {
+                const { secretKey, environment } = getRevolutMerchantConfig();
+                orderForDeadline = await retrieveRevolutOrder(
+                  environment,
+                  secretKey,
+                  orderId,
+                ) as unknown as Record<string, unknown>;
+              } catch (retrieveErr) {
+                console.warn("[revolut-webhook] capture_deadline retrieve failed", {
+                  session_id: session.id,
+                  error: retrieveErr instanceof Error
+                    ? retrieveErr.message
+                    : String(retrieveErr),
+                });
+              }
+            }
+            if (orderForDeadline) {
+              await persistCaptureDeadlineFromOrder(supabase, {
+                order: orderForDeadline,
+                sessionId: String(session.id),
+                providerOrderId: orderId ?? null,
+                source: "provider_webhook",
+              });
+            }
+          } catch (deadlineErr) {
+            console.warn("[revolut-webhook] capture_deadline persist failed", {
+              session_id: session.id,
+              error: deadlineErr instanceof Error
+                ? deadlineErr.message
+                : String(deadlineErr),
+            });
+          }
+
+          // Scheduled card: enforce capture coverage before finalize (same as CTAP).
+          let coverageBlocksFinalize = false;
+          const draft = (session.booking_snapshot &&
+              typeof session.booking_snapshot === "object"
+            ? session.booking_snapshot
+            : session.fare_snapshot && typeof session.fare_snapshot === "object"
+            ? session.fare_snapshot
+            : {}) as Record<string, unknown>;
+          const draftScheduled = Boolean(
+            draft.is_scheduled === true ||
+              String(draft.when ?? "").toLowerCase() === "scheduled" ||
+              draft.scheduled_at,
+          );
+          const draftMethod = String(
+            draft.payment_method ?? session.payment_method ?? "CARD",
+          );
+          if (draftScheduled && isCardFundedPaymentMethod(draftMethod)) {
+            const { data: refreshedSession } = await supabase
+              .from("payment_sessions")
+              .select(
+                "id, status, provider_state, released_at, captured_at, capture_deadline, provider_order_id, trip_id, metadata, payment_method",
+              )
+              .eq("id", session.id)
+              .maybeSingle();
+            let merchantCtx: Awaited<
+              ReturnType<typeof resolveRevolutMerchantContext>
+            > | null = null;
+            try {
+              merchantCtx = await resolveRevolutMerchantContext(supabase, "live");
+            } catch (merchantErr) {
+              console.warn("[revolut-webhook] merchant resolve for coverage failed", {
+                error: merchantErr instanceof Error
+                  ? merchantErr.message
+                  : String(merchantErr),
+              });
+            }
+            const coverage = await ensureScheduledCaptureCoverage({
+              supabase,
+              scheduledAtIso: String(draft.scheduled_at ?? ""),
+              estimatedDurationMinutes: Number(
+                draft.estimated_duration_minutes ?? draft.estimated_duration ?? 30,
+              ),
+              paymentMethod: draftMethod,
+              session: {
+                id: String(session.id),
+                status: refreshedSession?.status as string | undefined,
+                provider_state:
+                  (refreshedSession?.provider_state as string | undefined) ??
+                  effectiveStateUpper,
+                released_at: refreshedSession?.released_at as string | null | undefined,
+                captured_at: refreshedSession?.captured_at as string | null | undefined,
+                capture_deadline:
+                  refreshedSession?.capture_deadline as string | null | undefined,
+                provider_order_id: orderId ?? null,
+                trip_id: null,
+                metadata:
+                  (refreshedSession?.metadata as Record<string, unknown> | null) ??
+                  sessionMeta,
+              },
+              revolut: merchantCtx && orderId
+                ? {
+                  environment: merchantCtx.environment,
+                  secretKey: merchantCtx.secretKey,
+                  orderId,
+                }
+                : null,
+            });
+            if (!coverage.ok) {
+              coverageBlocksFinalize = true;
+              console.error("[revolut-webhook] scheduled capture coverage blocked finalize", {
+                session_id: session.id,
+                code: coverage.code,
+                definitive: coverage.definitive,
+              });
+              if (coverage.definitive && orderId) {
+                try {
+                  const { secretKey, environment } = getRevolutMerchantConfig();
+                  await cancelRevolutOrder(environment, secretKey, orderId);
+                  await supabase
+                    .from("payment_sessions")
+                    .update({
+                      status: "cancelled",
+                      provider_state: "CANCELLED",
+                      hold_release_state: "released",
+                      released_at: nowIso,
+                      updated_at: nowIso,
+                      failure_reason: coverage.code,
+                      metadata: {
+                        ...sessionMeta,
+                        capture_coverage_blocked_finalize: true,
+                        capture_coverage_code: coverage.code,
+                        never_capture: true,
+                        release_recommended: true,
+                      },
+                    })
+                    .eq("id", session.id)
+                    .is("trip_id", null);
+                } catch (releaseErr) {
+                  console.error(
+                    "[revolut-webhook] coverage-block release failed",
+                    releaseErr instanceof Error ? releaseErr.message : String(releaseErr),
+                  );
+                }
+              }
+            } else {
+              await supabase
+                .from("payment_sessions")
+                .update({
+                  metadata: {
+                    ...((refreshedSession?.metadata as Record<string, unknown> | null) ??
+                      sessionMeta),
+                    scheduled_capture_coverage_required: true,
+                    scheduled_capture_coverage_verified: true,
+                    scheduled_capture_coverage_verified_at: nowIso,
+                    required_capture_until: coverage.evaluation.requiredUntilIso,
+                  },
+                  updated_at: nowIso,
+                })
+                .eq("id", session.id);
+            }
+          }
+
+          if (!coverageBlocksFinalize) {
           const { data: finaliseData, error: finaliseError } = await supabase.rpc(
             "finalize_paid_booking_session",
             { p_payment_session_id: session.id },
@@ -833,9 +1013,6 @@ Deno.serve(async (req) => {
               if (orderId) {
                 try {
                   const { secretKey, environment } = getRevolutMerchantConfig();
-                  const { cancelRevolutOrder } = await import(
-                    "../_shared/revolutOrders.ts"
-                  );
                   await cancelRevolutOrder(environment, secretKey, orderId);
                   await supabase
                     .from("payment_sessions")
@@ -905,6 +1082,54 @@ Deno.serve(async (req) => {
             finaliseTripId = typeof finaliseData === "string" ? finaliseData : null;
             if (finaliseTripId) tripId = finaliseTripId;
             console.log(`[revolut-webhook] finalised authorised session=${session.id} trip=${finaliseTripId ?? "?"}`);
+
+            // Immediate marketplace publish for scheduled creates (CTAP post-commit parity).
+            if (finaliseTripId && draftScheduled) {
+              try {
+                const { data: tripRow } = await supabase
+                  .from("trips")
+                  .select(
+                    "id, dispatch_mode, status, scheduled_status, scheduled_at, scheduled_broadcast_at, scheduled_hold_reason, scheduled_publish_attempts, driver_id, confirmed_driver_id, broadcast_enabled, airport_charge_pence, pending_release_kind, pending_release_at, booking_source, service_area_id, vehicle_type_id, vehicle_type, completed_at, cancelled_at, pickup_address, trip_code, trip_number",
+                  )
+                  .eq("id", finaliseTripId)
+                  .maybeSingle();
+                if (tripRow) {
+                  const published = await attemptScheduledMarketplaceAutoPublish(supabase, {
+                    tripId: finaliseTripId,
+                    trip: tripRow,
+                    nowIso,
+                    via: SCHEDULED_MARKETPLACE_AUTO_PUBLISH_VIA.post_commit,
+                    allowUnknownBookingSource: true,
+                    stampRetryOnFailure: true,
+                  });
+                  if (published.published) {
+                    console.log("[revolut-webhook] scheduled marketplace auto-published", {
+                      trip_id: finaliseTripId,
+                    });
+                    void notifyScheduledMarketplaceOpen(supabase, {
+                      ...tripRow,
+                      scheduled_status: "scheduled",
+                      scheduled_broadcast_at: nowIso,
+                    }).catch((notifyErr) => {
+                      console.warn("[revolut-webhook] marketplace notify failed", notifyErr);
+                    });
+                  } else {
+                    console.warn("[revolut-webhook] scheduled marketplace auto-publish skipped", {
+                      trip_id: finaliseTripId,
+                      reason: "reason" in published ? published.reason : null,
+                    });
+                  }
+                }
+              } catch (publishErr) {
+                console.warn("[revolut-webhook] scheduled auto-publish failed", {
+                  trip_id: finaliseTripId,
+                  error: publishErr instanceof Error
+                    ? publishErr.message
+                    : String(publishErr),
+                });
+              }
+            }
+          }
           }
         } else if (
           ["AUTHORISED", "COMPLETED"].includes(effectiveStateUpper) &&
