@@ -61,8 +61,10 @@ See also `docs/SCHEDULED_MARKETPLACE_PHASE3_FINAL_SECURITY.md` (action RBAC + mu
 4. **Guarded migration** `20270213130000_scheduled_marketplace_final_security.sql`
    (publication_exhausted + `admin_page_mutate` protected fields + Assign Now action RBAC)
    — **must land before or with Admin publish** so old Cancel/Assign mutate paths cannot bypass
-5. **Edge deploy (all consumers of modified shared modules) in same window:**
-   - `admin-scheduled-ride-action` (**required** — action RBAC + Assign Now + Cancel Ride)
+5. **Guarded migration** `20270213140000_scheduled_marketplace_emergency_mutate_atomic.sql`
+   (single-transaction emergency mutate + `audit_logs`; audit failure rolls back trip)
+6. **Edge deploy (all consumers of modified shared modules) in same window:**
+   - `admin-scheduled-ride-action` (**required** — action RBAC + Assign Now + Cancel Ride + atomic RPC)
    - `create-trip-after-payment` (bookingPostCommit / bookingSSOT / exhaustion alerts)
    - `scheduled-dispatch` (STEP 0/0b + jobs gates)
    - `schedule-dispatch` (shared conversion broadcast helper)
