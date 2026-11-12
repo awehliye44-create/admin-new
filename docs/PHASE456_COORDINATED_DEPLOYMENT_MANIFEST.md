@@ -12,7 +12,7 @@ Physical-device notification matrix: **deferred** (Owner). Phase 5 flag stays **
 | Component | Branch | Tip SHA | Role |
 |-----------|--------|---------|------|
 | Backend Phase 4+5 | `release/scheduled-departure-ack-phase5` | `a15e20d8` | JIT + departure ack + capability gate |
-| Backend Phase 6 | `release/scheduled-admin-monitoring-phase6` | `e910619e` | Admin monitoring (feature `d18e2804`) |
+| Backend Phase 6 | `release/scheduled-admin-monitoring-phase6` | feature `d18e2804` | Deploy branch tip (docs may trail); Admin monitoring only |
 | Driver Phase 5 | `release/scheduled-departure-ack-phase5` | `0898190` | Advertises `scheduled_departure_ack_v1` |
 | Phase 4 base | `release/scheduled-jit-phase4` | `71331048` | JIT sticky deadline / exclusive activation |
 
