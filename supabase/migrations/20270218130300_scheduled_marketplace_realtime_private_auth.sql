@@ -9,7 +9,7 @@
 -- Clients must subscribe with config.private = true.
 -- Edge service_role owns send (authenticated INSERT not granted here).
 -- Does NOT disable project-wide public channels.
--- NOT APPLIED until explicit production approval.
+-- RLS on realtime.messages is already enabled in production.
 -- ============================================================
 
 DO $$
@@ -18,8 +18,6 @@ BEGIN
     RAISE EXCEPTION 'realtime.messages missing — cannot authorise scheduled marketplace broadcast';
   END IF;
 END $$;
-
-ALTER TABLE realtime.messages ENABLE ROW LEVEL SECURITY;
 
 DROP POLICY IF EXISTS "Drivers receive scheduled marketplace broadcast" ON realtime.messages;
 CREATE POLICY "Drivers receive scheduled marketplace broadcast"
