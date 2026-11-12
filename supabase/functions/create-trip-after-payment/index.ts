@@ -58,7 +58,10 @@ import {
   evaluateScheduledAdvanceWindowForFinalisation,
   resolveScheduledAdvanceWindowPolicy,
 } from "../_shared/scheduledAdvanceWindowSSOT.ts";
-import { BOOKING_FAILED_HOLD_RELEASED_CUSTOMER_MESSAGE } from "../_shared/bookingFinalizeFailureSSOT.ts";
+import {
+  BOOKING_FAILED_HOLD_RELEASED_CUSTOMER_MESSAGE,
+  mergeBookingFailExtraBody,
+} from "../_shared/bookingFinalizeFailureSSOT.ts";
 import {
   extractCaptureDeadlineFromRevolutOrder,
   persistCaptureDeadlineFromOrder,
@@ -111,11 +114,10 @@ async function failBookingAfterAuthorizedPayment(
       extraBody,
     );
   }
-  return new Response(JSON.stringify({
+  return new Response(JSON.stringify(mergeBookingFailExtraBody({
     error: customerMessage,
     code: "BOOKING_FAILED",
-    ...extraBody,
-  }), {
+  }, extraBody)), {
     status: httpStatus,
     headers: { ...corsHeaders, "Content-Type": "application/json" },
   });
@@ -204,7 +206,7 @@ async function failBookingAfterAuthorizedRevolutOrder(
       failure_stage: ctx.failureStage,
       reversal_status: reversalStatus,
     });
-    return new Response(JSON.stringify({
+    return new Response(JSON.stringify(mergeBookingFailExtraBody({
       error: PAYMENT_ORPHANED_CUSTOMER_MESSAGE,
       code: "PAYMENT_ORPHANED",
       charge_state: "authorised_requires_recovery",
@@ -212,8 +214,7 @@ async function failBookingAfterAuthorizedRevolutOrder(
       reversal_status: reversalStatus,
       failure_stage: ctx.failureStage,
       failure_reason: ctx.failureReason,
-      ...extraBody,
-    }), {
+    }, extraBody)), {
       status: httpStatus,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
@@ -255,14 +256,13 @@ async function failBookingAfterAuthorizedRevolutOrder(
     });
   }
 
-  return new Response(JSON.stringify({
+  return new Response(JSON.stringify(mergeBookingFailExtraBody({
     error: customerMessage,
     code: "BOOKING_FAILED_PREAUTH_REVERSED",
     charge_state: reversalStatus === "cancelled" ? "reversed" : "hold_reversal_pending",
     payment_intent_id: order.id,
     reversal_status: reversalStatus,
-    ...extraBody,
-  }), {
+  }, extraBody)), {
     status: httpStatus,
     headers: { ...corsHeaders, "Content-Type": "application/json" },
   });
@@ -1232,10 +1232,11 @@ serveWithEdgeTiming("create-trip-after-payment", corsHeaders, async (req) => {
           400,
           BOOKING_FAILED_HOLD_RELEASED_CUSTOMER_MESSAGE,
           {
-            code: advance.code,
+            // Advance reason is separate from financial outcome codes
+            // (BOOKING_FAILED_PREAUTH_REVERSED / PAYMENT_ORPHANED).
+            advance_failure_code: advance.code,
             min_advance_minutes: advance.minAdvanceMinutes,
             max_advance_days: advance.maxAdvanceDays,
-            hold_released: true,
             booking_failure_definitive: true,
           },
         );

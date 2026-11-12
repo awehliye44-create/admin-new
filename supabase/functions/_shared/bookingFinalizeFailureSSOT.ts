@@ -98,3 +98,44 @@ export function classifyBookingFinalizeFailure(input: {
 
 export const BOOKING_FAILED_HOLD_RELEASED_CUSTOMER_MESSAGE =
   "Your booking could not be completed. Any payment authorisation has been released. Please select a new pickup time and try again.";
+
+/**
+ * Financial outcome fields that must never be overwritten by caller `extraBody`
+ * (e.g. advance validation codes must not replace BOOKING_FAILED_PREAUTH_REVERSED
+ * or PAYMENT_ORPHANED).
+ */
+export const BOOKING_FAIL_FINANCIAL_RESPONSE_KEYS = [
+  "code",
+  "error",
+  "charge_state",
+  "reversal_status",
+  "payment_intent_id",
+  "success",
+  "ride_id",
+  "trip_id",
+  "trip_code",
+  "trip_reference",
+  "status",
+  "idempotent",
+  "adopted_after_release_claim",
+  "hold_released",
+] as const;
+
+/**
+ * Merge optional CTAP failure extras without clobbering authoritative financial
+ * outcome fields. Advance validation reasons belong in `advance_failure_code` /
+ * `failure_reason`, never in `code` when a financial outcome code is set.
+ */
+export function mergeBookingFailExtraBody(
+  base: Record<string, unknown>,
+  extraBody?: Record<string, unknown> | null,
+): Record<string, unknown> {
+  if (!extraBody || typeof extraBody !== "object") return base;
+  const protectedKeys = new Set<string>(BOOKING_FAIL_FINANCIAL_RESPONSE_KEYS);
+  const safe: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(extraBody)) {
+    if (protectedKeys.has(key)) continue;
+    safe[key] = value;
+  }
+  return { ...base, ...safe };
+}
