@@ -35,6 +35,17 @@ export function extractCaptureDeadlineFromRevolutOrder(
           null,
       );
       if (fromPayment) return fromPayment;
+      // Apple Pay / some card rails nest the provider deadline under payment_method.
+      const method = pr.payment_method;
+      if (method && typeof method === "object") {
+        const pm = method as Record<string, unknown>;
+        const fromMethod = parseCaptureDeadlineIso(
+          (pm.capture_deadline as string | null | undefined) ??
+            (pm.captureDeadline as string | null | undefined) ??
+            null,
+        );
+        if (fromMethod) return fromMethod;
+      }
     }
   }
   return null;

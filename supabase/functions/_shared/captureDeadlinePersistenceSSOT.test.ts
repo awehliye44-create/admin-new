@@ -18,6 +18,17 @@ Deno.test("extracts capture_deadline from payments[] when root omitted", () => {
   assertEquals(iso, "2026-06-12T08:00:00.000Z");
 });
 
+Deno.test("extracts capture_deadline from payments[].payment_method (Apple Pay nest)", () => {
+  const iso = extractCaptureDeadlineFromRevolutOrder({
+    id: "ord_1",
+    payments: [{
+      state: "authorised",
+      payment_method: { capture_deadline: "2026-11-21T17:19:51.124Z" },
+    }],
+  });
+  assertEquals(iso, "2026-11-21T17:19:51.124Z");
+});
+
 Deno.test("missing provider deadline followed by successful extract", () => {
   const missing = extractCaptureDeadlineFromRevolutOrder({ id: "ord_1" });
   assertEquals(missing, null);

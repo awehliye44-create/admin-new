@@ -420,3 +420,21 @@ Commitment sample (`15m` ETA to 07:00 pickup): feasible. Banner count cannot be 
 - Do not manually `scheduled_broadcast_at = now()` while gate fails  
 - Do not enable Phase 5  
 - Do not duplicate implementation — correction already live for new creates  
+
+### Controlled recovery outcome (Owner-approved, 2026-11-12 ~18:40 UTC)
+
+| Item | Result |
+|---|---|
+| Provider auth | Revolut order `AUTHORISED`, £43.43 |
+| Provider `capture_deadline` | **`2026-11-21T17:19:51.124Z`** (nested at `payments[0].payment_method.capture_deadline`) |
+| Coverage | required until `2026-11-13T13:40:00Z` (pickup + 40m + 6h) — **covered** |
+| Persist | session `a42d07d1-…` via `provider_retrieve` |
+| `assert_payment_gate` | **PASS** |
+| Auto-publish | `scheduled-dispatch` recovery set `scheduled_broadcast_at=2026-11-12T18:40:47.972Z` |
+| Marketplace open | **true** |
+| Convert / pickup / fare | preserved (`06:51` / `07:00` / £43.43); `convertedToInstant=0` |
+| Eligible listing predicates | marketplace open + SA + vehicle + no offer attempt — **all true** for `c40dd8a6-…` |
+| Realtime | `notifyScheduledMarketplaceOpen` → `broadcastScheduledMarketplaceChanged(reason=published)` invoked post-publish |
+| Other pre-fix siblings | **none** found in active unassigned scan |
+| Additional defect | Extractor missed `payment_method.capture_deadline` — fixed + Edge redeployed (webhook/CTAP/confirm) |
+
