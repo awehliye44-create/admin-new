@@ -488,27 +488,24 @@ export default function ScheduledRides() {
       toast.error('error' in timing ? timing.error : 'Invalid time');
       return;
     }
+    const reason = requireEmergencyReason('Emergency Assign At');
+    if (!reason) return;
     const at = timing.actionAt;
     setIsSaving(true);
     try {
-      // One pending action per trip — replaces any prior pending release.
-      // Allows driver_assigned so Assign At can swap a pre-confirmed driver.
-      const pendingRows = await scheduledRidesTripUpdate(
-        selectedTrip.id,
-        {
-          pending_release_kind: 'assign',
-          pending_release_at: at.toISOString(),
-          pending_release_driver_id: selectedDriverId,
-        },
-        [
-          { op: 'in', col: 'scheduled_status', val: ['admin_held', 'scheduled', 'pending', 'broadcasting', 'driver_assigned'] },
-          { op: 'is_null', col: 'driver_id' },
-          { op: 'is_null', col: 'completed_at' },
-          { op: 'not_in', col: 'status', val: [...TERMINAL_TRIP_STATUSES] },
-        ],
-      );
-      if (!pendingRows?.length) {
-        toast.error('Trip is no longer available for Assign At');
+      const result = await invokeAdminScheduledRideAction({
+        action: 'assign_at',
+        tripId: selectedTrip.id,
+        reason,
+        executeAt: at.toISOString(),
+        driverId: selectedDriverId,
+      });
+      if (!result.success) {
+        toast.error(
+          result.error === 'PAYMENT_GATE_NOT_SATISFIED'
+            ? 'Blocked — payment authorisation does not cover this booking'
+            : result.message || result.error || 'Failed to schedule Assign At',
+        );
         return;
       }
       toast.success('Assign At scheduled (backend cron)');
