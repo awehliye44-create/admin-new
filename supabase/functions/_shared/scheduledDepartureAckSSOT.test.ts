@@ -174,6 +174,9 @@ Deno.test("source lock: runner arms departure ack; never activate_now", async ()
   assert(runner.includes("departureAcknowledgement"));
   assert(!runner.includes("buildConfirmedActivationPatch"));
   assert(runner.includes("Phase 5 fail-closed"));
+  // Capability-aware: global flag alone is insufficient.
+  assert(runner.includes("resolveDepartureAckExecutionModeForDriver"));
+  assert(runner.includes("loadDriverClientCapabilitySnapshot"));
 
   const checkin = await Deno.readTextFile(
     new URL("../scheduled-checkin/index.ts", import.meta.url),
@@ -183,4 +186,10 @@ Deno.test("source lock: runner arms departure ack; never activate_now", async ()
   assert(checkin.includes("buildDepartureAckAcknowledgedFields"));
   assert(checkin.includes("scheduled_ack_deadline_at"));
   assert(checkin.includes("ACK_EXPIRED"));
+
+  const bind = await Deno.readTextFile(
+    new URL("../bind-driver-device-token/index.ts", import.meta.url),
+  );
+  assert(bind.includes("client_capabilities"));
+  assert(bind.includes("client_capabilities_updated_at"));
 });

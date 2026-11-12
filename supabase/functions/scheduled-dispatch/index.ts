@@ -451,7 +451,11 @@ Deno.serve(async (req) => {
          jit_target_early_arrival_minutes, jit_local_safety_buffer_minutes,
          jit_long_safety_buffer_minutes, jit_long_distance_eta_threshold_minutes,
          jit_oscillation_tolerance_minutes, jit_planning_horizon_minutes,
-         jit_max_early_pull_ahead_of_fixed_minutes, jit_auto_activate_enabled`,
+         jit_max_early_pull_ahead_of_fixed_minutes, jit_auto_activate_enabled,
+         scheduled_departure_ack_enabled, scheduled_departure_ack_seconds,
+         scheduled_departure_ack_grace_seconds,
+         scheduled_departure_ack_capability_key,
+         scheduled_departure_ack_min_app_version`,
       )
       .eq("singleton", true)
       .maybeSingle();

@@ -51,6 +51,13 @@ export type ScheduledJitActivationConfig = {
   departureAckEnabled: boolean;
   departureAckSeconds: number;
   departureAckGraceSeconds: number;
+  /**
+   * Capability token Driver must advertise on active-device bind.
+   * Global flag alone is insufficient — see scheduledDepartureAckCapabilitySSOT.
+   */
+  departureAckCapabilityKey: string;
+  /** Optional semver floor; null = capability key alone. */
+  departureAckMinAppVersion: string | null;
 };
 
 export const SCHEDULED_JIT_ACTIVATION_DEFAULTS: ScheduledJitActivationConfig = {
@@ -69,6 +76,8 @@ export const SCHEDULED_JIT_ACTIVATION_DEFAULTS: ScheduledJitActivationConfig = {
   departureAckSeconds: 45,
   /** @deprecated Ignored for deadline math — driver window is exactly 45s. */
   departureAckGraceSeconds: 0,
+  departureAckCapabilityKey: "scheduled_departure_ack_v1",
+  departureAckMinAppVersion: null,
 };
 
 export type ScheduledJitDbRow = {
@@ -84,6 +93,8 @@ export type ScheduledJitDbRow = {
   scheduled_departure_ack_enabled?: boolean | null;
   scheduled_departure_ack_seconds?: number | null;
   scheduled_departure_ack_grace_seconds?: number | null;
+  scheduled_departure_ack_capability_key?: string | null;
+  scheduled_departure_ack_min_app_version?: string | null;
 };
 
 function parsePositiveInt(raw: unknown, fallback: number): number {
@@ -154,6 +165,18 @@ export function resolveScheduledJitActivationConfig(
       row.scheduled_departure_ack_grace_seconds,
       SCHEDULED_JIT_ACTIVATION_DEFAULTS.departureAckGraceSeconds,
     ),
+    departureAckCapabilityKey: (() => {
+      const key = String(
+        row.scheduled_departure_ack_capability_key ??
+          SCHEDULED_JIT_ACTIVATION_DEFAULTS.departureAckCapabilityKey,
+      ).trim();
+      return key || SCHEDULED_JIT_ACTIVATION_DEFAULTS.departureAckCapabilityKey;
+    })(),
+    departureAckMinAppVersion: (() => {
+      const raw = row.scheduled_departure_ack_min_app_version;
+      if (raw == null || String(raw).trim() === "") return null;
+      return String(raw).trim();
+    })(),
   };
 }
 

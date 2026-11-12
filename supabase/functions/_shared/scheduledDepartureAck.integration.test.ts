@@ -64,18 +64,18 @@ Deno.test({
     ]);
     assertEquals(run.code, 0, run.out);
 
-    for (let i = 0; i < 40; i++) {
-      const ready = await sh([
-        "docker",
-        "exec",
-        "p5-ack-pg",
-        "pg_isready",
-        "-U",
-        "postgres",
-      ]);
-      if (ready.code === 0) break;
-      await new Promise((r) => setTimeout(r, 400));
+    // Wait until host-port TCP accepts queries (pg_isready can pass mid-initdb).
+    let ready = false;
+    for (let i = 0; i < 60; i++) {
+      try {
+        await psql("SELECT 1;");
+        ready = true;
+        break;
+      } catch {
+        await new Promise((r) => setTimeout(r, 500));
+      }
     }
+    assert(ready, "ephemeral Postgres did not become ready on host port");
 
     await psql(`
 CREATE TABLE trips (

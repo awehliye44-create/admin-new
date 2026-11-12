@@ -40,6 +40,9 @@ interface BindBody {
   installation_id?: string;
   device_id?: string;
   app_version?: string;
+  /** Capability tokens this Driver installation supports (e.g. scheduled_departure_ack_v1). */
+  client_capabilities?: unknown;
+  capabilities?: unknown;
   environment?: string;
   app_identifier?: string;
   /** When true, this device becomes the sole active device (login takeover). */
@@ -47,6 +50,24 @@ interface BindBody {
   force_claim?: boolean;
   /** Ignored — server resolves from auth. */
   driver_id?: string;
+}
+
+function normalizeClientCapabilities(raw: unknown): string[] {
+  if (Array.isArray(raw)) {
+    return raw
+      .map((x) => String(x ?? "").trim().toLowerCase())
+      .filter(Boolean)
+      .slice(0, 32);
+  }
+  if (typeof raw === "string" && raw.trim()) {
+    try {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) return normalizeClientCapabilities(parsed);
+    } catch {
+      return [raw.trim().toLowerCase()].slice(0, 32);
+    }
+  }
+  return [];
 }
 
 Deno.serve(async (req) => {
@@ -111,6 +132,11 @@ Deno.serve(async (req) => {
 
   const appVersion =
     typeof body.app_version === "string" ? body.app_version.slice(0, 40) : null;
+  // Always replace: missing/unknown → [] so older OTA rollback clears Phase 5.
+  // Never infer capabilities from app_version — only the loaded update's list.
+  const clientCapabilities = normalizeClientCapabilities(
+    body.client_capabilities ?? body.capabilities,
+  );
 
   const supabase = createClient(
     Deno.env.get("SUPABASE_URL")!,
@@ -164,6 +190,7 @@ Deno.serve(async (req) => {
   }
 
   // Authoritative claim (claim_active_device semantics) — sole active installation.
+  // Persist client_capabilities + app_version for Phase 5 mixed-version gating.
   const { error: claimErr } = await supabase.from("driver_active_devices").upsert(
     {
       driver_id: driverId,
@@ -171,6 +198,9 @@ Deno.serve(async (req) => {
       platform,
       last_seen_at: now,
       updated_at: now,
+      app_version: appVersion,
+      client_capabilities: clientCapabilities,
+      client_capabilities_updated_at: now,
     },
     { onConflict: "driver_id" },
   );

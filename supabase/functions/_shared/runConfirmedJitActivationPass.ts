@@ -20,7 +20,6 @@ import {
   effectiveJitPlanningHorizonMinutes,
   isWithinJitPlanningHorizon,
   reconcileStickyJitDeadline,
-  resolveJitExecutionMode,
   resolveScheduledJitActivationConfig,
   validateJitEtaMinutes,
   type ScheduledJitActivationConfig,
@@ -31,6 +30,12 @@ import {
   isAlreadyConfirmedActivated,
 } from "./scheduledConfirmedActivationSSOT.ts";
 import { computeDepartureAckDeadlineMs } from "./scheduledDepartureAckSSOT.ts";
+import {
+  normalizeCapabilityList,
+  resolveDepartureAckCapabilityConfig,
+  resolveDepartureAckExecutionModeForDriver,
+  type DriverClientCapabilitySnapshot,
+} from "./scheduledDepartureAckCapabilitySSOT.ts";
 import {
   buildJitEtaUnresolvedOpsAlert,
   buildJitMonitorPersistPatch,
@@ -203,7 +208,12 @@ export async function runConfirmedJitActivationPass(input: {
     supabaseServiceKey,
   } = input;
 
-  const executionMode = resolveJitExecutionMode(jitConfig);
+  // Global flag alone is insufficient — per-driver capability decides arm_ack vs ack_nro.
+  const capabilityConfig = resolveDepartureAckCapabilityConfig({
+    scheduled_departure_ack_enabled: jitConfig.departureAckEnabled,
+    scheduled_departure_ack_capability_key: jitConfig.departureAckCapabilityKey,
+    scheduled_departure_ack_min_app_version: jitConfig.departureAckMinAppVersion,
+  });
   let activated = 0;
   let armed = 0;
   let monitored = 0;
@@ -401,6 +411,15 @@ export async function runConfirmedJitActivationPass(input: {
       locationReason: presence.freshness.reason,
       hasActiveJourney: Boolean(presence.currentTripId),
       routingFailedWithFreshLocation: routingFailedWithFresh,
+    });
+
+    const capabilitySnapshot = await loadDriverClientCapabilitySnapshot(
+      supabase,
+      confirmedDriverId,
+    );
+    const executionMode = resolveDepartureAckExecutionModeForDriver({
+      config: capabilityConfig,
+      snapshot: capabilitySnapshot,
     });
 
     const decision = decideConfirmedScheduledActivation({
@@ -663,6 +682,9 @@ export async function runConfirmedJitActivationPass(input: {
           departure_acknowledgement: departureAck,
           offer_id: offerId,
           ack_nonce: departureAck ? ackNonce : null,
+          // Same device_id authoritative push will target.
+          active_device_id: capabilitySnapshot?.deviceId ?? null,
+          client_capabilities: capabilitySnapshot?.capabilities ?? [],
         },
       });
       console.log(
@@ -673,6 +695,7 @@ export async function runConfirmedJitActivationPass(input: {
           driver_id: confirmedDriverId,
           source: decision.source,
           ack_deadline_at: departureAck ? expiresAt : null,
+          active_device_id: capabilitySnapshot?.deviceId ?? null,
         },
       );
       armed++;
@@ -693,4 +716,35 @@ export function resolveJitConfigFromSettingsRow(
   row: Record<string, unknown> | null | undefined,
 ): ScheduledJitActivationConfig {
   return resolveScheduledJitActivationConfig(row as any);
+}
+
+async function loadDriverClientCapabilitySnapshot(
+  supabase: AnySupabaseClient,
+  driverId: string,
+): Promise<DriverClientCapabilitySnapshot | null> {
+  try {
+    // Sole active device only — same row authoritative push resolves.
+    const { data } = await supabase
+      .from("driver_active_devices")
+      .select("device_id, client_capabilities, app_version")
+      .eq("driver_id", driverId)
+      .maybeSingle();
+    if (!data) return null;
+    const deviceId =
+      typeof (data as { device_id?: unknown }).device_id === "string"
+        ? String((data as { device_id: string }).device_id).trim()
+        : "";
+    return {
+      deviceId: deviceId || null,
+      capabilities: normalizeCapabilityList(
+        (data as { client_capabilities?: unknown }).client_capabilities,
+      ),
+      appVersion:
+        typeof (data as { app_version?: unknown }).app_version === "string"
+          ? String((data as { app_version: string }).app_version)
+          : null,
+    };
+  } catch {
+    return null;
+  }
 }
