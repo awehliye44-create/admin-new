@@ -3,18 +3,18 @@
  *
  * deadline = scheduled_at − target_early_arrival − driver_to_pickup_eta − safety_buffer
  *
- * Feature-gated execution mode (default ack-safe):
- * - ack_nro: arm exclusive activation offer (existing Driver Accept) — DEFAULT
- * - auto_en_route: direct driver_en_route (requires explicit flag; Phase 5 supersedes)
- * - Phase 5 reserved: arm_ack (45s countdown) — never returned until Phase 5 ships
+ * Feature-gated execution mode:
+ * - departure_ack: Phase 5 — arm 45s Heading to Pickup / Cancel (DEFAULT when enabled)
+ * - ack_nro: Phase 4 fallback — exclusive NRO with lockedDriverResponseMinutes
+ * - auto_en_route: FORBIDDEN — resolveJitExecutionMode never returns this
  *
  * Unclaimed Local/Long conversion timings stay on scheduledActivationSSOT.
  */
 
 export type ScheduledJitDistanceKind = "local" | "long";
 
-/** Safe default until Phase 5 acknowledgement is live. */
-export type ScheduledJitExecutionMode = "ack_nro" | "auto_en_route";
+/** Phase 5 default is departure_ack; ack_nro remains Phase 4 fallback. */
+export type ScheduledJitExecutionMode = "departure_ack" | "ack_nro" | "auto_en_route";
 
 export type ScheduledJitActivationConfig = {
   targetEarlyArrivalMinutes: number;
@@ -43,10 +43,14 @@ export type ScheduledJitActivationConfig = {
    */
   maxEarlyPullAheadOfFixedMinutes: number;
   /**
-   * Always forced false in resolveJitExecutionMode until Phase 5.
-   * DB column may exist but cannot enable no-ack en_route in Phase 4.
+   * Always forced false — no-ack en_route cannot be enabled.
+   * Phase 5 stamps en_route only after Heading to Pickup acknowledgement.
    */
   autoActivateEnabled: boolean;
+  /** Phase 5 departure acknowledgement (45s). When false, arm Phase 4 exclusive NRO. */
+  departureAckEnabled: boolean;
+  departureAckSeconds: number;
+  departureAckGraceSeconds: number;
 };
 
 export const SCHEDULED_JIT_ACTIVATION_DEFAULTS: ScheduledJitActivationConfig = {
@@ -60,6 +64,9 @@ export const SCHEDULED_JIT_ACTIVATION_DEFAULTS: ScheduledJitActivationConfig = {
   etaSpikeMaxRelativeJump: 1.35,
   maxEarlyPullAheadOfFixedMinutes: 20, // unused for clamp — retained for column compat
   autoActivateEnabled: false,
+  departureAckEnabled: true,
+  departureAckSeconds: 45,
+  departureAckGraceSeconds: 10,
 };
 
 export type ScheduledJitDbRow = {
@@ -72,6 +79,9 @@ export type ScheduledJitDbRow = {
   jit_max_early_pull_ahead_of_fixed_minutes?: number | null;
   jit_eta_spike_confirm_samples?: number | null;
   jit_auto_activate_enabled?: boolean | null;
+  scheduled_departure_ack_enabled?: boolean | null;
+  scheduled_departure_ack_seconds?: number | null;
+  scheduled_departure_ack_grace_seconds?: number | null;
 };
 
 function parsePositiveInt(raw: unknown, fallback: number): number {
@@ -128,8 +138,20 @@ export function resolveScheduledJitActivationConfig(
       row.jit_max_early_pull_ahead_of_fixed_minutes,
       SCHEDULED_JIT_ACTIVATION_DEFAULTS.maxEarlyPullAheadOfFixedMinutes,
     ),
-    // Phase 4: DB flag ignored — always false (no-ack path cannot be enabled).
+    // DB flag ignored — always false (no-ack path cannot be enabled).
     autoActivateEnabled: false,
+    departureAckEnabled: parseBool(
+      row.scheduled_departure_ack_enabled,
+      SCHEDULED_JIT_ACTIVATION_DEFAULTS.departureAckEnabled,
+    ),
+    departureAckSeconds: parsePositiveInt(
+      row.scheduled_departure_ack_seconds,
+      SCHEDULED_JIT_ACTIVATION_DEFAULTS.departureAckSeconds,
+    ),
+    departureAckGraceSeconds: parsePositiveInt(
+      row.scheduled_departure_ack_grace_seconds,
+      SCHEDULED_JIT_ACTIVATION_DEFAULTS.departureAckGraceSeconds,
+    ),
   };
 }
 
@@ -374,10 +396,10 @@ export type ConfirmedActivationDecision =
     deadlineMs: number;
     source: "jit" | "fixed_fallback";
     kind: string;
-    /** Phase 5 reserved — null until Phase 5. */
     phase5AckDeadlineAtMs: null;
   }
   | {
+    /** Forbidden in production — decide* never returns this. */
     action: "activate_now";
     deadlineMs: number;
     source: "jit" | "fixed_fallback";
@@ -385,11 +407,13 @@ export type ConfirmedActivationDecision =
     phase5AckDeadlineAtMs: null;
   }
   | {
-    /** Reserved for Phase 5 — never emitted by Phase 4 decide*. */
+    /** Phase 5: arm 45s departure acknowledgement (Heading to Pickup / Cancel). */
     action: "arm_ack";
     deadlineMs: number;
+    source: "jit" | "fixed_fallback";
+    kind: string;
     phase5AckDeadlineAtMs: number;
-    countdownSeconds: 45;
+    countdownSeconds: number;
   }
   | {
     action: "conflict_rescue";
@@ -408,13 +432,18 @@ export type ConfirmedActivationDecision =
 export const PHASE5_ACK_COUNTDOWN_SECONDS = 45 as const;
 
 /**
- * Phase 4 hard-lock: always ack_nro. DB/env cannot enable no-ack en_route.
- * Phase 5 will own acknowledgement countdown before any en_route stamp.
+ * Phase 5: departure_ack when enabled; otherwise Phase 4 ack_nro.
+ * Never returns auto_en_route — en_route requires Heading to Pickup ack.
  */
 export function resolveJitExecutionMode(
-  _config?: Pick<ScheduledJitActivationConfig, "autoActivateEnabled">,
+  config?: Pick<
+    ScheduledJitActivationConfig,
+    "autoActivateEnabled" | "departureAckEnabled"
+  >,
 ): ScheduledJitExecutionMode {
-  return "ack_nro";
+  void config?.autoActivateEnabled;
+  if (config?.departureAckEnabled === false) return "ack_nro";
+  return "departure_ack";
 }
 
 export function decideConfirmedScheduledActivation(input: {
@@ -435,6 +464,8 @@ export function decideConfirmedScheduledActivation(input: {
   deferForCompatibleActiveJourney?: boolean;
   availabilityClass: DriverAvailabilityClass;
   executionMode: ScheduledJitExecutionMode;
+  /** Phase 5 countdown seconds (default 45). */
+  departureAckCountdownSeconds?: number;
 }): ConfirmedActivationDecision {
   if (input.intentionallyHeld) {
     return {
@@ -477,6 +508,7 @@ export function decideConfirmedScheduledActivation(input: {
   }
 
   // Compatible stacked/active journey: keep assignment, wait to reassess after dropoff.
+  // Do not start the 45s departure countdown while completing a compatible journey.
   if (input.deferForCompatibleActiveJourney) {
     return {
       action: "wait",
@@ -486,12 +518,28 @@ export function decideConfirmedScheduledActivation(input: {
     };
   }
 
-  // Phase 4/5: offline/stale/unreachable still ARM acknowledgement NRO
-  // (Phase 5 will push urgent + 45s even if offline). Do NOT premature rescue.
+  // Offline/stale/unreachable still ARM acknowledgement — reconnect within countdown.
+  // Do NOT premature rescue before acknowledgement opportunity.
   void input.availabilityClass;
-  void input.executionMode;
 
-  // activate_now is unreachable in Phase 4 (executionMode forced ack_nro).
+  if (input.executionMode === "departure_ack") {
+    const countdown = Math.max(
+      1,
+      Math.floor(
+        input.departureAckCountdownSeconds ?? PHASE5_ACK_COUNTDOWN_SECONDS,
+      ),
+    );
+    return {
+      action: "arm_ack",
+      deadlineMs,
+      source,
+      kind,
+      phase5AckDeadlineAtMs: input.nowMs + countdown * 1000,
+      countdownSeconds: countdown,
+    };
+  }
+
+  // Phase 4 fallback: exclusive NRO (lockedDriverResponseMinutes expiry).
   return {
     action: "arm_exclusive_nro",
     deadlineMs,

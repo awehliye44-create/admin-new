@@ -1,10 +1,11 @@
 /**
- * Phase 4 — confirmed-driver JIT monitor + activation pass.
+ * Phase 5 — confirmed-driver JIT monitor + departure acknowledgement pass.
  *
- * Always arm exclusive NRO (acknowledgement) — never stamps driver_en_route without Accept.
- * jit_auto_activate_enabled is hard-locked false (resolveJitExecutionMode → ack_nro).
- * Offline/stale: still arm NRO so Phase 5 can acknowledge within countdown — no premature rescue.
+ * Default: arm_ack (45s Heading to Pickup / Cancel) — never stamps driver_en_route without ack.
+ * jit_auto_activate_enabled hard-locked false.
+ * Offline/stale: still arm so driver can reconnect within countdown — no premature rescue.
  * Compatible active journey: defer arm; infeasible → conflict rematch (never interrupt passenger).
+ * Reuses exclusive ride_offers insert for urgent audible NEW_RIDE_OFFER (OTA-compatible).
  */
 
 import type { AnySupabaseClient } from "./supabaseClientTypes.ts";
@@ -25,9 +26,11 @@ import {
   type ScheduledJitActivationConfig,
 } from "./scheduledJitActivationSSOT.ts";
 import {
+  buildDepartureAckArmPatch,
   buildExclusiveActivationArmPatch,
   isAlreadyConfirmedActivated,
 } from "./scheduledConfirmedActivationSSOT.ts";
+import { computeDepartureAckDeadlineMs } from "./scheduledDepartureAckSSOT.ts";
 import {
   buildJitEtaUnresolvedOpsAlert,
   buildJitMonitorPersistPatch,
@@ -67,6 +70,8 @@ export type JitPassTrip = {
   scheduled_jit_basis_scheduled_at?: string | null;
   scheduled_jit_eta_minutes?: number | null;
   scheduled_jit_eta_spike_samples?: number | null;
+  scheduled_ack_status?: string | null;
+  scheduled_ack_deadline_at?: string | null;
   broadcast_enabled?: boolean | null;
   airport_charge_pence?: number | null;
   passenger_id?: string | null;
@@ -410,10 +415,12 @@ export async function runConfirmedJitActivationPass(input: {
       activeJourneyThreatensCommitment: threat.threatens,
       activeJourneyThreatReason: threat.reason ?? undefined,
       // Compatible active journey: retain assignment; reassess after dropoff.
+      // Do not start 45s countdown while completing a compatible journey.
       deferForCompatibleActiveJourney:
         Boolean(presence.currentTripId) && feasibility.feasible && !threat.threatens,
       availabilityClass: availability,
       executionMode,
+      departureAckCountdownSeconds: jitConfig.departureAckSeconds,
     });
 
     if (decision.action === "wait" || decision.action === "hold_skip") {
@@ -485,11 +492,14 @@ export async function runConfirmedJitActivationPass(input: {
       continue;
     }
 
+    const isDepartureAck = decision.action === "arm_ack";
     const eligibility = await evaluateConfirmedDriverExclusiveEligibility(supabase, {
       driverId: confirmedDriverId,
       tripId: trip.id,
       nowMs,
       allowOnTrip: Boolean(presence.currentTripId),
+      // Phase 5: offline/stale still get acknowledgement opportunity.
+      allowOfflineForDepartureAck: isDepartureAck || executionMode === "departure_ack",
     });
     if (!eligibility.eligible) {
       await input.releaseAndRebroadcast({
@@ -507,9 +517,25 @@ export async function runConfirmedJitActivationPass(input: {
       continue;
     }
 
-    if (decision.action === "arm_exclusive_nro") {
-      const responseMinutes = Math.max(1, Number(lockedDriverResponseMinutes ?? 3));
-      const expiresAt = new Date(nowMs + responseMinutes * 60_000).toISOString();
+    if (decision.action === "arm_ack" || decision.action === "arm_exclusive_nro") {
+      const departureAck = decision.action === "arm_ack";
+      const countdownSeconds = departureAck
+        ? Math.max(
+          1,
+          Math.floor(
+            (decision as { countdownSeconds?: number }).countdownSeconds ??
+              jitConfig.departureAckSeconds,
+          ),
+        )
+        : Math.max(1, Number(lockedDriverResponseMinutes ?? 3)) * 60;
+      const ackDeadlineMs = departureAck
+        ? computeDepartureAckDeadlineMs({
+          nowMs,
+          countdownSeconds,
+        })
+        : nowMs + countdownSeconds * 1000;
+      const expiresAt = new Date(ackDeadlineMs).toISOString();
+      const ackNonce = crypto.randomUUID();
 
       let computedPreview: number | null = null;
       const stampedNet = resolveExclusiveActivationDriverNetPence({ trip: trip as any });
@@ -555,6 +581,8 @@ export async function runConfirmedJitActivationPass(input: {
         netPence,
         kind: decision.kind,
         expiresAtIso: expiresAt,
+        departureAcknowledgement: departureAck,
+        ackNonce: departureAck ? ackNonce : null,
       });
 
       const { data: offerRows, error: offerErr } = await supabase
@@ -589,9 +617,18 @@ export async function runConfirmedJitActivationPass(input: {
       }
 
       const offerId = String(offerRows[0].id);
+      const armPatch = departureAck
+        ? buildDepartureAckArmPatch({
+          nowIso: now.toISOString(),
+          deadlineIso: expiresAt,
+          driverId: confirmedDriverId,
+          nonce: ackNonce,
+        })
+        : buildExclusiveActivationArmPatch({ nowIso: now.toISOString() });
+
       const { data: armedRows, error: armErr } = await supabase
         .from("trips")
-        .update(buildExclusiveActivationArmPatch({ nowIso: now.toISOString() }))
+        .update(armPatch)
         .eq("id", trip.id)
         .is("completed_at", null)
         .not("status", "in", TERMINAL_TRIP_STATUS_POSTGREST_LIST)
@@ -607,9 +644,12 @@ export async function runConfirmedJitActivationPass(input: {
         continue;
       }
 
+      const logAction = departureAck
+        ? "scheduled_jit_arm_departure_ack"
+        : "scheduled_jit_arm_exclusive_nro";
       await input.logSnapshot({
         tripId: trip.id,
-        action: "scheduled_jit_arm_exclusive_nro",
+        action: logAction,
         stage: "offer_inserted",
         driverId: confirmedDriverId,
         metadata: {
@@ -619,23 +659,28 @@ export async function runConfirmedJitActivationPass(input: {
           eta_source: etaSource,
           jit_kind: jitKind,
           execution_mode: executionMode,
-          phase5_ack_deadline_at: null,
+          phase5_ack_deadline_at: departureAck ? expiresAt : null,
+          departure_acknowledgement: departureAck,
           offer_id: offerId,
+          ack_nonce: departureAck ? ackNonce : null,
         },
       });
-      console.log("SCHEDULED_JIT_ARM_EXCLUSIVE_NRO", {
-        trip_id: trip.id,
-        offer_id: offerId,
-        driver_id: confirmedDriverId,
-        source: decision.source,
-      });
+      console.log(
+        departureAck ? "SCHEDULED_JIT_ARM_DEPARTURE_ACK" : "SCHEDULED_JIT_ARM_EXCLUSIVE_NRO",
+        {
+          trip_id: trip.id,
+          offer_id: offerId,
+          driver_id: confirmedDriverId,
+          source: decision.source,
+          ack_deadline_at: departureAck ? expiresAt : null,
+        },
+      );
       armed++;
       continue;
     }
 
-    // Phase 4: activate_now / unavailable_rescue must never run.
-    // No-ack en_route is impossible while resolveJitExecutionMode → ack_nro.
-    console.warn("[jit-activation] unexpected decision ignored (Phase 4 fail-closed)", {
+    // activate_now must never run — en_route only after Heading to Pickup.
+    console.warn("[jit-activation] unexpected decision ignored (Phase 5 fail-closed)", {
       trip_id: trip.id,
       action: (decision as { action?: string }).action,
     });

@@ -65,17 +65,20 @@ Deno.test("long-distance JIT deadline is not delayed by fixed timing clamp", () 
   assert(sticky.deadlineMs < Date.parse("2026-11-12T19:59:00.000Z"));
 });
 
-Deno.test("DB auto_activate cannot enable no-ack; resolve always ack_nro", () => {
-  assertEquals(resolveJitExecutionMode(SCHEDULED_JIT_ACTIVATION_DEFAULTS), "ack_nro");
-  assertEquals(resolveJitExecutionMode({ autoActivateEnabled: true }), "ack_nro");
+Deno.test("DB auto_activate cannot enable no-ack; Phase 5 resolve is departure_ack", () => {
+  assertEquals(resolveJitExecutionMode(SCHEDULED_JIT_ACTIVATION_DEFAULTS), "departure_ack");
+  assertEquals(
+    resolveJitExecutionMode({ autoActivateEnabled: true, departureAckEnabled: true }),
+    "departure_ack",
+  );
   const cfg = resolveScheduledJitActivationConfig({
     jit_auto_activate_enabled: true,
   });
   assertEquals(cfg.autoActivateEnabled, false);
-  assertEquals(resolveJitExecutionMode(cfg), "ack_nro");
+  assertEquals(resolveJitExecutionMode(cfg), "departure_ack");
 });
 
-Deno.test("due deadline defaults to arm_exclusive_nro not activate_now", () => {
+Deno.test("due deadline with ack_nro fallback arms exclusive NRO not activate_now", () => {
   const pickup = Date.parse("2026-11-12T20:30:00.000Z");
   const fixedAt = pickup - 11 * 60_000;
   const d = decideConfirmedScheduledActivation({
@@ -110,9 +113,9 @@ Deno.test("offline / stale at deadline still arm acknowledgement — no prematur
       intentionallyHeld: false,
       activeJourneyThreatensCommitment: false,
       availabilityClass: availability,
-      executionMode: "ack_nro",
+      executionMode: "departure_ack",
     });
-    assertEquals(d.action, "arm_exclusive_nro");
+    assertEquals(d.action, "arm_ack");
   }
 });
 
@@ -341,7 +344,7 @@ Deno.test("long distance classification at ETA ≥ 30", () => {
   );
 });
 
-Deno.test("source lock: ack NRO only; auto-activate fail-closed; no Phase 5 arm_ack emit", async () => {
+Deno.test("source lock: Phase 5 departure_ack; auto-activate fail-closed; no activate_now", async () => {
   const src = await Deno.readTextFile(
     new URL("../scheduled-dispatch/index.ts", import.meta.url),
   );
@@ -351,10 +354,9 @@ Deno.test("source lock: ack NRO only; auto-activate fail-closed; no Phase 5 arm_
   const runner = await Deno.readTextFile(
     new URL("./runConfirmedJitActivationPass.ts", import.meta.url),
   );
-  assert(runner.includes("arm_exclusive_nro"));
-  assert(runner.includes("SCHEDULED_JIT_ARM_EXCLUSIVE_NRO"));
+  assert(runner.includes("SCHEDULED_JIT_ARM_DEPARTURE_ACK"));
   assert(runner.includes("deferForCompatibleActiveJourney"));
-  assert(runner.includes("Phase 4 fail-closed"));
+  assert(runner.includes("Phase 5 fail-closed"));
   // Must not stamp en_route in runner (activate_now unreachable).
   assert(!runner.includes("buildConfirmedActivationPatch"));
 
@@ -362,8 +364,7 @@ Deno.test("source lock: ack NRO only; auto-activate fail-closed; no Phase 5 arm_
     new URL("./scheduledJitActivationSSOT.ts", import.meta.url),
   );
   assert(ssot.includes("autoActivateEnabled: false"));
-  assert(ssot.includes('return "ack_nro"'));
-  assert(!/return \{\s*action: \"arm_ack\"/.test(ssot));
+  assert(ssot.includes('return "departure_ack"'));
   assert(!/return \{\s*action: \"activate_now\"/.test(ssot));
   assert(!ssot.includes("clampJitDeadlineToFixedFloor"));
 });

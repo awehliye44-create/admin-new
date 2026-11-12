@@ -172,6 +172,25 @@ export async function rescueExclusiveActivationToNearby(
     { max_dispatch_rounds: globalRounds?.max_dispatch_rounds },
     null,
   );
+  const reasonStr = String(args.reason ?? "");
+  const ackResolution =
+    reasonStr === SCHEDULED_ACTIVATION_EXCLUSIVE_REASON.acknowledgementTimeout ||
+      reasonStr.includes("acknowledgement_timeout")
+      ? {
+        status: "timed_out" as const,
+        reason: SCHEDULED_ACTIVATION_EXCLUSIVE_REASON.acknowledgementTimeout,
+      }
+      : reasonStr === SCHEDULED_ACTIVATION_EXCLUSIVE_REASON.departureAckCancelled ||
+          reasonStr.includes("departure_ack_cancelled") ||
+          reasonStr === SCHEDULED_ACTIVATION_EXCLUSIVE_REASON.declinedImmediate
+      ? {
+        status: "cancelled" as const,
+        reason: reasonStr.includes("declined")
+          ? SCHEDULED_ACTIVATION_EXCLUSIVE_REASON.declinedImmediate
+          : SCHEDULED_ACTIVATION_EXCLUSIVE_REASON.departureAckCancelled,
+      }
+      : null;
+
   const patch = buildExclusiveFailureConversionPatch({
     nowIso,
     searchingExpiresAtIso,
@@ -184,6 +203,7 @@ export async function rescueExclusiveActivationToNearby(
     maxBroadcastSequences: instantMaxSequences,
     currentBroadcastEnabled: (trip as { broadcast_enabled?: boolean | null })
       .broadcast_enabled,
+    ackResolution,
   });
   const allowBroadcast = patch.broadcast_enabled !== false;
 
@@ -250,6 +270,12 @@ export async function evaluateConfirmedDriverExclusiveEligibility(
     nowMs?: number;
     /** Finishing an earlier trip is allowed for preconfirmed scheduled activation. */
     allowOnTrip?: boolean;
+    /**
+     * Phase 5: soft-pass offline/stale/presence so the driver still gets the
+     * acknowledgement window and can reconnect within the countdown.
+     * Hard fails (docs, wallet, excluded, category) still block.
+     */
+    allowOfflineForDepartureAck?: boolean;
   },
 ): Promise<{ eligible: boolean; reason: string; isStacked: boolean }> {
   const { evaluateRideOfferDriverEligibility } = await import("./rideOfferDriverEligibility.ts");
@@ -318,7 +344,16 @@ export async function evaluateConfirmedDriverExclusiveEligibility(
   });
 
   if (!eligibility.eligible) {
-    return { eligible: false, reason: eligibility.reason, isStacked };
+    if (
+      args.allowOfflineForDepartureAck &&
+      (await import("./scheduledDepartureAckSSOT.ts")).isSoftPresenceIneligibilityForDepartureAck(
+        eligibility.reason,
+      )
+    ) {
+      // Soft presence failure — still arm acknowledgement.
+    } else {
+      return { eligible: false, reason: eligibility.reason, isStacked };
+    }
   }
 
   const { data: trip } = await supabase

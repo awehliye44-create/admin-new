@@ -1,12 +1,15 @@
 /**
- * Phase 4 — confirmed scheduled → live pickup activation SSOT.
+ * Confirmed scheduled → live pickup activation SSOT.
  *
- * Default execution mode is ack_nro (exclusive activation offer + Driver Accept).
- * Direct en_route patches are only used when jit_auto_activate_enabled=true
- * (ops override). Phase 5 will insert a 45s arm_ack before activate_now.
- *
- * Do not add countdown / Heading-to-Pickup UI here.
+ * Phase 5: departure acknowledgement (Heading to Pickup) stamps en_route.
+ * Direct no-ack en_route is forbidden — buildConfirmedActivationPatch is only
+ * used after successful acknowledgement (or legacy start_journey alias).
  */
+
+import {
+  buildDepartureAckArmPatch,
+  PHASE5_DEPARTURE_ACK_COUNTDOWN_SECONDS,
+} from "./scheduledDepartureAckSSOT.ts";
 
 export const CONFIRMED_ACTIVATION_FROM_STATUSES = [
   "driver_assigned",
@@ -29,7 +32,7 @@ export function buildConfirmedActivationPatch(input: {
   confirmedDriverId: string;
   nowIso: string;
   existingCheckedInAt?: string | null;
-  activationSource: "jit" | "fixed_fallback";
+  activationSource: "jit" | "fixed_fallback" | "departure_ack";
 }): ConfirmedActivationPatch {
   return {
     driver_id: input.confirmedDriverId,
@@ -58,17 +61,20 @@ export function isAlreadyConfirmedActivated(input: {
 }
 
 /**
- * Phase 5 boundary marker — documents the future ack arm without implementing it.
- * Phase 4 callers must never treat this as an executable path.
+ * Phase 5 live boundary — urgent audible alert + Heading to Pickup / Cancel.
+ * Countdown expiry ≡ Cancel Booking → exclusive rescue → instant dispatch.
  */
 export const PHASE5_ACK_BOUNDARY = {
   reservedAction: "arm_ack" as const,
-  countdownSeconds: 45,
+  countdownSeconds: PHASE5_DEPARTURE_ACK_COUNTDOWN_SECONDS,
+  headingToPickupAction: "heading_to_pickup" as const,
+  cancelBookingAction: "cancel_booking" as const,
+  timeoutReason: "acknowledgement_timeout" as const,
   note:
-    "Phase 5 only: urgent audible alert + Heading to Pickup / Cancel + timeout = cancel. Phase 4 default remains arm_exclusive_nro.",
+    "Phase 5: urgent audible alert + Heading to Pickup / Cancel. Timeout = cancel + exclude + instant dispatch. Never stamp driver_en_route before acknowledgement.",
 };
 
-/** Patch for ack-safe arm (existing exclusive NRO path). */
+/** Phase 4-compatible arm (status only). Prefer buildDepartureAckArmPatch in Phase 5. */
 export function buildExclusiveActivationArmPatch(input: {
   nowIso: string;
 }): {
@@ -80,3 +86,5 @@ export function buildExclusiveActivationArmPatch(input: {
     updated_at: input.nowIso,
   };
 }
+
+export { buildDepartureAckArmPatch };

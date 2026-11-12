@@ -1065,7 +1065,7 @@ Deno.serve(async (req) => {
       const { data: awaitingRows, error: awaitingErr } = await supabase
         .from("trips")
         .select(
-          "id, confirmed_driver_id, driver_id, scheduled_status, status, passenger_id, pickup_address, scheduled_at, trip_number, scheduled_broadcast_at",
+          "id, confirmed_driver_id, driver_id, scheduled_status, status, passenger_id, pickup_address, scheduled_at, trip_number, scheduled_broadcast_at, scheduled_ack_status, scheduled_ack_deadline_at",
         )
         .eq("scheduled_status", "awaiting_activation_accept")
         .is("driver_id", null)
@@ -1075,6 +1075,18 @@ Deno.serve(async (req) => {
       if (awaitingErr) {
         console.error("[scheduled-dispatch] awaiting activation query failed:", awaitingErr);
       } else {
+        const { shouldRescueAwaitingActivation } = await import(
+          "../_shared/scheduledDepartureAckRescueGateSSOT.ts"
+        );
+        const { data: ackGds } = await supabase
+          .from("global_dispatch_settings")
+          .select("scheduled_departure_ack_grace_seconds")
+          .eq("singleton", true)
+          .maybeSingle();
+        const graceSeconds = Math.max(
+          0,
+          Number(ackGds?.scheduled_departure_ack_grace_seconds ?? 10) || 10,
+        );
         for (const trip of awaitingRows ?? []) {
           if (isTripTerminalForDispatch(trip)) continue;
           const { data: openOffers } = await supabase
@@ -1086,22 +1098,35 @@ Deno.serve(async (req) => {
             .gt("expires_at", now.toISOString())
             .limit(1);
 
-          if (openOffers && openOffers.length > 0) continue;
+          const gate = shouldRescueAwaitingActivation({
+            nowMs,
+            ackStatus: (trip as { scheduled_ack_status?: string }).scheduled_ack_status,
+            ackDeadlineAt: (trip as { scheduled_ack_deadline_at?: string })
+              .scheduled_ack_deadline_at,
+            graceSeconds,
+            hasOpenLiveOffer: Boolean(openOffers?.length),
+          });
+          if (!gate.rescue) continue;
 
-          // No live activation offer — expire any stale pending, then rescue.
+          // Expire any stale pending, then rescue (preserve trip id / fare / auth).
           await supabase
             .from("ride_offers")
             .update({ status: "expired", updated_at: now.toISOString() })
             .eq("trip_id", trip.id)
             .in("status", ["pending", "offered"]);
 
+          const rescueReason = gate.reason === "acknowledgement_timeout"
+            ? SCHEDULED_ACTIVATION_EXCLUSIVE_REASON.acknowledgementTimeout
+            : SCHEDULED_ACTIVATION_EXCLUSIVE_REASON.expiredOrDeclined;
+
           console.log("SCHEDULED_ACTIVATION_NRO_RESCUE", {
             trip_id: trip.id,
             confirmed_driver_id: trip.confirmed_driver_id,
+            reason: rescueReason,
           });
           await releaseAndRebroadcast(supabase, {
             trip: trip as ScheduledTrip,
-            reason: SCHEDULED_ACTIVATION_EXCLUSIVE_REASON.expiredOrDeclined,
+            reason: rescueReason,
             now,
             nowMs,
             supabaseUrl,

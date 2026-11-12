@@ -594,22 +594,34 @@ Deno.serve(async (req) => {
     try {
       const { data: awaitingExclusive } = await supabase
         .from("trips")
-        .select("id, confirmed_driver_id, scheduled_status, status")
+        .select(
+          "id, confirmed_driver_id, scheduled_status, status, scheduled_ack_status, scheduled_ack_deadline_at",
+        )
         .eq("scheduled_status", "awaiting_activation_accept")
         .is("driver_id", null)
         .limit(40);
       if (awaitingExclusive?.length) {
         const { data: gds } = await supabase
           .from("global_dispatch_settings")
-          .select("max_driver_find_time_minutes")
+          .select(
+            "max_driver_find_time_minutes, scheduled_departure_ack_grace_seconds",
+          )
           .eq("singleton", true)
           .maybeSingle();
         const maxFind = Math.max(1, Number(gds?.max_driver_find_time_minutes ?? 6) || 6);
+        const graceSeconds = Math.max(
+          0,
+          Number(gds?.scheduled_departure_ack_grace_seconds ?? 10) || 10,
+        );
         const {
           rescueExclusiveActivationToNearby,
           SCHEDULED_ACTIVATION_EXCLUSIVE_REASON,
         } = await import("../_shared/scheduledActivationExclusiveRescue.ts");
+        const { shouldRescueAwaitingActivation } = await import(
+          "../_shared/scheduledDepartureAckRescueGateSSOT.ts"
+        );
         const nowIso = new Date().toISOString();
+        const nowMs = Date.parse(nowIso);
         for (const trip of awaitingExclusive) {
           if (isTripTerminalForDispatch(trip)) continue;
           const confirmedId = String(trip.confirmed_driver_id ?? "").trim();
@@ -622,10 +634,20 @@ Deno.serve(async (req) => {
             .in("status", ["pending", "offered"])
             .gt("expires_at", nowIso)
             .limit(1);
-          if (openOffers?.length) continue;
+          const gate = shouldRescueAwaitingActivation({
+            nowMs,
+            ackStatus: (trip as { scheduled_ack_status?: string }).scheduled_ack_status,
+            ackDeadlineAt: (trip as { scheduled_ack_deadline_at?: string })
+              .scheduled_ack_deadline_at,
+            graceSeconds,
+            hasOpenLiveOffer: Boolean(openOffers?.length),
+          });
+          if (!gate.rescue) continue;
           await rescueExclusiveActivationToNearby(supabase, {
             tripId: trip.id,
-            reason: SCHEDULED_ACTIVATION_EXCLUSIVE_REASON.expiredImmediate,
+            reason: gate.reason === "acknowledgement_timeout"
+              ? SCHEDULED_ACTIVATION_EXCLUSIVE_REASON.acknowledgementTimeout
+              : SCHEDULED_ACTIVATION_EXCLUSIVE_REASON.expiredImmediate,
             maxFindDriverMinutes: maxFind,
             supabaseUrl,
             supabaseServiceKey: supabaseKey,

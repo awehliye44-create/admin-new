@@ -215,14 +215,56 @@ Deno.serve(async (req) => {
       );
     }
 
+    // Phase 5: Heading to Pickup = departure acknowledgement (not a second booking Accept).
+    // Reject after ack deadline + grace so timeout rescue wins the race cleanly.
+    const {
+      canAcknowledgeDeparture,
+      buildDepartureAckAcknowledgedFields,
+      resolveDepartureAckConfig,
+    } = await import("../_shared/scheduledDepartureAckSSOT.ts");
+    const { data: ackSettings } = await supabase
+      .from("global_dispatch_settings")
+      .select(
+        "scheduled_departure_ack_enabled, scheduled_departure_ack_seconds, scheduled_departure_ack_grace_seconds",
+      )
+      .eq("singleton", true)
+      .maybeSingle();
+    const ackCfg = resolveDepartureAckConfig(ackSettings ?? {});
+    const ackStatus = (trip as { scheduled_ack_status?: string }).scheduled_ack_status;
+    const ackDeadlineAt = (trip as { scheduled_ack_deadline_at?: string })
+      .scheduled_ack_deadline_at;
+    if (
+      ackStatus === "pending" &&
+      !canAcknowledgeDeparture({
+        nowMs,
+        deadlineMs: ackDeadlineAt ? Date.parse(String(ackDeadlineAt)) : null,
+        ackStatus,
+        graceSeconds: ackCfg.graceSeconds,
+      })
+    ) {
+      return errorResponse(
+        "ACK_EXPIRED",
+        "Departure acknowledgement window has expired.",
+        409,
+      );
+    }
+
+    const nowIso = now.toISOString();
+    const ackFields = ackStatus === "pending" || ackCfg.enabled
+      ? buildDepartureAckAcknowledgedFields({ nowIso })
+      : {};
+
     const { data: activatedRows, error: updateError } = await supabase
       .from("trips")
       .update({
         driver_id: driverId,
         status: "en_route_to_pickup",
         scheduled_status: "driver_en_route",
-        driver_checked_in_at: trip.driver_checked_in_at ?? now.toISOString(),
-        updated_at: now.toISOString(),
+        driver_checked_in_at: trip.driver_checked_in_at ?? nowIso,
+        scheduled_jit_activated_at: nowIso,
+        scheduled_jit_activation_source: "departure_ack",
+        updated_at: nowIso,
+        ...ackFields,
       })
       .eq("id", trip_id)
       .eq("scheduled_status", "awaiting_activation_accept")
@@ -236,7 +278,7 @@ Deno.serve(async (req) => {
     if (!activatedRows?.length) {
       return errorResponse(
         "INVALID_STATE",
-        "Drive to Pickup requires the Scheduled Ride activation offer. Accept the NRO first.",
+        "Heading to Pickup requires an active departure acknowledgement. The window may have expired.",
         409,
       );
     }
@@ -253,10 +295,11 @@ Deno.serve(async (req) => {
       .eq("driver_id", driverId)
       .in("status", ["pending", "offered", "countered"]);
 
-    console.log("SCHEDULED_ACTIVATION_ACCEPT_SUCCESS", {
+    console.log("SCHEDULED_DEPARTURE_ACK_SUCCESS", {
       trip_id,
       driver_id: driverId,
       scheduled_at: trip.scheduled_at,
+      action: "heading_to_pickup",
       driver_lat,
       driver_lng,
       pickup_lat: trip.pickup_latitude,

@@ -24,6 +24,10 @@ export const SCHEDULED_ACTIVATION_EXCLUSIVE_REASON = {
   ineligibleBypass: "scheduled_activation_driver_ineligible_bypass",
   netUnavailableBypass: "scheduled_activation_net_unavailable_bypass",
   insertBlockedBypass: "scheduled_activation_offer_insert_blocked_bypass",
+  /** Phase 5: 45s departure acknowledgement timed out. */
+  acknowledgementTimeout: "acknowledgement_timeout",
+  /** Phase 5: driver tapped Cancel Booking during departure ack. */
+  departureAckCancelled: "departure_ack_cancelled_by_driver",
 } as const;
 
 export type ScheduledActivationTripFare = {
@@ -104,6 +108,9 @@ export function buildExclusiveActivationOfferSnapshot(input: {
   netPence: number;
   kind: string;
   expiresAtIso: string;
+  /** Phase 5: marks Heading to Pickup / Cancel Booking presentation. */
+  departureAcknowledgement?: boolean;
+  ackNonce?: string | null;
 }): Record<string, unknown> {
   const { trip, confirmedDriverId, netPence, kind, expiresAtIso } = input;
   const currency = String(trip.currency_code ?? trip.currency ?? "GBP").trim() || "GBP";
@@ -132,6 +139,16 @@ export function buildExclusiveActivationOfferSnapshot(input: {
     expires_at: expiresAtIso,
     currency_code: currency,
     currency,
+    ...(input.departureAcknowledgement
+      ? {
+        departure_acknowledgement: true,
+        departureAcknowledgement: true,
+        accept_action: "heading_to_pickup",
+        decline_action: "cancel_booking",
+        ack_deadline_at: expiresAtIso,
+        ack_nonce: input.ackNonce ?? null,
+      }
+      : {}),
   };
 }
 
@@ -213,11 +230,23 @@ export function buildExclusiveFailureConversionPatch(input: {
   maxBroadcastSequences?: number | null;
   /** Preserve airport / fare-enrich hold when currently false. */
   currentBroadcastEnabled?: boolean | null;
+  /** Phase 5: stamp ack resolution when converting after timeout/cancel. */
+  ackResolution?: {
+    status: "timed_out" | "cancelled" | "declined";
+    reason: string;
+  } | null;
 }): Record<string, unknown> {
   const excluded = mergeExcludedDriverIds(
     input.existingExcludedDriverIds,
     input.excludeDriverId,
   );
+  const ackFields = input.ackResolution
+    ? {
+      scheduled_ack_status: input.ackResolution.status,
+      scheduled_ack_resolved_at: input.nowIso,
+      scheduled_ack_resolution_reason: input.ackResolution.reason,
+    }
+    : {};
   return {
     ...buildScheduledUrgentConversionPatch({
       nowIso: input.nowIso,
@@ -234,6 +263,7 @@ export function buildExclusiveFailureConversionPatch(input: {
     commitment_time: null,
     scheduled_committed_at: null,
     excluded_driver_ids: excluded,
+    ...ackFields,
   };
 }
 

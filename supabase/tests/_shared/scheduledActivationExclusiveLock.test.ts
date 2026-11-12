@@ -107,18 +107,29 @@ Deno.test("mergeExcludedDriverIds is idempotent", () => {
   assertEquals(mergeExcludedDriverIds(null, "b"), ["b"]);
 });
 
-Deno.test("source lock: scheduled-dispatch arms exclusive without SCHEDULED_COMMITMENT", async () => {
-  const src = await Deno.readTextFile(
+Deno.test("source lock: JIT runner arms exclusive/departure-ack without SCHEDULED_COMMITMENT", async () => {
+  // Phase 4+ moved arm logic into runConfirmedJitActivationPass; cron only invokes it.
+  const cron = await Deno.readTextFile(
     new URL("../../functions/scheduled-dispatch/index.ts", import.meta.url),
   );
-  assertStringIncludes(src, "resolveExclusiveActivationDriverNetPence");
-  assertStringIncludes(src, "evaluateConfirmedDriverExclusiveEligibility");
-  assertStringIncludes(src, "SCHEDULED_ACTIVATION_INELIGIBLE_BYPASS");
-  assertStringIncludes(src, "tr_send_push_on_ride_offer_insert");
-  assertEquals(src.includes('type: "SCHEDULED_COMMITMENT"'), false);
-  assertStringIncludes(src, "excludeDriverId");
-  assertStringIncludes(src, "SCHEDULED_ACTIVATION_EXCLUSIVE_REASON");
-  assertStringIncludes(src, "expiredOrDeclined");
+  assertStringIncludes(cron, "runConfirmedJitActivationPass");
+  assertStringIncludes(cron, "SCHEDULED_ACTIVATION_EXCLUSIVE_REASON");
+  assertStringIncludes(cron, "excludeDriverId");
+  assertEquals(cron.includes('type: "SCHEDULED_COMMITMENT"'), false);
+
+  const runner = await Deno.readTextFile(
+    new URL(
+      "../../functions/_shared/runConfirmedJitActivationPass.ts",
+      import.meta.url,
+    ),
+  );
+  assertStringIncludes(runner, "resolveExclusiveActivationDriverNetPence");
+  assertStringIncludes(runner, "evaluateConfirmedDriverExclusiveEligibility");
+  assertStringIncludes(runner, "SCHEDULED_ACTIVATION_EXCLUSIVE_REASON");
+  assertStringIncludes(runner, "ineligibleBypass");
+  // Ride offer INSERT still drives NEW_RIDE_OFFER push (urgent audible).
+  assertStringIncludes(runner, "ride_offers");
+  assertEquals(runner.includes('type: "SCHEDULED_COMMITMENT"'), false);
 });
 
 Deno.test("source lock: decline-trip rescues exclusive activation immediately", async () => {
@@ -128,6 +139,7 @@ Deno.test("source lock: decline-trip rescues exclusive activation immediately", 
   assertStringIncludes(src, "rescueExclusiveActivationToNearby");
   assertStringIncludes(src, "awaiting_activation_accept");
   assertStringIncludes(src, "declinedImmediate");
+  assertStringIncludes(src, "departureAckCancelled");
 });
 
 Deno.test("source lock: expire-offers rescues exclusive activation promptly", async () => {
@@ -136,7 +148,9 @@ Deno.test("source lock: expire-offers rescues exclusive activation promptly", as
   );
   assertStringIncludes(src, "rescueExclusiveActivationToNearby");
   assertStringIncludes(src, "expiredImmediate");
+  assertStringIncludes(src, "acknowledgementTimeout");
   assertStringIncludes(src, "awaiting_activation_accept");
+  assertStringIncludes(src, "shouldRescueAwaitingActivation");
 });
 
 Deno.test("source lock: rescue kicks auto-dispatch with declined_driver_id", async () => {

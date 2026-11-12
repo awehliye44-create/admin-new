@@ -106,7 +106,9 @@ serve(async (req) => {
     try {
       const { data: tripRow } = await supabase
         .from('trips')
-        .select('id, scheduled_status, confirmed_driver_id, dispatch_mode')
+        .select(
+          'id, scheduled_status, confirmed_driver_id, dispatch_mode, scheduled_ack_status',
+        )
         .eq('id', trip_id)
         .maybeSingle();
       const sched = String(tripRow?.scheduled_status ?? '').trim().toLowerCase();
@@ -122,9 +124,16 @@ serve(async (req) => {
           rescueExclusiveActivationToNearby,
           SCHEDULED_ACTIVATION_EXCLUSIVE_REASON,
         } = await import('../_shared/scheduledActivationExclusiveRescue.ts');
+        const ackPending =
+          String(tripRow?.scheduled_ack_status ?? '').trim().toLowerCase() ===
+          'pending';
+        // Phase 5 Cancel Booking during departure ack → same exclusive rescue
+        // (exclude + convert to existing instant dispatch; preserve trip id/fare).
         await rescueExclusiveActivationToNearby(supabase, {
           tripId: trip_id,
-          reason: SCHEDULED_ACTIVATION_EXCLUSIVE_REASON.declinedImmediate,
+          reason: ackPending
+            ? SCHEDULED_ACTIVATION_EXCLUSIVE_REASON.departureAckCancelled
+            : SCHEDULED_ACTIVATION_EXCLUSIVE_REASON.declinedImmediate,
           maxFindDriverMinutes: maxFind,
           supabaseUrl,
           supabaseServiceKey,
