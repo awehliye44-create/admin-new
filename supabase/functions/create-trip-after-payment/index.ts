@@ -55,9 +55,10 @@ import {
   type ServiceAreaCommissionWalletConfig,
 } from "../_shared/commissionWalletSSOT.ts";
 import {
-  evaluateScheduledAdvanceWindow,
+  evaluateScheduledAdvanceWindowForFinalisation,
   resolveScheduledAdvanceWindowPolicy,
 } from "../_shared/scheduledAdvanceWindowSSOT.ts";
+import { BOOKING_FAILED_HOLD_RELEASED_CUSTOMER_MESSAGE } from "../_shared/bookingFinalizeFailureSSOT.ts";
 import {
   extractCaptureDeadlineFromRevolutOrder,
   persistCaptureDeadlineFromOrder,
@@ -1198,16 +1199,26 @@ serveWithEdgeTiming("create-trip-after-payment", corsHeaders, async (req) => {
       scheduledDispatchConfig = resolveScheduledDispatchConfig(globalCfg);
     }
 
-    // Scheduled advance window (UTC elapsed hours) — authoritative; clients are advisory only.
+    // Scheduled advance window — use preauth-validated attempt clock within bound.
     if (isScheduled) {
       const { data: globalAdvance } = await supabase
         .from("global_dispatch_settings")
         .select("scheduled_rides_enabled, min_advance_time_minutes, max_advance_days")
         .eq("singleton", true)
         .maybeSingle();
-      const advance = evaluateScheduledAdvanceWindow({
+      const sessionForAdvance = loadedPaymentSession ??
+        (paymentSessionId
+          ? await loadPaymentSession(supabase, { sessionId: paymentSessionId })
+          : null);
+      const advance = evaluateScheduledAdvanceWindowForFinalisation({
         scheduledAtIso: String(body.scheduled_at ?? ""),
         policy: resolveScheduledAdvanceWindowPolicy(globalAdvance),
+        validatedAtIso:
+          (sessionForAdvance?.advance_window_validated_at as string | null | undefined) ??
+          null,
+        validatedScheduledAtIso:
+          (sessionForAdvance?.advance_window_validated_scheduled_at as string | null | undefined) ??
+          null,
       });
       if (!advance.ok) {
         return failBookingAfterAuthorizedPayment(
@@ -1219,11 +1230,13 @@ serveWithEdgeTiming("create-trip-after-payment", corsHeaders, async (req) => {
             failureReason: advance.code,
           },
           400,
-          advance.reason,
+          BOOKING_FAILED_HOLD_RELEASED_CUSTOMER_MESSAGE,
           {
             code: advance.code,
             min_advance_minutes: advance.minAdvanceMinutes,
             max_advance_days: advance.maxAdvanceDays,
+            hold_released: true,
+            booking_failure_definitive: true,
           },
         );
       }

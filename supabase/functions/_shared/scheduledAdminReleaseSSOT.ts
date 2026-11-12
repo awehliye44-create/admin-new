@@ -73,6 +73,7 @@ export function buildAssignNowPatch(input: {
 export function buildMakeAvailableScheduledJobsPatch(input: {
   nowIso: string;
 }): Record<string, unknown> {
+  // Marketplace visibility only — never stamp broadcast_started_at (NRO/response clock).
   return {
     scheduled_status: "scheduled",
     status: "scheduled",
@@ -111,6 +112,8 @@ export function buildBroadcastNowPatch(input: {
       }),
     }),
     scheduled_broadcast_at: input.nowIso,
+    // Legitimate fallback/NRO start — response window may anchor here.
+    broadcast_started_at: input.nowIso,
     confirmed_driver_id: null,
     driver_id: null,
   };

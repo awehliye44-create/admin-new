@@ -59,6 +59,11 @@ import {
 } from "../_shared/scheduledMarketplaceAutoPublishSSOT.ts";
 import { notifyScheduledMarketplaceOpen } from "../_shared/scheduledMarketplaceNotifySSOT.ts";
 import { resolveRevolutMerchantContext } from "../_shared/revolutMerchantContext.ts";
+import { releaseHoldForPaymentSession } from "../_shared/holdReleaseSSOT.ts";
+import {
+  BOOKING_FAILED_HOLD_RELEASED_CUSTOMER_MESSAGE,
+  classifyBookingFinalizeFailure,
+} from "../_shared/bookingFinalizeFailureSSOT.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -973,25 +978,36 @@ Deno.serve(async (req) => {
           );
           if (finaliseError) {
             const msg = String(finaliseError.message || "");
-            const duplicateActive =
-              msg.includes("CUSTOMER_ALREADY_HAS_ACTIVE_TRIP");
+            const failureClass = classifyBookingFinalizeFailure({ message: msg });
             console.error(
               `[revolut-webhook] finalize failed for session ${session.id}:`,
               msg,
+              failureClass.class,
             );
 
-            // Idempotent orphan + release: late AUTHORISED after passenger already
-            // has a live immediate trip — never create/dispatch/capture.
-            if (duplicateActive) {
-              const existingTripMatch = msg.match(
-                /CUSTOMER_ALREADY_HAS_ACTIVE_TRIP:([0-9a-f-]{36})/i,
+            // Re-check concurrent CTAP adoption before any release.
+            const { data: linkedAfterFail } = await supabase
+              .from("payment_sessions")
+              .select("trip_id")
+              .eq("id", session.id)
+              .maybeSingle();
+            const linkedTripId = linkedAfterFail?.trip_id
+              ? String(linkedAfterFail.trip_id)
+              : null;
+            if (linkedTripId) {
+              finaliseTripId = linkedTripId;
+              tripId = linkedTripId;
+              console.log(
+                `[revolut-webhook] finalize error but session already linked trip=${linkedTripId} — adopt, no release`,
               );
-              const existingTripId = existingTripMatch?.[1] ?? null;
+            } else if (failureClass.class === "adopt_existing_trip") {
+              const existingTripId = failureClass.existingTripId;
               await supabase
                 .from("payment_sessions")
                 .update({
                   status: "payment_orphaned",
                   updated_at: nowIso,
+                  failure_reason: failureClass.terminalReason,
                   metadata: {
                     ...sessionMeta,
                     revolut_last_webhook_event: eventName,
@@ -1003,69 +1019,79 @@ Deno.serve(async (req) => {
                     orphaned_by: "revolut_webhook",
                     release_recommended: true,
                     never_capture: true,
+                    booking_failure_class: failureClass.class,
+                    customer_message: BOOKING_FAILED_HOLD_RELEASED_CUSTOMER_MESSAGE,
                   },
                 })
                 .eq("id", session.id)
                 .is("trip_id", null);
 
-              // Best-effort release of unused authorisation (provider cancel).
-              // Do not invent success — log failures; webhook still returns 2xx.
               if (orderId) {
-                try {
-                  const { secretKey, environment } = getRevolutMerchantConfig();
-                  await cancelRevolutOrder(environment, secretKey, orderId);
-                  await supabase
-                    .from("payment_sessions")
-                    .update({
-                      provider_state: "CANCELLED",
-                      hold_release_state: "released",
-                      released_at: nowIso,
-                      updated_at: nowIso,
-                      metadata: {
-                        ...sessionMeta,
-                        orphan_reason: "CUSTOMER_ALREADY_HAS_ACTIVE_TRIP",
-                        existing_trip_id: existingTripId,
-                        orphaned_at: nowIso,
-                        orphaned_by: "revolut_webhook",
-                        release_attempted_at: nowIso,
-                        release_result: "cancel_requested",
-                        never_capture: true,
-                      },
-                    })
-                    .eq("id", session.id);
-                  console.log(
-                    `[revolut-webhook] orphaned session=${session.id} release requested existing_trip=${existingTripId ?? "?"}`,
-                  );
-                } catch (releaseErr) {
-                  console.error(
-                    `[revolut-webhook] orphan release failed for session ${session.id}:`,
-                    (releaseErr as Error).message,
-                  );
-                  await supabase
-                    .from("payment_sessions")
-                    .update({
-                      hold_release_state: "release_failed",
-                      updated_at: nowIso,
-                      metadata: {
-                        ...sessionMeta,
-                        orphan_reason: "CUSTOMER_ALREADY_HAS_ACTIVE_TRIP",
-                        existing_trip_id: existingTripId,
-                        orphaned_at: nowIso,
-                        orphaned_by: "revolut_webhook",
-                        release_attempted_at: nowIso,
-                        release_result: "cancel_failed",
-                        release_error: (releaseErr as Error).message,
-                        never_capture: true,
-                      },
-                    })
-                    .eq("id", session.id);
-                }
+                const release = await releaseHoldForPaymentSession(supabase, {
+                  providerOrderId: orderId,
+                  clientActionId: session.client_action_id
+                    ? String(session.client_action_id)
+                    : null,
+                  terminalReason: failureClass.terminalReason,
+                  source: "revolut-webhook",
+                  idempotencyKey: `webhook_finalize_fail_${session.id}`,
+                });
+                console.log(
+                  `[revolut-webhook] orphaned session=${session.id} release`,
+                  release.status,
+                  `existing_trip=${existingTripId ?? "?"}`,
+                );
               }
-            } else {
+            } else if (failureClass.class === "definitive_release") {
               await supabase
                 .from("payment_sessions")
                 .update({
                   recovery_attempt_count: 1,
+                  last_recovery_attempt_at: nowIso,
+                  failure_reason: failureClass.terminalReason,
+                  metadata: {
+                    ...sessionMeta,
+                    revolut_last_webhook_event: eventName,
+                    revolut_last_webhook_state: stateUpper || null,
+                    revolut_last_webhook_at: nowIso,
+                    last_auto_recovery_error: msg,
+                    last_auto_recovery_error_at: nowIso,
+                    booking_failure_class: failureClass.class,
+                    booking_failure_definitive: true,
+                    customer_message: BOOKING_FAILED_HOLD_RELEASED_CUSTOMER_MESSAGE,
+                    never_capture: true,
+                  },
+                })
+                .eq("id", session.id)
+                .is("trip_id", null);
+
+              if (orderId) {
+                const release = await releaseHoldForPaymentSession(supabase, {
+                  providerOrderId: orderId,
+                  clientActionId: session.client_action_id
+                    ? String(session.client_action_id)
+                    : null,
+                  terminalReason: failureClass.terminalReason,
+                  source: "revolut-webhook",
+                  idempotencyKey: `webhook_finalize_fail_${session.id}`,
+                });
+                console.log(
+                  `[revolut-webhook] definitive finalize failure released session=${session.id}`,
+                  release.status,
+                  release.trip_id ? `adopted_trip=${release.trip_id}` : "",
+                );
+                if (release.status === "has_trip" && release.trip_id) {
+                  finaliseTripId = String(release.trip_id);
+                  tripId = finaliseTripId;
+                }
+              }
+            } else {
+              // Temporary transport/DB/provider errors — bounded recovery, no unsafe release.
+              await supabase
+                .from("payment_sessions")
+                .update({
+                  recovery_attempt_count:
+                    Number(session.recovery_attempt_count ?? 0) + 1,
                   last_recovery_attempt_at: nowIso,
                   metadata: {
                     ...sessionMeta,
@@ -1074,6 +1100,8 @@ Deno.serve(async (req) => {
                     revolut_last_webhook_at: nowIso,
                     last_auto_recovery_error: msg,
                     last_auto_recovery_error_at: nowIso,
+                    booking_failure_class: failureClass.class,
+                    booking_failure_definitive: false,
                   },
                 })
                 .eq("id", session.id);

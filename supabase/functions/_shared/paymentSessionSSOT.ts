@@ -85,6 +85,9 @@ export type UpsertPaymentSessionInput = {
   platformPaymentMethodId?: string | null;
   paymentMethod?: string | null;
   metadata?: Record<string, unknown>;
+  /** Server-validated advance window clock (scheduled bookings only). */
+  advanceWindowValidatedAt?: string | null;
+  advanceWindowValidatedScheduledAt?: string | null;
 };
 
 export async function upsertPaymentSessionPending(
@@ -95,7 +98,7 @@ export async function upsertPaymentSessionPending(
   const idempotencyKey =
     String(input.idempotencyKey ?? "").trim() ||
     `preauth_${input.clientActionId}`;
-  const row = {
+  const row: Record<string, unknown> = {
     client_action_id: input.clientActionId,
     user_id: input.userId,
     customer_id: input.customerId ?? null,
@@ -114,6 +117,10 @@ export async function upsertPaymentSessionPending(
     metadata: input.metadata ?? {},
     updated_at: new Date().toISOString(),
   };
+  if (input.advanceWindowValidatedAt && input.advanceWindowValidatedScheduledAt) {
+    row.advance_window_validated_at = input.advanceWindowValidatedAt;
+    row.advance_window_validated_scheduled_at = input.advanceWindowValidatedScheduledAt;
+  }
 
   const { data, error } = await supabase
     .from("payment_sessions")

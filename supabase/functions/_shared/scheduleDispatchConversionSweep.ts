@@ -84,7 +84,7 @@ export async function runScheduleDispatchConversionSweep(
   const { data: pendingTrips, error: tripsErr } = await supabase
     .from("trips")
     .select(
-      "id, scheduled_at, scheduled_broadcast_at, scheduled_convert_at, pickup_latitude, pickup_longitude, vehicle_type_id, service_area_id, confirmed_driver_id, driver_id, scheduled_status, status, dispatch_status, dispatch_mode, is_scheduled, broadcast_enabled",
+      "id, scheduled_at, scheduled_broadcast_at, scheduled_convert_at, broadcast_started_at, pickup_latitude, pickup_longitude, vehicle_type_id, service_area_id, confirmed_driver_id, driver_id, scheduled_status, status, dispatch_status, dispatch_mode, is_scheduled, broadcast_enabled",
     )
     .eq("is_scheduled", true)
     .eq("dispatch_mode", "scheduled")
@@ -192,6 +192,7 @@ export async function runScheduleDispatchConversionSweep(
           scheduled_at: trip.scheduled_at,
           scheduled_broadcast_at: trip.scheduled_broadcast_at ?? null,
           scheduled_convert_at: trip.scheduled_convert_at ?? null,
+          broadcast_started_at: trip.broadcast_started_at ?? null,
           driver_id: trip.driver_id ?? null,
           confirmed_driver_id: trip.confirmed_driver_id ?? null,
         },

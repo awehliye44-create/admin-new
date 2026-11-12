@@ -113,8 +113,17 @@ export function isAcceptedScheduledActivationDue(input: {
 export type ScheduledTripForConversion = {
   id: string;
   scheduled_at: string;
+  /**
+   * Marketplace publication / Scheduled Jobs visibility only.
+   * MUST NOT start the NRO response-window countdown.
+   */
   scheduled_broadcast_at: string | null;
   scheduled_convert_at: string | null;
+  /**
+   * When legitimate fallback / NRO dispatch actually started (activation or
+   * Broadcast Now / first wave). Response window anchors here — not marketplace open.
+   */
+  broadcast_started_at?: string | null;
   driver_id: string | null;
   confirmed_driver_id?: string | null;
 };
@@ -125,17 +134,17 @@ export type OfferAnchor = {
 };
 
 /**
- * Compute scheduled_broadcast_at / scheduled_convert_at — NO-PRECONFIRMED path:
- * - urgentTriggerMinutesBeforePickup = "No-preconfirmed Fallback"
- * - responseWindowMinutes = legacy response window (Broadcast At suggestion)
+ * Compute ideal scheduled_broadcast_at / scheduled_convert_at — NO-PRECONFIRMED path:
+ * - urgentTriggerMinutesBeforePickup = "No-preconfirmed Fallback" (convert / urgent)
+ * - responseWindowMinutes = Admin "Broadcast At" suggestion spacing only
  *
  * Pre-confirmed drivers activate via Local/Long T-minutes (scheduledActivationSSOT),
  * not these anchors.
  *
  * Create-time HELD bookings stamp convert_at only (T−urgent). Marketplace
- * `scheduled_broadcast_at` is set by Admin Broadcast Now/At or auto T-activation.
- * `scheduledBroadcastAt` here remains the *ideal* open time for Admin "Broadcast At"
- * defaults / pending-release helpers (never auto-applied at create).
+ * `scheduled_broadcast_at` is set by auto-publish / Make Available (visibility).
+ * `scheduledBroadcastAt` here remains the *ideal* open time for Admin helpers
+ * (never auto-applied at create). Marketplace open ≠ response-window start.
  */
 export function computeScheduledDispatchAnchors(input: {
   scheduledAtIso: string;
@@ -164,8 +173,39 @@ export function computeScheduledDispatchAnchors(input: {
   };
 }
 
+/**
+ * Resolve when the NRO / fallback response window actually started.
+ * Marketplace `scheduled_broadcast_at` is intentionally ignored.
+ */
+export function resolveScheduledResponseWindowAnchorMs(input: {
+  broadcastStartedAt?: string | null;
+  firstOfferAnchor?: OfferAnchor | null;
+}): number {
+  const startedMs = input.broadcastStartedAt
+    ? Date.parse(String(input.broadcastStartedAt))
+    : NaN;
+  const offerMs = input.firstOfferAnchor
+    ? Date.parse(
+      String(
+        input.firstOfferAnchor.offered_at ??
+          input.firstOfferAnchor.created_at ??
+          "",
+      ),
+    )
+    : NaN;
+  if (Number.isFinite(startedMs) && Number.isFinite(offerMs)) {
+    return Math.min(startedMs, offerMs);
+  }
+  if (Number.isFinite(startedMs)) return startedMs;
+  if (Number.isFinite(offerMs)) return offerMs;
+  return NaN;
+}
+
 /** OR: pickup urgent window OR response window elapsed with no accept.
  * Admin Two paths: never for a pre-confirmed driver.
+ *
+ * Response window starts only after legitimate fallback/NRO dispatch
+ * (`broadcast_started_at` or first ride_offer) — never from marketplace publish.
  */
 export function shouldConvertScheduledToUrgent(input: {
   trip: ScheduledTripForConversion;
@@ -208,19 +248,10 @@ export function shouldConvertScheduledToUrgent(input: {
     return { convert: true, reason: "urgent_pickup_window" };
   }
 
-  const broadcastMs = trip.scheduled_broadcast_at
-    ? Date.parse(trip.scheduled_broadcast_at)
-    : NaN;
-  const offerMs = firstOfferAnchor
-    ? Date.parse(
-        String(firstOfferAnchor.offered_at ?? firstOfferAnchor.created_at ?? ""),
-      )
-    : NaN;
-  const anchorMs = Number.isFinite(broadcastMs)
-    ? broadcastMs
-    : Number.isFinite(offerMs)
-      ? offerMs
-      : NaN;
+  const anchorMs = resolveScheduledResponseWindowAnchorMs({
+    broadcastStartedAt: trip.broadcast_started_at,
+    firstOfferAnchor,
+  });
 
   if (Number.isFinite(anchorMs)) {
     const responseDeadlineMs =

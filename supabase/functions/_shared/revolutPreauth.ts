@@ -84,6 +84,10 @@ import { isRevolutWrongCaptureBeforeTripComplete } from "./revolutPreauthRelease
 import { validateCanonicalBookingSnapshot } from "./bookingSnapshotSSOT.ts";
 import { assertBookingPreauthAmount } from "./bookingPreauthAmountGuardSSOT.ts";
 import {
+  evaluateScheduledAdvanceWindow,
+  resolveScheduledAdvanceWindowPolicy,
+} from "./scheduledAdvanceWindowSSOT.ts";
+import {
   authorisedHoldMatchesBooking,
   classifyRevolutOrderForBookingRetry,
 } from "./revolutPaymentAttemptStateSSOT.ts";
@@ -694,6 +698,61 @@ export async function createRevolutPreauthResponse(
     }
     bookingSnapshot = snapCheck.snapshot as unknown as Record<string, unknown>;
 
+    // Scheduled advance window — validate BEFORE creating a Revolut order / session.
+    // Stamp validated clock onto the payment session so finalisation latency cannot
+    // auto-TOO_SOON within the bounded payment completion window.
+    let advanceWindowValidatedAt: string | null = null;
+    let advanceWindowValidatedScheduledAt: string | null = null;
+    {
+      const whenRaw = String(bookingSnapshot?.when ?? "").trim().toUpperCase();
+      const scheduledAtRaw = String(bookingSnapshot?.scheduled_at ?? "").trim();
+      const isScheduledDraft = whenRaw === "SCHEDULED" || Boolean(scheduledAtRaw);
+      if (isScheduledDraft) {
+        if (!scheduledAtRaw) {
+          return new Response(JSON.stringify({
+            error: "Pickup time is invalid.",
+            error_code: "TOO_SOON",
+            code: "INVALID_SCHEDULED_AT",
+            charge_state: "no_charge",
+          }), {
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+            status: 400,
+          });
+        }
+        const { data: globalAdvance } = await supabase
+          .from("global_dispatch_settings")
+          .select("scheduled_rides_enabled, min_advance_time_minutes, max_advance_days")
+          .eq("singleton", true)
+          .maybeSingle();
+        const validatedAt = new Date();
+        const advance = evaluateScheduledAdvanceWindow({
+          scheduledAtIso: scheduledAtRaw,
+          nowMs: validatedAt.getTime(),
+          policy: resolveScheduledAdvanceWindowPolicy(globalAdvance),
+        });
+        if (!advance.ok) {
+          logStep("SCHEDULED_ADVANCE_WINDOW_REJECTED_BEFORE_ORDER", {
+            code: advance.code,
+            reason: advance.reason,
+            scheduled_at: scheduledAtRaw,
+          });
+          return new Response(JSON.stringify({
+            error: advance.reason,
+            error_code: advance.code,
+            code: advance.code,
+            min_advance_minutes: advance.minAdvanceMinutes,
+            max_advance_days: advance.maxAdvanceDays,
+            charge_state: "no_charge",
+          }), {
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+            status: 400,
+          });
+        }
+        advanceWindowValidatedAt = validatedAt.toISOString();
+        advanceWindowValidatedScheduledAt = new Date(Date.parse(scheduledAtRaw)).toISOString();
+      }
+    }
+
     // Opaque booking-payment quote — freeze amounts before any session insert.
     // NO_REPRICE_AFTER_BOOK_TAP: quoted total wins over live estimate-fare.
     let rideFarePence = estimatedTotalPence;
@@ -816,6 +875,8 @@ export async function createRevolutPreauthResponse(
         bookingSnapshot: bookingSnapshot ?? {},
         platformPaymentMethodId: resolvedPlatformPaymentMethodId ?? null,
         paymentMethod: paymentMethodType ?? "card",
+        advanceWindowValidatedAt,
+        advanceWindowValidatedScheduledAt,
         metadata: {
           trip_id: tripId,
           idempotency_key_suffix: idempotencyKeySuffix,
@@ -1099,6 +1160,8 @@ export async function createRevolutPreauthResponse(
             bookingSnapshot: bookingSnapshot ?? {},
             platformPaymentMethodId: resolvedPlatformPaymentMethodId ?? null,
             paymentMethod: paymentMethodType ?? "card",
+            advanceWindowValidatedAt,
+            advanceWindowValidatedScheduledAt,
             metadata: {
               trip_id: tripId,
               idempotency_key_suffix: idempotencyKeySuffix,
@@ -1196,6 +1259,8 @@ export async function createRevolutPreauthResponse(
       bookingSnapshot: bookingSnapshot ?? {},
       platformPaymentMethodId: resolvedPlatformPaymentMethodId ?? null,
       paymentMethod: paymentMethodType ?? "card",
+      advanceWindowValidatedAt,
+      advanceWindowValidatedScheduledAt,
       metadata: {
         trip_id: tripId,
         idempotency_key_suffix: idempotencyKeySuffix,

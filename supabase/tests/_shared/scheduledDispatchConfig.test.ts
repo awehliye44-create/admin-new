@@ -75,7 +75,33 @@ Deno.test("computeScheduledDispatchAnchors: near booking never stamps past broad
   }
 });
 
-Deno.test("shouldConvertScheduledToUrgent respects Admin 8m response + 15m urgent", () => {
+Deno.test("shouldConvertScheduledToUrgent: marketplace publish does NOT start response window", () => {
+  const cfg = resolveScheduledDispatchConfig({
+    scheduled_response_window_minutes: 4,
+    urgent_dispatch_trigger_minutes_before_pickup: 9,
+    enable_scheduled_to_urgent_conversion: true,
+  });
+  // MK-261112-007 class: marketplace opened ~12h before pickup.
+  const trip = {
+    id: "mk-007",
+    scheduled_at: "2026-11-13T07:00:00.000Z",
+    scheduled_broadcast_at: "2026-11-12T18:40:47.972Z",
+    scheduled_convert_at: "2026-11-13T06:51:00.000Z",
+    broadcast_started_at: null,
+    driver_id: null,
+  };
+  const fourMinAfterPublish = shouldConvertScheduledToUrgent({
+    trip,
+    config: cfg,
+    nowMs: Date.parse("2026-11-12T18:45:00.000Z"),
+    hasAcceptedOffer: false,
+  });
+  if (fourMinAfterPublish.convert) {
+    throw new Error("marketplace open must not trigger response_window_no_accept");
+  }
+});
+
+Deno.test("shouldConvertScheduledToUrgent: response window starts from NRO/fallback only", () => {
   const cfg = resolveScheduledDispatchConfig({
     scheduled_response_window_minutes: 8,
     urgent_dispatch_trigger_minutes_before_pickup: 15,
@@ -84,8 +110,9 @@ Deno.test("shouldConvertScheduledToUrgent respects Admin 8m response + 15m urgen
   const trip = {
     id: "t1",
     scheduled_at: "2026-08-15T23:30:00.000Z",
-    scheduled_broadcast_at: "2026-08-15T23:07:00.000Z",
+    scheduled_broadcast_at: "2026-08-15T20:00:00.000Z", // marketplace hours earlier
     scheduled_convert_at: "2026-08-15T23:15:00.000Z",
+    broadcast_started_at: "2026-08-15T23:07:00.000Z",
     driver_id: null,
   };
   const before = shouldConvertScheduledToUrgent({
@@ -94,15 +121,19 @@ Deno.test("shouldConvertScheduledToUrgent respects Admin 8m response + 15m urgen
     nowMs: Date.parse("2026-08-15T23:10:00.000Z"),
     hasAcceptedOffer: false,
   });
-  if (before.convert) throw new Error("should still be in Scheduled Jobs window at +3m");
+  if (before.convert) throw new Error("should still be inside response window at +3m");
 
   const afterResponse = shouldConvertScheduledToUrgent({
     trip,
     config: cfg,
     nowMs: Date.parse("2026-08-15T23:15:00.000Z"),
+    firstOfferAnchor: { offered_at: "2026-08-15T23:07:00.000Z" },
     hasAcceptedOffer: false,
   });
   if (!afterResponse.convert) throw new Error("should convert at response/urgent boundary");
+  if (afterResponse.reason !== "urgent_pickup_window" && afterResponse.reason !== "response_window_no_accept") {
+    throw new Error(`unexpected reason ${afterResponse.reason}`);
+  }
 });
 
 Deno.test("Two paths: confirmed driver never uses fixed urgent convert", () => {

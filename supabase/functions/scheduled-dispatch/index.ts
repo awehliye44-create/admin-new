@@ -1215,13 +1215,18 @@ Deno.serve(async (req) => {
         }
 
         const fromStatus = String(trip.scheduled_status ?? "");
+        const activationNowIso = now.toISOString();
         const { data: updatedRows, error: updateError } = await supabase
           .from("trips")
           .update({
             scheduled_status: "broadcasting",
             status: "offered",
-            scheduled_broadcast_at: trip.scheduled_broadcast_at ?? now.toISOString(),
-            updated_at: now.toISOString(),
+            // Preserve marketplace open stamp when already published; do not
+            // invent marketplace open from activation alone when already set.
+            scheduled_broadcast_at: trip.scheduled_broadcast_at ?? activationNowIso,
+            // Response-window / NRO clock starts at legitimate fallback activation.
+            broadcast_started_at: trip.broadcast_started_at ?? activationNowIso,
+            updated_at: activationNowIso,
           })
           .eq("id", trip.id)
           .is("completed_at", null)
@@ -1383,7 +1388,7 @@ Deno.serve(async (req) => {
     const { data: ridesToConvert, error: convertError } = await supabase
       .from("trips")
       .select(
-        "id, scheduled_at, scheduled_broadcast_at, scheduled_convert_at, driver_id, confirmed_driver_id, scheduled_status, status, dispatch_status, dispatch_mode, broadcast_enabled",
+        "id, scheduled_at, scheduled_broadcast_at, scheduled_convert_at, broadcast_started_at, driver_id, confirmed_driver_id, scheduled_status, status, dispatch_status, dispatch_mode, broadcast_enabled",
       )
       .eq("dispatch_mode", "scheduled")
       .in("scheduled_status", [...NO_PRECONFIRMED_CONVERT_SCHEDULED_STATUSES])
