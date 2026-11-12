@@ -21,6 +21,10 @@ const MIGRATION = new URL(
   "../../migrations/20261214120000_driver_vehicle_change_request_flow.sql",
   import.meta.url,
 );
+const STAFF_ACCESS_MIGRATION = new URL(
+  "../../migrations/20270217120000_vehicle_change_staff_page_access.sql",
+  import.meta.url,
+);
 const ADMIN_PAGE = new URL("../../../src/pages/Vehicles.tsx", import.meta.url);
 const ADMIN_REVIEW_DIALOG = new URL(
   "../../../src/components/vehicles/VehicleChangeReviewDialog.tsx",
@@ -117,5 +121,21 @@ Deno.test("admin page decides through the atomic RPC only", async () => {
     assertEquals(/from\('vehicles'\)\s*\.(update|upsert)\(/.test(src), false);
     assertEquals(/from\('driver_vehicle_categories'\)/.test(src), false);
     assertEquals(/vehicle_edit_request_status:/.test(src), false);
+  }
+});
+
+Deno.test("staff with Vehicles/Drivers page access can list and decide vehicle changes", async () => {
+  const sql = await Deno.readTextFile(STAFF_ACCESS_MIGRATION);
+  assert(
+    sql.includes(
+      'CREATE POLICY "Staff with vehicles or drivers page can read vehicle change requests"',
+    ),
+  );
+  assert(sql.includes("staff_has_any_page_access(ARRAY['vehicles', 'drivers'])"));
+  const get = fnBody(sql, "admin_get_vehicle_change_review");
+  const decide = fnBody(sql, "admin_decide_vehicle_change_request");
+  for (const body of [get, decide]) {
+    assert(body.includes("has_role(v_uid, 'admin'::app_role)"));
+    assert(body.includes("staff_has_any_page_access(ARRAY['vehicles', 'drivers'])"));
   }
 });
