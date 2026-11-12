@@ -65,3 +65,22 @@ Deno.test("Admin Assign Now uses atomic admin_assign_scheduled_driver RPC", asyn
   assert(atomic.includes("assert_payment_gate"));
   assert(atomic.includes("INSERT INTO public.audit_logs"));
 });
+
+Deno.test("payment-first triggers cast financial_model to text before COALESCE ''", async () => {
+  const stripComments = (s: string) =>
+    s.replace(/\/\*[\s\S]*?\*\//g, "").replace(/--[^\n]*/g, "");
+  const sql = stripComments(
+    await Deno.readTextFile(
+      join(REPO, "supabase/migrations/20270201120200_scheduled_finance_phase1_payment_first_atomicity.sql"),
+    ),
+  );
+  assert(sql.includes("COALESCE(NEW.financial_model::text, '')"));
+  assert(!sql.includes("COALESCE(NEW.financial_model, '')"));
+  const hotfix = stripComments(
+    await Deno.readTextFile(
+      join(REPO, "supabase/migrations/20270216120000_fix_financial_model_coalesce_enum_cast.sql"),
+    ),
+  );
+  assert(hotfix.includes("COALESCE(NEW.financial_model::text, '')"));
+  assert(!hotfix.includes("COALESCE(NEW.financial_model, '')"));
+});

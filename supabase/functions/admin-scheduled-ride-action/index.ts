@@ -18,6 +18,7 @@ import { resolveScheduledDispatchConfig } from "../_shared/scheduledDispatchConf
 import { maxBroadcastSequences } from "../_shared/dispatch-settings.ts";
 import { disposeTerminalTripPayment } from "../_shared/terminalTripPaymentDisposition.ts";
 import { notifyCustomerTripLifecycle } from "../_shared/customerTripLifecycleNotify.ts";
+import { driverMayTakeAdditionalScheduledBooking } from "../_shared/scheduledCommitmentOfferGateSSOT.ts";
 
 function json(body: Record<string, unknown>, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -122,9 +123,6 @@ Deno.serve(async (req) => {
       {
         const candAt = Date.parse(String(trip.scheduled_at ?? ""));
         if (Number.isFinite(candAt)) {
-          const { driverMayTakeAdditionalScheduledBooking } = await import(
-            "../_shared/scheduledCommitmentOfferGateSSOT.ts"
-          );
           const gateCommit = await driverMayTakeAdditionalScheduledBooking({
             supabase: gate.supabase,
             driverId,

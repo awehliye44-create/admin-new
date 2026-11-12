@@ -20,6 +20,7 @@ import {
 } from "../_shared/scheduledDispatchConfig.ts";
 import { maxBroadcastSequences } from "../_shared/dispatch-settings.ts";
 import { notifyCustomerTripLifecycle } from "../_shared/customerTripLifecycleNotify.ts";
+import { driverMayTakeAdditionalScheduledBooking } from "../_shared/scheduledCommitmentOfferGateSSOT.ts";
 
 const RATE_LIMIT_CONFIG = {
   limit: 60,
@@ -429,9 +430,6 @@ Deno.serve(async (req) => {
           .maybeSingle();
         const candAt = Date.parse(String(cand?.scheduled_at ?? ""));
         if (Number.isFinite(candAt)) {
-          const { driverMayTakeAdditionalScheduledBooking } = await import(
-            "../_shared/scheduledCommitmentOfferGateSSOT.ts"
-          );
           const gate = await driverMayTakeAdditionalScheduledBooking({
             supabase,
             driverId: driver_id,

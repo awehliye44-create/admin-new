@@ -107,6 +107,11 @@ import {
 } from "../_shared/dispatchWaveCommitResumeSSOT.ts";
 import { isScheduledInstantConversionPending } from "../_shared/scheduledHandoverHoldLock.ts";
 import { expireTripWhenSearchExhaustedAndNotifyCustomer } from "../_shared/customerTripLifecycleNotify.ts";
+import {
+  driverMayAcceptAdditionalWork,
+  loadDriverConfirmedScheduledCommitments,
+} from "../_shared/scheduledCommitmentOfferGateSSOT.ts";
+import { selectEarliestConfirmedCommitment } from "../_shared/scheduledCommitmentFeasibilitySSOT.ts";
 import { finalizeRideAssignmentSideEffects } from "../_shared/rideAssignmentFinalize.ts";
 import {
   blockedTerminalTripLogPayload,
@@ -2304,12 +2309,6 @@ Deno.serve(async (req) => {
       computeScheduledDirectionalScoreBoost,
       compareWithDirectionalBoost,
     } = await import("../_shared/scheduledDirectionalDispatchSSOT.ts");
-    const { loadDriverConfirmedScheduledCommitments } = await import(
-      "../_shared/scheduledCommitmentOfferGateSSOT.ts"
-    );
-    const { selectEarliestConfirmedCommitment } = await import(
-      "../_shared/scheduledCommitmentFeasibilitySSOT.ts"
-    );
     const nowMsRank = Date.now();
     const scheduledPickupByDriver = new Map<
       string,
@@ -2537,9 +2536,6 @@ Deno.serve(async (req) => {
 
     // Phase 4: do not offer work that makes a confirmed scheduled commitment infeasible.
     {
-      const { driverMayAcceptAdditionalWork } = await import(
-        "../_shared/scheduledCommitmentOfferGateSSOT.ts"
-      );
       const gated: typeof uniqueDrivers = [];
       const nowMsGate = Date.now();
       const candidateDuration = Math.max(
