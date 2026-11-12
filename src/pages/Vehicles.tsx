@@ -122,6 +122,8 @@ export default function Vehicles() {
       setChangeRequests(data || []);
     } catch (err) {
       console.error('Error fetching change requests:', err);
+      toast.error('Failed to load vehicle change requests. Refresh the page or check Vehicles page access.');
+      setChangeRequests([]);
     } finally {
       setIsLoadingRequests(false);
     }
