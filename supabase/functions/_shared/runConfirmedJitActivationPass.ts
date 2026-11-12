@@ -348,6 +348,16 @@ export async function runConfirmedJitActivationPass(input: {
         }
       } else {
         if (presence.freshness.fresh) routingFailedWithFresh = true;
+        // Minimal operational evidence — do not invent history; fixed fallback
+        // may still arm when deadline is due and JIT ETA is unavailable.
+        console.log("SCHEDULED_JIT_ETA_UNRESOLVED", {
+          trip_id: trip.id,
+          driver_id: confirmedDriverId,
+          reason: eta.reason,
+          freshness_reason: presence.freshness.reason,
+          freshness_age_seconds: presence.freshness.ageSeconds,
+          presence_status: presence.presenceStatus,
+        });
         try {
           const alert = buildJitEtaUnresolvedOpsAlert({
             tripId: trip.id,
@@ -360,7 +370,12 @@ export async function runConfirmedJitActivationPass(input: {
               fingerprint: alert.fingerprint,
               title: alert.title,
               related_trip_id: alert.related_trip_id,
-              metadata: alert.metadata,
+              metadata: {
+                ...alert.metadata,
+                freshness_reason: presence.freshness.reason,
+                freshness_age_seconds: presence.freshness.ageSeconds,
+                presence_status: presence.presenceStatus,
+              },
               status: "open",
               updated_at: now.toISOString(),
             },
@@ -370,6 +385,12 @@ export async function runConfirmedJitActivationPass(input: {
           console.warn("[jit-activation] ops_alert upsert failed", opsErr);
         }
       }
+    } else {
+      console.log("SCHEDULED_JIT_OUTSIDE_HORIZON", {
+        trip_id: trip.id,
+        driver_id: confirmedDriverId,
+        planning_horizon_minutes: horizonMinutes,
+      });
     }
 
     const remaining = await estimateRemainingActiveMinutes(
@@ -441,6 +462,27 @@ export async function runConfirmedJitActivationPass(input: {
       executionMode,
       departureAckCountdownSeconds: jitConfig.departureAckSeconds,
     });
+
+    if (
+      decision.action !== "wait" &&
+      decision.action !== "hold_skip" &&
+      "source" in decision &&
+      decision.source === "fixed_fallback"
+    ) {
+      console.log("SCHEDULED_JIT_FIXED_FALLBACK_SELECTED", {
+        trip_id: trip.id,
+        driver_id: confirmedDriverId,
+        action: decision.action,
+        kind: "kind" in decision ? decision.kind : null,
+        fixed_activation_at: Number.isFinite(fixedDue.activationAtMs)
+          ? new Date(fixedDue.activationAtMs).toISOString()
+          : null,
+        jit_deadline_ms: jitDeadlineMs,
+        eta_source: etaSource,
+        freshness_reason: presence.freshness.reason,
+        execution_mode: executionMode,
+      });
+    }
 
     if (decision.action === "wait" || decision.action === "hold_skip") {
       continue;

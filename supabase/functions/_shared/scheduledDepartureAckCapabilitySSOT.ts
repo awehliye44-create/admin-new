@@ -15,7 +15,15 @@
  * rebinds with the new token; rollback OTA rebinds without it and clears.
  */
 
+/** Legacy token — older OTAs may still advertise; never grants Phase 5 once key=v2. */
 export const SCHEDULED_DEPARTURE_ACK_CAPABILITY_V1 = "scheduled_departure_ack_v1" as const;
+
+/**
+ * Hydration-corrected scheduled activation OTA (Driver 6b42821 lineage +).
+ * Production Phase 5 gate requires this token on the sole active device.
+ */
+export const SCHEDULED_DEPARTURE_ACK_CAPABILITY_V2 =
+  "scheduled_departure_ack_v2" as const;
 
 export type DepartureAckCapabilityConfig = {
   globalEnabled: boolean;
@@ -88,8 +96,8 @@ export function resolveDepartureAckCapabilityConfig(
   }
   const key = String(
     row?.scheduled_departure_ack_capability_key ??
-      SCHEDULED_DEPARTURE_ACK_CAPABILITY_V1,
-  ).trim() || SCHEDULED_DEPARTURE_ACK_CAPABILITY_V1;
+      SCHEDULED_DEPARTURE_ACK_CAPABILITY_V2,
+  ).trim() || SCHEDULED_DEPARTURE_ACK_CAPABILITY_V2;
   const minRaw = row?.scheduled_departure_ack_min_app_version;
   const minAppVersion =
     minRaw == null || String(minRaw).trim() === ""

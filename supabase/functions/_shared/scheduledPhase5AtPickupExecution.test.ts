@@ -172,3 +172,93 @@ Deno.test("Phase 5 never silently auto-activates even when autoActivate flag is 
   assertEquals(d.action, "arm_ack");
   assert(d.action !== "activate_now");
 });
+
+Deno.test("Phase 5 capability gate: v1-only → ack_nro; fresh v2 → arm_ack 45s", async () => {
+  const {
+    SCHEDULED_DEPARTURE_ACK_CAPABILITY_V1,
+    SCHEDULED_DEPARTURE_ACK_CAPABILITY_V2,
+    resolveDepartureAckCapabilityConfig,
+    resolveDepartureAckExecutionModeForDriver,
+  } = await import("./scheduledDepartureAckCapabilitySSOT.ts");
+
+  const cfgV2 = resolveDepartureAckCapabilityConfig({
+    scheduled_departure_ack_enabled: true,
+    scheduled_departure_ack_capability_key: SCHEDULED_DEPARTURE_ACK_CAPABILITY_V2,
+  });
+  const v1Mode = resolveDepartureAckExecutionModeForDriver({
+    config: cfgV2,
+    snapshot: {
+      capabilities: [SCHEDULED_DEPARTURE_ACK_CAPABILITY_V1],
+      appVersion: "1.0.6",
+      deviceId: "ios-v1",
+    },
+  });
+  assertEquals(v1Mode, "ack_nro");
+
+  const v2Mode = resolveDepartureAckExecutionModeForDriver({
+    config: cfgV2,
+    snapshot: {
+      capabilities: [
+        SCHEDULED_DEPARTURE_ACK_CAPABILITY_V1,
+        SCHEDULED_DEPARTURE_ACK_CAPABILITY_V2,
+      ],
+      appVersion: "1.0.6",
+      deviceId: "ios-v2",
+    },
+  });
+  assertEquals(v2Mode, "departure_ack");
+
+  const nowMs = ARM_T11_MS;
+  const phase4 = decideConfirmedScheduledActivation({
+    nowMs,
+    scheduledAtMs: PICKUP_MS,
+    jitDeadlineMs: null,
+    fixedFallbackDue: true,
+    fixedFallbackActivationAtMs: ARM_T11_MS,
+    fixedFallbackKind: "local",
+    intentionallyHeld: false,
+    activeJourneyThreatensCommitment: false,
+    availabilityClass: "available",
+    executionMode: v1Mode,
+  });
+  assertEquals(phase4.action, "arm_exclusive_nro");
+
+  const phase5 = decideConfirmedScheduledActivation({
+    nowMs,
+    scheduledAtMs: PICKUP_MS,
+    jitDeadlineMs: null,
+    fixedFallbackDue: true,
+    fixedFallbackActivationAtMs: ARM_T11_MS,
+    fixedFallbackKind: "local",
+    intentionallyHeld: false,
+    activeJourneyThreatensCommitment: false,
+    availabilityClass: "available",
+    executionMode: v2Mode,
+    departureAckCountdownSeconds: PHASE5_DEPARTURE_ACK_COUNTDOWN_SECONDS,
+  });
+  assertEquals(phase5.action, "arm_ack");
+  if (phase5.action === "arm_ack") {
+    assertEquals(phase5.countdownSeconds, 45);
+  }
+});
+
+Deno.test("JIT unresolved diagnostics + fixed fallback source lock", async () => {
+  const runner = await Deno.readTextFile(
+    new URL("./runConfirmedJitActivationPass.ts", import.meta.url),
+  );
+  assert(runner.includes("SCHEDULED_JIT_ETA_UNRESOLVED"));
+  assert(runner.includes("SCHEDULED_JIT_FIXED_FALLBACK_SELECTED"));
+  assert(runner.includes("freshness_reason"));
+  assert(runner.includes("presence_status"));
+  assert(runner.includes("resolveDepartureAckExecutionModeForDriver"));
+
+  const ssot = await Deno.readTextFile(
+    new URL("./scheduledJitActivationSSOT.ts", import.meta.url),
+  );
+  assert(ssot.includes('departureAckCapabilityKey: "scheduled_departure_ack_v2"'));
+  assert(ssot.includes("departureAckSeconds: 45"));
+  assertEquals(SCHEDULED_JIT_ACTIVATION_DEFAULTS.departureAckCapabilityKey, "scheduled_departure_ack_v2");
+  assertEquals(SCHEDULED_JIT_ACTIVATION_DEFAULTS.departureAckSeconds, 45);
+  assertEquals(SCHEDULED_JIT_ACTIVATION_DEFAULTS.departureAckEnabled, false);
+  assertEquals(SCHEDULED_JIT_ACTIVATION_DEFAULTS.autoActivateEnabled, false);
+});

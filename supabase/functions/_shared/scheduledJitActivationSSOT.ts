@@ -76,7 +76,7 @@ export const SCHEDULED_JIT_ACTIVATION_DEFAULTS: ScheduledJitActivationConfig = {
   departureAckSeconds: 45,
   /** @deprecated Ignored for deadline math — driver window is exactly 45s. */
   departureAckGraceSeconds: 0,
-  departureAckCapabilityKey: "scheduled_departure_ack_v1",
+  departureAckCapabilityKey: "scheduled_departure_ack_v2",
   departureAckMinAppVersion: null,
 };
 
