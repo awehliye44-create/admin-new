@@ -11,8 +11,8 @@
 
 | Repo | Branch | SHA |
 |------|--------|-----|
-| Backend (`admin-new`) | `release/scheduled-departure-ack-phase5` | *(see git log after push)* |
-| Driver (`onecab-driver-native`) | `release/scheduled-departure-ack-phase5` | *(see git log after push)* |
+| Backend (`admin-new`) | `release/scheduled-departure-ack-phase5` | `2041d9ad` |
+| Driver (`onecab-driver-native`) | `release/scheduled-departure-ack-phase5` | `0898190` |
 
 ---
 
