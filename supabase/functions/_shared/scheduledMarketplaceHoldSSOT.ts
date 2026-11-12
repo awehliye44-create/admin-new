@@ -10,6 +10,7 @@ import { resolveConversionBroadcastEnabled } from "./scheduledDispatchConfig.ts"
 export const SCHEDULED_HOLD_REASONS = [
   "publication_pending",
   "publication_retry",
+  "publication_exhausted",
   "airport_pricing",
   "payment_gate",
   "manual_trip",
@@ -27,6 +28,7 @@ export const AUTO_PUBLISH_ELIGIBLE_HOLD_REASONS: readonly ScheduledHoldReason[] 
 
 /** Reasons that must never be auto-released. */
 export const AUTO_PUBLISH_BLOCKED_HOLD_REASONS: readonly ScheduledHoldReason[] = [
+  "publication_exhausted",
   "airport_pricing",
   "payment_gate",
   "manual_trip",

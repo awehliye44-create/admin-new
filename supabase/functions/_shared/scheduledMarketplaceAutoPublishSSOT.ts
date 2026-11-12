@@ -323,9 +323,11 @@ export function evaluateScheduledMarketplaceAutoPublishEligibility(
   } else if (holdReason && !isAutoPublishEligibleHoldReason(holdReason)) {
     return { ok: false, reason: "hold_reason_not_eligible" };
   }
+  if (holdReason === "publication_exhausted") {
+    return { ok: false, reason: "hold_reason_not_eligible" };
+  }
   const attempts = Number(trip.scheduled_publish_attempts ?? 0);
   if (
-    holdReason === "publication_retry" &&
     Number.isFinite(attempts) &&
     attempts >= SCHEDULED_MARKETPLACE_PUBLISH_MAX_ATTEMPTS
   ) {
@@ -387,7 +389,94 @@ export type AutoPublishAttemptResult =
     tripId: string;
     reason: string;
     retryStamped?: boolean;
+    exhausted?: boolean;
   };
+
+/** Stop retries, stamp exhaustion, raise actionable ops alert (idempotent fingerprint). */
+export async function stampScheduledMarketplacePublishExhausted(
+  supabase: AnySupabase,
+  input: {
+    tripId: string;
+    failureReason: string;
+    via: ScheduledMarketplaceAutoPublishVia;
+    attempts: number;
+  },
+): Promise<{ exhausted: true; alertWritten: boolean }> {
+  const nowIso = new Date().toISOString();
+  await supabase
+    .from("trips")
+    .update({
+      scheduled_hold_reason: "publication_exhausted",
+      pending_release_kind: null,
+      pending_release_at: null,
+      pending_release_driver_id: null,
+      updated_at: nowIso,
+    })
+    .eq("id", input.tripId)
+    .in("scheduled_status", ["admin_held", "scheduled", "pending"])
+    .in("scheduled_hold_reason", [...AUTO_PUBLISH_ELIGIBLE_HOLD_REASONS, "publication_exhausted"])
+    .is("driver_id", null)
+    .is("confirmed_driver_id", null);
+
+  let alertWritten = false;
+  try {
+    const { error } = await supabase.from("ops_alerts").upsert(
+      {
+        fingerprint: `scheduled_marketplace_publish_exhausted:${input.tripId}`,
+        category: "dispatch",
+        severity: "warning",
+        status: "open",
+        source: "edge_function",
+        app: "backend",
+        title: "Scheduled marketplace publication exhausted",
+        description:
+          "Automatic Scheduled Jobs publication stopped after the maximum retry attempts. "
+          + "Review payment / airport pricing / hold state, then use Admin emergency Make Available if appropriate.",
+        related_trip_id: input.tripId,
+        related_entity_type: "trip",
+        related_entity_id: input.tripId,
+        last_detected_at: nowIso,
+        metadata: {
+          failure_reason: input.failureReason,
+          via: input.via,
+          attempts: input.attempts,
+          max_attempts: SCHEDULED_MARKETPLACE_PUBLISH_MAX_ATTEMPTS,
+        },
+      },
+      { onConflict: "fingerprint", ignoreDuplicates: false },
+    );
+    // Unique partial index is on open fingerprints — plain insert is safer if upsert unsupported.
+    if (error) {
+      const { error: insertErr } = await supabase.from("ops_alerts").insert({
+        fingerprint: `scheduled_marketplace_publish_exhausted:${input.tripId}`,
+        category: "dispatch",
+        severity: "warning",
+        status: "open",
+        source: "edge_function",
+        app: "backend",
+        title: "Scheduled marketplace publication exhausted",
+        description:
+          "Automatic Scheduled Jobs publication stopped after the maximum retry attempts. "
+          + "Review payment / airport pricing / hold state, then use Admin emergency Make Available if appropriate.",
+        related_trip_id: input.tripId,
+        related_entity_type: "trip",
+        related_entity_id: input.tripId,
+        metadata: {
+          failure_reason: input.failureReason,
+          via: input.via,
+          attempts: input.attempts,
+          max_attempts: SCHEDULED_MARKETPLACE_PUBLISH_MAX_ATTEMPTS,
+        },
+      });
+      alertWritten = !insertErr;
+    } else {
+      alertWritten = true;
+    }
+  } catch {
+    alertWritten = false;
+  }
+  return { exhausted: true, alertWritten };
+}
 
 type AnySupabase = {
   from: (table: string) => any;
@@ -436,8 +525,10 @@ export async function attemptScheduledMarketplaceAutoPublish(
 
   if (error) {
     let retryStamped = false;
+    let exhausted = false;
     if (input.stampRetryOnFailure) {
       const prior = Number(input.trip.scheduled_publish_attempts ?? 0);
+      const nextAttempts = Math.max(0, Math.floor(prior)) + 1;
       if (prior < SCHEDULED_MARKETPLACE_PUBLISH_MAX_ATTEMPTS) {
         const { error: retryErr } = await supabase
           .from("trips")
@@ -448,14 +539,32 @@ export async function attemptScheduledMarketplaceAutoPublish(
           .is("driver_id", null)
           .is("confirmed_driver_id", null);
         retryStamped = !retryErr;
+        if (!retryErr && nextAttempts >= SCHEDULED_MARKETPLACE_PUBLISH_MAX_ATTEMPTS) {
+          const stamped = await stampScheduledMarketplacePublishExhausted(supabase, {
+            tripId: input.tripId,
+            failureReason: error.message ?? "update_failed",
+            via: input.via,
+            attempts: nextAttempts,
+          });
+          exhausted = stamped.exhausted;
+        }
+      } else {
+        const stamped = await stampScheduledMarketplacePublishExhausted(supabase, {
+          tripId: input.tripId,
+          failureReason: error.message ?? "update_failed",
+          via: input.via,
+          attempts: prior,
+        });
+        exhausted = stamped.exhausted;
       }
     }
     return {
       published: false,
       via: input.via,
       tripId: input.tripId,
-      reason: error.message ?? "update_failed",
+      reason: exhausted ? "publication_exhausted" : (error.message ?? "update_failed"),
       retryStamped,
+      exhausted,
     };
   }
 

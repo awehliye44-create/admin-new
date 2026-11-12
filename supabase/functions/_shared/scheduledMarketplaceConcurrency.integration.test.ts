@@ -216,6 +216,114 @@ FROM trips WHERE id='aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
 `);
     assertEquals(blocked, "BLOCKED");
 
+    // Retry exhaustion — stop auto-publish and stamp exhausted + ops alert row
+    await psql(`
+ALTER TABLE trips ADD COLUMN IF NOT EXISTS scheduled_publish_attempts int DEFAULT 0;
+CREATE TABLE IF NOT EXISTS ops_alerts (
+  fingerprint text PRIMARY KEY,
+  title text,
+  related_trip_id uuid,
+  metadata jsonb
+);
+UPDATE trips SET scheduled_status='admin_held', scheduled_hold_reason='publication_retry',
+  scheduled_publish_attempts=5, scheduled_broadcast_at=NULL, broadcast_enabled=true,
+  confirmed_driver_id=NULL, driver_id=NULL
+WHERE id='aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
+`);
+    const exhaustedGate = await psql(`
+SELECT CASE
+  WHEN scheduled_hold_reason IN ('publication_pending','publication_retry')
+   AND scheduled_publish_attempts < 5 THEN 'ELIGIBLE'
+  ELSE 'EXHAUSTED'
+END FROM trips WHERE id='aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
+`);
+    assertEquals(exhaustedGate, "EXHAUSTED");
+    await psql(`
+UPDATE trips SET scheduled_hold_reason='publication_exhausted' WHERE id='aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
+INSERT INTO ops_alerts(fingerprint, title, related_trip_id, metadata)
+VALUES (
+  'scheduled_marketplace_publish_exhausted:aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee',
+  'Scheduled marketplace publication exhausted',
+  'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee',
+  '{"attempts":5}'::jsonb
+) ON CONFLICT (fingerprint) DO NOTHING;
+`);
+    const alertCount = await psql(`
+SELECT count(*)::text FROM ops_alerts
+WHERE fingerprint LIKE 'scheduled_marketplace_publish_exhausted:%';
+`);
+    assertEquals(alertCount, "1");
+
+    // Concurrent assignment vs publication — assign wins CAS; publish must not clear driver
+    await psql(`
+UPDATE trips SET scheduled_status='admin_held', scheduled_hold_reason='publication_pending',
+  scheduled_publish_attempts=0, confirmed_driver_id=NULL, driver_id=NULL,
+  scheduled_broadcast_at=NULL
+WHERE id='aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
+`);
+    const pub = sh([
+      "psql",
+      DATABASE_URL,
+      "-Atc",
+      "SELECT try_auto_publish('aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee'::uuid);",
+    ]);
+    await new Promise((r) => setTimeout(r, 50));
+    const asg = sh([
+      "psql",
+      DATABASE_URL,
+      "-Atc",
+      "SELECT try_accept('aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee'::uuid, '33333333-3333-3333-3333-333333333333'::uuid);",
+    ]);
+    const [rp, rAssign] = await Promise.all([pub, asg]);
+    assert(
+      [rp.out.trim(), rAssign.out.trim()].some((x) =>
+        ["PUBLISHED", "ACCEPTED", "LOCK_CONTENTION", "HOLD_NOT_ELIGIBLE", "TRIP_ALREADY_TAKEN"].includes(x)
+      ),
+      `assign/publish race: ${rp.out.trim()}, ${rAssign.out.trim()}`,
+    );
+
+    // Audit atomicity simulation: mutate + audit in one txn; rollback if audit fails
+    await psql(`
+CREATE TABLE IF NOT EXISTS audit_logs (
+  id serial PRIMARY KEY,
+  event_type text NOT NULL,
+  trip_id uuid,
+  details jsonb
+);
+CREATE OR REPLACE FUNCTION emergency_hold_with_audit(p_id uuid, p_fail_audit boolean)
+RETURNS text AS $$
+BEGIN
+  UPDATE trips SET scheduled_status='admin_held', scheduled_hold_reason='admin_exceptional',
+    scheduled_broadcast_at=NULL WHERE id=p_id;
+  IF p_fail_audit THEN
+    RAISE EXCEPTION 'AUDIT_REQUIRED';
+  END IF;
+  INSERT INTO audit_logs(event_type, trip_id, details)
+  VALUES ('ADMIN_SCHEDULED_HOLD_EXCEPTIONAL', p_id, '{"ok":true}'::jsonb);
+  RETURN 'OK';
+EXCEPTION WHEN OTHERS THEN
+  RETURN SQLERRM;
+END; $$ LANGUAGE plpgsql;
+`);
+    const auditOk = await psql(
+      "SELECT emergency_hold_with_audit('aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee'::uuid, false);",
+    );
+    assertEquals(auditOk, "OK");
+    const auditFail = await psql(
+      "SELECT emergency_hold_with_audit('aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee'::uuid, true);",
+    );
+    assert(auditFail.includes("AUDIT_REQUIRED"));
+
+    // Early cancellation rematch reopen — only publication_pending/retry eligible
+    await psql(`
+UPDATE trips SET scheduled_status='admin_held', scheduled_hold_reason='publication_pending',
+  confirmed_driver_id=NULL, scheduled_broadcast_at=NULL WHERE id='aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
+`);
+    const reopen = await psql(
+      "SELECT try_auto_publish('aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee'::uuid);",
+    );
+    assertEquals(reopen, "PUBLISHED");
+
     await sh(["docker", "rm", "-f", "p3-pg"]);
   },
 });

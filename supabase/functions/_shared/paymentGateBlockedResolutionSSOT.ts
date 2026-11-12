@@ -91,14 +91,19 @@ export async function resolvePaymentGateBlockedTrip(
   try {
     await assertPaymentGate(supabase, tripId);
     if (!opts?.dryRun) {
+      // Authoritative payment resolution only → eligible for auto-publish retry.
+      // Never clears admin_exceptional / manual_trip / unknown_historical holds.
       await supabase
         .from("trips")
         .update({
           scheduled_status: "scheduled",
+          scheduled_hold_reason: "publication_pending",
+          scheduled_publish_attempts: 0,
           updated_at: new Date().toISOString(),
         })
         .eq("id", tripId)
-        .eq("scheduled_status", "payment_gate_blocked");
+        .eq("scheduled_status", "payment_gate_blocked")
+        .eq("scheduled_hold_reason", "payment_gate");
     }
     return { action: "cleared", tripId };
   } catch (e) {
