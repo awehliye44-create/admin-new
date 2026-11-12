@@ -288,16 +288,19 @@ export function isNoPreconfirmedConvertScheduledStatus(
 }
 
 /**
- * Airport / fare-enrich hold sets broadcast_enabled=false. Conversion must not
- * silently reopen dispatch until mandatory airport pricing is persisted.
- * Rematch after driver cancel passes forceOpen=true.
+ * Airport / fare-enrich hold sets broadcast_enabled=false. Conversion,
+ * Broadcast Now, rematch and auto-publish must NOT reopen dispatch while the
+ * hold is active — even when a caller passes forceOpen.
  */
 export function resolveConversionBroadcastEnabled(input: {
   currentBroadcastEnabled?: boolean | null;
+  /** Ignored while currentBroadcastEnabled === false (airport pricing lock). */
   forceOpen?: boolean;
 }): boolean {
+  const current = input.currentBroadcastEnabled;
+  if (current === false) return false;
   if (input.forceOpen === true) return true;
-  return input.currentBroadcastEnabled !== false;
+  return current !== false;
 }
 
 /** Patch that flips a no-accept scheduled job onto the instant nearby-card path. */

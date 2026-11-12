@@ -26,6 +26,7 @@ const BASE = {
   scheduled_status: "admin_held",
   scheduled_at: "2026-11-20T14:00:00.000Z",
   scheduled_broadcast_at: null,
+  scheduled_hold_reason: "publication_pending",
   driver_id: null,
   confirmed_driver_id: null,
   broadcast_enabled: true,
@@ -39,7 +40,7 @@ const BASE = {
   cancelled_at: null,
 };
 
-Deno.test("create still stamps admin_held (Hard Rule #1 create preserved)", () => {
+Deno.test("create still stamps admin_held + publication_pending hold reason", () => {
   const row = buildMinimalTripInsertRow({
     body: {
       client_action_id: "p3-1",
@@ -68,6 +69,7 @@ Deno.test("create still stamps admin_held (Hard Rule #1 create preserved)", () =
   });
   assertEquals(row.scheduled_status, "admin_held");
   assertEquals(row.scheduled_broadcast_at, null);
+  assertEquals(row.scheduled_hold_reason, "publication_pending");
 });
 
 Deno.test("eligible routine held booking may auto-publish", () => {
@@ -169,6 +171,7 @@ Deno.test("auto-publish patch is Make Available (not NRO convert)", () => {
   assert(!("searching_expires_at" in patch));
   const retry = buildScheduledMarketplaceAutoPublishRetryPatch("2026-11-12T07:00:00.000Z");
   assertEquals(retry.pending_release_kind, "jobs");
+  assertEquals(retry.scheduled_hold_reason, "publication_retry");
 });
 
 Deno.test("post-commit + recovery sweep are wired into bookingPostCommit and scheduled-dispatch", async () => {

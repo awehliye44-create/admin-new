@@ -14,6 +14,13 @@ import {
   buildPendingReleasePatch,
   type PendingReleaseKind,
 } from "./scheduledAdminReleaseSSOT.ts";
+import {
+  assertAirportPricingReady,
+  AUTO_PUBLISH_ELIGIBLE_HOLD_REASONS,
+  isAutoPublishEligibleHoldReason,
+  normaliseScheduledHoldReason,
+  type ScheduledHoldReason,
+} from "./scheduledMarketplaceHoldSSOT.ts";
 
 export const SCHEDULED_MARKETPLACE_AUTO_PUBLISH_VIA = {
   post_commit: "post_commit_auto_publish",
@@ -72,6 +79,7 @@ export type ScheduledMarketplaceAutoPublishBlockReason =
   | "airport_pricing_hold"
   | "exceptional_pending_release"
   | "manual_admin_hold"
+  | "hold_reason_not_eligible"
   | "missing_service_area"
   | "missing_vehicle_type"
   | "ok";
@@ -84,6 +92,7 @@ export type ScheduledMarketplaceTripSnapshot = {
   scheduled_at?: string | null;
   scheduled_broadcast_at?: string | null;
   scheduled_convert_at?: string | null;
+  scheduled_hold_reason?: string | null;
   driver_id?: string | null;
   confirmed_driver_id?: string | null;
   broadcast_enabled?: boolean | null;
@@ -96,7 +105,12 @@ export type ScheduledMarketplaceTripSnapshot = {
   vehicle_type?: string | null;
   completed_at?: string | null;
   cancelled_at?: string | null;
+  /** Bounded retry counter for publication_retry (optional column / metadata). */
+  scheduled_publish_attempts?: number | null;
 };
+
+/** Max automatic publication retry stamps before permanent hold for review. */
+export const SCHEDULED_MARKETPLACE_PUBLISH_MAX_ATTEMPTS = 5;
 
 const TERMINAL_STATUSES = new Set([
   "completed",
@@ -292,8 +306,30 @@ export function evaluateScheduledMarketplaceAutoPublishEligibility(
       return { ok: false, reason: "already_published" };
     }
   }
-  if (trip.broadcast_enabled === false) {
+  const airport = assertAirportPricingReady({
+    broadcastEnabled: trip.broadcast_enabled,
+    airportChargePence: trip.airport_charge_pence,
+  });
+  if (!airport.ok) {
     return { ok: false, reason: "airport_pricing_hold" };
+  }
+  const holdReason = normaliseScheduledHoldReason(trip.scheduled_hold_reason);
+  // Post-commit may publish publication_pending before column exists on old rows
+  // only when explicitly allowed; recovery always requires eligible reason.
+  if (!opts.allowUnknownBookingSource) {
+    if (!isAutoPublishEligibleHoldReason(holdReason)) {
+      return { ok: false, reason: "hold_reason_not_eligible" };
+    }
+  } else if (holdReason && !isAutoPublishEligibleHoldReason(holdReason)) {
+    return { ok: false, reason: "hold_reason_not_eligible" };
+  }
+  const attempts = Number(trip.scheduled_publish_attempts ?? 0);
+  if (
+    holdReason === "publication_retry" &&
+    Number.isFinite(attempts) &&
+    attempts >= SCHEDULED_MARKETPLACE_PUBLISH_MAX_ATTEMPTS
+  ) {
+    return { ok: false, reason: "hold_reason_not_eligible" };
   }
   const pendingKind = lower(trip.pending_release_kind);
   // Explicit Assign At / Broadcast At must not be overridden.
@@ -319,16 +355,28 @@ export function evaluateScheduledMarketplaceAutoPublishEligibility(
 }
 
 export function buildScheduledMarketplaceAutoPublishPatch(nowIso: string): Record<string, unknown> {
-  return buildMakeAvailableScheduledJobsPatch({ nowIso });
+  return {
+    ...buildMakeAvailableScheduledJobsPatch({ nowIso }),
+    scheduled_hold_reason: null,
+  };
 }
 
-/** Bounded retry: stamp jobs pending at now so STEP 0 re-attempts publish. */
-export function buildScheduledMarketplaceAutoPublishRetryPatch(nowIso: string): {
+/** Bounded retry: stamp jobs pending + publication_retry for STEP 0 re-attempt. */
+export function buildScheduledMarketplaceAutoPublishRetryPatch(
+  nowIso: string,
+  priorAttempts: number = 0,
+): {
   pending_release_kind: PendingReleaseKind;
   pending_release_at: string;
   pending_release_driver_id: string | null;
+  scheduled_hold_reason: ScheduledHoldReason;
+  scheduled_publish_attempts: number;
 } {
-  return buildPendingReleasePatch({ kind: "jobs", executeAtIso: nowIso });
+  return {
+    ...buildPendingReleasePatch({ kind: "jobs", executeAtIso: nowIso }),
+    scheduled_hold_reason: "publication_retry",
+    scheduled_publish_attempts: Math.max(0, Math.floor(priorAttempts)) + 1,
+  };
 }
 
 export type AutoPublishAttemptResult =
@@ -372,7 +420,8 @@ export async function attemptScheduledMarketplaceAutoPublish(
     };
   }
 
-  const { data: rows, error } = await supabase
+  // CAS: only eligible hold reasons — concurrent Admin exceptional hold wins.
+  let updateQuery = supabase
     .from("trips")
     .update(buildScheduledMarketplaceAutoPublishPatch(input.nowIso))
     .eq("id", input.tripId)
@@ -380,20 +429,26 @@ export async function attemptScheduledMarketplaceAutoPublish(
     .is("driver_id", null)
     .is("confirmed_driver_id", null)
     .in("scheduled_status", ["admin_held", "scheduled", "pending"])
-    .select("id");
+    .in("scheduled_hold_reason", [...AUTO_PUBLISH_ELIGIBLE_HOLD_REASONS]);
+
+  // Post-commit first publish may still use publication_pending only.
+  const { data: rows, error } = await updateQuery.select("id");
 
   if (error) {
     let retryStamped = false;
     if (input.stampRetryOnFailure) {
-      const { error: retryErr } = await supabase
-        .from("trips")
-        .update(buildScheduledMarketplaceAutoPublishRetryPatch(input.nowIso))
-        .eq("id", input.tripId)
-        .in("scheduled_status", ["admin_held", "scheduled", "pending"])
-        .is("driver_id", null)
-        .is("confirmed_driver_id", null)
-        .is("pending_release_kind", null);
-      retryStamped = !retryErr;
+      const prior = Number(input.trip.scheduled_publish_attempts ?? 0);
+      if (prior < SCHEDULED_MARKETPLACE_PUBLISH_MAX_ATTEMPTS) {
+        const { error: retryErr } = await supabase
+          .from("trips")
+          .update(buildScheduledMarketplaceAutoPublishRetryPatch(input.nowIso, prior))
+          .eq("id", input.tripId)
+          .in("scheduled_status", ["admin_held", "scheduled", "pending"])
+          .in("scheduled_hold_reason", [...AUTO_PUBLISH_ELIGIBLE_HOLD_REASONS])
+          .is("driver_id", null)
+          .is("confirmed_driver_id", null);
+        retryStamped = !retryErr;
+      }
     }
     return {
       published: false,

@@ -38,7 +38,9 @@ Deno.test("cancel_confirmed rematch: same trip, no terminal cancelled_at, declin
   assertStringIncludes(block, "cancelled_at: null");
   assertStringIncludes(block, "driver_id: null");
   assertStringIncludes(block, "confirmed_driver_id: null");
-  assertStringIncludes(block, "broadcast_enabled: true");
+  // Phase 3: rematch preserves airport hold — never force broadcast_enabled: true.
+  assertStringIncludes(block, "rematchBroadcastEnabled");
+  assertStringIncludes(block, "airport pricing hold");
   assertEquals(block.includes("cancelled_at: releaseNowIso"), false);
   // In-progress / no-show stay terminal (cannot rematch).
   assertStringIncludes(block, "Cannot cancel after ride has started");
@@ -54,12 +56,13 @@ Deno.test("conversion / Admin Broadcast / exclusive rescue preserve airport hold
     resolveConversionBroadcastEnabled({ currentBroadcastEnabled: true }),
     true,
   );
+  // Phase 3 gap closure: forceOpen must NOT clear unresolved airport pricing.
   assertEquals(
     resolveConversionBroadcastEnabled({
       currentBroadcastEnabled: false,
       forceOpen: true,
     }),
-    true,
+    false,
   );
 
   const held = buildScheduledUrgentConversionPatch({

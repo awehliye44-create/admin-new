@@ -326,6 +326,7 @@ async function enrichTripFareAsync(
       .from("trips")
       .update({
         broadcast_enabled: false,
+        scheduled_hold_reason: "airport_pricing",
         updated_at: new Date().toISOString(),
       })
       .eq("id", tripId);
@@ -402,16 +403,18 @@ export function buildBookingPostCommitTasks(ctx: BookingPostCommitContext): Prom
           .from("trips")
           .update({
             scheduled_status: "payment_gate_blocked",
+            scheduled_hold_reason: "payment_gate",
             updated_at: new Date().toISOString(),
           })
           .eq("id", ctx.tripId)
-          .eq("scheduled_status", "admin_held");
+          .eq("scheduled_status", "admin_held")
+          .in("scheduled_hold_reason", ["publication_pending", "publication_retry"]);
         return;
       }
       const { data: tripRow } = await ctx.supabase
         .from("trips")
         .select(
-          "id, dispatch_mode, status, scheduled_status, scheduled_at, scheduled_broadcast_at, driver_id, confirmed_driver_id, broadcast_enabled, airport_charge_pence, pending_release_kind, pending_release_at, booking_source, service_area_id, vehicle_type_id, vehicle_type, completed_at, cancelled_at, pickup_address, trip_code, trip_number",
+          "id, dispatch_mode, status, scheduled_status, scheduled_at, scheduled_broadcast_at, scheduled_hold_reason, scheduled_publish_attempts, driver_id, confirmed_driver_id, broadcast_enabled, airport_charge_pence, pending_release_kind, pending_release_at, booking_source, service_area_id, vehicle_type_id, vehicle_type, completed_at, cancelled_at, pickup_address, trip_code, trip_number",
         )
         .eq("id", ctx.tripId)
         .maybeSingle();

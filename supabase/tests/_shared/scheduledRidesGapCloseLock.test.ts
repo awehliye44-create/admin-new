@@ -97,8 +97,10 @@ Deno.test("Return Job cancel_confirmed treats awaiting_activation as committed +
   const awaitIdx = src.indexOf("awaiting_activation_accept", cancelIdx);
   assert(awaitIdx > cancelIdx);
   assertStringIncludes(src, '.from("ride_offers")');
-  // Assign Now HELD never had broadcast_at — Return Job must reopen marketplace.
-  assertStringIncludes(src, "scheduled_broadcast_at: broadcastAt");
+  // Assign Now HELD never had broadcast_at — Return Job reopens marketplace when
+  // airport pricing allows (Phase 3: rematchBroadcastEnabled gate).
+  assertStringIncludes(src, "rematchBroadcastEnabled");
+  assertStringIncludes(src, "scheduled_broadcast_at: rematchBroadcastEnabled ? broadcastAt : null");
   assertStringIncludes(src, "pre-window scheduled-dispatch kick failed");
   // Marketplace Accept must normalize to preconfirm (no live driver_id).
   assertStringIncludes(src, "accept preconfirm normalize");

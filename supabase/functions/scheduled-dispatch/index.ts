@@ -56,6 +56,10 @@ import {
   SCHEDULED_MARKETPLACE_AUTO_PUBLISH_VIA,
 } from "../_shared/scheduledMarketplaceAutoPublishSSOT.ts";
 import {
+  assertAirportPricingReady,
+  AUTO_PUBLISH_ELIGIBLE_HOLD_REASONS,
+} from "../_shared/scheduledMarketplaceHoldSSOT.ts";
+import {
   buildExclusiveActivationOfferSnapshot,
   resolveActivationGrossPenceForPreview,
   resolveExclusiveActivationDriverNetPence,
@@ -787,11 +791,11 @@ Deno.serve(async (req) => {
               }
               continue;
             }
-            const allowJobsPublish = resolveConversionBroadcastEnabled({
-              currentBroadcastEnabled: (trip as { broadcast_enabled?: boolean | null })
+            const airportReady = assertAirportPricingReady({
+              broadcastEnabled: (trip as { broadcast_enabled?: boolean | null })
                 .broadcast_enabled,
             });
-            if (!allowJobsPublish) {
+            if (!airportReady.ok) {
               console.warn(
                 `[scheduled-dispatch] pending Jobs At held (airport/fare) for ${trip.id}`,
               );
@@ -801,6 +805,7 @@ Deno.serve(async (req) => {
                   pending_release_kind: null,
                   pending_release_at: null,
                   pending_release_driver_id: null,
+                  scheduled_hold_reason: "airport_pricing",
                   updated_at: now.toISOString(),
                 })
                 .eq("id", trip.id)
@@ -809,7 +814,10 @@ Deno.serve(async (req) => {
             }
             const { data: jobsRows, error } = await supabase
               .from("trips")
-              .update(buildMakeAvailableScheduledJobsPatch({ nowIso: now.toISOString() }))
+              .update({
+                ...buildMakeAvailableScheduledJobsPatch({ nowIso: now.toISOString() }),
+                scheduled_hold_reason: null,
+              })
               .eq("id", trip.id)
               .is("completed_at", null)
               .not("status", "in", TERMINAL_TRIP_STATUS_POSTGREST_LIST)
@@ -874,10 +882,11 @@ Deno.serve(async (req) => {
       const { data: heldCandidates, error: heldErr } = await supabase
         .from("trips")
         .select(
-          "id, dispatch_mode, status, scheduled_status, scheduled_at, scheduled_broadcast_at, driver_id, confirmed_driver_id, broadcast_enabled, airport_charge_pence, pending_release_kind, pending_release_at, booking_source, service_area_id, vehicle_type_id, vehicle_type, completed_at, cancelled_at, pickup_address, trip_code, trip_number",
+          "id, dispatch_mode, status, scheduled_status, scheduled_at, scheduled_broadcast_at, scheduled_hold_reason, scheduled_publish_attempts, driver_id, confirmed_driver_id, broadcast_enabled, airport_charge_pence, pending_release_kind, pending_release_at, booking_source, service_area_id, vehicle_type_id, vehicle_type, completed_at, cancelled_at, pickup_address, trip_code, trip_number, created_at",
         )
         .eq("dispatch_mode", "scheduled")
         .in("scheduled_status", ["admin_held", "scheduled", "pending"])
+        .in("scheduled_hold_reason", [...AUTO_PUBLISH_ELIGIBLE_HOLD_REASONS])
         .is("driver_id", null)
         .is("confirmed_driver_id", null)
         .is("completed_at", null)

@@ -246,6 +246,8 @@ export function buildMinimalTripInsertRow(input: MinimalTripBuildInput): Record<
     scheduledConvertAt = anchors.scheduledConvertAt;
     scheduledStatus = "admin_held";
   }
+  // Phase 3: authoritative hold reason — auto-publish eligible after gates.
+  const scheduledHoldReason = isScheduled ? "publication_pending" : null;
 
   const defaultSearchExpiresAt = new Date(Date.now() + 5 * 60 * 1000).toISOString();
   const requestedMethod = body.payment_method || "card";
@@ -276,6 +278,7 @@ export function buildMinimalTripInsertRow(input: MinimalTripBuildInput): Record<
     dispatch_mode: isScheduled ? "scheduled" : "instant",
     scheduled_broadcast_at: scheduledBroadcastAt,
     scheduled_convert_at: scheduledConvertAt,
+    scheduled_hold_reason: scheduledHoldReason,
     client_action_id: body.client_action_id,
     trip_code: tripCode,
     authorised_amount_pence: isDriverCollected ? 0 : input.preauthAmountPence,

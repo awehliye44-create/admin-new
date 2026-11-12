@@ -59,6 +59,7 @@ Deno.test("Admin HELD: create stamps admin_held + null broadcast_at + T−9 conv
   assertEquals(row.scheduled_status, ADMIN_HELD_SCHEDULED_STATUS);
   assertEquals(row.scheduled_broadcast_at, null);
   assertEquals(row.scheduled_convert_at, "2026-09-21T13:51:00.000Z");
+  assertEquals(row.scheduled_hold_reason, "publication_pending");
   assert(isAdminHeldScheduledStatus(String(row.scheduled_status)));
 });
 

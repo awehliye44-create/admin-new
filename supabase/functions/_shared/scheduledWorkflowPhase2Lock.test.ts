@@ -33,7 +33,7 @@ Deno.test("scheduled-dispatch orders bounded STEP batches and holds airport Broa
 Deno.test("cancel_confirmed rematch does not stamp terminal cancelled_at", async () => {
   const src = await read("../scheduled-ride-action/index.ts");
   assertStringIncludes(src, "cancelled_at: null");
-  assertStringIncludes(src, "broadcast_enabled: true");
+  assertStringIncludes(src, "rematchBroadcastEnabled");
   assertStringIncludes(src, 'type: "scheduled_job_confirmed"');
   // Must not leave cancelled_at: releaseNowIso on rematch path.
   const rematchBlock = src.slice(src.indexOf('ACTION: CANCEL CONFIRMED'));

@@ -108,6 +108,46 @@ async function scheduledRidesTripUpdate(
   return rows ?? [];
 }
 
+/** Phase 3: emergency scheduled actions — backend gates + audit (not client mutate). */
+async function invokeAdminScheduledRideAction(input: {
+  action: string;
+  tripId: string;
+  reason: string;
+  executeAt?: string;
+  driverId?: string;
+}): Promise<{ success: boolean; error?: string; message?: string }> {
+  const { data, error } = await supabase.functions.invoke('admin-scheduled-ride-action', {
+    body: {
+      action: input.action,
+      trip_id: input.tripId,
+      reason: input.reason,
+      execute_at: input.executeAt,
+      driver_id: input.driverId,
+    },
+  });
+  if (error) {
+    return { success: false, error: error.message || 'Edge invoke failed' };
+  }
+  const body = (data ?? {}) as { success?: boolean; error?: string; message?: string };
+  if (body.success !== true) {
+    return {
+      success: false,
+      error: body.error || 'action_failed',
+      message: body.message,
+    };
+  }
+  return { success: true };
+}
+
+function requireEmergencyReason(prefix: string): string | null {
+  const reason = window.prompt(`${prefix}\nEnter reason (required, min 3 characters):`)?.trim() ?? '';
+  if (reason.length < 3) {
+    toast.error('A reason is required for emergency scheduled actions');
+    return null;
+  }
+  return reason;
+}
+
 interface ScheduledTrip {
   id: string;
   trip_number: string | null;
@@ -549,42 +589,25 @@ export default function ScheduledRides() {
 
   const handleMakeAvailableScheduledJobs = async () => {
     if (!selectedTrip) return;
+    const reason = requireEmergencyReason('Emergency Make Available Now');
+    if (!reason) return;
     setIsSaving(true);
     try {
-      const nowIso = new Date().toISOString();
-      // Publish for Driver Scheduled Jobs advance PRE-CONFIRMATION only.
-      // Does NOT start NRO / auto-dispatch (that is Broadcast).
-      const rows = await scheduledRidesTripUpdate(
-        selectedTrip.id,
-        {
-          scheduled_status: 'scheduled',
-          status: 'scheduled',
-          scheduled_broadcast_at: nowIso,
-          dispatch_mode: 'scheduled',
-          pending_release_kind: null,
-          pending_release_at: null,
-          pending_release_driver_id: null,
-        },
-        [
-          { op: 'in', col: 'scheduled_status', val: ['admin_held', 'scheduled', 'pending'] },
-          { op: 'is_null', col: 'confirmed_driver_id' },
-          { op: 'is_null', col: 'driver_id' },
-          { op: 'is_null', col: 'completed_at' },
-          { op: 'not_in', col: 'status', val: [...TERMINAL_TRIP_STATUSES] },
-        ],
-      );
-
-      if (!rows?.length) {
-        toast.error('Trip is no longer eligible for Scheduled Jobs publication');
+      const result = await invokeAdminScheduledRideAction({
+        action: 'make_available_now',
+        tripId: selectedTrip.id,
+        reason,
+      });
+      if (!result.success) {
+        toast.error(
+          result.error === 'AIRPORT_PRICING_UNRESOLVED'
+            ? 'Blocked — unresolved airport pricing'
+            : result.error === 'PAYMENT_GATE_NOT_SATISFIED'
+            ? 'Blocked — payment authorisation does not cover this booking'
+            : result.message || result.error || 'Failed to publish to Scheduled Jobs',
+        );
         return;
       }
-
-      // List-only marketplace alert (not NRO). Drivers need a heads-up when
-      // Admin publishes — soft poll alone left Requested silent (MK-261103-006).
-      void supabase.functions.invoke('scheduled-dispatch', {
-        body: { notify_marketplace_trip_id: selectedTrip.id },
-      });
-
       toast.success('Available in Scheduled Jobs — drivers can pre-confirm');
       setIsJobsOpen(false);
       setSelectedTrip(null);
@@ -611,25 +634,18 @@ export default function ScheduledRides() {
       toast.error('error' in timing ? timing.error : 'Invalid time');
       return;
     }
+    const reason = requireEmergencyReason('Emergency Make Available At');
+    if (!reason) return;
     setIsSaving(true);
     try {
-      const pendingRows = await scheduledRidesTripUpdate(
-        selectedTrip.id,
-        {
-          pending_release_kind: 'jobs',
-          pending_release_at: timing.actionAt.toISOString(),
-          pending_release_driver_id: null,
-        },
-        [
-          { op: 'in', col: 'scheduled_status', val: ['admin_held', 'scheduled', 'pending'] },
-          { op: 'is_null', col: 'confirmed_driver_id' },
-          { op: 'is_null', col: 'driver_id' },
-          { op: 'is_null', col: 'completed_at' },
-          { op: 'not_in', col: 'status', val: [...TERMINAL_TRIP_STATUSES] },
-        ],
-      );
-      if (!pendingRows?.length) {
-        toast.error('Trip is no longer available for Scheduled Jobs At');
+      const result = await invokeAdminScheduledRideAction({
+        action: 'make_available_at',
+        tripId: selectedTrip.id,
+        reason,
+        executeAt: timing.actionAt.toISOString(),
+      });
+      if (!result.success) {
+        toast.error(result.message || result.error || 'Failed to schedule Scheduled Jobs At');
         return;
       }
       toast.success('Scheduled Jobs At scheduled (backend cron)');
@@ -646,58 +662,26 @@ export default function ScheduledRides() {
 
   const handleDispatchNow = async () => {
     if (!selectedTrip) return;
+    const reason = requireEmergencyReason('Emergency Broadcast Now');
+    if (!reason) return;
 
     setIsSaving(true);
     try {
-      const nowMs = Date.now();
-      const nowIso = new Date(nowMs).toISOString();
-      // Live NRO path: flip onto instant nearby-card (same as T−urgent convert).
-      // Leaving dispatch_mode=scheduled made Driver treat offers as preconfirm.
-      // Find-driver window matches Admin max_driver_find_time_minutes (default 6).
-      const maxFindMinutes = 6;
-      const searchingExpiresAtIso = new Date(
-        nowMs + maxFindMinutes * 60_000,
-      ).toISOString();
-      const broadcastRows = await scheduledRidesTripUpdate(
-        selectedTrip.id,
-        {
-          dispatch_mode: 'instant',
-          scheduled_status: 'converted_to_instant',
-          status: 'searching',
-          dispatch_status: 'broadcasting',
-          broadcast_enabled: true,
-          searching_expires_at: searchingExpiresAtIso,
-          current_broadcast_round: 0,
-          scheduled_broadcast_at: nowIso,
-          confirmed_driver_id: null,
-          driver_id: null,
-          pending_release_kind: null,
-          pending_release_at: null,
-          pending_release_driver_id: null,
-          updated_at: nowIso,
-        },
-        [
-          { op: 'in', col: 'scheduled_status', val: ['admin_held', 'scheduled', 'pending', 'driver_assigned'] },
-          { op: 'is_null', col: 'driver_id' },
-          { op: 'is_null', col: 'completed_at' },
-          { op: 'not_in', col: 'status', val: [...TERMINAL_TRIP_STATUSES] },
-        ],
-      );
-
-      if (!broadcastRows?.length) {
-        toast.error('Trip is already live-assigned or no longer eligible for broadcast');
+      const result = await invokeAdminScheduledRideAction({
+        action: 'broadcast_now',
+        tripId: selectedTrip.id,
+        reason,
+      });
+      if (!result.success) {
+        toast.error(
+          result.error === 'AIRPORT_PRICING_UNRESOLVED'
+            ? 'Blocked — unresolved airport pricing (cannot force broadcast)'
+            : result.error === 'PAYMENT_GATE_NOT_SATISFIED'
+            ? 'Blocked — payment authorisation does not cover this booking'
+            : result.message || result.error || 'Failed to broadcast ride',
+        );
         return;
       }
-
-      // Kick existing auto-dispatch / scheduled-dispatch (reuse — no parallel engine).
-      void supabase.functions.invoke('auto-dispatch', {
-        body: {
-          trip_id: selectedTrip.id,
-          force_rebroadcast: true,
-          trigger_reason: 'admin_broadcast_now',
-        },
-      });
-      void supabase.functions.invoke('scheduled-dispatch', { body: {} });
 
       toast.success('Broadcast Now — New Ride Offer path started');
       setIsDispatchOpen(false);
@@ -724,25 +708,19 @@ export default function ScheduledRides() {
       toast.error('error' in timing ? timing.error : 'Invalid time');
       return;
     }
+    const reason = requireEmergencyReason('Emergency Broadcast At');
+    if (!reason) return;
     const at = timing.actionAt;
     setIsSaving(true);
     try {
-      const pendingRows = await scheduledRidesTripUpdate(
-        selectedTrip.id,
-        {
-          pending_release_kind: 'broadcast',
-          pending_release_at: at.toISOString(),
-          pending_release_driver_id: null,
-        },
-        [
-          { op: 'in', col: 'scheduled_status', val: ['admin_held', 'scheduled', 'pending', 'driver_assigned'] },
-          { op: 'is_null', col: 'driver_id' },
-          { op: 'is_null', col: 'completed_at' },
-          { op: 'not_in', col: 'status', val: [...TERMINAL_TRIP_STATUSES] },
-        ],
-      );
-      if (!pendingRows?.length) {
-        toast.error('Trip is no longer available for Broadcast At');
+      const result = await invokeAdminScheduledRideAction({
+        action: 'broadcast_at',
+        tripId: selectedTrip.id,
+        reason,
+        executeAt: at.toISOString(),
+      });
+      if (!result.success) {
+        toast.error(result.message || result.error || 'Failed to schedule Broadcast At');
         return;
       }
       toast.success('Broadcast At scheduled (backend cron)');
@@ -758,13 +736,19 @@ export default function ScheduledRides() {
   };
 
   const handleCancelPendingRelease = async (trip: ScheduledTrip) => {
+    const reason = requireEmergencyReason('Cancel pending release');
+    if (!reason) return;
     setIsSaving(true);
     try {
-      await scheduledRidesTripUpdate(trip.id, {
-        pending_release_kind: null,
-        pending_release_at: null,
-        pending_release_driver_id: null,
+      const result = await invokeAdminScheduledRideAction({
+        action: 'cancel_pending_release',
+        tripId: trip.id,
+        reason,
       });
+      if (!result.success) {
+        toast.error(result.message || result.error || 'Failed to cancel pending release');
+        return;
+      }
       toast.success('Pending release cancelled');
       fetchData();
     } catch (err: any) {

@@ -645,6 +645,7 @@ export default function ManualTrip() {
           ? {
               dispatch_mode: 'scheduled',
               scheduled_status: selectedDriverId ? 'driver_assigned' : 'admin_held',
+              scheduled_hold_reason: selectedDriverId ? null : 'manual_trip',
               scheduled_broadcast_at: null,
               // T−9 convert anchor (matches bookingSSOT urgent default).
               scheduled_convert_at: (() => {

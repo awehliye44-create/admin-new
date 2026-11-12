@@ -713,6 +713,18 @@ Deno.serve(async (req) => {
       // Pre-window: scheduled_status=broadcasting (marketplace). Check-in open:
       // keep broadcasting until conversion patch below flips to searching —
       // never show Finding from this stamp alone.
+      // Phase 3: never clear an airport pricing hold on rematch reopen.
+      const { data: rematchGateTrip } = await supabase
+        .from("trips")
+        .select("broadcast_enabled, airport_charge_pence, scheduled_hold_reason")
+        .eq("id", trip_id)
+        .maybeSingle();
+      const rematchBroadcastEnabled =
+        rematchGateTrip?.broadcast_enabled !== false;
+      const rematchHoldReason =
+        rematchGateTrip?.broadcast_enabled === false
+          ? "airport_pricing"
+          : "publication_pending";
       const { error: updateError } = await supabase
         .from("trips")
         .update({
@@ -722,11 +734,12 @@ Deno.serve(async (req) => {
           cancellation_reason: cancellation_reason,
           cancellation_note: cancellation_note || null,
           cancelled_at: null,
-          scheduled_status: "broadcasting",
-          scheduled_broadcast_at: broadcastAt,
-          status: isCheckinOpen ? "pending" : "offered",
+          scheduled_status: rematchBroadcastEnabled ? "broadcasting" : "admin_held",
+          scheduled_broadcast_at: rematchBroadcastEnabled ? broadcastAt : null,
+          status: isCheckinOpen ? "pending" : (rematchBroadcastEnabled ? "offered" : "scheduled"),
           dispatch_status: cancelDispatchStatus,  // §11/§12 SSOT
-          broadcast_enabled: true,
+          broadcast_enabled: rematchBroadcastEnabled,
+          scheduled_hold_reason: rematchHoldReason,
           // Reset commitment columns if present
           scheduled_driver_risk: false,
           current_offer_driver_id: null,
@@ -802,38 +815,44 @@ Deno.serve(async (req) => {
         const maxExistingBroadcastRound = Number(
           priorConvertOffers?.[0]?.broadcast_round ?? 0,
         );
-          await supabase
-            .from("trips")
-            .update(buildScheduledUrgentConversionPatch({
-            nowIso: convertNow.toISOString(),
-            searchingExpiresAtIso: new Date(
-              convertNow.getTime() + maxFindDriverMinutes * 60_000,
-            ).toISOString(),
-            maxExistingBroadcastRound: Number.isFinite(maxExistingBroadcastRound)
-              ? maxExistingBroadcastRound
-              : 0,
-            maxBroadcastSequences: instantMaxSequences,
-            // Rematch must reopen dispatch (airport hold already cleared above).
-            broadcastEnabled: true,
-          }))
-            .eq("id", trip_id);
+          if (!rematchBroadcastEnabled) {
+            console.warn(
+              "[scheduled-ride-action] cancel_confirmed: airport pricing hold — skip urgent convert",
+              { trip_id },
+            );
+          } else {
+            await supabase
+              .from("trips")
+              .update(buildScheduledUrgentConversionPatch({
+              nowIso: convertNow.toISOString(),
+              searchingExpiresAtIso: new Date(
+                convertNow.getTime() + maxFindDriverMinutes * 60_000,
+              ).toISOString(),
+              maxExistingBroadcastRound: Number.isFinite(maxExistingBroadcastRound)
+                ? maxExistingBroadcastRound
+                : 0,
+              maxBroadcastSequences: instantMaxSequences,
+              broadcastEnabled: rematchBroadcastEnabled,
+            }))
+              .eq("id", trip_id);
 
-        // Trigger auto-dispatch immediately — don't wait for expire-offers sweep
-        try {
-          await fetch(`${supabaseUrl}/functions/v1/auto-dispatch`, {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              Authorization: `Bearer ${supabaseKey}`,
-            },
-            body: JSON.stringify({ trip_id, force_rebroadcast: true }),
-          });
-        } catch (e) {
-          console.error("[scheduled-ride-action] auto-dispatch trigger failed:", e);
-        }
+          // Trigger auto-dispatch immediately — don't wait for expire-offers sweep
+          try {
+            await fetch(`${supabaseUrl}/functions/v1/auto-dispatch`, {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                Authorization: `Bearer ${supabaseKey}`,
+              },
+              body: JSON.stringify({ trip_id, force_rebroadcast: true }),
+            });
+          } catch (e) {
+            console.error("[scheduled-ride-action] auto-dispatch trigger failed:", e);
+          }
 
-        console.log("[scheduled-ride-action] Check-in open: converted to instant ride, auto-dispatch triggered");
-      } else {
+          console.log("[scheduled-ride-action] Check-in open: converted to instant ride, auto-dispatch triggered");
+          }
+      } else if (rematchBroadcastEnabled) {
         // Pre-window Return Job: reopen marketplace (broadcast_at stamped above).
         // Nearby auto-dispatch stays off while dispatch_mode=scheduled — kick the
         // scheduled-dispatch sweep so Requested tab / STEP 2b escalation see it.
