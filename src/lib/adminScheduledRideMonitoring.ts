@@ -184,7 +184,28 @@ export function buildAdminScheduledWorkflowEvents(
   };
 
   if (trip.scheduled_broadcast_at) {
-    push('published', 'Automatic marketplace publication', trip.scheduled_broadcast_at, 'ok');
+    const broadcastMs = Date.parse(String(trip.scheduled_broadcast_at));
+    if (Number.isFinite(broadcastMs) && broadcastMs > Date.now()) {
+      push(
+        'awaiting_publication',
+        'Awaiting automatic publication',
+        trip.scheduled_broadcast_at,
+        'warn',
+      );
+    } else {
+      push(
+        'published',
+        'Requested — available in Scheduled Jobs',
+        trip.scheduled_broadcast_at,
+        'ok',
+      );
+    }
+  } else if (
+    norm(trip.scheduled_hold_reason) === 'publication_pending' ||
+    norm(trip.scheduled_hold_reason) === 'publication_retry' ||
+    norm(trip.scheduled_status) === 'admin_held'
+  ) {
+    push('awaiting_publication', 'Awaiting automatic publication', null, 'neutral');
   }
   if (trip.confirmed_driver_id) {
     push('accepted', 'Driver acceptance / pre-confirm', null, 'ok');

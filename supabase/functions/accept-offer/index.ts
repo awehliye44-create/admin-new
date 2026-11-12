@@ -43,6 +43,7 @@ import {
 } from "../_shared/acceptOfferPerf.ts";
 import { opsLog } from "../_shared/opsLog.ts";
 import { notifyCustomerTripLifecycle } from "../_shared/customerTripLifecycleNotify.ts";
+import { driverMayAcceptAdditionalWork } from "../_shared/scheduledCommitmentOfferGateSSOT.ts";
 
 interface AcceptRequest {
   offer_id: string;
@@ -302,10 +303,8 @@ Deno.serve(async (req) => {
     }
 
     // Phase 4: refuse accept when it would make a confirmed scheduled commitment infeasible.
+    // Static import (not dynamic) so Supabase Edge always bundles the SSOT module.
     if (pendingOffer?.trip_id) {
-      const { driverMayAcceptAdditionalWork } = await import(
-        "../_shared/scheduledCommitmentOfferGateSSOT.ts"
-      );
       const { data: candidateTrip } = await supabase
         .from("trips")
         .select(
@@ -906,6 +905,11 @@ Deno.serve(async (req) => {
 
   } catch (error) {
     console.error("[accept-offer] Error:", error);
-    return errorResponse("INTERNAL_ERROR", String(error), 500);
+    // Never leak raw Deno/module/SQL internals to Driver UI.
+    return errorResponse(
+      "INTERNAL_ERROR",
+      "Unable to accept this offer. Please try again.",
+      500,
+    );
   }
 });

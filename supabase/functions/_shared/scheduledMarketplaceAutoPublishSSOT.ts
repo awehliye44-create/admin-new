@@ -152,13 +152,46 @@ export function isExceptionalManualBookingSource(source: string | null | undefin
   return (EXCEPTIONAL_MANUAL_BOOKING_SOURCES as readonly string[]).includes(lower(source));
 }
 
-export function isScheduledMarketplaceAlreadyPublished(trip: ScheduledMarketplaceTripSnapshot): boolean {
+/**
+ * Marketplace is open only when broadcast_at is due (≤ now).
+ * Ideal-anchor future stamps (T−urgent−response) are NOT published yet —
+ * Admin must not treat them as Requested, and recovery must reopen them now.
+ */
+export function isScheduledMarketplaceAlreadyPublished(
+  trip: ScheduledMarketplaceTripSnapshot,
+  nowMs: number = Date.now(),
+): boolean {
   const sched = lower(trip.scheduled_status);
   if (sched === "admin_held") return false;
   const at = trip.scheduled_broadcast_at ? Date.parse(String(trip.scheduled_broadcast_at)) : NaN;
-  if (!Number.isFinite(at)) return false;
+  if (!Number.isFinite(at) || at > nowMs) return false;
   return sched === "scheduled" || sched === "pending" || sched === "broadcasting" ||
     sched === "awaiting_confirmation" || sched === "dispatching";
+}
+
+/**
+ * Webhook/lifecycle race: status=scheduled, hold null, broadcast_at still in the future.
+ * Routine customer creates only — never payment/airport/manual/exceptional holds,
+ * never terminal rows, never rows with a driver assignment.
+ */
+export function isPrematureIdealBroadcastStamp(
+  trip: ScheduledMarketplaceTripSnapshot,
+  nowMs: number = Date.now(),
+): boolean {
+  const status = lower(trip.status);
+  const sched = lower(trip.scheduled_status);
+  if (trip.completed_at || trip.cancelled_at) return false;
+  if (TERMINAL_STATUSES.has(status)) return false;
+  if (sched === "cancelled" || sched === "expired" || sched === "no_driver_found") return false;
+  if (sched === "converted_to_instant" || sched === "payment_gate_blocked") return false;
+  if (!(sched === "scheduled" || sched === "pending" || sched === "")) return false;
+  // Any non-null hold is a safety / exceptional latch — never auto-open.
+  if (!isBlank(trip.scheduled_hold_reason)) return false;
+  if (!isBlank(trip.driver_id) || !isBlank(trip.confirmed_driver_id)) return false;
+  if (isExceptionalManualBookingSource(trip.booking_source)) return false;
+  if (!isRoutineAutoPublishBookingSource(trip.booking_source)) return false;
+  const at = trip.scheduled_broadcast_at ? Date.parse(String(trip.scheduled_broadcast_at)) : NaN;
+  return Number.isFinite(at) && at > nowMs;
 }
 
 /**
@@ -227,9 +260,7 @@ export function classifyScheduledMarketplaceHold(
   if (!isBlank(trip.confirmed_driver_id) && isBlank(trip.driver_id)) {
     return { class: "preconfirmed", proposedAction: "skip", reason: "already_assigned_preconfirm" };
   }
-  if (isScheduledMarketplaceAlreadyPublished(trip) && Number.isFinite(
-    trip.scheduled_broadcast_at ? Date.parse(String(trip.scheduled_broadcast_at)) : NaN,
-  ) && (trip.scheduled_broadcast_at ? Date.parse(String(trip.scheduled_broadcast_at)) : Infinity) <= nowMs) {
+  if (isScheduledMarketplaceAlreadyPublished(trip, nowMs)) {
     return { class: "already_published", proposedAction: "already_ok", reason: "marketplace_open" };
   }
   if (isExceptionalManualBookingSource(trip.booking_source)) {
@@ -257,6 +288,13 @@ export function classifyScheduledMarketplaceHold(
       class: "legacy_unpublished",
       proposedAction: "auto_publish",
       reason: "legacy_null_broadcast_at",
+    };
+  }
+  if (isPrematureIdealBroadcastStamp(trip, nowMs)) {
+    return {
+      class: "legacy_unpublished",
+      proposedAction: "auto_publish",
+      reason: "premature_ideal_broadcast_stamp",
     };
   }
   return { class: "already_published", proposedAction: "already_ok", reason: "no_hold" };
@@ -300,11 +338,8 @@ export function evaluateScheduledMarketplaceAutoPublishEligibility(
   if (!isBlank(trip.driver_id) || !isBlank(trip.confirmed_driver_id)) {
     return { ok: false, reason: "already_assigned" };
   }
-  if (isScheduledMarketplaceAlreadyPublished(trip)) {
-    const at = trip.scheduled_broadcast_at ? Date.parse(String(trip.scheduled_broadcast_at)) : NaN;
-    if (Number.isFinite(at) && at <= nowMs) {
-      return { ok: false, reason: "already_published" };
-    }
+  if (isScheduledMarketplaceAlreadyPublished(trip, nowMs)) {
+    return { ok: false, reason: "already_published" };
   }
   const airport = assertAirportPricingReady({
     broadcastEnabled: trip.broadcast_enabled,
@@ -315,10 +350,13 @@ export function evaluateScheduledMarketplaceAutoPublishEligibility(
     return { ok: false, reason: "airport_pricing_hold" };
   }
   const holdReason = normaliseScheduledHoldReason(trip.scheduled_hold_reason);
-  // Post-commit may publish publication_pending before column exists on old rows
-  // only when explicitly allowed; recovery always requires eligible reason.
+  const premature = isPrematureIdealBroadcastStamp(trip, nowMs);
+  const unpublishedNullBroadcast =
+    isBlank(trip.scheduled_broadcast_at) &&
+    (sched === "admin_held" || sched === "scheduled" || sched === "pending" || sched === "");
+  // Eligible holds OR premature ideal-anchor race (null hold + future broadcast_at).
   if (!opts.allowUnknownBookingSource) {
-    if (!isAutoPublishEligibleHoldReason(holdReason)) {
+    if (!isAutoPublishEligibleHoldReason(holdReason) && !(premature || (unpublishedNullBroadcast && !holdReason))) {
       return { ok: false, reason: "hold_reason_not_eligible" };
     }
   } else if (holdReason && !isAutoPublishEligibleHoldReason(holdReason)) {
@@ -432,7 +470,7 @@ export async function stampScheduledMarketplacePublishExhausted(
         title: "Scheduled marketplace publication exhausted",
         description:
           "Automatic Scheduled Jobs publication stopped after the maximum retry attempts. "
-          + "Review payment / airport pricing / hold state, then use Admin emergency Make Available if appropriate.",
+          + "Review payment / airport pricing / hold state. Assign Driver remains available for exceptional intervention.",
         related_trip_id: input.tripId,
         related_entity_type: "trip",
         related_entity_id: input.tripId,
@@ -458,7 +496,7 @@ export async function stampScheduledMarketplacePublishExhausted(
         title: "Scheduled marketplace publication exhausted",
         description:
           "Automatic Scheduled Jobs publication stopped after the maximum retry attempts. "
-          + "Review payment / airport pricing / hold state, then use Admin emergency Make Available if appropriate.",
+          + "Review payment / airport pricing / hold state. Assign Driver remains available for exceptional intervention.",
         related_trip_id: input.tripId,
         related_entity_type: "trip",
         related_entity_id: input.tripId,
@@ -510,19 +548,40 @@ export async function attemptScheduledMarketplaceAutoPublish(
     };
   }
 
-  // CAS: only eligible hold reasons — concurrent Admin exceptional hold wins.
-  let updateQuery = supabase
+  const nowMs = Date.parse(input.nowIso);
+  const patch = buildScheduledMarketplaceAutoPublishPatch(input.nowIso);
+
+  // CAS path A: eligible hold reasons (publication_pending / publication_retry).
+  let { data: rows, error } = await supabase
     .from("trips")
-    .update(buildScheduledMarketplaceAutoPublishPatch(input.nowIso))
+    .update(patch)
     .eq("id", input.tripId)
     .is("completed_at", null)
     .is("driver_id", null)
     .is("confirmed_driver_id", null)
     .in("scheduled_status", ["admin_held", "scheduled", "pending"])
-    .in("scheduled_hold_reason", [...AUTO_PUBLISH_ELIGIBLE_HOLD_REASONS]);
+    .in("scheduled_hold_reason", [...AUTO_PUBLISH_ELIGIBLE_HOLD_REASONS])
+    .select("id");
 
-  // Post-commit first publish may still use publication_pending only.
-  const { data: rows, error } = await updateQuery.select("id");
+  // CAS path B: premature ideal-anchor race (null hold + future broadcast_at).
+  // Idempotent: concurrent assignment / safety hold / terminal → cas_no_match.
+  if (!error && !rows?.length && isPrematureIdealBroadcastStamp(input.trip, Number.isFinite(nowMs) ? nowMs : Date.now())) {
+    const premature = await supabase
+      .from("trips")
+      .update(patch)
+      .eq("id", input.tripId)
+      .is("completed_at", null)
+      .is("cancelled_at", null)
+      .is("driver_id", null)
+      .is("confirmed_driver_id", null)
+      .is("scheduled_hold_reason", null)
+      .in("scheduled_status", ["scheduled", "pending"])
+      .in("status", ["scheduled", "pending", "searching"])
+      .gt("scheduled_broadcast_at", input.nowIso)
+      .select("id");
+    rows = premature.data;
+    error = premature.error;
+  }
 
   if (error) {
     let retryStamped = false;

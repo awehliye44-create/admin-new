@@ -44,12 +44,6 @@ import {
   SCHEDULED_MARKETPLACE_AUTO_PUBLISH_VIA,
 } from "./scheduledMarketplaceAutoPublishSSOT.ts";
 import { notifyScheduledMarketplaceOpen } from "./scheduledMarketplaceNotifySSOT.ts";
-import { assertPaymentGate, PaymentGateError } from "./paymentGate.ts";
-import {
-  attemptScheduledMarketplaceAutoPublish,
-  SCHEDULED_MARKETPLACE_AUTO_PUBLISH_VIA,
-} from "./scheduledMarketplaceAutoPublishSSOT.ts";
-import { notifyScheduledMarketplaceOpen } from "./scheduledMarketplaceNotifySSOT.ts";
 
 export type TripStopRow = {
   trip_id: string;

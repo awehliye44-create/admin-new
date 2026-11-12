@@ -1168,7 +1168,8 @@ export default function RolesPermissions() {
             <CardHeader>
               <CardTitle>Scheduled Rides — Emergency Action Capabilities</CardTitle>
               <CardDescription>
-                Separate permissions for Make Available, Assign, Broadcast, Hold, Cancel Pending, and Cancel Ride.
+                Assign and Cancel Ride remain active. Make Available, Broadcast, and Hold are retired
+                (automatic publication / fallback dispatch) — capability keys retained for audit history only.
                 Page access to Scheduled Rides does not grant these automatically. Owner retains all actions.
               </CardDescription>
             </CardHeader>

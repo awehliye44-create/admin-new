@@ -14,10 +14,16 @@ import { assertPaymentGate, PaymentGateError } from "../_shared/paymentGate.ts";
 import { buildBroadcastNowPatch } from "../_shared/scheduledAdminReleaseSSOT.ts";
 import { assertAirportPricingReady } from "../_shared/scheduledMarketplaceHoldSSOT.ts";
 import { notifyScheduledMarketplaceOpen } from "../_shared/scheduledMarketplaceNotifySSOT.ts";
+import { broadcastScheduledMarketplaceChanged } from "../_shared/scheduledMarketplaceRealtimeBroadcastSSOT.ts";
 import { resolveScheduledDispatchConfig } from "../_shared/scheduledDispatchConfig.ts";
 import { maxBroadcastSequences } from "../_shared/dispatch-settings.ts";
 import { disposeTerminalTripPayment } from "../_shared/terminalTripPaymentDisposition.ts";
 import { notifyCustomerTripLifecycle } from "../_shared/customerTripLifecycleNotify.ts";
+import { driverMayTakeAdditionalScheduledBooking } from "../_shared/scheduledCommitmentOfferGateSSOT.ts";
+import {
+  checkScheduledCommissionWalletGate,
+  SCHEDULED_COMMISSION_WALLET_ERROR,
+} from "../_shared/scheduledMarketplaceCommissionWalletGate.ts";
 
 function json(body: Record<string, unknown>, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -36,6 +42,15 @@ const ACTIONS = new Set([
   "cancel_pending_release",
   "hold_exceptional",
   "cancel_ride",
+]);
+
+/** Retired staff controls — automation owns publication + fallback dispatch. */
+const RETIRED_MANUAL_SCHEDULED_CONTROLS = new Set([
+  "make_available_now",
+  "make_available_at",
+  "broadcast_now",
+  "broadcast_at",
+  "hold_exceptional",
 ]);
 
 type EmergencyMutateResult = {
@@ -75,6 +90,16 @@ Deno.serve(async (req) => {
     if (!tripId) return json({ success: false, error: "trip_id required" }, 400);
     if (!ACTIONS.has(action)) {
       return json({ success: false, error: `Unsupported action: ${action}` }, 400);
+    }
+    if (RETIRED_MANUAL_SCHEDULED_CONTROLS.has(action)) {
+      return json({
+        success: false,
+        error: "RETIRED_MANUAL_SCHEDULED_CONTROL",
+        message:
+          "Manual Broadcast / Make Available / Hold are retired. "
+          + "Scheduled Jobs publication and fallback dispatch are automatic. "
+          + "Use Assign Driver only for exceptional intervention.",
+      }, 410);
     }
     if (reason.length < 3) {
       return json({ success: false, error: "reason required (min 3 chars)" }, 400);
@@ -118,13 +143,28 @@ Deno.serve(async (req) => {
             "Cannot assign while existing mandatory airport charge failed to persist (Custom Zones route pricing).",
         }, 409);
       }
+      // Gap C: Admin assign obeys the same commission-wallet gate as instant / marketplace accept.
+      {
+        const walletGate = await checkScheduledCommissionWalletGate(gate.supabase, driverId, tripId);
+        if (!walletGate.ok) {
+          if (walletGate.reason === "wallet_gate_error") {
+            return json({
+              success: false,
+              error: "COMMISSION_WALLET_GATE_CHECK_FAILED",
+              message: walletGate.detail ?? "Could not verify commission wallet eligibility",
+            }, 500);
+          }
+          return json({
+            success: false,
+            error: SCHEDULED_COMMISSION_WALLET_ERROR,
+            message: "Driver has insufficient commission wallet balance for this trip",
+          }, 409);
+        }
+      }
       // Phase 4: Admin assign must not create an infeasible multi-commitment.
       {
         const candAt = Date.parse(String(trip.scheduled_at ?? ""));
         if (Number.isFinite(candAt)) {
-          const { driverMayTakeAdditionalScheduledBooking } = await import(
-            "../_shared/scheduledCommitmentOfferGateSSOT.ts"
-          );
           const gateCommit = await driverMayTakeAdditionalScheduledBooking({
             supabase: gate.supabase,
             driverId,
@@ -270,7 +310,9 @@ Deno.serve(async (req) => {
           result.error === "TRIP_NO_LONGER_ELIGIBLE" ||
           result.error === "CAS_MISMATCH" ||
           result.error === "TRIP_ALREADY_COMPLETED" ||
-          result.error === "ACTION_PERMISSION_DENIED"
+          result.error === "ACTION_PERMISSION_DENIED" ||
+          result.error === "SCHEDULED_COMMITMENT_INFEASIBLE" ||
+          result.error === "INSUFFICIENT_COMMISSION_WALLET_BALANCE"
         ? 409
         : 400;
       return json({
@@ -294,6 +336,19 @@ Deno.serve(async (req) => {
     }
 
     if (action === "assign_now") {
+      try {
+        await broadcastScheduledMarketplaceChanged(gate.supabase, {
+          tripId,
+          serviceAreaId:
+            typeof trip.service_area_id === "string" ? trip.service_area_id : null,
+          reason: "accepted",
+        });
+      } catch (broadcastErr) {
+        console.warn(
+          "[admin-scheduled-ride-action] assign marketplace broadcast non-fatal",
+          broadcastErr,
+        );
+      }
       try {
         const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
         const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -348,6 +403,19 @@ Deno.serve(async (req) => {
         });
       } catch (payErr) {
         console.warn("[admin-scheduled-ride-action] payment dispose non-fatal", payErr);
+      }
+      try {
+        await broadcastScheduledMarketplaceChanged(gate.supabase, {
+          tripId,
+          serviceAreaId:
+            typeof trip.service_area_id === "string" ? trip.service_area_id : null,
+          reason: "cancelled",
+        });
+      } catch (broadcastErr) {
+        console.warn(
+          "[admin-scheduled-ride-action] cancel marketplace broadcast non-fatal",
+          broadcastErr,
+        );
       }
       try {
         const passengerId =

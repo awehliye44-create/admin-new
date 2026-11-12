@@ -1,0 +1,94 @@
+/**
+ * Marketplace Realtime Broadcast lock — invalidate-only, no passenger PII.
+ */
+import {
+  assert,
+  assertEquals,
+  assertStringIncludes,
+} from "https://deno.land/std@0.224.0/assert/mod.ts";
+import {
+  SCHEDULED_MARKETPLACE_REALTIME_EVENT,
+  buildScheduledMarketplaceRealtimePayload,
+  scheduledMarketplaceRealtimeChannel,
+} from "./scheduledMarketplaceRealtimeBroadcastSSOT.ts";
+
+const root = new URL("../../../", import.meta.url);
+
+Deno.test("marketplace realtime channel + event are stable", () => {
+  assertEquals(
+    scheduledMarketplaceRealtimeChannel("sa-mk"),
+    "scheduled-marketplace:sa-mk",
+  );
+  assertEquals(SCHEDULED_MARKETPLACE_REALTIME_EVENT, "scheduled_marketplace_changed");
+});
+
+Deno.test("marketplace broadcast uses private channel config", async () => {
+  const src = await Deno.readTextFile(
+    new URL(
+      "supabase/functions/_shared/scheduledMarketplaceRealtimeBroadcastSSOT.ts",
+      root,
+    ),
+  );
+  assertStringIncludes(src, "private: true");
+  const migration = await Deno.readTextFile(
+    new URL(
+      "supabase/migrations/20270218130300_scheduled_marketplace_realtime_private_auth.sql",
+      root,
+    ),
+  );
+  assertStringIncludes(migration, "scheduled-marketplace:%");
+  assertStringIncludes(migration, "current_driver_profile_id");
+  assertStringIncludes(migration, "driver_service_areas");
+});
+
+Deno.test("broadcast payload is invalidate-only (no passenger fields)", () => {
+  const payload = buildScheduledMarketplaceRealtimePayload({
+    tripId: "trip-1",
+    serviceAreaId: "sa-1",
+    reason: "published",
+  });
+  assertEquals(payload.trip_id, "trip-1");
+  assertEquals(payload.service_area_id, "sa-1");
+  assertEquals(payload.reason, "published");
+  const keys = Object.keys(payload).sort();
+  assertEquals(keys, ["reason", "service_area_id", "trip_id"]);
+  assert(!JSON.stringify(payload).includes("passenger"));
+  assert(!JSON.stringify(payload).includes("phone"));
+  assert(!JSON.stringify(payload).includes("email"));
+});
+
+Deno.test("notify + accept/cancel wire marketplace broadcast", async () => {
+  const notify = await Deno.readTextFile(
+    new URL("supabase/functions/_shared/scheduledMarketplaceNotifySSOT.ts", root),
+  );
+  assertStringIncludes(notify, "broadcastScheduledMarketplaceChanged");
+  assertStringIncludes(notify, 'reason: "published"');
+
+  const action = await Deno.readTextFile(
+    new URL("supabase/functions/scheduled-ride-action/index.ts", root),
+  );
+  assertStringIncludes(action, "broadcastScheduledMarketplaceChanged");
+  assertStringIncludes(action, 'reason: "accepted"');
+  assert(action.includes('reason: isCheckinOpen ? "converted" : "cancelled"'));
+
+  const admin = await Deno.readTextFile(
+    new URL("supabase/functions/admin-scheduled-ride-action/index.ts", root),
+  );
+  assertStringIncludes(admin, "broadcastScheduledMarketplaceChanged");
+  assertStringIncludes(admin, 'reason: "accepted"');
+  assertStringIncludes(admin, 'reason: "cancelled"');
+
+  const cancel = await Deno.readTextFile(
+    new URL("supabase/functions/cancel-trip/index.ts", root),
+  );
+  assertStringIncludes(cancel, "broadcastScheduledMarketplaceChanged");
+
+  const convert = await Deno.readTextFile(
+    new URL(
+      "supabase/functions/_shared/scheduleDispatchConversionSweep.ts",
+      root,
+    ),
+  );
+  assertStringIncludes(convert, "broadcastScheduledMarketplaceChanged");
+  assertStringIncludes(convert, 'reason: "converted"');
+});

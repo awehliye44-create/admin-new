@@ -58,7 +58,10 @@ import {
   evaluateScheduledAdvanceWindow,
   resolveScheduledAdvanceWindowPolicy,
 } from "../_shared/scheduledAdvanceWindowSSOT.ts";
-import { extractCaptureDeadlineFromRevolutOrder } from "../_shared/captureDeadlinePersistenceSSOT.ts";
+import {
+  extractCaptureDeadlineFromRevolutOrder,
+  persistCaptureDeadlineFromOrder,
+} from "../_shared/captureDeadlinePersistenceSSOT.ts";
 import { ensureScheduledCaptureCoverage } from "../_shared/scheduledBookingPaymentCoverageSSOT.ts";
 import { isCardFundedPaymentMethod } from "../_shared/scheduledCaptureCoverageSSOT.ts";
 
@@ -692,6 +695,14 @@ serveWithEdgeTiming("create-trip-after-payment", corsHeaders, async (req) => {
         captureDeadlineSource: "provider_retrieve",
       });
     }
+    // Always merge provider capture_deadline onto the session (never invent / never NULL-clear).
+    // Covers Apple Pay paths where confirm marked authorised before deadline was on the order.
+    await persistCaptureDeadlineFromOrder(supabase, {
+      order,
+      clientActionId: body.client_action_id ?? null,
+      providerOrderId: order.id,
+      source: "provider_retrieve",
+    });
     log("Revolut order confirmed for booking", { status: order.state, amount: order.amount });
 
     const orderClientActionId = order.metadata?.client_action_id;

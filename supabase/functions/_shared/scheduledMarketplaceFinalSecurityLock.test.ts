@@ -79,6 +79,34 @@ Deno.test("admin-scheduled-ride-action enforces action RBAC + audit atomicity + 
   assertStringIncludes(sql, "one transaction");
 });
 
+Deno.test("retired manual Broadcast / Make Available / Hold blocked for staff", async () => {
+  const edge = await Deno.readTextFile(
+    new URL("supabase/functions/admin-scheduled-ride-action/index.ts", root),
+  );
+  assertStringIncludes(edge, "RETIRED_MANUAL_SCHEDULED_CONTROLS");
+  assertStringIncludes(edge, "RETIRED_MANUAL_SCHEDULED_CONTROL");
+  assertStringIncludes(edge, "make_available_now");
+  assertStringIncludes(edge, "broadcast_now");
+  assertStringIncludes(edge, "hold_exceptional");
+
+  const ui = await Deno.readTextFile(new URL("src/pages/ScheduledRides.tsx", root));
+  assert(!ui.includes("Make Available in Scheduled Jobs"));
+  assert(!ui.includes(">Broadcast<") && !ui.includes("Broadcast Now"));
+  assert(!ui.includes("handleHoldExceptional"));
+  assert(!ui.includes("Emergency</DropdownMenuLabel>"));
+  assertStringIncludes(ui, "Assign Driver");
+  assertStringIncludes(ui, "Cancel Ride");
+  assertStringIncludes(ui, "View Details");
+
+  const retireSql = await Deno.readTextFile(
+    new URL(
+      "supabase/migrations/20270218130100_retire_manual_scheduled_dispatch_controls.sql",
+      root,
+    ),
+  );
+  assertStringIncludes(retireSql, "RETIRED_MANUAL_SCHEDULED_CONTROL");
+});
+
 Deno.test("ScheduledRides routes Assign Now and Cancel Ride through Edge", async () => {
   const src = await Deno.readTextFile(new URL("src/pages/ScheduledRides.tsx", root));
   assertStringIncludes(src, "action: 'assign_now'");

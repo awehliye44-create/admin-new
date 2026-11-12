@@ -27,6 +27,7 @@ import { notifyCustomerTripLifecycle } from "../_shared/customerTripLifecycleNot
 import { notifyDriverTripStopped } from "../_shared/notifyDriverTripStopped.ts";
 import { maybeResumeTerminalFeeSettlementAfterProviderFee } from "../_shared/terminalFeeSettlementResumptionSSOT.ts";
 import { buildCancelledScheduledStatePatch } from "../_shared/tripTerminalDispatch.ts";
+import { broadcastScheduledMarketplaceChanged } from "../_shared/scheduledMarketplaceRealtimeBroadcastSSOT.ts";
 
 
 /**
@@ -553,6 +554,19 @@ serve(async (req) => {
         "Trip assignment changed or reached a terminal status before it could be cancelled",
         409,
       );
+    }
+
+    // Scheduled marketplace: invalidate Driver Requested lists (no passenger PII).
+    if (trip.is_scheduled || trip.scheduled_at) {
+      try {
+        await broadcastScheduledMarketplaceChanged(supabase, {
+          tripId: trip_id,
+          serviceAreaId: trip.service_area_id ?? null,
+          reason: "cancelled",
+        });
+      } catch (broadcastErr) {
+        console.warn("[cancel-trip] scheduled marketplace broadcast non-fatal", broadcastErr);
+      }
     }
 
     // Close the open pickup segment at cancelled_at. The fee decision above is

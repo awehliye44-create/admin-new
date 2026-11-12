@@ -20,6 +20,14 @@ import {
 } from "../_shared/scheduledDispatchConfig.ts";
 import { maxBroadcastSequences } from "../_shared/dispatch-settings.ts";
 import { notifyCustomerTripLifecycle } from "../_shared/customerTripLifecycleNotify.ts";
+import { driverMayTakeAdditionalScheduledBooking } from "../_shared/scheduledCommitmentOfferGateSSOT.ts";
+import {
+  checkScheduledCommissionWalletGate,
+  filterTripsByScheduledCommissionWalletGate,
+  SCHEDULED_COMMISSION_WALLET_ERROR,
+  SCHEDULED_COMMISSION_WALLET_MESSAGE,
+} from "../_shared/scheduledMarketplaceCommissionWalletGate.ts";
+import { broadcastScheduledMarketplaceChanged } from "../_shared/scheduledMarketplaceRealtimeBroadcastSSOT.ts";
 
 const RATE_LIMIT_CONFIG = {
   limit: 60,
@@ -365,8 +373,18 @@ Deno.serve(async (req) => {
         return true;
       });
 
+      // Gap C: same commission-wallet gate as instant dispatch (fail closed per trip).
+      const { allowed: walletEligibleTrips, blockedTripIds: walletBlockedTripIds } =
+        await filterTripsByScheduledCommissionWalletGate(supabase, driver_id, filteredTrips);
+      if (walletBlockedTripIds.length > 0) {
+        console.log("[scheduled-ride-action] Excluding trips: commission wallet gate", {
+          driver_id,
+          trip_ids: walletBlockedTripIds,
+        });
+      }
+
       // Attach stops to each trip (multi-stop support)
-      const tripsWithStops = filteredTrips.map(trip => ({
+      const tripsWithStops = walletEligibleTrips.map(trip => ({
         ...trip,
         stops: stopsMap[trip.id] || [],
         is_multi_stop: (stopsMap[trip.id] || []).length > 2,
@@ -429,9 +447,6 @@ Deno.serve(async (req) => {
           .maybeSingle();
         const candAt = Date.parse(String(cand?.scheduled_at ?? ""));
         if (Number.isFinite(candAt)) {
-          const { driverMayTakeAdditionalScheduledBooking } = await import(
-            "../_shared/scheduledCommitmentOfferGateSSOT.ts"
-          );
           const gate = await driverMayTakeAdditionalScheduledBooking({
             supabase,
             driverId: driver_id,
@@ -482,6 +497,23 @@ Deno.serve(async (req) => {
         }
       }
 
+      // Gap C: commission wallet gate (same RPC as instant dispatch / admin assign).
+      // accept_scheduled_ride re-checks in SQL; this gives a clear error before the lock.
+      {
+        const walletGate = await checkScheduledCommissionWalletGate(supabase, driver_id, trip_id!);
+        if (!walletGate.ok) {
+          if (walletGate.reason === "wallet_gate_error") {
+            console.error("[scheduled-ride-action] wallet gate RPC error:", walletGate.detail);
+            return errorResponse("DATABASE_ERROR", "Could not verify commission wallet eligibility", 500);
+          }
+          return errorResponse(
+            SCHEDULED_COMMISSION_WALLET_ERROR,
+            SCHEDULED_COMMISSION_WALLET_MESSAGE,
+            409,
+          );
+        }
+      }
+
       // Invoke as the authenticated driver so SECURITY DEFINER auth.uid() /
       // check_driver_documents_approved inside the RPC cannot be skipped.
       // Service-role client remains for HELD guards + post-accept normalize.
@@ -506,6 +538,8 @@ Deno.serve(async (req) => {
                           data.error === "TRIP_ALREADY_TAKEN" ? 409 :
                           data.error === "DRIVER_EXCLUDED" ? 403 :
                           data.error === "DOCUMENTS_NOT_APPROVED" ? 403 :
+                          data.error === "INSUFFICIENT_COMMISSION_WALLET_BALANCE" ? 409 :
+                          data.error === "SCHEDULED_COMMITMENT_INFEASIBLE" ? 409 :
                           data.error === "LOCK_CONTENTION" ? 409 : 400;
 
         return new Response(
@@ -548,7 +582,7 @@ Deno.serve(async (req) => {
       // Fetch trip + driver for notifications
       const { data: tripRow } = await supabase
         .from("trips")
-        .select("passenger_id, scheduled_at, pickup_address, trip_number")
+        .select("passenger_id, scheduled_at, pickup_address, trip_number, service_area_id")
         .eq("id", trip_id)
         .single();
       const { data: driverRow } = await supabase
@@ -556,6 +590,20 @@ Deno.serve(async (req) => {
         .select("first_name, last_name")
         .eq("id", driver_id)
         .single();
+
+      // Other drivers: remove from Requested via live broadcast (no passenger PII).
+      try {
+        await broadcastScheduledMarketplaceChanged(supabase, {
+          tripId: trip_id,
+          serviceAreaId: tripRow?.service_area_id ?? null,
+          reason: "accepted",
+        });
+      } catch (broadcastErr) {
+        console.warn(
+          "[scheduled-ride-action] accept marketplace broadcast failed:",
+          broadcastErr,
+        );
+      }
 
       // §18 — Notify customer: driver confirmed (lifecycle WAV, not mute send-customer-notification).
       try {
@@ -701,7 +749,7 @@ Deno.serve(async (req) => {
       // Validate trip is confirmed, locked, and assigned to this driver
       const { data: trip, error: tripError } = await supabase
         .from("trips")
-        .select("id, driver_id, confirmed_driver_id, status, scheduled_status, is_scheduled, scheduled_at, scheduled_broadcast_at")
+        .select("id, driver_id, confirmed_driver_id, status, scheduled_status, is_scheduled, scheduled_at, scheduled_broadcast_at, service_area_id")
         .eq("id", trip_id)
         .single();
 
@@ -940,6 +988,19 @@ Deno.serve(async (req) => {
         }
       } catch (notifErr) {
         console.warn("[scheduled-ride-action] cancel_confirmed: customer notification failed:", notifErr);
+      }
+
+      try {
+        await broadcastScheduledMarketplaceChanged(supabase, {
+          tripId: trip_id,
+          serviceAreaId: trip.service_area_id ?? null,
+          reason: isCheckinOpen ? "converted" : "cancelled",
+        });
+      } catch (broadcastErr) {
+        console.warn(
+          "[scheduled-ride-action] cancel marketplace broadcast failed:",
+          broadcastErr,
+        );
       }
 
       return successResponse({

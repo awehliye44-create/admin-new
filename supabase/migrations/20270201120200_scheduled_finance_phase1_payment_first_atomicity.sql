@@ -27,7 +27,7 @@ BEGIN
     RETURN NEW;
   END IF;
 
-  v_model := UPPER(COALESCE(NEW.financial_model, ''));
+  v_model := UPPER(COALESCE(NEW.financial_model::text, ''));
   IF v_model = 'DRIVER_COLLECTED_COMMISSION_WALLET' THEN
     RETURN NEW;
   END IF;
@@ -129,7 +129,7 @@ BEGIN
     RETURN NEW;
   END IF;
 
-  v_model := UPPER(COALESCE(NEW.financial_model, ''));
+  v_model := UPPER(COALESCE(NEW.financial_model::text, ''));
   IF v_model = 'DRIVER_COLLECTED_COMMISSION_WALLET' THEN
     RETURN NEW;
   END IF;
