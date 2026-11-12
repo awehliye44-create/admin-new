@@ -1,81 +1,75 @@
-# Scheduled Finance Phase 1 — Deploy & Rollback (awaiting release approval)
+# Scheduled Finance Phase 1 — Deploy & Rollback
 
-**Status:** Code-only. Do **not** migrate, deploy Edge, publish Admin/hub/OTA, or change production settings until explicit production release approval.
+**Status:** Release branches prepared. Production deploy awaits **explicit final approval**.
 
-Milton Keynes must remain: `enable_preauth_buffer=false`, `buffer_value=2`. Do not touch wave/commission/airport/wallet/stacking settings. Five-day (120h) advance remains the approved policy.
+Isolated branch: `release/scheduled-finance-phase1` (excludes trip-capture-deferral).
 
-## Migrations (apply in order)
+Milton Keynes must remain: `enable_preauth_buffer=false`, `buffer_value=2`.
+Only approved dispatch change: `max_advance_days = 5`. Do not touch waves / commission / airport / wallet / stacking.
 
-| Order | File | Purpose |
-|------:|------|---------|
-| 1 | `20270201120000_scheduled_finance_phase1_capture_deadline.sql` | `capture_deadline` columns; `assert_payment_gate`; `max_advance_days` default 5 |
-| 2 | `20270201120100_scheduled_finance_phase1_gap_closure.sql` | Advance-window trigger; accept/activate gates; coverage stamp semantics |
-| 3 | `20270201120200_scheduled_finance_phase1_payment_first_atomicity.sql` | `capture_deadline_observed_at`; payment-first INSERT trigger; schedule-mod coverage UPDATE trigger; `admin_assign_scheduled_driver` |
+## Isolated release tips (local; not production-pushed until approval)
 
-## Edge Functions (after migrations)
+| Repo | Branch | Tip |
+|------|--------|-----|
+| admin-new | `release/scheduled-finance-phase1` | see `git rev-parse HEAD` |
+| onecab-central-hub | `release/scheduled-finance-phase1` | BookRide only |
+| onecab-customer-native | `release/scheduled-finance-phase1` | schedule window only |
 
-Deploy only after migrations succeed:
+Preserve `release/trip-capture-deferral` (capture-deferral work). Do not delete it.
 
-- `create-trip-after-payment` (coverage before insert; stamp `scheduled_capture_coverage_required`)
-- `create-corporate-book` / `create-preauth-payment-intent` / `confirm-revolut-payment` / Revolut webhook + increment paths (persist deadline + observed_at)
-- `scheduled-dispatch` (`payment_gate_blocked` sweep + gates)
-- `validate-scheduled-booking`
-- Related cancel/dispose paths only if already queued in the same release train
+## Migrations (apply in order via guarded single-file apply)
 
-## Client surfaces (same release train)
+Use `scripts/build-guarded-migration-apply.py` per file — **never** blind `supabase db push` while remote-only history skew exists.
 
-- Corporate hub `BookRide`: card → `create-corporate-book` → Revolut confirm → `create-trip-after-payment` (no `pending_payment` trip insert)
-- Admin `ScheduledRides` Assign Now → `admin_assign_scheduled_driver`
-- Admin `ManualTrip`: platform card blocked in UI (existing digital gate + DB trigger)
-- Customer native: 5×24h schedule window (already landed)
+1. `20270201120000_scheduled_finance_phase1_capture_deadline.sql`
+2. `20270201120100_scheduled_finance_phase1_gap_closure.sql`
+3. `20270201120200_scheduled_finance_phase1_payment_first_atomicity.sql`
 
-## Compatibility latch
+## Dependency-aware cutover (no unpaid card trips)
 
-`global_dispatch_settings.scheduled_capture_coverage_enforced` remains a **legacy-only** latch. New bookings stamp `payment_sessions.metadata.scheduled_capture_coverage_required=true` and are always gated. Do not flip the latch in a way that creates unpaid trips.
+| Step | Action | Notes |
+|-----:|--------|-------|
+| 0 | Pause corporate **card** BookRide only if needed (invoice/wallet stay up) | Instant Customer card stays on CTAP |
+| 1 | Apply migration **120000** (additive columns + helpers + `max_advance_days=5`; latch default false) | Safe additive |
+| 2 | Deploy Edge: `create-trip-after-payment`, `create-corporate-book`, `confirm-revolut-payment`, `validate-scheduled-booking`, `scheduled-dispatch`, webhook/increment deadline persist | Clients must not call missing RPCs yet |
+| 3 | Apply **120100** (advance trigger, gated accept/activate) | |
+| 4 | Publish **hub** Phase1 BookRide (CTAP) to `co.onecab.net` | Before strict payment-first if avoiding card errors |
+| 5 | Publish **Admin** (`adminonecab.net` via GitHub Pages workflow on `main`) | Assign Now RPC after 120200 |
+| 6 | Apply **120200** (payment-first trigger + mod coverage + `admin_assign_scheduled_driver`) | Fail-closed backstop |
+| 7 | Customer OTA: channel `production`, runtimes `1.0.5(22)` iOS / `1.0.5(45)` Android | JS-only schedule picker — OTA-compatible |
+| 8 | Backfill capture deadlines (authoritative Revolut retrieve); dry-run normalise terminal `payment_gate_blocked` | No mass-cancel |
+| 9 | Flip `scheduled_capture_coverage_enforced=true` only after backfill verification | Legacy latch only |
 
-## Safe deploy sequence
+**Expected corporate card downtime:** ideally **0** if hub ships before 120200; worst case **~5–15 minutes** fail-closed if 120200 lands while old hub still serves `pending_payment` inserts. Invoice / Commission Wallet / instant Customer bookings remain operational. Do not interrupt active journeys.
 
-1. Confirm MK buffer settings unchanged (`enable_preauth_buffer=false`, `buffer_value=2`).
-2. Apply migration 120000 → verify `\d payment_sessions` has `capture_deadline*`.
-3. Apply migration 120100 → smoke `assert_payment_gate` on a known authorised scheduled card trip.
-4. Apply migration 120200 → verify triggers exist; smoke `admin_assign_scheduled_driver` on a non-prod/admin fixture.
-5. Deploy Edge Functions listed above.
-6. Deploy Admin + hub clients that call the new RPC / payment-first corporate path.
-7. Dry-run: corporate card book creates **no** `trips` row until CTAP; Admin Assign Now fails closed on insufficient coverage; reschedule beyond capture horizon is rejected with original pickup preserved.
+Pause/resume: feature-flag or temporary hub card CTA disable → publish hub → enable. No booking cancels.
 
-## Temporary unpaid-trip risk window
+## Publishing paths (verified)
 
-- **Before** migration 120200 payment-first trigger: legacy hub/Admin paths could still insert unpaid card rows if old clients are live.
-- **Mitigation:** ship DB trigger **before** or **with** hub/Admin client cutover; do not deploy hub card-rewrite alone against a DB that still allows `pending_payment` card inserts.
-- Existing `trg_enforce_digital_payment_gate` remains; 120200 strengthens platform-collected card INSERT.
+| Surface | Path | Evidence |
+|---------|------|----------|
+| Admin | GitHub Actions `Deploy Admin Panel` → GitHub Pages → **adminonecab.net** | `.github/workflows/deploy-github-pages.yml`; `gh api .../pages` cname |
+| Hub | Lovable Share → Publish → **co.onecab.net** | Hub README Lovable publish; `MAPBOX_REFERER` default `https://co.onecab.net/` |
+| Customer OTA | EAS Update project `059e7e87-…`, channel **production** | `eas.json` + `app.config.ts` runtimes |
+| Driver | Not required for Phase 1 | No Phase 1 Driver dependency identified |
 
-## Rollback (RPCs + triggers, not only Edge)
+## SQL rollback pack (reverse order)
 
-Rollbacks live under `supabase/migrations/rollback/`.
+| Script | Effect |
+|--------|--------|
+| `rollback_20270201120200_…atomicity.sql` | Drop mod-coverage trigger + `admin_assign_scheduled_driver`. **Keeps payment-first trigger.** |
+| `rollback_20270201120200_drop_payment_first_OPTIONAL.sql` | Drops payment-first — **DANGER** (unpaid inserts). Only after CTAP-only clients. |
+| `rollback_20270201120100_…gap_closure.sql` | Drop advance trigger; restore prod `accept_scheduled_ride` / `activate_paid_corporate_trip`; restore 120000 `assert_payment_gate`. |
+| `rollback_20270201120000_…capture_deadline.sql` | Restore pre-Phase1 `assert_payment_gate`; drop helpers; **keep** deadline columns; **keep** `max_advance_days=5`; force latch false. |
 
-### Immediate client / Edge rollback
+### Rollback sequencing with Edge/clients
 
-1. Redeploy previous Edge Function revisions for CTAP / corporate-book / scheduled-dispatch / confirm / webhook.
-2. Redeploy previous Admin + hub builds (Assign Now RPC call → prior write path; BookRide prior behaviour).
-3. Do **not** flip MK buffer settings as a rollback lever.
+1. Redeploy previous Edge revisions for CTAP / corporate-book / dispatch / confirm / webhook.
+2. Redeploy previous Admin + hub builds (or hub CTAP-safe build).
+3. Run SQL rollbacks **120200 → 120100 → 120000**.
+4. Do **not** run optional payment-first drop unless unpaid-insert risk is accepted and mitigated.
+5. Instant digital payment gate (`enforce_digital_payment_gate`) is never removed by these scripts.
 
-### Database rollback (reverse order)
+## Remote-only migration history
 
-1. Run `rollback_20270201120200_scheduled_finance_phase1_payment_first_atomicity.sql`:
-   - `DROP TRIGGER` payment-first + schedule-mod coverage
-   - `DROP FUNCTION` those triggers + `admin_assign_scheduled_driver`
-   - Keep `capture_deadline_observed_at` column (backward-compatible); drop only if required
-2. Roll back 120100 objects (advance trigger / accept/activate gate patches) via the paired rollback script if present; otherwise restore prior function bodies from the pre-release schema dump.
-3. Roll back 120000 only if necessary (columns are additive; prefer leaving `capture_deadline*` in place).
-
-### Latch / legacy bookings
-
-- Do **not** cancel valid grandfathered `>5d` bookings during rollback.
-- Do **not** set `scheduled_capture_coverage_enforced` in a way that mass-cancels legacy trips; resolution of `payment_gate_blocked` stays 30-minute sweep + definitive cancel/release only when coverage is definitively insufficient.
-
-## Post-release verification (when approved)
-
-- Channel matrix: Customer native, guest/web, corporate hub card, Admin wallet/corporate (not platform card), webhook finalisation — all platform card paths create trips only after AUTHORISED confirmation + CTAP.
-- Deadline shorten via fresher observation → immediate persist + coverage re-eval / `payment_gate_blocked` when definitive.
-- Schedule mod beyond horizon → exception; original `scheduled_at` unchanged.
-- Assign Now concurrent double-submit → single winner; payment failure → no assign write.
+Nine production versions have no local file (hotfix / ops applies). Do **not** repair history without approval. Phase 1 applies safely via **guarded per-file apply** of the three `20270201120*` files only — does not apply unrelated local migrations.

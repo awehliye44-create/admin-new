@@ -2,22 +2,28 @@ import { assertEquals } from "https://deno.land/std@0.168.0/testing/asserts.ts";
 import {
   assertGatewayExecutable,
   PAYMENT_GATEWAY_NOT_CONFIGURED,
+  PROVIDER_NOT_IMPLEMENTED,
   type GatewayConfiguredResult,
 } from "../../functions/_shared/paymentGatewayGuard.ts";
 
-const providerOk: GatewayConfiguredResult = {
+// Production executable adapter is Revolut-only (assertGatewayExecutable).
+// Baseline on origin/main: identical guard + previously outdated fixtures that
+// expected a stub provider "provider" to pass and paystack to return
+// PAYMENT_GATEWAY_NOT_CONFIGURED. Guard was never weakened — fixtures updated
+// to match the revolut-only executable contract.
+const revolutOk: GatewayConfiguredResult = {
   ok: true,
-  provider: "provider",
+  provider: "revolut",
   environment: "live",
-  display_name: "provider",
+  display_name: "Revolut",
   role: "customer",
 };
 
-Deno.test("assertGatewayExecutable allows provider", () => {
-  assertEquals(assertGatewayExecutable(providerOk), providerOk);
+Deno.test("assertGatewayExecutable allows revolut", () => {
+  assertEquals(assertGatewayExecutable(revolutOk), revolutOk);
 });
 
-Deno.test("assertGatewayExecutable blocks non-provider until live adapters exist", () => {
+Deno.test("assertGatewayExecutable blocks non-revolut providers as not implemented", () => {
   const paystack: GatewayConfiguredResult = {
     ok: true,
     provider: "paystack",
@@ -28,7 +34,7 @@ Deno.test("assertGatewayExecutable blocks non-provider until live adapters exist
   const result = assertGatewayExecutable(paystack);
   assertEquals(result.ok, false);
   if (!result.ok) {
-    assertEquals(result.code, PAYMENT_GATEWAY_NOT_CONFIGURED);
+    assertEquals(result.code, PROVIDER_NOT_IMPLEMENTED);
     assertEquals(result.provider, "paystack");
     assertEquals(result.role, "customer");
   }
