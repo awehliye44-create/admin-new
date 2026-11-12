@@ -1,9 +1,8 @@
 /**
  * Phase 3 — Admin emergency scheduled-ride actions (backend-gated).
- * Page access alone is insufficient — each action requires staff_has_action.
- * Make Available / Assign / Broadcast / Hold / Cancel — never client-mutate marketplace fields.
+ * Page + action RBAC here; state mutation + audit_logs via
+ * admin_scheduled_emergency_mutate (single DB transaction).
  */
-import { createClient } from "npm:@supabase/supabase-js@2.57.2";
 import {
   corsHeaders,
   requireAdminOrStaff,
@@ -12,18 +11,11 @@ import {
 import { requireStaffAction } from "../_shared/staffActionAuth.ts";
 import { permissionKeyForScheduledRideAction } from "../_shared/scheduledRidesActionPermissionsSSOT.ts";
 import { assertPaymentGate, PaymentGateError } from "../_shared/paymentGate.ts";
-import {
-  buildAssignNowPatch,
-  buildBroadcastNowPatch,
-  buildMakeAvailableScheduledJobsPatch,
-  buildPendingReleasePatch,
-  clearPendingReleasePatch,
-} from "../_shared/scheduledAdminReleaseSSOT.ts";
+import { buildBroadcastNowPatch } from "../_shared/scheduledAdminReleaseSSOT.ts";
 import { assertAirportPricingReady } from "../_shared/scheduledMarketplaceHoldSSOT.ts";
 import { notifyScheduledMarketplaceOpen } from "../_shared/scheduledMarketplaceNotifySSOT.ts";
 import { resolveScheduledDispatchConfig } from "../_shared/scheduledDispatchConfig.ts";
 import { maxBroadcastSequences } from "../_shared/dispatch-settings.ts";
-import { TERMINAL_TRIP_STATUS_POSTGREST_LIST } from "../_shared/tripTerminalDispatch.ts";
 import { disposeTerminalTripPayment } from "../_shared/terminalTripPaymentDisposition.ts";
 import { notifyCustomerTripLifecycle } from "../_shared/customerTripLifecycleNotify.ts";
 
@@ -46,73 +38,25 @@ const ACTIONS = new Set([
   "cancel_ride",
 ]);
 
-function snapshot(trip: Record<string, unknown>) {
-  return {
-    scheduled_status: trip.scheduled_status ?? null,
-    status: trip.status ?? null,
-    scheduled_broadcast_at: trip.scheduled_broadcast_at ?? null,
-    broadcast_enabled: trip.broadcast_enabled ?? null,
-    scheduled_hold_reason: trip.scheduled_hold_reason ?? null,
-    pending_release_kind: trip.pending_release_kind ?? null,
-    pending_release_at: trip.pending_release_at ?? null,
-    confirmed_driver_id: trip.confirmed_driver_id ?? null,
-    driver_id: trip.driver_id ?? null,
-    dispatch_mode: trip.dispatch_mode ?? null,
-  };
-}
-
-/**
- * Atomic audit: mutation success is not returned unless audit insert succeeds.
- * On audit failure, compensate by restoring previous marketplace snapshot when provided.
- */
-async function auditOrFail(
-  supabase: ReturnType<typeof createClient>,
-  input: {
-    adminUserId: string;
-    action: string;
-    tripId: string;
-    reason: string;
-    previous: Record<string, unknown>;
-    resulting: Record<string, unknown>;
-    compensate?: Record<string, unknown> | null;
-  },
-): Promise<{ ok: true } | { ok: false; error: string }> {
-  const { error } = await supabase.from("audit_logs").insert({
-    event_type: `ADMIN_SCHEDULED_${input.action.toUpperCase()}`,
-    user_id: input.adminUserId,
-    trip_id: input.tripId,
-    details: {
-      reason: input.reason,
-      previous: input.previous,
-      resulting: input.resulting,
-      at: new Date().toISOString(),
-      source: "admin-scheduled-ride-action",
-    },
-  });
-  if (!error) return { ok: true };
-
-  if (input.compensate) {
-    try {
-      await supabase
-        .from("trips")
-        .update({ ...input.compensate, updated_at: new Date().toISOString() })
-        .eq("id", input.tripId);
-    } catch (compErr) {
-      console.error("[admin-scheduled-ride-action] audit compensate failed", compErr);
-    }
-  }
-  return { ok: false, error: error.message || "audit_insert_failed" };
-}
+type EmergencyMutateResult = {
+  success?: boolean;
+  error?: string;
+  message?: string;
+  action?: string;
+  trip_id?: string;
+  previous?: Record<string, unknown>;
+  resulting?: Record<string, unknown>;
+  confirmed_driver_id?: string | null;
+  result?: unknown;
+};
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
   }
 
-  // Active staff profile required (inactive / suspended / unauthenticated denied).
   const adminGate = await requireAdminOrStaff(req);
   if (!adminGate.ok) return adminGate.response;
-  // Never accept bare service-role for emergency mutations — staff JWT + action only.
   if (adminGate.userId === "service-role") {
     return json({
       success: false,
@@ -150,134 +94,213 @@ Deno.serve(async (req) => {
       .maybeSingle();
     if (tripErr || !trip) return json({ success: false, error: "Trip not found" }, 404);
 
-    const previous = snapshot(trip);
     const now = new Date();
     const nowIso = now.toISOString();
     const adminUserId = String(gate.userId ?? "");
+    let patch: Record<string, unknown> = {};
+    const meta: Record<string, unknown> = {};
 
-    if (action === "hold_exceptional") {
-      const { data: rows, error } = await gate.supabase
-        .from("trips")
-        .update({
-          scheduled_status: "admin_held",
-          scheduled_broadcast_at: null,
-          scheduled_hold_reason: "admin_exceptional",
-          ...clearPendingReleasePatch(),
-          updated_at: nowIso,
-        })
-        .eq("id", tripId)
-        .is("driver_id", null)
-        .is("completed_at", null)
-        .not("status", "in", TERMINAL_TRIP_STATUS_POSTGREST_LIST)
-        .select("id, scheduled_status, scheduled_hold_reason, scheduled_broadcast_at, broadcast_enabled, pending_release_kind, pending_release_at, confirmed_driver_id, driver_id, dispatch_mode, status");
-      if (error) return json({ success: false, error: error.message }, 500);
-      if (!rows?.length) {
-        return json({ success: false, error: "Trip no longer eligible for exceptional hold" }, 409);
-      }
-      const audit = await auditOrFail(gate.supabase, {
-        adminUserId,
-        action,
-        tripId,
-        reason,
-        previous,
-        resulting: snapshot(rows[0]),
-        compensate: previous,
+    // Pre-RPC gates (read-only). Mutation+audit happen only inside the RPC txn.
+    if (action === "assign_now") {
+      const driverId = String(body.driver_id ?? body.driverId ?? "").trim();
+      if (!driverId) return json({ success: false, error: "driver_id required for assign_now" }, 400);
+      meta.driver_id = driverId;
+      const airport = assertAirportPricingReady({
+        broadcastEnabled: trip.broadcast_enabled,
+        airportChargePence: trip.airport_charge_pence,
+        scheduledHoldReason: trip.scheduled_hold_reason,
       });
-      if (!audit.ok) {
-        return json({ success: false, error: "AUDIT_REQUIRED", message: audit.error }, 500);
+      if (!airport.ok) {
+        return json({
+          success: false,
+          error: "AIRPORT_PRICING_UNRESOLVED",
+          message:
+            "Cannot assign while existing mandatory airport charge failed to persist (Custom Zones route pricing).",
+        }, 409);
       }
-      return json({ success: true, action, trip_id: tripId });
     }
 
-    if (action === "cancel_pending_release") {
-      const { data: rows, error } = await gate.supabase
-        .from("trips")
-        .update({ ...clearPendingReleasePatch(), updated_at: nowIso })
-        .eq("id", tripId)
-        .select("id, pending_release_kind, pending_release_at, scheduled_status, scheduled_hold_reason, scheduled_broadcast_at, broadcast_enabled, confirmed_driver_id, driver_id, dispatch_mode, status");
-      if (error) return json({ success: false, error: error.message }, 500);
-      const resulting = snapshot({ ...trip, ...(rows?.[0] ?? {}) });
-      const audit = await auditOrFail(gate.supabase, {
-        adminUserId,
-        action,
-        tripId,
-        reason,
-        previous,
-        resulting,
-        compensate: {
-          pending_release_kind: previous.pending_release_kind,
-          pending_release_at: previous.pending_release_at,
-        },
+    if (
+      action === "make_available_now" ||
+      action === "make_available_at" ||
+      action === "broadcast_now" ||
+      action === "broadcast_at" ||
+      action === "assign_at"
+    ) {
+      const airport = assertAirportPricingReady({
+        broadcastEnabled: trip.broadcast_enabled,
+        airportChargePence: trip.airport_charge_pence,
+        scheduledHoldReason: trip.scheduled_hold_reason,
       });
-      if (!audit.ok) {
-        return json({ success: false, error: "AUDIT_REQUIRED", message: audit.error }, 500);
+      if (!airport.ok) {
+        return json({
+          success: false,
+          error: "AIRPORT_PRICING_UNRESOLVED",
+          message:
+            "Cannot publish or broadcast while existing mandatory airport charge failed to persist (Custom Zones route pricing).",
+        }, 409);
       }
-      return json({ success: true, action, trip_id: tripId });
+      try {
+        await assertPaymentGate(gate.supabase, tripId);
+      } catch (gateErr) {
+        const detail = gateErr instanceof PaymentGateError
+          ? gateErr.message
+          : String((gateErr as Error)?.message ?? gateErr);
+        return json({
+          success: false,
+          error: "PAYMENT_GATE_NOT_SATISFIED",
+          message: detail,
+        }, 409);
+      }
+    }
+
+    if (action === "make_available_at" || action === "broadcast_at" || action === "assign_at") {
+      const atIso = String(body.execute_at ?? body.executeAt ?? "").trim();
+      const atMs = Date.parse(atIso);
+      if (!Number.isFinite(atMs) || atMs <= Date.now()) {
+        return json({ success: false, error: "execute_at must be in the future" }, 400);
+      }
+      meta.execute_at = new Date(atMs).toISOString();
+      if (action === "assign_at") {
+        const driverId = String(body.driver_id ?? "").trim();
+        if (!driverId) return json({ success: false, error: "driver_id required for assign_at" }, 400);
+        meta.driver_id = driverId;
+      }
+    }
+
+    if (action === "broadcast_now") {
+      const { data: globalCfg } = await gate.supabase
+        .from("global_dispatch_settings")
+        .select("max_driver_find_time_minutes, max_dispatch_rounds")
+        .eq("singleton", true)
+        .maybeSingle();
+      const cfg = resolveScheduledDispatchConfig(globalCfg ?? {});
+      const searchingExpiresAtIso = new Date(
+        now.getTime() + cfg.maxFindDriverMinutes * 60_000,
+      ).toISOString();
+      const { data: priorOffers } = await gate.supabase
+        .from("ride_offers")
+        .select("broadcast_round")
+        .eq("trip_id", tripId)
+        .order("broadcast_round", { ascending: false })
+        .limit(1);
+      const maxExisting = Number(priorOffers?.[0]?.broadcast_round ?? 0);
+      patch = buildBroadcastNowPatch({
+        nowIso,
+        searchingExpiresAtIso,
+        maxExistingBroadcastRound: Number.isFinite(maxExisting) ? maxExisting : 0,
+        maxBroadcastSequences: maxBroadcastSequences(
+          { max_dispatch_rounds: globalCfg?.max_dispatch_rounds },
+          null,
+        ),
+        currentBroadcastEnabled: trip.broadcast_enabled,
+      });
+      if (patch.broadcast_enabled === false) {
+        return json({
+          success: false,
+          error: "AIRPORT_PRICING_UNRESOLVED",
+          message: "Broadcast Now blocked by airport pricing hold.",
+        }, 409);
+      }
+    }
+
+    const { data: mutateRaw, error: mutateErr } = await gate.supabase.rpc(
+      "admin_scheduled_emergency_mutate",
+      {
+        p_action: action,
+        p_trip_id: tripId,
+        p_actor_user_id: adminUserId,
+        p_reason: reason,
+        p_patch: patch,
+        p_meta: meta,
+      },
+    );
+
+    if (mutateErr) {
+      // Postgres raised (including audit_logs failure) → transaction aborted; trip unchanged.
+      const msg = mutateErr.message || "emergency_mutate_failed";
+      if (/AUDIT|audit_logs/i.test(msg)) {
+        return json({ success: false, error: "AUDIT_REQUIRED", message: msg }, 500);
+      }
+      return json({ success: false, error: msg }, 500);
+    }
+
+    const result = (mutateRaw ?? {}) as EmergencyMutateResult;
+    if (result.success !== true) {
+      const status = result.error === "PAYMENT_GATE_NOT_SATISFIED" ||
+          result.error === "AIRPORT_PRICING_UNRESOLVED" ||
+          result.error === "TRIP_NO_LONGER_ELIGIBLE" ||
+          result.error === "CAS_MISMATCH" ||
+          result.error === "TRIP_ALREADY_COMPLETED" ||
+          result.error === "ACTION_PERMISSION_DENIED"
+        ? 409
+        : 400;
+      return json({
+        success: false,
+        error: result.error || "action_failed",
+        message: result.message,
+        result: result.result,
+      }, status);
+    }
+
+    // Post-commit side effects only (never part of the mutate+audit transaction).
+    if (action === "make_available_now") {
+      const { data: published } = await gate.supabase
+        .from("trips")
+        .select(
+          "id, service_area_id, pickup_address, scheduled_at, trip_code, trip_number, scheduled_status, scheduled_broadcast_at, confirmed_driver_id, driver_id, dispatch_mode, status",
+        )
+        .eq("id", tripId)
+        .maybeSingle();
+      if (published) void notifyScheduledMarketplaceOpen(gate.supabase, published);
+    }
+
+    if (action === "assign_now") {
+      try {
+        const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+        const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+        await fetch(`${supabaseUrl}/functions/v1/admin-trip-action`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${serviceKey}`,
+          },
+          body: JSON.stringify({
+            action: "notify_driver_assigned",
+            trip_id: tripId,
+            title: "Driver confirmed",
+            body: "Your driver is confirmed for your scheduled ride.",
+            notification_id: `driver_assigned-${tripId}-scheduled_admin`,
+            path: "/account/rides",
+          }),
+        });
+      } catch (notifyErr) {
+        console.warn("[admin-scheduled-ride-action] assign notify non-fatal", notifyErr);
+      }
+    }
+
+    if (action === "broadcast_now") {
+      const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+      const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+      try {
+        await fetch(`${supabaseUrl}/functions/v1/auto-dispatch`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${serviceKey}`,
+          },
+          body: JSON.stringify({
+            trip_id: tripId,
+            force_rebroadcast: true,
+            trigger_reason: "admin_broadcast_now",
+          }),
+        });
+      } catch (e) {
+        console.warn("[admin-scheduled-ride-action] auto-dispatch kick failed", e);
+      }
     }
 
     if (action === "cancel_ride") {
-      if (trip.status === "completed" || trip.completed_at) {
-        return json({ success: false, error: "TRIP_ALREADY_COMPLETED" }, 409);
-      }
-
-      const { data: cancelResult, error: cancelErr } = await gate.supabase.rpc(
-        "apply_terminal_trip_cancellation",
-        {
-          p_trip_id: tripId,
-          p_cancelled_by: "admin",
-          p_reason: reason,
-        },
-      );
-      if (cancelErr) {
-        const locked = /TERMINAL_STATE_LOCKED/.test(cancelErr.message ?? "");
-        return locked
-          ? json({ success: false, error: "COMPLETED_TRIP_NOT_CANCELLABLE" }, 409)
-          : json({ success: false, error: cancelErr.message }, 500);
-      }
-      if (
-        cancelResult &&
-        typeof cancelResult === "object" &&
-        (cancelResult as { success?: boolean }).success === false
-      ) {
-        return json({
-          success: false,
-          error: (cancelResult as { error?: string }).error || "CANCEL_FAILED",
-        }, 409);
-      }
-
-      // Scheduled board consistency (service-role; not via admin_page_mutate).
-      await gate.supabase
-        .from("trips")
-        .update({
-          scheduled_status: "cancelled",
-          confirmed_driver_id: null,
-          ...clearPendingReleasePatch(),
-          updated_at: nowIso,
-        })
-        .eq("id", tripId);
-
-      const resulting = snapshot({
-        ...trip,
-        status: "cancelled",
-        scheduled_status: "cancelled",
-        confirmed_driver_id: null,
-        pending_release_kind: null,
-        pending_release_at: null,
-      });
-      const audit = await auditOrFail(gate.supabase, {
-        adminUserId,
-        action,
-        tripId,
-        reason,
-        previous,
-        resulting,
-        // Terminal cancel is not safely compensatable — refuse success without audit.
-        compensate: null,
-      });
-      if (!audit.ok) {
-        return json({ success: false, error: "AUDIT_REQUIRED", message: audit.error }, 500);
-      }
-
       try {
         await disposeTerminalTripPayment(gate.supabase, {
           tripId,
@@ -302,291 +325,16 @@ Deno.serve(async (req) => {
       } catch (notifyErr) {
         console.warn("[admin-scheduled-ride-action] cancel notify non-fatal", notifyErr);
       }
-      return json({ success: true, action, trip_id: tripId });
     }
 
-    if (action === "assign_now") {
-      const driverId = String(body.driver_id ?? body.driverId ?? "").trim();
-      if (!driverId) return json({ success: false, error: "driver_id required for assign_now" }, 400);
-
-      const airport = assertAirportPricingReady({
-        broadcastEnabled: trip.broadcast_enabled,
-        airportChargePence: trip.airport_charge_pence,
-        scheduledHoldReason: trip.scheduled_hold_reason,
-      });
-      if (!airport.ok) {
-        return json({
-          success: false,
-          error: "AIRPORT_PRICING_UNRESOLVED",
-          message:
-            "Cannot assign while existing mandatory airport charge failed to persist (Custom Zones route pricing).",
-        }, 409);
-      }
-
-      const { data: assignResult, error: assignErr } = await gate.supabase.rpc(
-        "admin_assign_scheduled_driver",
-        { p_trip_id: tripId, p_driver_id: driverId },
-      );
-      if (assignErr) return json({ success: false, error: assignErr.message }, 500);
-      const assignBody = (assignResult ?? {}) as {
-        success?: boolean;
-        error?: string;
-        message?: string;
-        confirmed_driver_id?: string;
-      };
-      if (assignBody.success !== true) {
-        return json({
-          success: false,
-          error: assignBody.error || "ASSIGN_FAILED",
-          message: assignBody.message,
-        }, 409);
-      }
-
-      const { data: after } = await gate.supabase
-        .from("trips")
-        .select("*")
-        .eq("id", tripId)
-        .maybeSingle();
-      const resulting = snapshot(after ?? {
-        ...trip,
-        confirmed_driver_id: driverId,
-        scheduled_status: "driver_assigned",
-        ...buildAssignNowPatch({ driverId, nowIso }),
-      });
-      const audit = await auditOrFail(gate.supabase, {
-        adminUserId,
-        action,
-        tripId,
-        reason,
-        previous,
-        resulting,
-        compensate: previous,
-      });
-      if (!audit.ok) {
-        return json({ success: false, error: "AUDIT_REQUIRED", message: audit.error }, 500);
-      }
-
-      try {
-        const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-        const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-        await fetch(`${supabaseUrl}/functions/v1/admin-trip-action`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${serviceKey}`,
-          },
-          body: JSON.stringify({
-            action: "notify_driver_assigned",
-            trip_id: tripId,
-            title: "Driver confirmed",
-            body: "Your driver is confirmed for your scheduled ride.",
-            notification_id: `driver_assigned-${tripId}-scheduled_admin`,
-            path: "/account/rides",
-          }),
-        });
-      } catch (notifyErr) {
-        console.warn("[admin-scheduled-ride-action] assign notify non-fatal", notifyErr);
-      }
-      return json({ success: true, action, trip_id: tripId, confirmed_driver_id: driverId });
-    }
-
-    // Publication / broadcast: defensive gate only — reuses existing Custom Zones
-    // route-pricing persist latch (not a new airport pricing system).
-    const airport = assertAirportPricingReady({
-      broadcastEnabled: trip.broadcast_enabled,
-      airportChargePence: trip.airport_charge_pence,
-      scheduledHoldReason: trip.scheduled_hold_reason,
+    return json({
+      success: true,
+      action,
+      trip_id: tripId,
+      confirmed_driver_id: result.confirmed_driver_id ?? null,
+      previous: result.previous ?? null,
+      resulting: result.resulting ?? null,
     });
-    if (!airport.ok) {
-      return json({
-        success: false,
-        error: "AIRPORT_PRICING_UNRESOLVED",
-        message:
-          "Cannot publish or broadcast while existing mandatory airport charge failed to persist (Custom Zones route pricing).",
-      }, 409);
-    }
-
-    try {
-      await assertPaymentGate(gate.supabase, tripId);
-    } catch (gateErr) {
-      const detail = gateErr instanceof PaymentGateError
-        ? gateErr.message
-        : String((gateErr as Error)?.message ?? gateErr);
-      return json({
-        success: false,
-        error: "PAYMENT_GATE_NOT_SATISFIED",
-        message: detail,
-      }, 409);
-    }
-
-    if (action === "make_available_now") {
-      const { data: rows, error } = await gate.supabase
-        .from("trips")
-        .update({
-          ...buildMakeAvailableScheduledJobsPatch({ nowIso }),
-          scheduled_hold_reason: null,
-        })
-        .eq("id", tripId)
-        .is("driver_id", null)
-        .is("confirmed_driver_id", null)
-        .is("completed_at", null)
-        .in("scheduled_status", ["admin_held", "scheduled", "pending"])
-        .not("status", "in", TERMINAL_TRIP_STATUS_POSTGREST_LIST)
-        .select("*");
-      if (error) return json({ success: false, error: error.message }, 500);
-      if (!rows?.length) {
-        return json({ success: false, error: "Trip no longer eligible for Make Available" }, 409);
-      }
-      const audit = await auditOrFail(gate.supabase, {
-        adminUserId,
-        action,
-        tripId,
-        reason,
-        previous,
-        resulting: snapshot(rows[0]),
-        compensate: previous,
-      });
-      if (!audit.ok) {
-        return json({ success: false, error: "AUDIT_REQUIRED", message: audit.error }, 500);
-      }
-      void notifyScheduledMarketplaceOpen(gate.supabase, rows[0]);
-      return json({ success: true, action, trip_id: tripId });
-    }
-
-    if (action === "make_available_at" || action === "broadcast_at" || action === "assign_at") {
-      const atIso = String(body.execute_at ?? body.executeAt ?? "").trim();
-      const atMs = Date.parse(atIso);
-      if (!Number.isFinite(atMs) || atMs <= Date.now()) {
-        return json({ success: false, error: "execute_at must be in the future" }, 400);
-      }
-      const kind = action === "make_available_at"
-        ? "jobs"
-        : action === "broadcast_at"
-        ? "broadcast"
-        : "assign";
-      const driverId = kind === "assign" ? String(body.driver_id ?? "").trim() : null;
-      if (kind === "assign" && !driverId) {
-        return json({ success: false, error: "driver_id required for assign_at" }, 400);
-      }
-      const { data: rows, error } = await gate.supabase
-        .from("trips")
-        .update({
-          ...buildPendingReleasePatch({
-            kind,
-            executeAtIso: new Date(atMs).toISOString(),
-            driverId,
-          }),
-          updated_at: nowIso,
-        })
-        .eq("id", tripId)
-        .is("driver_id", null)
-        .is("completed_at", null)
-        .not("status", "in", TERMINAL_TRIP_STATUS_POSTGREST_LIST)
-        .select("*");
-      if (error) return json({ success: false, error: error.message }, 500);
-      if (!rows?.length) {
-        return json({ success: false, error: "Trip no longer eligible for pending release" }, 409);
-      }
-      const audit = await auditOrFail(gate.supabase, {
-        adminUserId,
-        action,
-        tripId,
-        reason,
-        previous,
-        resulting: snapshot(rows[0]),
-        compensate: {
-          pending_release_kind: previous.pending_release_kind,
-          pending_release_at: previous.pending_release_at,
-          pending_release_driver_id: trip.pending_release_driver_id ?? null,
-        },
-      });
-      if (!audit.ok) {
-        return json({ success: false, error: "AUDIT_REQUIRED", message: audit.error }, 500);
-      }
-      return json({ success: true, action, trip_id: tripId });
-    }
-
-    if (action === "broadcast_now") {
-      const { data: globalCfg } = await gate.supabase
-        .from("global_dispatch_settings")
-        .select("max_driver_find_time_minutes, max_dispatch_rounds")
-        .eq("singleton", true)
-        .maybeSingle();
-      const cfg = resolveScheduledDispatchConfig(globalCfg ?? {});
-      const searchingExpiresAtIso = new Date(
-        now.getTime() + cfg.maxFindDriverMinutes * 60_000,
-      ).toISOString();
-      const { data: priorOffers } = await gate.supabase
-        .from("ride_offers")
-        .select("broadcast_round")
-        .eq("trip_id", tripId)
-        .order("broadcast_round", { ascending: false })
-        .limit(1);
-      const maxExisting = Number(priorOffers?.[0]?.broadcast_round ?? 0);
-      const patch = buildBroadcastNowPatch({
-        nowIso,
-        searchingExpiresAtIso,
-        maxExistingBroadcastRound: Number.isFinite(maxExisting) ? maxExisting : 0,
-        maxBroadcastSequences: maxBroadcastSequences(
-          { max_dispatch_rounds: globalCfg?.max_dispatch_rounds },
-          null,
-        ),
-        currentBroadcastEnabled: trip.broadcast_enabled,
-      });
-      if (patch.broadcast_enabled === false) {
-        return json({
-          success: false,
-          error: "AIRPORT_PRICING_UNRESOLVED",
-          message: "Broadcast Now blocked by airport pricing hold.",
-        }, 409);
-      }
-      const { data: rows, error } = await gate.supabase
-        .from("trips")
-        .update({ ...patch, scheduled_hold_reason: null })
-        .eq("id", tripId)
-        .is("driver_id", null)
-        .is("completed_at", null)
-        .in("scheduled_status", ["admin_held", "scheduled", "pending", "driver_assigned"])
-        .not("status", "in", TERMINAL_TRIP_STATUS_POSTGREST_LIST)
-        .select("*");
-      if (error) return json({ success: false, error: error.message }, 500);
-      if (!rows?.length) {
-        return json({ success: false, error: "Trip no longer eligible for Broadcast Now" }, 409);
-      }
-      const audit = await auditOrFail(gate.supabase, {
-        adminUserId,
-        action,
-        tripId,
-        reason,
-        previous,
-        resulting: snapshot(rows[0]),
-        compensate: previous,
-      });
-      if (!audit.ok) {
-        return json({ success: false, error: "AUDIT_REQUIRED", message: audit.error }, 500);
-      }
-      const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-      const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-      try {
-        await fetch(`${supabaseUrl}/functions/v1/auto-dispatch`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${serviceKey}`,
-          },
-          body: JSON.stringify({
-            trip_id: tripId,
-            force_rebroadcast: true,
-            trigger_reason: "admin_broadcast_now",
-          }),
-        });
-      } catch (e) {
-        console.warn("[admin-scheduled-ride-action] auto-dispatch kick failed", e);
-      }
-      return json({ success: true, action, trip_id: tripId });
-    }
-
-    return json({ success: false, error: "unhandled action" }, 400);
   } catch (e) {
     console.error("[admin-scheduled-ride-action]", e);
     return json({ success: false, error: String((e as Error)?.message ?? e) }, 500);

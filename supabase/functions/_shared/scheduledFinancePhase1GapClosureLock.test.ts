@@ -40,7 +40,8 @@ Deno.test("scheduled-dispatch sweeps payment_gate_blocked and gates assign/broad
 });
 
 Deno.test("Admin Assign Now uses atomic admin_assign_scheduled_driver RPC", async () => {
-  // Phase 3 final: UI routes Assign Now via Edge; Edge/RPC still call the atomic RPC.
+  // Phase 3: UI → Edge → admin_scheduled_emergency_mutate (assign_now + audit one txn).
+  // Payment-first assign RPC remains for direct/JWT callers; emergency path is atomic mutate.
   const src = await Deno.readTextFile(join(REPO, "src/pages/ScheduledRides.tsx"));
   assert(src.includes("assign_now") || src.includes("admin_assign_scheduled_driver"));
   assert(src.includes("Cannot assign — payment authorisation"));
@@ -48,7 +49,8 @@ Deno.test("Admin Assign Now uses atomic admin_assign_scheduled_driver RPC", asyn
   const edge = await Deno.readTextFile(
     join(REPO, "supabase/functions/admin-scheduled-ride-action/index.ts"),
   );
-  assert(edge.includes("admin_assign_scheduled_driver"));
+  assert(edge.includes("admin_scheduled_emergency_mutate"));
+  assert(edge.includes("assign_now"));
   const sql = await Deno.readTextFile(
     join(REPO, "supabase/migrations/20270201120200_scheduled_finance_phase1_payment_first_atomicity.sql"),
   );
@@ -56,4 +58,10 @@ Deno.test("Admin Assign Now uses atomic admin_assign_scheduled_driver RPC", asyn
   assert(sql.includes("assert_payment_gate"));
   assert(sql.includes("trips_enforce_payment_first_platform_card"));
   assert(sql.includes("trips_enforce_scheduled_modification_coverage"));
+  const atomic = await Deno.readTextFile(
+    join(REPO, "supabase/migrations/20270213140000_scheduled_marketplace_emergency_mutate_atomic.sql"),
+  );
+  assert(atomic.includes("assign_now"));
+  assert(atomic.includes("assert_payment_gate"));
+  assert(atomic.includes("INSERT INTO public.audit_logs"));
 });

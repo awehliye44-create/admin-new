@@ -47,10 +47,12 @@ Migration `20270213130000_scheduled_marketplace_final_security.sql`:
 ## 3. Emergency actions + audit atomicity
 
 - Every Edge action requires operational reason (≥3 chars)
-- Airport + `assertPaymentGate` on publish/broadcast/assign paths
-- `auditOrFail`: mutation success is not returned if `audit_logs` insert fails
-- Assign Now: Edge → RPC (payment gate + CAS) → audit
-- Cancel Ride: Edge → `apply_terminal_trip_cancellation` → scheduled board cleanup → audit
+- Airport + `assertPaymentGate` on publish/broadcast/assign paths (pre-RPC gates)
+- **Single DB transaction:** `admin_scheduled_emergency_mutate` applies the trip
+  mutation and `audit_logs` insert together. Audit failure aborts the function →
+  trip state is unchanged (no compensate-after-commit).
+- Migration: `20270213140000_scheduled_marketplace_emergency_mutate_atomic.sql`
+- Covers: Make Available, Assign, Broadcast, Hold, Cancel Pending, Cancel Ride
 
 ## 4. Non-card financial eligibility (verified, unchanged policy)
 

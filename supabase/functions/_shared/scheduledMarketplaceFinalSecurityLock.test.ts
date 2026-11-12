@@ -62,13 +62,21 @@ Deno.test("admin-scheduled-ride-action enforces action RBAC + audit atomicity + 
   assertStringIncludes(src, "permissionKeyForScheduledRideAction");
   assertStringIncludes(src, "requireAdminOrStaff");
   assertStringIncludes(src, "STAFF_JWT_REQUIRED");
-  assertStringIncludes(src, "AUDIT_REQUIRED");
-  assertStringIncludes(src, "auditOrFail");
+  assertStringIncludes(src, "admin_scheduled_emergency_mutate");
   assertStringIncludes(src, "assign_now");
   assertStringIncludes(src, "cancel_ride");
-  assertStringIncludes(src, "apply_terminal_trip_cancellation");
-  // Must not swallow audit failures.
-  assert(!/console\.warn\(\s*"\[admin-scheduled-ride-action\] audit insert failed"/.test(src));
+  // Mutation+audit must be one DB transaction — no compensate-after-commit.
+  assert(!src.includes("auditOrFail"));
+  assert(!src.includes("compensate"));
+  const sql = await Deno.readTextFile(
+    new URL(
+      "supabase/migrations/20270213140000_scheduled_marketplace_emergency_mutate_atomic.sql",
+      root,
+    ),
+  );
+  assertStringIncludes(sql, "INSERT INTO public.audit_logs");
+  assertStringIncludes(sql, "admin_scheduled_emergency_mutate");
+  assertStringIncludes(sql, "one transaction");
 });
 
 Deno.test("ScheduledRides routes Assign Now and Cancel Ride through Edge", async () => {

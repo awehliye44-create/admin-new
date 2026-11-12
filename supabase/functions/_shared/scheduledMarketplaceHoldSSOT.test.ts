@@ -225,7 +225,7 @@ Deno.test("admin-scheduled-ride-action Edge gates airport persist latch + reason
   assertStringIncludes(src, "assertAirportPricingReady");
   assertStringIncludes(src, "assertPaymentGate");
   assertStringIncludes(src, "reason required");
-  assertStringIncludes(src, "audit_logs");
+  assertStringIncludes(src, "admin_scheduled_emergency_mutate");
   assertStringIncludes(src, "AIRPORT_PRICING_UNRESOLVED");
   assertStringIncludes(src, "Custom Zones route pricing");
 });
