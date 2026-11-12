@@ -89,3 +89,23 @@ Deno.test("Gap C: instant wallet gate is unchanged", async () => {
   assertStringIncludes(src, '"driver_passes_commission_wallet_dispatch_gate"');
   assertStringIncludes(src, 'reason: "wallet_ineligible"');
 });
+
+Deno.test("Admin assign_now SQL + deferred assign_at execution share commitment lock", async () => {
+  const sql = await read(
+    "supabase/migrations/20270218120100_admin_assign_commitment_wallet_atomic.sql",
+  );
+  assertStringIncludes(sql, "admin_scheduled_emergency_mutate");
+  assertStringIncludes(sql, "driver_scheduled_commitment_gate(v_driver, p_trip_id");
+  assertStringIncludes(sql, "driver_passes_commission_wallet_dispatch_gate(v_driver, p_trip_id)");
+  assertStringIncludes(sql, "pg_advisory_xact_lock(hashtext('driver_sched_accept:' || v_driver::text))");
+  assertStringIncludes(sql, "execute_due_pending_scheduled_assign");
+  assertStringIncludes(sql, "pending_cleared");
+
+  const dispatch = await read("supabase/functions/scheduled-dispatch/index.ts");
+  assertStringIncludes(dispatch, 'execute_due_pending_scheduled_assign');
+  // No direct Assign At trips.update bypass after payment gate.
+  assert(
+    !/buildAssignNowPatch\(\{\s*driverId,\s*nowIso/.test(dispatch),
+    "deferred assign must not use buildAssignNowPatch direct update",
+  );
+});

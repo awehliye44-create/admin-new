@@ -290,7 +290,9 @@ Deno.serve(async (req) => {
           result.error === "TRIP_NO_LONGER_ELIGIBLE" ||
           result.error === "CAS_MISMATCH" ||
           result.error === "TRIP_ALREADY_COMPLETED" ||
-          result.error === "ACTION_PERMISSION_DENIED"
+          result.error === "ACTION_PERMISSION_DENIED" ||
+          result.error === "SCHEDULED_COMMITMENT_INFEASIBLE" ||
+          result.error === "INSUFFICIENT_COMMISSION_WALLET_BALANCE"
         ? 409
         : 400;
       return json({

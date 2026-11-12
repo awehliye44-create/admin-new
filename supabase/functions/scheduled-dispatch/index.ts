@@ -29,7 +29,6 @@ import {
 } from "../_shared/runConfirmedJitActivationPass.ts";
 import { SCHEDULED_JIT_ACTIVATION_DEFAULTS } from "../_shared/scheduledJitActivationSSOT.ts";
 import {
-  buildAssignNowPatch,
   buildBroadcastNowPatch,
   buildMakeAvailableScheduledJobsPatch,
   isPendingReleaseDue,
@@ -558,75 +557,62 @@ Deno.serve(async (req) => {
                 .eq("id", trip.id);
               continue;
             }
-            // MK-261105-002: never assign unpaid / lost-auth scheduled rides.
-            try {
-              await assertPaymentGate(supabase, trip.id);
-            } catch (gateErr) {
-              const detail = gateErr instanceof PaymentGateError
-                ? gateErr.message
-                : String((gateErr as Error)?.message ?? gateErr);
-              console.warn("[scheduled-dispatch] pending assign payment gate blocked", {
-                trip_id: trip.id,
-                detail,
-              });
-              await supabase
-                .from("trips")
-                .update({
-                  scheduled_status: "payment_gate_blocked",
-                  pending_release_kind: null,
-                  pending_release_at: null,
-                  pending_release_driver_id: null,
-                  updated_at: now.toISOString(),
-                })
-                .eq("id", trip.id);
-              try {
-                await resolvePaymentGateBlockedTrip(supabase, trip.id);
-              } catch (resolveErr) {
-                console.warn("[scheduled-dispatch] payment_gate_blocked resolve failed", {
-                  trip_id: trip.id,
-                  error: String(resolveErr),
-                });
-              }
-              continue;
-            }
-            const { data: assignRows, error } = await supabase
-              .from("trips")
-              .update(buildAssignNowPatch({ driverId, nowIso: now.toISOString() }))
-              .eq("id", trip.id)
-              .is("completed_at", null)
-              .not("status", "in", TERMINAL_TRIP_STATUS_POSTGREST_LIST)
-              .eq("pending_release_kind", "assign")
-              .in("scheduled_status", [
-                "admin_held",
-                "scheduled",
-                "broadcasting",
-                "pending",
-                "driver_assigned",
-              ])
-              .is("driver_id", null)
-              .select("id");
+            // Deferred assign_at execution: SQL revalidates payment + commitment +
+            // commission wallet under the same driver_sched_accept advisory lock as
+            // marketplace accept / Admin assign_now (no direct trips UPDATE bypass).
+            const { data: assignRaw, error } = await supabase.rpc(
+              "execute_due_pending_scheduled_assign",
+              { p_trip_id: trip.id },
+            );
             if (error) {
-              console.error("[scheduled-dispatch] pending assign failed:", trip.id, error);
+              console.error("[scheduled-dispatch] pending assign RPC failed:", trip.id, error);
               continue;
             }
-            if (!assignRows?.length) {
-              // CAS matched 0 — clear stale pending so cron does not spin.
-              await supabase
-                .from("trips")
-                .update({
-                  pending_release_kind: null,
-                  pending_release_at: null,
-                  pending_release_driver_id: null,
-                })
-                .eq("id", trip.id)
-                .eq("pending_release_kind", "assign");
+            const assignResult = (assignRaw ?? {}) as {
+              success?: boolean;
+              error?: string;
+              message?: string;
+              pending_cleared?: boolean;
+              confirmed_driver_id?: string;
+            };
+            if (assignResult.success !== true) {
+              const errCode = String(assignResult.error ?? "");
+              console.warn("[scheduled-dispatch] pending assign blocked", {
+                trip_id: trip.id,
+                error: errCode,
+                detail: assignResult.message ?? null,
+              });
+              if (errCode === "PAYMENT_GATE_NOT_SATISFIED") {
+                await supabase
+                  .from("trips")
+                  .update({
+                    scheduled_status: "payment_gate_blocked",
+                    pending_release_kind: null,
+                    pending_release_at: null,
+                    pending_release_driver_id: null,
+                    updated_at: now.toISOString(),
+                  })
+                  .eq("id", trip.id);
+                try {
+                  await resolvePaymentGateBlockedTrip(supabase, trip.id);
+                } catch (resolveErr) {
+                  console.warn("[scheduled-dispatch] payment_gate_blocked resolve failed", {
+                    trip_id: trip.id,
+                    error: String(resolveErr),
+                  });
+                }
+              }
+              // Commitment / wallet / CAS: pending cleared inside RPC; booking recoverable.
               continue;
             }
             pendingReleasesExecuted++;
             await logSnapshot(supabase, {
               tripId: trip.id,
               action: "admin_pending_assign_executed",
-              metadata: { driver_id: driverId },
+              metadata: {
+                driver_id: driverId,
+                confirmed_driver_id: assignResult.confirmed_driver_id ?? driverId,
+              },
             });
             // Same deep-link as Admin Assign Now — preconfirm stays list-only.
             const passengerId =
