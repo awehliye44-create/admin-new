@@ -5,11 +5,20 @@ DECLARE
   v_fn text;
   v_trip_id uuid;
   v_session uuid := 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
-  v_customer uuid := 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb';
-  v_sa uuid := 'cccccccc-cccc-cccc-cccc-cccccccccccc';
+  v_customer uuid;
+  v_user uuid;
+  v_sa uuid;
   v_row public.trips%ROWTYPE;
   v_err text;
 BEGIN
+  SELECT id INTO v_sa FROM public.service_areas WHERE trip_id_prefix IS NOT NULL LIMIT 1;
+  IF v_sa IS NULL THEN
+    RAISE EXCEPTION 'no service_area with trip_id_prefix for fixture';
+  END IF;
+  SELECT id, user_id INTO v_customer, v_user FROM public.customers WHERE user_id IS NOT NULL LIMIT 1;
+  IF v_customer IS NULL OR v_user IS NULL THEN
+    RAISE EXCEPTION 'no customer with user_id for fixture';
+  END IF;
   -- 1) Lifecycle function replaced with publication_pending INSERT path.
   SELECT pg_get_functiondef('public.enforce_scheduled_trip_lifecycle()'::regprocedure)
     INTO v_fn;
@@ -43,12 +52,22 @@ BEGIN
   END IF;
 
   -- 4) INSERT trigger: routine create → held + null broadcast + publication_pending.
+  INSERT INTO public.payment_sessions (
+    id, customer_id, user_id, client_action_id, idempotency_key, status, provider_state,
+    authorised_amount_pence, service_area_id, payment_method, currency
+  ) VALUES (
+    'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaa1', v_customer, v_user, 'verify-caa-1', 'verify-idemp-1',
+    'authorised_hold', 'AUTHORISED', 800, v_sa, 'APPLE_PAY', 'gbp'
+  ) ON CONFLICT (id) DO NOTHING;
   INSERT INTO public.trips (
     passenger_id, status, is_scheduled, scheduled_at, trip_type,
-    booking_source, dispatch_mode
+    booking_source, dispatch_mode, payment_method, service_area_id, payment_session_id,
+    pickup_address, pickup_latitude, pickup_longitude,
+    dropoff_address, dropoff_latitude, dropoff_longitude
   ) VALUES (
     v_customer, 'searching', true, now() + interval '2 hours', 'scheduled',
-    'choose_ride', 'scheduled'
+    'choose_ride', 'scheduled', 'APPLE_PAY', v_sa, 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaa1',
+    'Pickup A', 52.04, -0.76, 'Dropoff B', 52.05, -0.75
   ) RETURNING * INTO v_row;
 
   IF v_row.scheduled_status IS DISTINCT FROM 'admin_held' THEN
@@ -63,14 +82,26 @@ BEGIN
   IF v_row.scheduled_convert_at IS NULL THEN
     RAISE EXCEPTION 'lifecycle INSERT convert_at missing';
   END IF;
+  -- Clear fixture trip so overlap trigger does not block the next case.
+  DELETE FROM public.trips WHERE id = v_row.id;
 
   -- 5) Exceptional hold preserved (payment_gate).
+  INSERT INTO public.payment_sessions (
+    id, customer_id, user_id, client_action_id, idempotency_key, status, provider_state,
+    authorised_amount_pence, service_area_id, payment_method, currency
+  ) VALUES (
+    'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaa2', v_customer, v_user, 'verify-caa-2', 'verify-idemp-2',
+    'authorised_hold', 'AUTHORISED', 800, v_sa, 'APPLE_PAY', 'gbp'
+  ) ON CONFLICT (id) DO NOTHING;
   INSERT INTO public.trips (
     passenger_id, status, is_scheduled, scheduled_at, trip_type,
-    booking_source, scheduled_hold_reason
+    booking_source, scheduled_hold_reason, payment_method, service_area_id, payment_session_id,
+    pickup_address, pickup_latitude, pickup_longitude,
+    dropoff_address, dropoff_latitude, dropoff_longitude
   ) VALUES (
-    v_customer, 'scheduled', true, now() + interval '3 hours', 'scheduled',
-    'choose_ride', 'payment_gate'
+    v_customer, 'scheduled', true, now() + interval '48 hours', 'scheduled',
+    'choose_ride', 'payment_gate', 'APPLE_PAY', v_sa, 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaa2',
+    'Pickup A', 52.04, -0.76, 'Dropoff B', 52.05, -0.75
   ) RETURNING * INTO v_row;
   IF v_row.scheduled_hold_reason IS DISTINCT FROM 'payment_gate' THEN
     RAISE EXCEPTION 'payment_gate hold not preserved: %', v_row.scheduled_hold_reason;
@@ -81,11 +112,11 @@ BEGIN
 
   -- 6) Finalize refuses missing capture_deadline (never invent).
   INSERT INTO public.payment_sessions (
-    id, customer_id, status, provider_state, authorised_amount_pence,
-    service_area_id, payment_method, booking_snapshot, capture_deadline
+    id, customer_id, user_id, client_action_id, idempotency_key, status, provider_state,
+    authorised_amount_pence, service_area_id, payment_method, booking_snapshot, capture_deadline
   ) VALUES (
-    v_session, v_customer, 'authorised_hold', 'AUTHORISED', 800,
-    v_sa, 'APPLE_PAY',
+    v_session, v_customer, v_user, 'verify-finalize-1', 'verify-finalize-idemp-1',
+    'authorised_hold', 'AUTHORISED', 800, v_sa, 'APPLE_PAY',
     jsonb_build_object(
       'when', 'scheduled',
       'is_scheduled', true,

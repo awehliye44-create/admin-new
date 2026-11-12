@@ -22,6 +22,7 @@ import {
   isTripTerminalForDispatch,
   TERMINAL_TRIP_STATUS_POSTGREST_LIST,
 } from "./tripTerminalDispatch.ts";
+import { broadcastScheduledMarketplaceChanged } from "./scheduledMarketplaceRealtimeBroadcastSSOT.ts";
 
 export type ScheduleDispatchSweepDeps = {
   supabase: SupabaseClient;
@@ -282,6 +283,19 @@ export async function runScheduleDispatchConversionSweep(
         .in("status", ["pending", "offered", "countered"]);
 
       convertedToInstant++;
+      // Drop from Scheduled Jobs lists before/without nearby NRO fan-out.
+      try {
+        await broadcastScheduledMarketplaceChanged(deps.supabase, {
+          tripId: String(trip.id),
+          serviceAreaId: trip.service_area_id ?? null,
+          reason: "converted",
+        });
+      } catch (broadcastErr) {
+        console.warn(
+          "[schedule-dispatch] convert marketplace broadcast non-fatal",
+          broadcastErr instanceof Error ? broadcastErr.message : String(broadcastErr),
+        );
+      }
       if (!allowBroadcast) {
         results.push({
           trip_id: trip.id,

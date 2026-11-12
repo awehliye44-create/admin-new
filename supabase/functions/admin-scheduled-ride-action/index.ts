@@ -14,6 +14,7 @@ import { assertPaymentGate, PaymentGateError } from "../_shared/paymentGate.ts";
 import { buildBroadcastNowPatch } from "../_shared/scheduledAdminReleaseSSOT.ts";
 import { assertAirportPricingReady } from "../_shared/scheduledMarketplaceHoldSSOT.ts";
 import { notifyScheduledMarketplaceOpen } from "../_shared/scheduledMarketplaceNotifySSOT.ts";
+import { broadcastScheduledMarketplaceChanged } from "../_shared/scheduledMarketplaceRealtimeBroadcastSSOT.ts";
 import { resolveScheduledDispatchConfig } from "../_shared/scheduledDispatchConfig.ts";
 import { maxBroadcastSequences } from "../_shared/dispatch-settings.ts";
 import { disposeTerminalTripPayment } from "../_shared/terminalTripPaymentDisposition.ts";
@@ -336,6 +337,19 @@ Deno.serve(async (req) => {
 
     if (action === "assign_now") {
       try {
+        await broadcastScheduledMarketplaceChanged(gate.supabase, {
+          tripId,
+          serviceAreaId:
+            typeof trip.service_area_id === "string" ? trip.service_area_id : null,
+          reason: "accepted",
+        });
+      } catch (broadcastErr) {
+        console.warn(
+          "[admin-scheduled-ride-action] assign marketplace broadcast non-fatal",
+          broadcastErr,
+        );
+      }
+      try {
         const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
         const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
         await fetch(`${supabaseUrl}/functions/v1/admin-trip-action`, {
@@ -389,6 +403,19 @@ Deno.serve(async (req) => {
         });
       } catch (payErr) {
         console.warn("[admin-scheduled-ride-action] payment dispose non-fatal", payErr);
+      }
+      try {
+        await broadcastScheduledMarketplaceChanged(gate.supabase, {
+          tripId,
+          serviceAreaId:
+            typeof trip.service_area_id === "string" ? trip.service_area_id : null,
+          reason: "cancelled",
+        });
+      } catch (broadcastErr) {
+        console.warn(
+          "[admin-scheduled-ride-action] cancel marketplace broadcast non-fatal",
+          broadcastErr,
+        );
       }
       try {
         const passengerId =

@@ -51,4 +51,25 @@ Deno.test("notify + accept/cancel wire marketplace broadcast", async () => {
   assertStringIncludes(action, "broadcastScheduledMarketplaceChanged");
   assertStringIncludes(action, 'reason: "accepted"');
   assert(action.includes('reason: isCheckinOpen ? "converted" : "cancelled"'));
+
+  const admin = await Deno.readTextFile(
+    new URL("supabase/functions/admin-scheduled-ride-action/index.ts", root),
+  );
+  assertStringIncludes(admin, "broadcastScheduledMarketplaceChanged");
+  assertStringIncludes(admin, 'reason: "accepted"');
+  assertStringIncludes(admin, 'reason: "cancelled"');
+
+  const cancel = await Deno.readTextFile(
+    new URL("supabase/functions/cancel-trip/index.ts", root),
+  );
+  assertStringIncludes(cancel, "broadcastScheduledMarketplaceChanged");
+
+  const convert = await Deno.readTextFile(
+    new URL(
+      "supabase/functions/_shared/scheduleDispatchConversionSweep.ts",
+      root,
+    ),
+  );
+  assertStringIncludes(convert, "broadcastScheduledMarketplaceChanged");
+  assertStringIncludes(convert, 'reason: "converted"');
 });
