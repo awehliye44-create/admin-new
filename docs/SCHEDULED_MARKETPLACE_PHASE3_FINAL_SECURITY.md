@@ -2,6 +2,21 @@
 
 **Production deployment is NOT approved until explicit sign-off.**
 
+## Airport pricing (clarification — not a redesign)
+
+Phase 3 is **dispatch automation**, not a pricing redesign.
+
+Scheduled bookings reuse the **existing** Admin → Custom Zones (Pricing) →
+Route Pricing — Per Vehicle Category architecture (`airportChargeFareSplitSSOT` /
+`decideDispatchAfterFareEnrich`), identical to instant.
+
+- **No** new airport pricing system, tables, charge fields, or calculation rules
+- **No** manual airport pricing approval for normal scheduled bookings
+- `airport_pricing` hold is **only** a defensive latch when a **required** quote
+  airport charge (`quote > 0`) fails to persist to `airport_charge_pence`
+- Valid **zero** airport charge / routes with **no applicable** airport charge
+  → `airport_absent` → **never** stamp or enforce an airport pricing hold
+
 ## 1. Action-level RBAC
 
 | Action | Permission key | Enforcement |

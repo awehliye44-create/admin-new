@@ -309,6 +309,7 @@ export function evaluateScheduledMarketplaceAutoPublishEligibility(
   const airport = assertAirportPricingReady({
     broadcastEnabled: trip.broadcast_enabled,
     airportChargePence: trip.airport_charge_pence,
+    scheduledHoldReason: trip.scheduled_hold_reason,
   });
   if (!airport.ok) {
     return { ok: false, reason: "airport_pricing_hold" };

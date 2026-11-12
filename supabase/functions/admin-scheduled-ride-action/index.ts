@@ -312,12 +312,14 @@ Deno.serve(async (req) => {
       const airport = assertAirportPricingReady({
         broadcastEnabled: trip.broadcast_enabled,
         airportChargePence: trip.airport_charge_pence,
+        scheduledHoldReason: trip.scheduled_hold_reason,
       });
       if (!airport.ok) {
         return json({
           success: false,
           error: "AIRPORT_PRICING_UNRESOLVED",
-          message: "Cannot assign while mandatory airport pricing is unresolved.",
+          message:
+            "Cannot assign while existing mandatory airport charge failed to persist (Custom Zones route pricing).",
         }, 409);
       }
 
@@ -388,16 +390,19 @@ Deno.serve(async (req) => {
       return json({ success: true, action, trip_id: tripId, confirmed_driver_id: driverId });
     }
 
-    // All publication / broadcast paths: airport + payment gates (backend).
+    // Publication / broadcast: defensive gate only — reuses existing Custom Zones
+    // route-pricing persist latch (not a new airport pricing system).
     const airport = assertAirportPricingReady({
       broadcastEnabled: trip.broadcast_enabled,
       airportChargePence: trip.airport_charge_pence,
+      scheduledHoldReason: trip.scheduled_hold_reason,
     });
     if (!airport.ok) {
       return json({
         success: false,
         error: "AIRPORT_PRICING_UNRESOLVED",
-        message: "Cannot publish or broadcast while mandatory airport pricing is unresolved.",
+        message:
+          "Cannot publish or broadcast while existing mandatory airport charge failed to persist (Custom Zones route pricing).",
       }, 409);
     }
 

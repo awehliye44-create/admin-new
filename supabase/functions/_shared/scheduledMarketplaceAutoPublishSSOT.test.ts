@@ -78,14 +78,33 @@ Deno.test("eligible routine held booking may auto-publish", () => {
   assertEquals(r.reason, "ok");
 });
 
-Deno.test("airport pricing hold blocks publication", () => {
-  const r = evaluateScheduledMarketplaceAutoPublishEligibility({
+Deno.test("airport pricing hold blocks publication only for persist-failure latch", () => {
+  const stamped = evaluateScheduledMarketplaceAutoPublishEligibility({
+    ...BASE,
+    scheduled_hold_reason: "airport_pricing",
+    broadcast_enabled: false,
+    airport_charge_pence: null,
+  });
+  assertEquals(stamped.ok, false);
+  assertEquals(stamped.reason, "airport_pricing_hold");
+
+  const legacyPositive = evaluateScheduledMarketplaceAutoPublishEligibility({
     ...BASE,
     broadcast_enabled: false,
     airport_charge_pence: 700,
   });
-  assertEquals(r.ok, false);
-  assertEquals(r.reason, "airport_pricing_hold");
+  assertEquals(legacyPositive.ok, false);
+  assertEquals(legacyPositive.reason, "airport_pricing_hold");
+
+  // Valid zero / absent charge must never block (Custom Zones: no applicable airport fee).
+  assertEquals(
+    evaluateScheduledMarketplaceAutoPublishEligibility({
+      ...BASE,
+      broadcast_enabled: false,
+      airport_charge_pence: 0,
+    }).ok,
+    true,
+  );
 });
 
 Deno.test("payment_gate_blocked status blocks publication", () => {

@@ -791,13 +791,20 @@ Deno.serve(async (req) => {
               }
               continue;
             }
+            const tripAirport = trip as {
+              broadcast_enabled?: boolean | null;
+              airport_charge_pence?: number | null;
+              scheduled_hold_reason?: string | null;
+            };
             const airportReady = assertAirportPricingReady({
-              broadcastEnabled: (trip as { broadcast_enabled?: boolean | null })
-                .broadcast_enabled,
+              broadcastEnabled: tripAirport.broadcast_enabled,
+              airportChargePence: tripAirport.airport_charge_pence,
+              scheduledHoldReason: tripAirport.scheduled_hold_reason,
             });
             if (!airportReady.ok) {
+              // Only the existing persist-failure latch — never invent pricing.
               console.warn(
-                `[scheduled-dispatch] pending Jobs At held (airport/fare) for ${trip.id}`,
+                `[scheduled-dispatch] pending Jobs At held (airport charge persist failure) for ${trip.id}`,
               );
               await supabase
                 .from("trips")

@@ -8,6 +8,10 @@ Remove routine Admin Make Available for valid scheduled bookings.
 Reuse existing Make Available patch + `scheduled-dispatch` STEP 0 / STEP 0b.
 No parallel dispatch engine. No wave/timing/payment policy changes.
 
+Airport charges: reuse existing Custom Zones route pricing SSOT (same as instant).
+The `airport_pricing` hold is only a persist-failure latch for required quote > 0 —
+valid zero / non-airport routes must never be held for “pricing”.
+
 ## Root cause (locked)
 
 CTAP / `buildMinimalTripInsertRow` creates `scheduled_status=admin_held` +

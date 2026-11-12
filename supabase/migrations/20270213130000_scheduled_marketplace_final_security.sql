@@ -352,4 +352,54 @@ $fn$;
 COMMENT ON FUNCTION public.admin_assign_scheduled_driver(uuid, uuid) IS
   'Atomic Admin Assign Now: page+action RBAC (scheduled_rides.assign), assert_payment_gate, preconfirm, audit in one transaction. Service-role may call after Edge action check.';
 
+-- ── 4) Airport hold release — persist-failure latch only (existing Custom Zones SSOT)
+-- Refuse while airport_pricing + airport_charge_pence still missing/zero.
+-- Valid zero-charge routes never stamp airport_pricing (decideDispatchAfterFareEnrich).
+CREATE OR REPLACE FUNCTION public.release_scheduled_airport_broadcast_hold(p_trip_id uuid)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_trip public.trips%ROWTYPE;
+  v_hold text;
+BEGIN
+  SELECT * INTO v_trip FROM public.trips WHERE id = p_trip_id FOR UPDATE;
+  IF NOT FOUND THEN
+    RETURN jsonb_build_object('success', false, 'error', 'TRIP_NOT_FOUND');
+  END IF;
+
+  v_hold := COALESCE(v_trip.scheduled_hold_reason, '');
+  IF v_hold = 'airport_pricing'
+     AND COALESCE(v_trip.airport_charge_pence, 0) <= 0
+  THEN
+    RETURN jsonb_build_object(
+      'success', false,
+      'error', 'AIRPORT_PRICING_UNRESOLVED',
+      'message', 'Existing mandatory airport charge has not been persisted yet'
+    );
+  END IF;
+
+  PERFORM set_config('onecab.release_airport_broadcast_hold', '1', true);
+  UPDATE public.trips
+  SET broadcast_enabled = true,
+      scheduled_hold_reason = CASE
+        WHEN scheduled_hold_reason = 'airport_pricing'
+             AND scheduled_status = 'admin_held'
+          THEN 'publication_pending'
+        WHEN scheduled_hold_reason = 'airport_pricing'
+          THEN NULL
+        ELSE scheduled_hold_reason
+      END,
+      updated_at = now()
+  WHERE id = p_trip_id;
+
+  RETURN jsonb_build_object('success', true, 'trip_id', p_trip_id);
+END;
+$function$;
+
+COMMENT ON FUNCTION public.release_scheduled_airport_broadcast_hold(uuid) IS
+  'Clears broadcast latch after existing Custom Zones airport_charge_pence is persisted. Not a pricing calculator; not manual approval for normal bookings.';
+
 COMMIT;

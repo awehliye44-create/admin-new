@@ -146,11 +146,37 @@ Deno.test("manual / exceptional / unknown holds never auto-release", () => {
       scheduled_status: "admin_held",
       scheduled_hold_reason: reason,
       broadcast_enabled: reason === "airport_pricing" ? false : true,
+      airport_charge_pence: reason === "airport_pricing" ? null : 0,
       booking_source: "customer_app",
       service_area_id: "sa",
     });
     assertEquals(r.ok, false, reason);
   }
+});
+
+Deno.test("valid zero airport charge never triggers airport pricing hold", async () => {
+  const { assertAirportPricingReady } = await import("./scheduledMarketplaceHoldSSOT.ts");
+  assertEquals(
+    assertAirportPricingReady({
+      broadcastEnabled: false,
+      airportChargePence: 0,
+      scheduledHoldReason: "publication_pending",
+    }).ok,
+    true,
+  );
+  assertEquals(
+    evaluateScheduledMarketplaceAutoPublishEligibility({
+      dispatch_mode: "scheduled",
+      status: "scheduled",
+      scheduled_status: "admin_held",
+      scheduled_hold_reason: "publication_pending",
+      broadcast_enabled: false,
+      airport_charge_pence: 0,
+      booking_source: "customer_app",
+      service_area_id: "sa",
+    }).ok,
+    true,
+  );
 });
 
 Deno.test("non-card payment models skip Revolut authorisation only", async () => {
