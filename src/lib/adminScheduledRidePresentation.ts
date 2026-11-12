@@ -24,6 +24,7 @@ export type AdminScheduledStatusKey =
   | 'pre_confirmed'
   | 'finding_driver'
   | 'driver_assigned'
+  | 'payment_blocked'
   | 'expired'
   | 'cancelled'
   | 'awaiting_accept'
@@ -164,6 +165,10 @@ export function resolveAdminScheduledRidePresentation(
     statusKey = 'awaiting_accept';
     statusLabel = 'Awaiting Accept';
     statusClassName = 'bg-emerald-100 text-emerald-800';
+  } else if (scheduled === 'payment_gate_blocked') {
+    statusKey = 'payment_blocked';
+    statusLabel = 'Payment blocked';
+    statusClassName = 'bg-orange-100 text-orange-900';
   } else if (
     FINDING_SCHEDULED_STATUSES.has(scheduled) ||
     FINDING_TRIP_STATUSES.has(status)

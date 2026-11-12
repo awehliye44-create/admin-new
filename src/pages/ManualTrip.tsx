@@ -601,6 +601,19 @@ export default function ManualTrip() {
             setIsSubmitting(false);
             return;
           }
+
+          const { error: advanceErr } = await supabase.rpc(
+            'assert_scheduled_advance_window' as never,
+            { p_scheduled_at: scheduledAt.toISOString() } as never,
+          );
+          if (advanceErr) {
+            const msg = String(advanceErr.message ?? '');
+            if (!/could not find|schema cache|does not exist|PGRST202/i.test(msg)) {
+              toast.error(msg || 'Scheduled pickup is outside the allowed booking window.');
+              setIsSubmitting(false);
+              return;
+            }
+          }
         }
       }
 

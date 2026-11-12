@@ -30,6 +30,19 @@ describe('adminScheduledRidePresentation — ownership SSOT', () => {
     expect(p.driverKind).toBe('unassigned');
   });
 
+  it('payment_gate_blocked → Payment blocked on Scheduled board', () => {
+    const p = resolveAdminScheduledRidePresentation({
+      scheduled_status: 'payment_gate_blocked',
+      status: 'scheduled',
+      scheduled_broadcast_at: '2026-09-23T10:00:00Z',
+      driver_id: null,
+      confirmed_driver_id: null,
+    });
+    expect(p.statusKey).toBe('payment_blocked');
+    expect(p.statusLabel).toBe('Payment blocked');
+    expect(p.belongsOnLiveScheduledBoard).toBe(true);
+  });
+
   it('PRE-CONFIRMED → Pre-confirmed + confirmed driver name (not Unassigned / not Driver Assigned)', () => {
     const p = resolveAdminScheduledRidePresentation({
       scheduled_status: 'driver_assigned',

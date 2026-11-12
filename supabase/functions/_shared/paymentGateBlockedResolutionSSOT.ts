@@ -31,6 +31,9 @@ const TERMINAL = new Set([
   "EXPIRED",
 ]);
 
+/** Bounded unresolved window for temporary provider/network failures (cron sweeps). */
+export const PAYMENT_GATE_BLOCKED_RESOLUTION_DEADLINE_MS = 30 * 60_000;
+
 export type PaymentGateBlockedResolution =
   | { action: "noop_terminal_normalised"; tripId: string }
   | { action: "noop_in_progress"; tripId: string }
@@ -52,7 +55,7 @@ export async function resolvePaymentGateBlockedTrip(
   const { data: trip, error } = await supabase
     .from("trips")
     .select(
-      "id, status, scheduled_status, started_at, completed_at, cancelled_at, payment_method, payment_session_id, provider_order_id, scheduled_at, estimated_duration_minutes, is_scheduled, passenger_id, driver_id",
+      "id, status, scheduled_status, started_at, completed_at, cancelled_at, payment_method, payment_session_id, provider_order_id, scheduled_at, estimated_duration_minutes, is_scheduled, passenger_id, driver_id, updated_at",
     )
     .eq("id", tripId)
     .maybeSingle();
@@ -154,6 +157,18 @@ export async function resolvePaymentGateBlockedTrip(
             return { action: "cleared", tripId };
           }
           if (!coverage.definitive) {
+            const blockedAtMs = Date.parse(String(trip.updated_at ?? ""));
+            if (
+              Number.isFinite(blockedAtMs) &&
+              Date.now() - blockedAtMs >= PAYMENT_GATE_BLOCKED_RESOLUTION_DEADLINE_MS
+            ) {
+              return await cancelDefinitivePaymentGateBlocked(
+                supabase,
+                trip,
+                `temporary_unresolved:${coverage.code}`,
+                opts?.dryRun,
+              );
+            }
             return {
               action: "blocked_temporary",
               tripId,

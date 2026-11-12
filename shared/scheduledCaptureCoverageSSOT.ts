@@ -87,6 +87,19 @@ export function mergeCaptureDeadlinePersistence(input: {
     if (existing === incoming) {
       return { captureDeadlineIso: existing, changed: false, source: input.source };
     }
+    // Never let a stale/shorter provider payload clobber a newer authoritative deadline
+    // unless the incoming value is strictly later (re-auth / increment extended the hold).
+    if (existing) {
+      const existingMs = Date.parse(existing);
+      const incomingMs = Date.parse(incoming);
+      if (
+        Number.isFinite(existingMs) &&
+        Number.isFinite(incomingMs) &&
+        incomingMs < existingMs
+      ) {
+        return { captureDeadlineIso: existing, changed: false, source: input.source };
+      }
+    }
     return { captureDeadlineIso: incoming, changed: true, source: input.source };
   }
   return {

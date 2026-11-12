@@ -1282,6 +1282,27 @@ serveWithEdgeTiming("create-trip-after-payment", corsHeaders, async (req) => {
           },
         );
       }
+
+      // Stamp so assert_payment_gate cannot treat this as a legacy latch-exempt session.
+      const coverageSessionId =
+        (sessionForCoverage?.id as string | undefined) ?? paymentSessionId;
+      if (coverageSessionId) {
+        const existingMeta =
+          (sessionForCoverage?.metadata as Record<string, unknown> | null) ?? {};
+        await supabase
+          .from("payment_sessions")
+          .update({
+            metadata: {
+              ...existingMeta,
+              scheduled_capture_coverage_required: true,
+              scheduled_capture_coverage_verified: true,
+              scheduled_capture_coverage_verified_at: new Date().toISOString(),
+              required_capture_until: coverage.evaluation.requiredUntilIso,
+            },
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", coverageSessionId);
+      }
     }
 
     // Passenger expected-interval overlap (scheduled↔scheduled and NOW↔scheduled).

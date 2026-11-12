@@ -70,6 +70,18 @@ Deno.test("mergeCaptureDeadline refreshes when provider returns new value", () =
   assertEquals(merged.changed, true);
 });
 
+Deno.test("mergeCaptureDeadline rejects stale shorter provider deadline", () => {
+  const existing = "2026-06-12T18:00:00.000Z";
+  const stale = "2026-06-11T12:00:00.000Z";
+  const merged = mergeCaptureDeadlinePersistence({
+    existingDeadlineIso: existing,
+    providerDeadlineRaw: stale,
+    source: "provider_webhook",
+  });
+  assertEquals(merged.captureDeadlineIso, new Date(existing).toISOString());
+  assertEquals(merged.changed, false);
+});
+
 Deno.test("delayed pickup extends required coverage horizon", () => {
   const earlyDeadline = new Date(requiredMs).toISOString();
   const delayedPickup = "2026-06-10T18:00:00.000Z";

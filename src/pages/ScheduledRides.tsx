@@ -378,6 +378,20 @@ export default function ScheduledRides() {
       const nowIso = new Date().toISOString();
       // Assign Now — pre-confirm (or swap preconfirm). Never overwrite live driver_id.
       // Includes driver_assigned so Admin can replace a dropped pre-confirmed driver.
+      // Phase 1: never Assign Now when payment coverage is invalid.
+      const { error: gateErr } = await supabase.rpc('assert_payment_gate', {
+        p_trip_id: selectedTrip.id,
+      });
+      if (gateErr) {
+        const detail = String(gateErr.message ?? gateErr);
+        toast.error(
+          detail.includes('PAYMENT_GATE_NOT_SATISFIED')
+            ? 'Cannot assign — payment authorisation does not cover this booking.'
+            : detail || 'Payment gate check failed',
+        );
+        return;
+      }
+
       const assignedRows = await scheduledRidesTripUpdate(
         selectedTrip.id,
         {

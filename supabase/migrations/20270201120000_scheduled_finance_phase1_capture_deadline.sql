@@ -63,7 +63,7 @@ ALTER TABLE public.global_dispatch_settings
   ADD COLUMN IF NOT EXISTS scheduled_capture_coverage_enforced boolean NOT NULL DEFAULT false;
 
 COMMENT ON COLUMN public.global_dispatch_settings.scheduled_capture_coverage_enforced IS
-  'When true, assert_payment_gate fails closed if scheduled card sessions lack a usable capture_deadline. Keep false until backfill completes.';
+  'Legacy-session latch only: when true, assert_payment_gate fails closed if capture_deadline is missing on grandfathered sessions. New create-path sessions stamp metadata.scheduled_capture_coverage_required=true and always require a deadline regardless of this flag. Keep false until backfill completes.';
 
 -- ── 3) UTC elapsed advance window (shared authoritative policy) ──────────────
 CREATE OR REPLACE FUNCTION public.evaluate_scheduled_advance_window(

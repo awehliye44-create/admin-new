@@ -402,6 +402,31 @@ Deno.serve(async (req) => {
     const nowMs = now.getTime();
     console.log(`[scheduled-dispatch] Running at ${now.toISOString()}`);
 
+    // Phase 1: never leave payment_gate_blocked rows unresolved indefinitely.
+    {
+      const { data: blocked } = await supabase
+        .from("trips")
+        .select("id")
+        .eq("scheduled_status", "payment_gate_blocked")
+        .is("started_at", null)
+        .is("completed_at", null)
+        .limit(50);
+      for (const row of blocked ?? []) {
+        try {
+          const result = await resolvePaymentGateBlockedTrip(supabase, String(row.id));
+          console.log("[scheduled-dispatch] payment_gate_blocked sweep", {
+            trip_id: row.id,
+            action: result.action,
+          });
+        } catch (sweepErr) {
+          console.warn("[scheduled-dispatch] payment_gate_blocked sweep failed", {
+            trip_id: row.id,
+            error: String(sweepErr),
+          });
+        }
+      }
+    }
+
     const { data: globalSettings } = await supabase
       .from("global_dispatch_settings")
       .select(
