@@ -9,7 +9,8 @@ ALTER TABLE public.trips
   DROP COLUMN IF EXISTS scheduled_jit_eta_source,
   DROP COLUMN IF EXISTS scheduled_jit_basis_scheduled_at,
   DROP COLUMN IF EXISTS scheduled_jit_activated_at,
-  DROP COLUMN IF EXISTS scheduled_jit_activation_source;
+  DROP COLUMN IF EXISTS scheduled_jit_activation_source,
+  DROP COLUMN IF EXISTS scheduled_jit_eta_spike_samples;
 
 ALTER TABLE public.global_dispatch_settings
   DROP COLUMN IF EXISTS jit_target_early_arrival_minutes,
@@ -19,4 +20,5 @@ ALTER TABLE public.global_dispatch_settings
   DROP COLUMN IF EXISTS jit_oscillation_tolerance_minutes,
   DROP COLUMN IF EXISTS jit_planning_horizon_minutes,
   DROP COLUMN IF EXISTS jit_max_early_pull_ahead_of_fixed_minutes,
+  DROP COLUMN IF EXISTS jit_eta_spike_confirm_samples,
   DROP COLUMN IF EXISTS jit_auto_activate_enabled;

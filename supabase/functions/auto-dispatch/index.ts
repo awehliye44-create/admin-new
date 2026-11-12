@@ -2251,7 +2251,7 @@ Deno.serve(async (req) => {
       // Note: towards_destination filter is logged inside the .filter() chain below.
     }
 
-    eligibleIdleDrivers = eligiblePresenceDrivers
+    const idlePool = eligiblePresenceDrivers
       .filter(d => !serviceAreaMatchedDriverIds || serviceAreaMatchedDriverIds.has(d.id))
       .filter(d => !permanentlyExcludedDriverIds.has(d.id))
       .filter(d => !excludedDriverIds.has(d.id))
@@ -2296,8 +2296,87 @@ Deno.serve(async (req) => {
           return false;
         }
         return true;
-      })
-      .sort((a, b) => compareDispatchCandidates(dispatchSettings, a, b))
+      });
+
+    // Phase 4: soft directional preference toward next confirmed scheduled pickup.
+    // Ranking only — never hard-excludes other directions; no-commitment drivers unchanged.
+    const {
+      computeScheduledDirectionalScoreBoost,
+      compareWithDirectionalBoost,
+    } = await import("../_shared/scheduledDirectionalDispatchSSOT.ts");
+    const { loadDriverConfirmedScheduledCommitments } = await import(
+      "../_shared/scheduledCommitmentOfferGateSSOT.ts"
+    );
+    const { selectEarliestConfirmedCommitment } = await import(
+      "../_shared/scheduledCommitmentFeasibilitySSOT.ts"
+    );
+    const nowMsRank = Date.now();
+    const scheduledPickupByDriver = new Map<
+      string,
+      { lat: number; lng: number; scheduledAtMs: number }
+    >();
+    const rankDriverIds = [
+      ...idlePool.map((d) => d.id),
+      ...stackedDrivers.map((d) => d.id),
+    ].slice(0, shortlistLimit * 3);
+    await Promise.all(
+      [...new Set(rankDriverIds)].map(async (driverId: string) => {
+        const rows = await loadDriverConfirmedScheduledCommitments(
+          supabase,
+          driverId,
+          nowMsRank,
+        );
+        const earliest = selectEarliestConfirmedCommitment(rows, nowMsRank);
+        if (
+          earliest &&
+          earliest.pickupLat != null &&
+          earliest.pickupLng != null &&
+          Number.isFinite(earliest.pickupLat) &&
+          Number.isFinite(earliest.pickupLng)
+        ) {
+          scheduledPickupByDriver.set(driverId, {
+            lat: earliest.pickupLat,
+            lng: earliest.pickupLng,
+            scheduledAtMs: earliest.scheduledAtMs,
+          });
+        }
+      }),
+    );
+
+    const directionalBoostFor = (d: {
+      id: string;
+      current_lat?: number | null;
+      current_lng?: number | null;
+      dropoff_latitude?: number | null;
+      dropoff_longitude?: number | null;
+    }) => {
+      const anchor = scheduledPickupByDriver.get(d.id) ?? null;
+      const fromLat = Number(
+        d.dropoff_latitude ?? d.current_lat,
+      );
+      const fromLng = Number(
+        d.dropoff_longitude ?? d.current_lng,
+      );
+      return computeScheduledDirectionalScoreBoost({
+        dropoffLat,
+        dropoffLng,
+        fromLat: Number.isFinite(fromLat) ? fromLat : Number(d.current_lat),
+        fromLng: Number.isFinite(fromLng) ? fromLng : Number(d.current_lng),
+        scheduledPickup: anchor,
+      }).scoreBoost;
+    };
+
+    eligibleIdleDrivers = idlePool
+      .sort((a, b) =>
+        compareWithDirectionalBoost({
+          scoreA: computeDispatchScore(dispatchSettings, a, a.distance_meters ?? 0),
+          scoreB: computeDispatchScore(dispatchSettings, b, b.distance_meters ?? 0),
+          boostA: directionalBoostFor(a),
+          boostB: directionalBoostFor(b),
+          distanceA: a.distance_meters ?? 0,
+          distanceB: b.distance_meters ?? 0,
+        }),
+      )
       .slice(0, shortlistLimit);
 
     // Apply offer-level filters to stacked candidates (trip-exclusion, cooldown, vehicle type, cash)
@@ -2371,13 +2450,37 @@ Deno.serve(async (req) => {
         return true;
       });
 
-    // Sort stacked drivers by dispatch score (same SSOT as idle pool).
+    // Sort stacked drivers by dispatch score + Phase 4 directional boost.
     filteredStackedDrivers.sort((a, b) =>
-      compareDispatchCandidates(
-        dispatchSettings,
-        { ...a, distance_meters: a.distance_from_current_dropoff ?? a.distance_meters },
-        { ...b, distance_meters: b.distance_from_current_dropoff ?? b.distance_meters },
-      ),
+      compareWithDirectionalBoost({
+        scoreA: computeDispatchScore(
+          dispatchSettings,
+          a,
+          a.distance_from_current_dropoff ?? a.distance_meters ?? 0,
+        ),
+        scoreB: computeDispatchScore(
+          dispatchSettings,
+          b,
+          b.distance_from_current_dropoff ?? b.distance_meters ?? 0,
+        ),
+        boostA: directionalBoostFor({
+          id: a.id,
+          current_lat: a.current_lat,
+          current_lng: a.current_lng,
+          // Stacked: empty-travel from current trip dropoff toward scheduled pickup.
+          dropoff_latitude: a.current_trip_dropoff_lat,
+          dropoff_longitude: a.current_trip_dropoff_lng,
+        }),
+        boostB: directionalBoostFor({
+          id: b.id,
+          current_lat: b.current_lat,
+          current_lng: b.current_lng,
+          dropoff_latitude: b.current_trip_dropoff_lat,
+          dropoff_longitude: b.current_trip_dropoff_lng,
+        }),
+        distanceA: a.distance_from_current_dropoff ?? a.distance_meters ?? 0,
+        distanceB: b.distance_from_current_dropoff ?? b.distance_meters ?? 0,
+      }),
     );
 
     const eligibleStackedDrivers = filteredStackedDrivers;

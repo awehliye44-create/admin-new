@@ -23,18 +23,28 @@ export type ScheduledJitActivationConfig = {
   longDistanceEtaThresholdMinutes: number;
   oscillationToleranceMinutes: number;
   /**
-   * Only monitor / refresh ETA when now ≥ pickup − this horizon.
-   * Prevents hours-early sticky deadlines from transient ETA spikes.
+   * Base planning horizon (minutes before pickup). Effective horizon also expands
+   * with last-known ETA / long-distance lead so distant drivers are not concealed.
    */
   planningHorizonMinutes: number;
   /**
-   * Cap how much earlier than the fixed Local/Long activation a JIT deadline
-   * may pull (minutes). Spikes cannot yank activation hours early.
+   * Consecutive elevated-ETA samples required before sticky deadline pulls earlier
+   * past the previous ETA (spike damping — not a fixed-activation clamp).
+   */
+  etaSpikeConfirmSamples: number;
+  /**
+   * Max relative ETA jump accepted in one sample without confirmation (e.g. 1.35 = +35%).
+   */
+  etaSpikeMaxRelativeJump: number;
+  /**
+   * Kept for migration compatibility; IGNORED for deadline math.
+   * Fixed Local/Long is fallback-only when ETA unavailable — never delays a genuine JIT deadline.
+   * @deprecated
    */
   maxEarlyPullAheadOfFixedMinutes: number;
   /**
-   * When false (default), due deadline arms exclusive NRO acknowledgement.
-   * When true, due deadline may auto-activate to en_route (ops-only until Phase 5).
+   * Always forced false in resolveJitExecutionMode until Phase 5.
+   * DB column may exist but cannot enable no-ack en_route in Phase 4.
    */
   autoActivateEnabled: boolean;
 };
@@ -45,8 +55,10 @@ export const SCHEDULED_JIT_ACTIVATION_DEFAULTS: ScheduledJitActivationConfig = {
   longSafetyBufferMinutes: 5,
   longDistanceEtaThresholdMinutes: 30,
   oscillationToleranceMinutes: 2,
-  planningHorizonMinutes: 90,
-  maxEarlyPullAheadOfFixedMinutes: 20,
+  planningHorizonMinutes: 180,
+  etaSpikeConfirmSamples: 2,
+  etaSpikeMaxRelativeJump: 1.35,
+  maxEarlyPullAheadOfFixedMinutes: 20, // unused for clamp — retained for column compat
   autoActivateEnabled: false,
 };
 
@@ -58,6 +70,7 @@ export type ScheduledJitDbRow = {
   jit_oscillation_tolerance_minutes?: number | null;
   jit_planning_horizon_minutes?: number | null;
   jit_max_early_pull_ahead_of_fixed_minutes?: number | null;
+  jit_eta_spike_confirm_samples?: number | null;
   jit_auto_activate_enabled?: boolean | null;
 };
 
@@ -105,15 +118,18 @@ export function resolveScheduledJitActivationConfig(
       row.jit_planning_horizon_minutes,
       SCHEDULED_JIT_ACTIVATION_DEFAULTS.planningHorizonMinutes,
     ),
+    etaSpikeConfirmSamples: parsePositiveInt(
+      row.jit_eta_spike_confirm_samples,
+      SCHEDULED_JIT_ACTIVATION_DEFAULTS.etaSpikeConfirmSamples,
+    ),
+    etaSpikeMaxRelativeJump:
+      SCHEDULED_JIT_ACTIVATION_DEFAULTS.etaSpikeMaxRelativeJump,
     maxEarlyPullAheadOfFixedMinutes: parsePositiveInt(
       row.jit_max_early_pull_ahead_of_fixed_minutes,
       SCHEDULED_JIT_ACTIVATION_DEFAULTS.maxEarlyPullAheadOfFixedMinutes,
     ),
-    // Fail closed: auto en_route off unless explicitly enabled.
-    autoActivateEnabled: parseBool(
-      row.jit_auto_activate_enabled,
-      SCHEDULED_JIT_ACTIVATION_DEFAULTS.autoActivateEnabled,
-    ),
+    // Phase 4: DB flag ignored — always false (no-ack path cannot be enabled).
+    autoActivateEnabled: false,
   };
 }
 
@@ -168,6 +184,39 @@ export function computeJitDepartureDeadlineMs(input: {
   };
 }
 
+/**
+ * Effective horizon must cover distant drivers (ETA-based lead), not only 90/180m.
+ * Example: ETA 45 + early 5 + buffer 5 + margin 30 → ≥85; default floor 180.
+ */
+export function effectiveJitPlanningHorizonMinutes(input: {
+  config: ScheduledJitActivationConfig;
+  lastKnownEtaMinutes?: number | null;
+  fixedLongActivationMinutes?: number | null;
+}): number {
+  const early = Math.max(0, Math.floor(input.config.targetEarlyArrivalMinutes));
+  const buffer = Math.max(
+    input.config.localSafetyBufferMinutes,
+    input.config.longSafetyBufferMinutes,
+  );
+  const fromEta =
+    input.lastKnownEtaMinutes != null && Number.isFinite(input.lastKnownEtaMinutes)
+      ? Math.ceil(Number(input.lastKnownEtaMinutes)) + early + buffer + 30
+      : 0;
+  const fromLongThreshold =
+    input.config.longDistanceEtaThresholdMinutes + early + buffer + 45;
+  const fromFixedLong =
+    input.fixedLongActivationMinutes != null &&
+      Number.isFinite(input.fixedLongActivationMinutes)
+      ? Math.ceil(Number(input.fixedLongActivationMinutes)) + 30
+      : 0;
+  return Math.max(
+    Math.floor(input.config.planningHorizonMinutes),
+    fromEta,
+    fromLongThreshold,
+    fromFixedLong,
+  );
+}
+
 /** True when ETA monitoring / sticky updates are allowed. */
 export function isWithinJitPlanningHorizon(input: {
   nowMs: number;
@@ -182,38 +231,88 @@ export function isWithinJitPlanningHorizon(input: {
 }
 
 /**
- * Clamp candidate so a transient long ETA cannot schedule activation hours early.
- * Floor = fixed Local/Long activation − maxEarlyPullAheadOfFixedMinutes.
+ * Validate ETA against prior sample + optional haversine floor.
+ * Haversine is an *estimate*, not a guaranteed upper bound on road time.
+ * Spikes require consecutive confirmation before sticky pull-earlier.
  */
-export function clampJitDeadlineToFixedFloor(input: {
-  candidateDeadlineMs: number;
-  fixedActivationAtMs: number;
-  maxEarlyPullAheadOfFixedMinutes: number;
-}): number {
-  const maxPull = Math.max(0, Math.floor(input.maxEarlyPullAheadOfFixedMinutes));
-  const earliestAllowed = input.fixedActivationAtMs - maxPull * 60_000;
-  return Math.max(input.candidateDeadlineMs, earliestAllowed);
+export function validateJitEtaMinutes(input: {
+  proposedEtaMinutes: number;
+  previousEtaMinutes: number | null | undefined;
+  haversineEtaMinutes: number | null | undefined;
+  consecutiveElevatedSamples: number;
+  config: Pick<
+    ScheduledJitActivationConfig,
+    "etaSpikeConfirmSamples" | "etaSpikeMaxRelativeJump"
+  >;
+}): {
+  acceptedEtaMinutes: number;
+  consecutiveElevatedSamples: number;
+  rejectedSpike: boolean;
+} {
+  const proposed = Math.max(1, Math.ceil(input.proposedEtaMinutes));
+  const prev =
+    input.previousEtaMinutes != null && Number.isFinite(input.previousEtaMinutes)
+      ? Math.max(1, Math.ceil(Number(input.previousEtaMinutes)))
+      : null;
+  const hav =
+    input.haversineEtaMinutes != null && Number.isFinite(input.haversineEtaMinutes)
+      ? Math.max(1, Math.ceil(Number(input.haversineEtaMinutes)))
+      : null;
+
+  // Soft sanity: if routing ETA is far below conservative haversine, prefer haversine
+  // (haversine is estimate — not an upper bound — but under-routing is worse for JIT).
+  let candidate = proposed;
+  if (hav != null && proposed < hav * 0.7) {
+    candidate = hav;
+  }
+
+  if (prev == null) {
+    return {
+      acceptedEtaMinutes: candidate,
+      consecutiveElevatedSamples: 0,
+      rejectedSpike: false,
+    };
+  }
+
+  const jump = candidate / prev;
+  const needsConfirm = jump > input.config.etaSpikeMaxRelativeJump;
+  if (!needsConfirm) {
+    return {
+      acceptedEtaMinutes: candidate,
+      consecutiveElevatedSamples: 0,
+      rejectedSpike: false,
+    };
+  }
+
+  const elevated = input.consecutiveElevatedSamples + 1;
+  if (elevated >= Math.max(1, input.config.etaSpikeConfirmSamples)) {
+    return {
+      acceptedEtaMinutes: candidate,
+      consecutiveElevatedSamples: 0,
+      rejectedSpike: false,
+    };
+  }
+  // Hold previous ETA until spike confirms — avoids hours-early false arm from noise.
+  return {
+    acceptedEtaMinutes: prev,
+    consecutiveElevatedSamples: elevated,
+    rejectedSpike: true,
+  };
 }
 
 /**
  * Sticky deadline: never postpone; only pull earlier when delta ≥ tolerance.
- * Always respects fixed-floor clamp.
+ * No fixed Local/Long floor clamp — genuine long ETA (e.g. 45m → 19:35) must win.
  */
 export function reconcileStickyJitDeadline(input: {
   previousDeadlineMs: number | null | undefined;
   candidateDeadlineMs: number;
-  fixedActivationAtMs: number;
   oscillationToleranceMinutes: number;
-  maxEarlyPullAheadOfFixedMinutes: number;
   /** When scheduled_at changed, previous sticky is invalid. */
   basisScheduledAtMs?: number | null;
   currentScheduledAtMs: number;
 }): { deadlineMs: number; changed: boolean; reason: "initial" | "pulled_earlier" | "unchanged" | "basis_reset" } {
-  const clamped = clampJitDeadlineToFixedFloor({
-    candidateDeadlineMs: input.candidateDeadlineMs,
-    fixedActivationAtMs: input.fixedActivationAtMs,
-    maxEarlyPullAheadOfFixedMinutes: input.maxEarlyPullAheadOfFixedMinutes,
-  });
+  const candidate = input.candidateDeadlineMs;
 
   const basisOk =
     input.basisScheduledAtMs == null ||
@@ -221,17 +320,17 @@ export function reconcileStickyJitDeadline(input: {
     Math.abs(input.basisScheduledAtMs - input.currentScheduledAtMs) < 1_000;
 
   if (!basisOk) {
-    return { deadlineMs: clamped, changed: true, reason: "basis_reset" };
+    return { deadlineMs: candidate, changed: true, reason: "basis_reset" };
   }
 
   const prev = input.previousDeadlineMs;
   if (prev == null || !Number.isFinite(prev)) {
-    return { deadlineMs: clamped, changed: true, reason: "initial" };
+    return { deadlineMs: candidate, changed: true, reason: "initial" };
   }
   const toleranceMs =
     Math.max(0, Math.floor(input.oscillationToleranceMinutes)) * 60_000;
-  if (clamped <= prev - toleranceMs) {
-    return { deadlineMs: clamped, changed: true, reason: "pulled_earlier" };
+  if (candidate <= prev - toleranceMs) {
+    return { deadlineMs: candidate, changed: true, reason: "pulled_earlier" };
   }
   return { deadlineMs: prev, changed: false, reason: "unchanged" };
 }
@@ -308,10 +407,14 @@ export type ConfirmedActivationDecision =
 
 export const PHASE5_ACK_COUNTDOWN_SECONDS = 45 as const;
 
+/**
+ * Phase 4 hard-lock: always ack_nro. DB/env cannot enable no-ack en_route.
+ * Phase 5 will own acknowledgement countdown before any en_route stamp.
+ */
 export function resolveJitExecutionMode(
-  config: Pick<ScheduledJitActivationConfig, "autoActivateEnabled">,
+  _config?: Pick<ScheduledJitActivationConfig, "autoActivateEnabled">,
 ): ScheduledJitExecutionMode {
-  return config.autoActivateEnabled ? "auto_en_route" : "ack_nro";
+  return "ack_nro";
 }
 
 export function decideConfirmedScheduledActivation(input: {
@@ -325,8 +428,11 @@ export function decideConfirmedScheduledActivation(input: {
   holdReason?: string | null;
   activeJourneyThreatensCommitment: boolean;
   activeJourneyThreatReason?: string;
-  /** Driver reachable + fresh enough to arm/activate. */
-  driverAvailableForActivation: boolean;
+  /**
+   * Compatible active journey that still meets early-arrival target.
+   * Wait / reassess after completion — do not arm Phase 5 countdown yet.
+   */
+  deferForCompatibleActiveJourney?: boolean;
   availabilityClass: DriverAvailabilityClass;
   executionMode: ScheduledJitExecutionMode;
 }): ConfirmedActivationDecision {
@@ -352,7 +458,9 @@ export function decideConfirmedScheduledActivation(input: {
       nowMs: input.nowMs,
     }).due;
 
-  const due = dueFromJit || input.fixedFallbackDue;
+  // Fixed Local/Long is fallback only when JIT ETA deadline unavailable.
+  const due = dueFromJit ||
+    (input.jitDeadlineMs == null && input.fixedFallbackDue);
   const deadlineMs = dueFromJit && input.jitDeadlineMs != null
     ? input.jitDeadlineMs
     : input.fixedFallbackActivationAtMs;
@@ -368,26 +476,22 @@ export function decideConfirmedScheduledActivation(input: {
     };
   }
 
-  // Never activate / arm an unavailable driver via fixed fallback alone.
-  if (!input.driverAvailableForActivation) {
+  // Compatible stacked/active journey: keep assignment, wait to reassess after dropoff.
+  if (input.deferForCompatibleActiveJourney) {
     return {
-      action: "unavailable_rescue",
-      reason: `driver_${input.availabilityClass}`,
-      availability: input.availabilityClass,
-    };
-  }
-
-  if (input.executionMode === "auto_en_route") {
-    return {
-      action: "activate_now",
+      action: "wait",
       deadlineMs,
       source,
-      kind,
-      phase5AckDeadlineAtMs: null,
+      kind: "defer_compatible_active_journey",
     };
   }
 
-  // Default Phase 4: preserve acknowledgement NRO for Phase 5 compatibility.
+  // Phase 4/5: offline/stale/unreachable still ARM acknowledgement NRO
+  // (Phase 5 will push urgent + 45s even if offline). Do NOT premature rescue.
+  void input.availabilityClass;
+  void input.executionMode;
+
+  // activate_now is unreachable in Phase 4 (executionMode forced ack_nro).
   return {
     action: "arm_exclusive_nro",
     deadlineMs,

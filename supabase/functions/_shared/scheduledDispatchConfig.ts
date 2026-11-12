@@ -455,8 +455,9 @@ export function haversineKm(
 
 /**
  * Estimate driving ETA in minutes using haversine distance.
- * Conservative road factor + slow city speed so fallback never underestimates
- * travel time for JIT / commitment gates (Phase 4 hardening).
+ * Haversine is an *estimate*, not a guaranteed upper bound on road travel time
+ * (traffic / roads can exceed it). Conservative road factor + slow city speed
+ * reduce underestimation for JIT fallback only — prefer routed ETA when available.
  * Returns null if coordinates are missing or degenerate.
  */
 export function estimateEtaMinutes(

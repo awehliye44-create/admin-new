@@ -9,13 +9,15 @@ import {
 import {
   classifyDriverAvailabilityForJit,
   classifyJitDistanceKind,
-  clampJitDeadlineToFixedFloor,
   computeJitDepartureDeadlineMs,
   decideConfirmedScheduledActivation,
+  effectiveJitPlanningHorizonMinutes,
   isWithinJitPlanningHorizon,
   reconcileStickyJitDeadline,
   resolveJitExecutionMode,
+  resolveScheduledJitActivationConfig,
   SCHEDULED_JIT_ACTIVATION_DEFAULTS,
+  validateJitEtaMinutes,
 } from "./scheduledJitActivationSSOT.ts";
 import {
   evaluateScheduledCommitmentFeasibility,
@@ -27,7 +29,6 @@ import {
   isAlreadyConfirmedActivated,
   PHASE5_ACK_BOUNDARY,
 } from "./scheduledConfirmedActivationSSOT.ts";
-import { evaluateJitDriverLocationFreshness } from "./scheduledJitEtaMonitorSSOT.ts";
 import { estimateEtaMinutes } from "./scheduledDispatchConfig.ts";
 
 Deno.test("JIT example: 20:30 pickup, ETA 8, buffers → 20:14", () => {
@@ -41,12 +42,37 @@ Deno.test("JIT example: 20:30 pickup, ETA 8, buffers → 20:14", () => {
   assertEquals(new Date(r.deadlineMs).toISOString(), "2026-11-12T20:14:00.000Z");
 });
 
-Deno.test("default execution mode is ack_nro — not auto en_route", () => {
+Deno.test("long-distance JIT deadline is not delayed by fixed timing clamp", () => {
+  // Pickup 20:30, ETA 45, early 5, long buffer 5 → required departure 19:35.
+  // Old 20m pull-earlier clamp vs fixed ~20:19 would have delayed to 19:59 — forbidden.
+  const pickup = Date.parse("2026-11-12T20:30:00.000Z");
+  const r = computeJitDepartureDeadlineMs({
+    scheduledAtMs: pickup,
+    driverToPickupEtaMinutes: 45,
+    config: SCHEDULED_JIT_ACTIVATION_DEFAULTS,
+  });
+  assertEquals(r.kind, "long");
+  assertEquals(new Date(r.deadlineMs).toISOString(), "2026-11-12T19:35:00.000Z");
+
+  const sticky = reconcileStickyJitDeadline({
+    previousDeadlineMs: null,
+    candidateDeadlineMs: r.deadlineMs,
+    oscillationToleranceMinutes: 2,
+    currentScheduledAtMs: pickup,
+  });
+  assertEquals(new Date(sticky.deadlineMs).toISOString(), "2026-11-12T19:35:00.000Z");
+  // Must not be postponed to 19:59 (fixed − 20m clamp).
+  assert(sticky.deadlineMs < Date.parse("2026-11-12T19:59:00.000Z"));
+});
+
+Deno.test("DB auto_activate cannot enable no-ack; resolve always ack_nro", () => {
   assertEquals(resolveJitExecutionMode(SCHEDULED_JIT_ACTIVATION_DEFAULTS), "ack_nro");
-  assertEquals(
-    resolveJitExecutionMode({ autoActivateEnabled: true }),
-    "auto_en_route",
-  );
+  assertEquals(resolveJitExecutionMode({ autoActivateEnabled: true }), "ack_nro");
+  const cfg = resolveScheduledJitActivationConfig({
+    jit_auto_activate_enabled: true,
+  });
+  assertEquals(cfg.autoActivateEnabled, false);
+  assertEquals(resolveJitExecutionMode(cfg), "ack_nro");
 });
 
 Deno.test("due deadline defaults to arm_exclusive_nro not activate_now", () => {
@@ -61,7 +87,6 @@ Deno.test("due deadline defaults to arm_exclusive_nro not activate_now", () => {
     fixedFallbackKind: "local",
     intentionallyHeld: false,
     activeJourneyThreatensCommitment: false,
-    driverAvailableForActivation: true,
     availabilityClass: "available",
     executionMode: "ack_nro",
   });
@@ -71,7 +96,7 @@ Deno.test("due deadline defaults to arm_exclusive_nro not activate_now", () => {
   }
 });
 
-Deno.test("unavailable / stale / offline → rescue — never blind fixed activate", () => {
+Deno.test("offline / stale at deadline still arm acknowledgement — no premature rescue", () => {
   const pickup = Date.parse("2026-11-12T20:30:00.000Z");
   const fixedAt = pickup - 11 * 60_000;
   for (const availability of ["stale_location", "offline", "unreachable", "missing_location"] as const) {
@@ -84,64 +109,114 @@ Deno.test("unavailable / stale / offline → rescue — never blind fixed activa
       fixedFallbackKind: "local",
       intentionallyHeld: false,
       activeJourneyThreatensCommitment: false,
-      driverAvailableForActivation: false,
       availabilityClass: availability,
       executionMode: "ack_nro",
     });
-    assertEquals(d.action, "unavailable_rescue");
+    assertEquals(d.action, "arm_exclusive_nro");
   }
 });
 
-Deno.test("ETA spike cannot pull sticky deadline hours before fixed floor", () => {
+Deno.test("compatible active journey defers arm — retains assignment", () => {
   const pickup = Date.parse("2026-11-12T20:30:00.000Z");
-  const fixedAt = pickup - 11 * 60_000; // 20:19
-  // Spiked ETA 120 min → raw deadline 20:30-5-120-5 = 18:20
-  const raw = computeJitDepartureDeadlineMs({
+  const d = decideConfirmedScheduledActivation({
+    nowMs: pickup - 40 * 60_000,
     scheduledAtMs: pickup,
-    driverToPickupEtaMinutes: 120,
+    jitDeadlineMs: pickup - 45 * 60_000,
+    fixedFallbackDue: false,
+    fixedFallbackActivationAtMs: pickup - 11 * 60_000,
+    fixedFallbackKind: "local",
+    intentionallyHeld: false,
+    activeJourneyThreatensCommitment: false,
+    deferForCompatibleActiveJourney: true,
+    availabilityClass: "on_active_journey",
+    executionMode: "ack_nro",
+  });
+  assertEquals(d.action, "wait");
+  if (d.action === "wait") {
+    assertEquals(d.kind, "defer_compatible_active_journey");
+  }
+});
+
+Deno.test("infeasible active journey triggers conflict rescue (safe rematch)", () => {
+  const pickup = Date.parse("2026-11-12T20:30:00.000Z");
+  const d = decideConfirmedScheduledActivation({
+    nowMs: pickup - 20 * 60_000,
+    scheduledAtMs: pickup,
+    jitDeadlineMs: pickup - 25 * 60_000,
+    fixedFallbackDue: false,
+    fixedFallbackActivationAtMs: pickup - 11 * 60_000,
+    fixedFallbackKind: "local",
+    intentionallyHeld: false,
+    activeJourneyThreatensCommitment: true,
+    activeJourneyThreatReason: "active_journey_makes_scheduled_pickup_infeasible",
+    availabilityClass: "on_active_journey",
+    executionMode: "ack_nro",
+  });
+  assertEquals(d.action, "conflict_rescue");
+});
+
+Deno.test("ETA spike requires confirmation — does not pull sticky early on noise", () => {
+  const first = validateJitEtaMinutes({
+    proposedEtaMinutes: 12,
+    previousEtaMinutes: null,
+    haversineEtaMinutes: 10,
+    consecutiveElevatedSamples: 0,
     config: SCHEDULED_JIT_ACTIVATION_DEFAULTS,
   });
-  const clamped = clampJitDeadlineToFixedFloor({
-    candidateDeadlineMs: raw.deadlineMs,
-    fixedActivationAtMs: fixedAt,
-    maxEarlyPullAheadOfFixedMinutes: 20,
-  });
-  // earliest allowed = 20:19 - 20 = 19:59
-  assertEquals(new Date(clamped).toISOString(), "2026-11-12T19:59:00.000Z");
-  assert(clamped > raw.deadlineMs);
+  assertEquals(first.acceptedEtaMinutes, 12);
 
-  const sticky = reconcileStickyJitDeadline({
-    previousDeadlineMs: null,
-    candidateDeadlineMs: raw.deadlineMs,
-    fixedActivationAtMs: fixedAt,
-    oscillationToleranceMinutes: 2,
-    maxEarlyPullAheadOfFixedMinutes: 20,
-    currentScheduledAtMs: pickup,
+  const spike = validateJitEtaMinutes({
+    proposedEtaMinutes: 120,
+    previousEtaMinutes: 12,
+    haversineEtaMinutes: 10,
+    consecutiveElevatedSamples: 0,
+    config: SCHEDULED_JIT_ACTIVATION_DEFAULTS,
   });
-  assertEquals(sticky.deadlineMs, clamped);
+  assertEquals(spike.rejectedSpike, true);
+  assertEquals(spike.acceptedEtaMinutes, 12);
+  assertEquals(spike.consecutiveElevatedSamples, 1);
+
+  const confirmed = validateJitEtaMinutes({
+    proposedEtaMinutes: 120,
+    previousEtaMinutes: 12,
+    haversineEtaMinutes: 10,
+    consecutiveElevatedSamples: 1,
+    config: SCHEDULED_JIT_ACTIVATION_DEFAULTS,
+  });
+  assertEquals(confirmed.rejectedSpike, false);
+  assertEquals(confirmed.acceptedEtaMinutes, 120);
 });
 
 Deno.test("pickup reschedule invalidates sticky basis", () => {
   const oldPickup = Date.parse("2026-11-12T20:30:00.000Z");
   const newPickup = Date.parse("2026-11-12T21:00:00.000Z");
-  const fixedAt = newPickup - 11 * 60_000;
   const sticky = reconcileStickyJitDeadline({
     previousDeadlineMs: oldPickup - 16 * 60_000,
     candidateDeadlineMs: newPickup - 16 * 60_000,
-    fixedActivationAtMs: fixedAt,
     oscillationToleranceMinutes: 2,
-    maxEarlyPullAheadOfFixedMinutes: 20,
     basisScheduledAtMs: oldPickup,
     currentScheduledAtMs: newPickup,
   });
   assertEquals(sticky.reason, "basis_reset");
 });
 
-Deno.test("planning horizon gates early ETA monitoring", () => {
+Deno.test("planning horizon expands so distant ETA is not concealed by 90m floor", () => {
+  // ETA 100 → JIT deadline ≈ T-110 (100+5+5). Base 90m horizon would open too late.
+  const horizon = effectiveJitPlanningHorizonMinutes({
+    config: {
+      ...SCHEDULED_JIT_ACTIVATION_DEFAULTS,
+      planningHorizonMinutes: 90,
+    },
+    lastKnownEtaMinutes: 100,
+    fixedLongActivationMinutes: 45,
+  });
+  assert(horizon >= 100 + 5 + 5 + 30); // ≥140
+  assert(horizon > 90);
+
   const pickup = Date.parse("2026-11-12T20:30:00.000Z");
   assertEquals(
     isWithinJitPlanningHorizon({
-      nowMs: pickup - 2 * 60 * 60_000,
+      nowMs: pickup - 100 * 60_000,
       scheduledAtMs: pickup,
       planningHorizonMinutes: 90,
     }),
@@ -149,20 +224,23 @@ Deno.test("planning horizon gates early ETA monitoring", () => {
   );
   assertEquals(
     isWithinJitPlanningHorizon({
-      nowMs: pickup - 60 * 60_000,
+      nowMs: pickup - 100 * 60_000,
       scheduledAtMs: pickup,
-      planningHorizonMinutes: 90,
+      planningHorizonMinutes: horizon,
     }),
     true,
   );
 });
 
-Deno.test("haversine fallback is conservative (min 3 min, slow speed)", () => {
-  // ~1 km apart
+Deno.test("haversine fallback is estimate (conservative) not guaranteed upper bound", () => {
   const eta = estimateEtaMinutes(52.04, -0.76, 52.049, -0.76);
   assert(eta != null && eta >= 3);
-  // Must not be unrealistically fast for ~1km
   assert(eta! >= 4);
+  // Documented contract: estimate only — callers must not treat as max road time.
+  const src = Deno.readTextFileSync(
+    new URL("./scheduledDispatchConfig.ts", import.meta.url),
+  );
+  assert(src.includes("not a guaranteed upper bound"));
 });
 
 Deno.test("stale location classification", () => {
@@ -205,7 +283,21 @@ Deno.test("commitment feasibility + conflict rescue semantics", () => {
     }).threatens,
     true,
   );
-  // Idle + infeasible numbers alone does not threaten (no active journey)
+  const ok = evaluateScheduledCommitmentFeasibility({
+    nowMs: Date.parse("2026-11-12T19:30:00.000Z"),
+    remainingJourneyMinutes: 20,
+    travelToPickupEtaMinutes: 10,
+    scheduledAtMs: pickup,
+    config: SCHEDULED_JIT_ACTIVATION_DEFAULTS,
+  });
+  assertEquals(ok.feasible, true);
+  assertEquals(
+    activeJourneyThreatensScheduledCommitment({
+      hasActiveJourney: true,
+      feasibility: ok,
+    }).threatens,
+    false,
+  );
   assertEquals(
     activeJourneyThreatensScheduledCommitment({
       hasActiveJourney: false,
@@ -249,7 +341,7 @@ Deno.test("long distance classification at ETA ≥ 30", () => {
   );
 });
 
-Deno.test("source lock: default ack NRO path; auto-activate gated", async () => {
+Deno.test("source lock: ack NRO only; auto-activate fail-closed; no Phase 5 arm_ack emit", async () => {
   const src = await Deno.readTextFile(
     new URL("../scheduled-dispatch/index.ts", import.meta.url),
   );
@@ -260,12 +352,18 @@ Deno.test("source lock: default ack NRO path; auto-activate gated", async () => 
     new URL("./runConfirmedJitActivationPass.ts", import.meta.url),
   );
   assert(runner.includes("arm_exclusive_nro"));
-  assert(runner.includes("unavailable_rescue"));
   assert(runner.includes("SCHEDULED_JIT_ARM_EXCLUSIVE_NRO"));
+  assert(runner.includes("deferForCompatibleActiveJourney"));
+  assert(runner.includes("Phase 4 fail-closed"));
+  // Must not stamp en_route in runner (activate_now unreachable).
+  assert(!runner.includes("buildConfirmedActivationPatch"));
 
   const ssot = await Deno.readTextFile(
     new URL("./scheduledJitActivationSSOT.ts", import.meta.url),
   );
   assert(ssot.includes("autoActivateEnabled: false"));
-  assert(!/action: \"arm_ack\"[\s\S]*return \{[\s\S]*action: \"arm_ack\"/.test(ssot));
+  assert(ssot.includes('return "ack_nro"'));
+  assert(!/return \{\s*action: \"arm_ack\"/.test(ssot));
+  assert(!/return \{\s*action: \"activate_now\"/.test(ssot));
+  assert(!ssot.includes("clampJitDeadlineToFixedFloor"));
 });

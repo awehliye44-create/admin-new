@@ -1,9 +1,10 @@
 /**
  * Phase 4 — confirmed-driver JIT monitor + activation pass.
  *
- * Default: arm exclusive NRO (acknowledgement) — does NOT claim en_route without Accept.
- * Optional jit_auto_activate_enabled: direct en_route (ops-only until Phase 5).
- * Unavailable / stale / offline drivers are rescued — never blindly activated via fixed fallback.
+ * Always arm exclusive NRO (acknowledgement) — never stamps driver_en_route without Accept.
+ * jit_auto_activate_enabled is hard-locked false (resolveJitExecutionMode → ack_nro).
+ * Offline/stale: still arm NRO so Phase 5 can acknowledge within countdown — no premature rescue.
+ * Compatible active journey: defer arm; infeasible → conflict rematch (never interrupt passenger).
  */
 
 import type { AnySupabaseClient } from "./supabaseClientTypes.ts";
@@ -15,16 +16,16 @@ import {
   classifyDriverAvailabilityForJit,
   computeJitDepartureDeadlineMs,
   decideConfirmedScheduledActivation,
+  effectiveJitPlanningHorizonMinutes,
   isWithinJitPlanningHorizon,
   reconcileStickyJitDeadline,
   resolveJitExecutionMode,
   resolveScheduledJitActivationConfig,
+  validateJitEtaMinutes,
   type ScheduledJitActivationConfig,
 } from "./scheduledJitActivationSSOT.ts";
 import {
-  buildConfirmedActivationPatch,
   buildExclusiveActivationArmPatch,
-  CONFIRMED_ACTIVATION_FROM_STATUSES,
   isAlreadyConfirmedActivated,
 } from "./scheduledConfirmedActivationSSOT.ts";
 import {
@@ -48,7 +49,6 @@ import {
   SCHEDULED_ACTIVATION_EXCLUSIVE_REASON,
 } from "./scheduledActivationExclusiveSSOT.ts";
 import { isTripTerminalForDispatch, TERMINAL_TRIP_STATUS_POSTGREST_LIST } from "./tripTerminalDispatch.ts";
-import { notifyCustomerTripLifecycle } from "./customerTripLifecycleNotify.ts";
 import { estimateEtaMinutes } from "./scheduledDispatchConfig.ts";
 
 export type JitPassTrip = {
@@ -65,6 +65,8 @@ export type JitPassTrip = {
   scheduled_hold_reason?: string | null;
   scheduled_jit_activate_at?: string | null;
   scheduled_jit_basis_scheduled_at?: string | null;
+  scheduled_jit_eta_minutes?: number | null;
+  scheduled_jit_eta_spike_samples?: number | null;
   broadcast_enabled?: boolean | null;
   airport_charge_pence?: number | null;
   passenger_id?: string | null;
@@ -249,10 +251,17 @@ export async function runConfirmedJitActivationPass(input: {
     let etaSource = "none";
     let routingFailedWithFresh = false;
 
+    const lastKnownEta = Number(trip.scheduled_jit_eta_minutes);
+    const horizonMinutes = effectiveJitPlanningHorizonMinutes({
+      config: jitConfig,
+      lastKnownEtaMinutes: Number.isFinite(lastKnownEta) ? lastKnownEta : null,
+      fixedLongActivationMinutes:
+        activationConfig.longActivationMinutesBeforePickup,
+    });
     const withinHorizon = isWithinJitPlanningHorizon({
       nowMs,
       scheduledAtMs: fixedDue.pickupMs,
-      planningHorizonMinutes: jitConfig.planningHorizonMinutes,
+      planningHorizonMinutes: horizonMinutes,
     });
 
     if (withinHorizon) {
@@ -265,9 +274,26 @@ export async function runConfirmedJitActivationPass(input: {
       });
 
       if (eta.ok) {
+        const hav = presence.freshness.fresh &&
+            presence.freshness.lat != null &&
+            presence.freshness.lng != null
+          ? estimateEtaMinutes(
+            presence.freshness.lat,
+            presence.freshness.lng,
+            trip.pickup_latitude,
+            trip.pickup_longitude,
+          )
+          : null;
+        const validated = validateJitEtaMinutes({
+          proposedEtaMinutes: eta.etaMinutes,
+          previousEtaMinutes: Number.isFinite(lastKnownEta) ? lastKnownEta : null,
+          haversineEtaMinutes: hav,
+          consecutiveElevatedSamples: Number(trip.scheduled_jit_eta_spike_samples) || 0,
+          config: jitConfig,
+        });
         const computed = computeJitDepartureDeadlineMs({
           scheduledAtMs: fixedDue.pickupMs,
-          driverToPickupEtaMinutes: eta.etaMinutes,
+          driverToPickupEtaMinutes: validated.acceptedEtaMinutes,
           config: jitConfig,
         });
         const prevMs = trip.scheduled_jit_activate_at
@@ -279,9 +305,7 @@ export async function runConfirmedJitActivationPass(input: {
         const sticky = reconcileStickyJitDeadline({
           previousDeadlineMs: Number.isFinite(prevMs) ? prevMs : null,
           candidateDeadlineMs: computed.deadlineMs,
-          fixedActivationAtMs: fixedDue.activationAtMs,
           oscillationToleranceMinutes: jitConfig.oscillationToleranceMinutes,
-          maxEarlyPullAheadOfFixedMinutes: jitConfig.maxEarlyPullAheadOfFixedMinutes,
           basisScheduledAtMs: Number.isFinite(basisMs) ? basisMs : null,
           currentScheduledAtMs: fixedDue.pickupMs,
         });
@@ -290,19 +314,20 @@ export async function runConfirmedJitActivationPass(input: {
         etaSource = eta.source;
         monitored++;
 
-        if (sticky.changed) {
+        if (sticky.changed || validated.rejectedSpike) {
           await supabase
             .from("trips")
-            .update(
-              buildJitMonitorPersistPatch({
+            .update({
+              ...buildJitMonitorPersistPatch({
                 deadlineMs: sticky.deadlineMs,
-                etaMinutes: computed.etaMinutes,
+                etaMinutes: validated.acceptedEtaMinutes,
                 kind: computed.kind,
                 etaSource: eta.source,
                 basisScheduledAtIso: trip.scheduled_at,
                 nowIso: now.toISOString(),
               }),
-            )
+              scheduled_jit_eta_spike_samples: validated.consecutiveElevatedSamples,
+            })
             .eq("id", trip.id)
             .is("driver_id", null);
         }
@@ -373,13 +398,6 @@ export async function runConfirmedJitActivationPass(input: {
       routingFailedWithFreshLocation: routingFailedWithFresh,
     });
 
-    // Fresh location + temporary routing failure may still arm/activate using
-    // conservative haversine for deadline; stale/offline/unreachable may not.
-    const driverAvailableForActivation =
-      availability === "available" ||
-      availability === "routing_api_failure" ||
-      availability === "on_active_journey";
-
     const decision = decideConfirmedScheduledActivation({
       nowMs,
       scheduledAtMs: fixedDue.pickupMs,
@@ -391,8 +409,9 @@ export async function runConfirmedJitActivationPass(input: {
       holdReason,
       activeJourneyThreatensCommitment: threat.threatens,
       activeJourneyThreatReason: threat.reason ?? undefined,
-      driverAvailableForActivation:
-        driverAvailableForActivation && presence.freshness.fresh,
+      // Compatible active journey: retain assignment; reassess after dropoff.
+      deferForCompatibleActiveJourney:
+        Boolean(presence.currentTripId) && feasibility.feasible && !threat.threatens,
       availabilityClass: availability,
       executionMode,
     });
@@ -401,10 +420,9 @@ export async function runConfirmedJitActivationPass(input: {
       continue;
     }
 
-    if (
-      decision.action === "conflict_rescue" ||
-      decision.action === "unavailable_rescue"
-    ) {
+    // Only infeasible commitment (or explicit conflict) rescues — never premature
+    // offline rescue before Phase 5 acknowledgement opportunity.
+    if (decision.action === "conflict_rescue") {
       console.log("SCHEDULED_JIT_RESCUE", {
         trip_id: trip.id,
         driver_id: confirmedDriverId,
@@ -615,85 +633,12 @@ export async function runConfirmedJitActivationPass(input: {
       continue;
     }
 
-    if (decision.action !== "activate_now") {
-      continue;
-    }
-
-    // Ops-only auto en_route path (jit_auto_activate_enabled=true)
-    const patch = buildConfirmedActivationPatch({
-      confirmedDriverId,
-      nowIso: now.toISOString(),
-      existingCheckedInAt: trip.driver_checked_in_at,
-      activationSource: decision.source,
-    });
-
-    const { data: armedRows, error: armErr } = await supabase
-      .from("trips")
-      .update(patch)
-      .eq("id", trip.id)
-      .is("completed_at", null)
-      .not("status", "in", TERMINAL_TRIP_STATUS_POSTGREST_LIST)
-      .in("scheduled_status", [...CONFIRMED_ACTIVATION_FROM_STATUSES])
-      .eq("confirmed_driver_id", confirmedDriverId)
-      .is("driver_id", null)
-      .select("id");
-
-    if (armErr || !armedRows?.length) {
-      console.warn("[jit-activation] CAS activate missed", {
-        trip_id: trip.id,
-        error: armErr,
-      });
-      continue;
-    }
-
-    await supabase
-      .from("ride_offers")
-      .update({
-        status: "cancelled",
-        updated_at: now.toISOString(),
-      })
-      .eq("trip_id", trip.id)
-      .eq("driver_id", confirmedDriverId)
-      .in("status", ["pending", "offered", "countered"]);
-
-    await input.logSnapshot({
-      tripId: trip.id,
-      action: "scheduled_jit_auto_activation",
-      stage: "activated",
-      driverId: confirmedDriverId,
-      metadata: {
-        source: decision.source,
-        kind: decision.kind,
-        deadline_at: new Date(decision.deadlineMs).toISOString(),
-        eta_source: etaSource,
-        jit_kind: jitKind,
-        execution_mode: executionMode,
-        phase5_ack_deadline_at: null,
-      },
-    });
-
-    if (trip.passenger_id) {
-      try {
-        const driverName = presence.firstName?.trim() || "Your driver";
-        await notifyCustomerTripLifecycle(supabase, {
-          passengerId: String(trip.passenger_id),
-          tripId: trip.id,
-          event: "driver_assigned",
-          title: "Your driver is on the way",
-          body: `${driverName} is heading to your pickup at ${trip.pickup_address ?? "your location"}.`,
-          notificationId: `driver_assigned-${trip.id}-scheduled_jit`,
-        });
-      } catch (notifErr) {
-        console.warn("[jit-activation] customer notify failed", notifErr);
-      }
-    }
-
-    console.log("SCHEDULED_JIT_AUTO_ACTIVATED", {
+    // Phase 4: activate_now / unavailable_rescue must never run.
+    // No-ack en_route is impossible while resolveJitExecutionMode → ack_nro.
+    console.warn("[jit-activation] unexpected decision ignored (Phase 4 fail-closed)", {
       trip_id: trip.id,
-      driver_id: confirmedDriverId,
-      source: decision.source,
+      action: (decision as { action?: string }).action,
     });
-    activated++;
   }
 
   return { activated, armed, monitored, rescued };
