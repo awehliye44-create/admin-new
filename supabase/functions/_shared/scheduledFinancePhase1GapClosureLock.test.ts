@@ -40,10 +40,15 @@ Deno.test("scheduled-dispatch sweeps payment_gate_blocked and gates assign/broad
 });
 
 Deno.test("Admin Assign Now uses atomic admin_assign_scheduled_driver RPC", async () => {
+  // Phase 3 final: UI routes Assign Now via Edge; Edge/RPC still call the atomic RPC.
   const src = await Deno.readTextFile(join(REPO, "src/pages/ScheduledRides.tsx"));
-  assert(src.includes("admin_assign_scheduled_driver"));
+  assert(src.includes("assign_now") || src.includes("admin_assign_scheduled_driver"));
   assert(src.includes("Cannot assign — payment authorisation"));
   assert(!src.includes("assert_payment_gate"));
+  const edge = await Deno.readTextFile(
+    join(REPO, "supabase/functions/admin-scheduled-ride-action/index.ts"),
+  );
+  assert(edge.includes("admin_assign_scheduled_driver"));
   const sql = await Deno.readTextFile(
     join(REPO, "supabase/migrations/20270201120200_scheduled_finance_phase1_payment_first_atomicity.sql"),
   );

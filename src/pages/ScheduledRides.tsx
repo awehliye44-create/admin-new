@@ -50,9 +50,7 @@ import {
 import { supabase } from '@/integrations/supabase/client';
 import {
   adminLookupByIds,
-  adminPageMutate,
   adminPageSelect,
-  type AdminPageFilter,
   adminServiceAreasLookup,
 } from '@/lib/adminPageGatedData';
 import {
@@ -94,19 +92,6 @@ const TERMINAL_TRIP_STATUSES = [
   'completed', 'cancelled', 'canceled', 'customer_cancelled', 'customer_canceled',
   'expired', 'expired_no_driver', 'no_show', 'declined', 'failed',
 ] as const;
-
-async function scheduledRidesTripUpdate(
-  tripId: string,
-  patch: Record<string, unknown>,
-  filters: AdminPageFilter[] = [],
-): Promise<Array<{ id: string }>> {
-  const { rows } = await adminPageMutate<{ id: string }>('scheduled-rides', 'trips', 'update', {
-    id: tripId,
-    patch,
-    filters,
-  });
-  return rows ?? [];
-}
 
 /** Phase 3: emergency scheduled actions — backend gates + audit (not client mutate). */
 async function invokeAdminScheduledRideAction(input: {
@@ -407,6 +392,8 @@ export default function ScheduledRides() {
       toast.error('Please select a driver');
       return;
     }
+    const reason = requireEmergencyReason('Emergency Assign Now');
+    if (!reason) return;
 
     setSavingAction('admin_assign_trip');
     setIsSaving(true);
@@ -415,44 +402,24 @@ export default function ScheduledRides() {
       metadata: { trip_id: selectedTrip.id },
     });
     try {
-      // Phase 1: atomic backend assign (payment gate + preconfirm in one transaction).
-      const { data: assignResult, error: assignErr } = await supabase.rpc(
-        'admin_assign_scheduled_driver' as never,
-        {
-          p_trip_id: selectedTrip.id,
-          p_driver_id: selectedDriverId,
-        } as never,
-      );
-      if (assignErr) {
-        toast.error(assignErr.message || 'Failed to assign driver');
-        return;
-      }
-      const assignBody = (assignResult ?? {}) as {
-        success?: boolean;
-        error?: string;
-        message?: string;
-      };
-      if (assignBody.success !== true) {
+      // Phase 3 final: Edge enforces scheduled_rides.assign + payment/airport + audit.
+      const result = await invokeAdminScheduledRideAction({
+        action: 'assign_now',
+        tripId: selectedTrip.id,
+        reason,
+        driverId: selectedDriverId,
+      });
+      if (!result.success) {
         toast.error(
-          assignBody.error === 'PAYMENT_GATE_NOT_SATISFIED'
+          result.error === 'PAYMENT_GATE_NOT_SATISFIED'
             ? 'Cannot assign — payment authorisation does not cover this booking.'
-            : assignBody.message || assignBody.error || 'Trip is no longer available to assign',
+            : result.error === 'ACTION_PERMISSION_DENIED' || result.error === 'Forbidden — scheduled_rides.assign required'
+            ? 'You do not have permission to Assign'
+            : result.error === 'AIRPORT_PRICING_UNRESOLVED'
+            ? 'Blocked — unresolved airport pricing'
+            : result.message || result.error || 'Trip is no longer available to assign',
         );
         return;
-      }
-
-      const { error: notifyErr } = await supabase.functions.invoke('admin-trip-action', {
-        body: {
-          action: 'notify_driver_assigned',
-          trip_id: selectedTrip.id,
-          title: 'Driver confirmed',
-          body: 'Your driver is confirmed for your scheduled ride.',
-          notification_id: `driver_assigned-${selectedTrip.id}-scheduled_admin`,
-          path: '/account/rides',
-        },
-      });
-      if (notifyErr) {
-        console.warn('[ScheduledRides] driver_assigned notify failed:', notifyErr);
       }
 
       perf.complete({ success: true, metadata: { trip_id: selectedTrip.id } });
@@ -524,6 +491,11 @@ export default function ScheduledRides() {
   const handleCancelTrip = async (e?: React.MouseEvent) => {
     e?.preventDefault();
     if (!selectedTrip) return;
+    const reason = (cancelReason || '').trim();
+    if (reason.length < 3) {
+      toast.error('A reason is required to cancel a scheduled ride (min 3 characters)');
+      return;
+    }
 
     setSavingAction('admin_cancel_trip');
     setIsSaving(true);
@@ -533,40 +505,20 @@ export default function ScheduledRides() {
     });
     try {
       const tripId = selectedTrip.id;
-      const reason = cancelReason || 'Cancelled by admin';
-      // Same Edge cancel as Active Trips — payment dispose + Customer trip_cancelled WAV.
-      const { data: cancelResult, error } = await supabase.functions.invoke('admin-trip-actions', {
-        body: {
-          action: 'cancel',
-          trip_id: tripId,
-          reason,
-        },
+      // Phase 3 final: Edge enforces scheduled_rides.cancel_ride + terminal cancel + audit.
+      // Does not use admin_page_mutate for protected scheduled fields.
+      const result = await invokeAdminScheduledRideAction({
+        action: 'cancel_ride',
+        tripId,
+        reason,
       });
-
-      if (error) throw error;
-      if (cancelResult && typeof cancelResult === 'object') {
-        const body = cancelResult as {
-          success?: boolean;
-          error?: string;
-          result?: { success?: boolean; error?: string };
-        };
-        if (body.success === false || body.error) {
-          throw new Error(body.error || body.result?.error || 'Failed to cancel trip');
-        }
-        if (body.result && body.result.success === false) {
-          throw new Error(body.result.error || 'Failed to cancel trip');
-        }
+      if (!result.success) {
+        throw new Error(
+          result.error === 'ACTION_PERMISSION_DENIED'
+            ? 'You do not have permission to Cancel Ride'
+            : result.message || result.error || 'Failed to cancel trip',
+        );
       }
-
-      // Keep scheduled board filters consistent (RPC cancels status/dispatch, not scheduled_status).
-      // Also neutralize ownership + pending release so cancelled rows cannot re-surface as open work.
-      await scheduledRidesTripUpdate(tripId, {
-        scheduled_status: 'cancelled',
-        confirmed_driver_id: null,
-        pending_release_kind: null,
-        pending_release_at: null,
-        pending_release_driver_id: null,
-      });
 
       perf.complete({ success: true, metadata: { trip_id: tripId } });
       toast.success('Scheduled ride cancelled');

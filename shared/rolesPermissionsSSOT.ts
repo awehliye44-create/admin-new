@@ -131,6 +131,60 @@ export const DEMAND_ZONE_ACTION_HELP: Record<DemandZoneRoleActionKey, string> = 
     'Open the Audit tab and read demand_zone_audit_log entries.',
 };
 
+/**
+ * Phase 3 — Scheduled Rides emergency / mutation capabilities.
+ * Seeded in role_action_permissions. Missing row = deny (Owner always allowed).
+ * Page access to Scheduled Rides does NOT grant these automatically.
+ * Missing role_action_permissions row = deny (Owner always allowed via staff_has_action).
+ */
+export const SCHEDULED_RIDES_ROLE_ACTION_KEYS = [
+  'scheduled_rides.make_available',
+  'scheduled_rides.assign',
+  'scheduled_rides.broadcast',
+  'scheduled_rides.hold',
+  'scheduled_rides.cancel_pending',
+  'scheduled_rides.cancel_ride',
+] as const;
+
+export type ScheduledRidesRoleActionKey = (typeof SCHEDULED_RIDES_ROLE_ACTION_KEYS)[number];
+
+export const SCHEDULED_RIDES_ACTION_LABELS: Record<ScheduledRidesRoleActionKey, string> = {
+  'scheduled_rides.make_available': 'Make Available (Now / At)',
+  'scheduled_rides.assign': 'Assign driver (Now / At)',
+  'scheduled_rides.broadcast': 'Broadcast (Now / At)',
+  'scheduled_rides.hold': 'Exceptional Hold / Release',
+  'scheduled_rides.cancel_pending': 'Cancel pending Assign / Broadcast / Jobs',
+  'scheduled_rides.cancel_ride': 'Cancel scheduled ride',
+};
+
+export const SCHEDULED_RIDES_ACTION_HELP: Record<ScheduledRidesRoleActionKey, string> = {
+  'scheduled_rides.make_available':
+    'Emergency publish to Driver Scheduled Jobs Requested. Does not start NRO.',
+  'scheduled_rides.assign':
+    'Pre-confirm a specific driver now or at a future time (payment-gated).',
+  'scheduled_rides.broadcast':
+    'Convert to instant New Ride Offer broadcast now or at a future time.',
+  'scheduled_rides.hold':
+    'Place or manage an exceptional Admin hold that blocks automatic publication.',
+  'scheduled_rides.cancel_pending':
+    'Clear a pending Assign At / Broadcast At / Jobs At without mutating marketplace state.',
+  'scheduled_rides.cancel_ride':
+    'Cancel a scheduled booking (terminal). Requires an operational reason.',
+};
+
+/** Map Edge admin-scheduled-ride-action names → action keys. */
+export const SCHEDULED_RIDES_EDGE_ACTION_PERMISSION: Record<string, ScheduledRidesRoleActionKey> = {
+  make_available_now: 'scheduled_rides.make_available',
+  make_available_at: 'scheduled_rides.make_available',
+  assign_at: 'scheduled_rides.assign',
+  assign_now: 'scheduled_rides.assign',
+  broadcast_now: 'scheduled_rides.broadcast',
+  broadcast_at: 'scheduled_rides.broadcast',
+  hold_exceptional: 'scheduled_rides.hold',
+  cancel_pending_release: 'scheduled_rides.cancel_pending',
+  cancel_ride: 'scheduled_rides.cancel_ride',
+};
+
 /* ------------------------------------------------------------------ */
 /* Help copy                                                           */
 /* ------------------------------------------------------------------ */
