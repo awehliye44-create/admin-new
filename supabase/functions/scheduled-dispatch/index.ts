@@ -24,6 +24,11 @@ import {
   scheduledActivationLookaheadMs,
 } from "../_shared/scheduledActivationSSOT.ts";
 import {
+  runConfirmedJitActivationPass,
+  resolveJitConfigFromSettingsRow,
+} from "../_shared/runConfirmedJitActivationPass.ts";
+import { SCHEDULED_JIT_ACTIVATION_DEFAULTS } from "../_shared/scheduledJitActivationSSOT.ts";
+import {
   buildAssignNowPatch,
   buildBroadcastNowPatch,
   buildMakeAvailableScheduledJobsPatch,
@@ -60,13 +65,9 @@ import {
   AUTO_PUBLISH_ELIGIBLE_HOLD_REASONS,
 } from "../_shared/scheduledMarketplaceHoldSSOT.ts";
 import {
-  buildExclusiveActivationOfferSnapshot,
-  resolveActivationGrossPenceForPreview,
-  resolveExclusiveActivationDriverNetPence,
   SCHEDULED_ACTIVATION_EXCLUSIVE_REASON,
 } from "../_shared/scheduledActivationExclusiveSSOT.ts";
 import {
-  evaluateConfirmedDriverExclusiveEligibility,
   rescueExclusiveActivationToNearby,
 } from "../_shared/scheduledActivationExclusiveRescue.ts";
 
@@ -445,7 +446,12 @@ Deno.serve(async (req) => {
          urgent_dispatch_trigger_minutes_before_pickup, locked_driver_response_minutes,
          max_driver_find_time_minutes, scheduled_urgent_card_label,
          long_trip_threshold_minutes, local_activation_minutes_before_pickup,
-         long_activation_minutes_before_pickup, max_dispatch_rounds`,
+         long_activation_minutes_before_pickup, max_dispatch_rounds,
+         presence_max_age_seconds,
+         jit_target_early_arrival_minutes, jit_local_safety_buffer_minutes,
+         jit_long_safety_buffer_minutes, jit_long_distance_eta_threshold_minutes,
+         jit_oscillation_tolerance_minutes, jit_planning_horizon_minutes,
+         jit_max_early_pull_ahead_of_fixed_minutes, jit_auto_activate_enabled`,
       )
       .eq("singleton", true)
       .maybeSingle();
@@ -453,6 +459,16 @@ Deno.serve(async (req) => {
     const schedConfig = resolveScheduledDispatchConfig(globalSettings);
     const maxFindDriverMinutes = schedConfig.maxFindDriverMinutes;
     const activationConfig = schedConfig.activation;
+    const jitConfig = resolveJitConfigFromSettingsRow(
+      (globalSettings as Record<string, unknown> | null) ?? null,
+    );
+    const presenceMaxAgeSeconds = (() => {
+      const n = Number(
+        (globalSettings as { presence_max_age_seconds?: number } | null)
+          ?.presence_max_age_seconds,
+      );
+      return Number.isFinite(n) && n > 0 ? n : 60;
+    })();
     const instantMaxSequences = maxBroadcastSequences(
       { max_dispatch_rounds: (globalSettings as { max_dispatch_rounds?: number } | null)?.max_dispatch_rounds },
       null,
@@ -970,19 +986,36 @@ Deno.serve(async (req) => {
     }
 
     // ============================================================
-    // STEP 1: PRE-CONFIRMED ACTIVATION — fixed Local/Long T-minutes
-    // At activation: SCHEDULED RIDE NRO to confirmed_driver_id.
-    // Driver MUST Accept to enter Drive to Pickup (not Start Trip).
+    // STEP 1: PRE-CONFIRMED JIT ACTIVATION (Phase 4)
+    // Dynamic departure deadline for confirmed drivers → auto en_route.
+    // No second Accept. Phase 5 may later insert ack before activate.
+    // Unclaimed Local/Long timings are unchanged (STEP 2 / STEP 3).
     // ============================================================
 
-    const lookAheadMs = scheduledActivationLookaheadMs(activationConfig);
+    const fixedLookAheadMs = scheduledActivationLookaheadMs(activationConfig);
+    const jitLookAheadMs =
+      (jitConfig.longDistanceEtaThresholdMinutes +
+        jitConfig.targetEarlyArrivalMinutes +
+        jitConfig.longSafetyBufferMinutes +
+        15) *
+      60_000;
+    const lookAheadMs = Math.max(
+      fixedLookAheadMs,
+      jitLookAheadMs,
+      SCHEDULED_JIT_ACTIVATION_DEFAULTS.longDistanceEtaThresholdMinutes * 60_000,
+    );
     const lookAheadThreshold = new Date(nowMs + lookAheadMs).toISOString();
 
     const { data: tripsForActivation, error: activationError } = await supabase
       .from("trips")
       .select("*")
       .eq("dispatch_mode", "scheduled")
-      .in("scheduled_status", ["scheduled", "driver_assigned", "scheduled_committed"])
+      .in("scheduled_status", [
+        "scheduled",
+        "driver_assigned",
+        "scheduled_committed",
+        "awaiting_activation_accept",
+      ])
       .not("confirmed_driver_id", "is", null)
       .is("driver_id", null)
       .lte("scheduled_at", lookAheadThreshold)
@@ -991,257 +1024,37 @@ Deno.serve(async (req) => {
     if (activationError) {
       console.error("[scheduled-dispatch] Error fetching trips for activation:", activationError);
     } else if (tripsForActivation && tripsForActivation.length > 0) {
-      for (const trip of tripsForActivation as ScheduledTrip[]) {
-        if (isTripTerminalForDispatch(trip)) continue;
-        if (!trip.pickup_latitude || !trip.pickup_longitude) {
-          console.warn(`[scheduled-dispatch] Trip ${trip.id} missing pickup coords — skipping`);
-          continue;
-        }
-
-        const confirmedDriverId = trip.confirmed_driver_id!;
-        const due = isScheduledActivationDue({
-          scheduledAt: trip.scheduled_at,
-          estimatedDurationMinutes: trip.estimated_duration_minutes,
-          config: activationConfig,
-          nowMs,
-        });
-
-        if (due.usedFallbackDuration) {
-          console.warn(
-            `[scheduled-dispatch] Trip ${trip.id}: missing estimated_duration_minutes — classifying LONG via threshold fallback`,
-          );
-        }
-
-        if (!due.due) {
-          console.log(
-            `[scheduled-dispatch] Trip ${trip.id}: ${due.kind} activation not due until ${new Date(due.activationAtMs).toISOString()}`,
-          );
-          continue;
-        }
-
-        // Already awaiting activation NRO — do not spam offers every minute.
-        if (String(trip.scheduled_status) === "awaiting_activation_accept") {
-          continue;
-        }
-        // Defense: never arm activation while still Admin HELD.
-        if (String(trip.scheduled_status) === "admin_held") {
-          continue;
-        }
-
-        // MK-261105-002: unpaid / lost-auth rides must not enter activation NRO.
-        try {
-          await assertPaymentGate(supabase, trip.id);
-        } catch (gateErr) {
-          const detail = gateErr instanceof PaymentGateError
-            ? gateErr.message
-            : String((gateErr as Error)?.message ?? gateErr);
-          console.warn("[scheduled-dispatch] activation payment gate blocked", {
-            trip_id: trip.id,
-            detail,
-          });
-          await supabase
-            .from("trips")
-            .update({
-              scheduled_status: "payment_gate_blocked",
-              updated_at: now.toISOString(),
-            })
-            .eq("id", trip.id);
-          try {
-            await resolvePaymentGateBlockedTrip(supabase, trip.id);
-          } catch (resolveErr) {
-            console.warn("[scheduled-dispatch] activation payment_gate_blocked resolve failed", {
-              trip_id: trip.id,
-              error: String(resolveErr),
-            });
-          }
-          continue;
-        }
-
-        console.log("SCHEDULED_ACTIVATION_NRO_TRIGGERED", {
-          trip_id: trip.id,
-          confirmed_driver_id: confirmedDriverId,
-          scheduled_at: trip.scheduled_at,
-          activation_at: new Date(due.activationAtMs).toISOString(),
-          kind: due.kind,
-          estimated_duration_minutes: trip.estimated_duration_minutes,
-        });
-
-        const responseMinutes = Math.max(
-          1,
-          Number(schedConfig.lockedDriverResponseMinutes ?? 3),
-        );
-        const expiresAt = new Date(nowMs + responseMinutes * 60_000).toISOString();
-
-        // P5 — driver net only (stamped or commission SSOT preview). Never customer gross.
-        let computedPreview: number | null = null;
-        const stampedNet = resolveExclusiveActivationDriverNetPence({ trip });
-        if (stampedNet == null) {
-          const gross = resolveActivationGrossPenceForPreview(trip);
-          if (gross != null && trip.service_area_id) {
-            const { data: preview } = await supabase.rpc(
-              "compute_driver_net_preview_from_gross",
-              {
-                p_gross_pence: gross,
-                p_driver_id: confirmedDriverId,
-                p_service_area_id: trip.service_area_id,
-                p_airport_charge_pence: Number(trip.airport_charge_pence ?? 0) || 0,
-              },
-            );
-            const n = Number(preview);
-            computedPreview = Number.isFinite(n) && n > 0 ? Math.round(n) : null;
-          }
-        }
-        const netPence = resolveExclusiveActivationDriverNetPence({
-          trip,
-          computedPreviewPence: computedPreview,
-        });
-        if (netPence == null || netPence <= 0) {
-          console.error(
-            `[scheduled-dispatch] Activation bypass — driver net unavailable for ${trip.id}`,
-          );
+      const jitResult = await runConfirmedJitActivationPass({
+        supabase,
+        trips: tripsForActivation as any[],
+        now,
+        nowMs,
+        activationConfig,
+        jitConfig,
+        presenceMaxAgeSeconds,
+        lockedDriverResponseMinutes: schedConfig.lockedDriverResponseMinutes,
+        maxFindDriverMinutes,
+        supabaseUrl,
+        supabaseServiceKey,
+        releaseAndRebroadcast: async (args) => {
           await releaseAndRebroadcast(supabase, {
-            trip,
-            reason: SCHEDULED_ACTIVATION_EXCLUSIVE_REASON.netUnavailableBypass,
-            now,
-            nowMs,
-            supabaseUrl,
-            supabaseServiceKey,
-            urgent: true,
-            maxFindDriverMinutes,
-            excludeDriverId: confirmedDriverId,
+            trip: args.trip as ScheduledTrip,
+            reason: args.reason,
+            now: args.now,
+            nowMs: args.nowMs,
+            supabaseUrl: args.supabaseUrl,
+            supabaseServiceKey: args.supabaseServiceKey,
+            urgent: args.urgent,
+            maxFindDriverMinutes: args.maxFindDriverMinutes,
+            excludeDriverId: args.excludeDriverId,
           });
-          continue;
-        }
-
-        // P3 — eligibility before arm (stacked / finishing earlier trip allowed).
-        const eligibility = await evaluateConfirmedDriverExclusiveEligibility(supabase, {
-          driverId: confirmedDriverId,
-          tripId: trip.id,
-          nowMs,
-          allowOnTrip: true,
-        });
-        if (!eligibility.eligible) {
-          console.log("SCHEDULED_ACTIVATION_INELIGIBLE_BYPASS", {
-            trip_id: trip.id,
-            driver_id: confirmedDriverId,
-            reason: eligibility.reason,
-          });
-          await releaseAndRebroadcast(supabase, {
-            trip,
-            reason: SCHEDULED_ACTIVATION_EXCLUSIVE_REASON.ineligibleBypass,
-            now,
-            nowMs,
-            supabaseUrl,
-            supabaseServiceKey,
-            urgent: true,
-            maxFindDriverMinutes,
-            excludeDriverId: confirmedDriverId,
-          });
-          continue;
-        }
-
-        const offerSnapshot = buildExclusiveActivationOfferSnapshot({
-          trip,
-          confirmedDriverId,
-          netPence,
-          kind: due.kind,
-          expiresAtIso: expiresAt,
-        });
-
-        const { data: offerRows, error: offerErr } = await supabase
-          .from("ride_offers")
-          .insert({
-            trip_id: trip.id,
-            driver_id: confirmedDriverId,
-            status: "pending",
-            offered_at: now.toISOString(),
-            expires_at: expiresAt,
-            offered_driver_net_pence: netPence,
-            is_urgent_dispatch: false,
-            is_stacked: eligibility.isStacked,
-            offer_snapshot: offerSnapshot,
-          })
-          .select("id");
-
-        // Insert may be skipped by tr_block_ineligible_ride_offer (returns 0 rows).
-        if (offerErr || !offerRows?.length) {
-          console.error(
-            `[scheduled-dispatch] Activation offer insert failed/blocked:`,
-            trip.id,
-            offerErr,
-          );
-          await releaseAndRebroadcast(supabase, {
-            trip,
-            reason: SCHEDULED_ACTIVATION_EXCLUSIVE_REASON.insertBlockedBypass,
-            now,
-            nowMs,
-            supabaseUrl,
-            supabaseServiceKey,
-            urgent: true,
-            maxFindDriverMinutes,
-            excludeDriverId: confirmedDriverId,
-          });
-          continue;
-        }
-
-        const offerId = String(offerRows[0].id);
-
-        const { data: armedRows, error: commitError } = await supabase
-          .from("trips")
-          .update({
-            scheduled_status: "awaiting_activation_accept",
-            updated_at: now.toISOString(),
-          })
-          .eq("id", trip.id)
-          .is("completed_at", null)
-          .not("status", "in", TERMINAL_TRIP_STATUS_POSTGREST_LIST)
-          .in("scheduled_status", ["scheduled", "driver_assigned", "scheduled_committed"])
-          .is("driver_id", null)
-          .select("id");
-
-        if (commitError || !armedRows?.length) {
-          console.error(
-            `[scheduled-dispatch] Activation NRO arm failed for trip ${trip.id}:`,
-            commitError,
-          );
-          await supabase
-            .from("ride_offers")
-            .update({ status: "cancelled", updated_at: now.toISOString() })
-            .eq("id", offerId);
-          continue;
-        }
-
-        await logSnapshot(supabase, {
-          tripId: trip.id,
-          action: "scheduled_activation_nro",
-          stage: "offer_inserted",
-          driverId: confirmedDriverId,
-          metadata: {
-            kind: due.kind,
-            activation_at: new Date(due.activationAtMs).toISOString(),
-            scheduled_at: trip.scheduled_at,
-            offer_id: offerId,
-            estimated_duration_minutes: trip.estimated_duration_minutes,
-            driver_net_pence: netPence,
-            expires_at: expiresAt,
-          },
-        });
-
-        // P1 — standard RIDE_OFFER / NEW_RIDE_OFFER is owned by
-        // tr_send_push_on_ride_offer_insert → ride_offer_dispatch_push_delivery
-        // (offer_id + NEW_RIDE_OFFER + net from offer_snapshot). Do NOT also
-        // send SCHEDULED_COMMITMENT or a second Edge RIDE_OFFER (duplicates).
-        console.log("SCHEDULED_ACTIVATION_NRO_ARMED", {
-          trip_id: trip.id,
-          offer_id: offerId,
-          driver_id: confirmedDriverId,
-          expires_at: expiresAt,
-          driver_net_pence: netPence,
-          is_stacked: eligibility.isStacked,
-        });
-
-        committedCount++;
-      }
+        },
+        logSnapshot: async (args) => {
+          await logSnapshot(supabase, args);
+        },
+      });
+      committedCount += jitResult.armed + jitResult.activated;
+      console.log("SCHEDULED_JIT_PASS", jitResult);
     }
 
     // ============================================================

@@ -2432,6 +2432,54 @@ Deno.serve(async (req) => {
 
     uniqueDrivers = Array.from(new Map(combinedDrivers.map(d => [d.id, d])).values());
 
+    // Phase 4: do not offer work that makes a confirmed scheduled commitment infeasible.
+    {
+      const { driverMayAcceptAdditionalWork } = await import(
+        "../_shared/scheduledCommitmentOfferGateSSOT.ts"
+      );
+      const gated: typeof uniqueDrivers = [];
+      const nowMsGate = Date.now();
+      const candidateDuration = Math.max(
+        5,
+        Number((trip as { estimated_duration_minutes?: number }).estimated_duration_minutes) || 30,
+      );
+      for (const d of uniqueDrivers) {
+        const isStackedDriver = !!(d as { is_stacked?: boolean }).is_stacked;
+        const remainingAfter = isStackedDriver
+          ? candidateDuration +
+            Math.max(
+              5,
+              Number((d as { current_trip_eta_minutes?: number }).current_trip_eta_minutes) || 20,
+            )
+          : candidateDuration;
+        const dropLat = Number(
+          (trip as { dropoff_latitude?: number }).dropoff_latitude ??
+            (d as { current_lat?: number }).current_lat,
+        );
+        const dropLng = Number(
+          (trip as { dropoff_longitude?: number }).dropoff_longitude ??
+            (d as { current_lng?: number }).current_lng,
+        );
+        const gate = await driverMayAcceptAdditionalWork({
+          supabase,
+          driverId: d.id,
+          nowMs: nowMsGate,
+          remainingJourneyMinutesAfterAccept: remainingAfter,
+          fromLat: Number.isFinite(dropLat) ? dropLat : null,
+          fromLng: Number.isFinite(dropLng) ? dropLng : null,
+          globalDispatchSettings: dispatchSettings as Record<string, unknown> | null,
+        });
+        if (!gate.allowed) {
+          logEligibility(d.id, false, "scheduled_commitment_infeasible", {
+            commitment_trip_id: gate.commitmentTripId,
+          });
+          continue;
+        }
+        gated.push(d);
+      }
+      uniqueDrivers = gated;
+    }
+
     for (const d of uniqueDrivers) {
       const isStackedDriver = !!(d as { is_stacked?: boolean }).is_stacked;
       queueSnapshot("selected", d.id, {

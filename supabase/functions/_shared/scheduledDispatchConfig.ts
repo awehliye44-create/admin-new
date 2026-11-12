@@ -455,7 +455,8 @@ export function haversineKm(
 
 /**
  * Estimate driving ETA in minutes using haversine distance.
- * Assumes 1.3× road factor and 25 km/h average city speed.
+ * Conservative road factor + slow city speed so fallback never underestimates
+ * travel time for JIT / commitment gates (Phase 4 hardening).
  * Returns null if coordinates are missing or degenerate.
  */
 export function estimateEtaMinutes(
@@ -469,9 +470,9 @@ export function estimateEtaMinutes(
     pickupLat == null || pickupLng == null
   ) return null;
   const distKm = haversineKm(driverLat, driverLng, pickupLat, pickupLng);
-  const roadKm = distKm * 1.3;        // road-factor correction
-  const avgSpeedKmh = 25;             // conservative city average
-  return Math.max(1, Math.ceil((roadKm / avgSpeedKmh) * 60));
+  const roadKm = distKm * 1.45; // conservative road-factor (was 1.3)
+  const avgSpeedKmh = 20; // slower than typical city average — do not underestimate
+  return Math.max(3, Math.ceil((roadKm / avgSpeedKmh) * 60));
 }
 
 /**

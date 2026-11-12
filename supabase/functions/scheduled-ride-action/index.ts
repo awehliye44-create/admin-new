@@ -418,6 +418,50 @@ Deno.serve(async (req) => {
         }
       }
 
+      // Phase 4: refuse if this scheduled booking conflicts with other confirmed commitments.
+      {
+        const { data: cand } = await supabase
+          .from("trips")
+          .select(
+            "id, scheduled_at, estimated_duration_minutes, pickup_latitude, pickup_longitude, dropoff_latitude, dropoff_longitude",
+          )
+          .eq("id", trip_id)
+          .maybeSingle();
+        const candAt = Date.parse(String(cand?.scheduled_at ?? ""));
+        if (Number.isFinite(candAt)) {
+          const { driverMayTakeAdditionalScheduledBooking } = await import(
+            "../_shared/scheduledCommitmentOfferGateSSOT.ts"
+          );
+          const gate = await driverMayTakeAdditionalScheduledBooking({
+            supabase,
+            driverId: driver_id,
+            nowMs: Date.now(),
+            candidateTripId: trip_id,
+            candidateScheduledAtMs: candAt,
+            candidateDurationMinutes: Number(cand?.estimated_duration_minutes) || 30,
+            candidatePickupLat: cand?.pickup_latitude == null
+              ? null
+              : Number(cand.pickup_latitude),
+            candidatePickupLng: cand?.pickup_longitude == null
+              ? null
+              : Number(cand.pickup_longitude),
+            candidateDropoffLat: cand?.dropoff_latitude == null
+              ? null
+              : Number(cand.dropoff_latitude),
+            candidateDropoffLng: cand?.dropoff_longitude == null
+              ? null
+              : Number(cand.dropoff_longitude),
+          });
+          if (!gate.allowed) {
+            return errorResponse(
+              "SCHEDULED_COMMITMENT_INFEASIBLE",
+              "This booking conflicts with another confirmed scheduled ride.",
+              409,
+            );
+          }
+        }
+      }
+
       // Live Europe/London document eligibility (same SSOT as accept-offer).
       // RPC also enforces this — Edge check gives a clear error before the lock.
       {

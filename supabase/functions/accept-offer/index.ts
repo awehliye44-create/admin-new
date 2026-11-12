@@ -301,6 +301,54 @@ Deno.serve(async (req) => {
       }
     }
 
+    // Phase 4: refuse accept when it would make a confirmed scheduled commitment infeasible.
+    if (pendingOffer?.trip_id) {
+      const { driverMayAcceptAdditionalWork } = await import(
+        "../_shared/scheduledCommitmentOfferGateSSOT.ts"
+      );
+      const { data: candidateTrip } = await supabase
+        .from("trips")
+        .select(
+          "id, estimated_duration_minutes, dropoff_latitude, dropoff_longitude, pickup_latitude, pickup_longitude",
+        )
+        .eq("id", pendingOffer.trip_id)
+        .maybeSingle();
+      const candidateDur = Math.max(
+        5,
+        Number(candidateTrip?.estimated_duration_minutes) || 30,
+      );
+      let remainingActive = 0;
+      if (effectiveIsStacked && effectiveCurrentTripId) {
+        const { data: cur } = await supabase
+          .from("trips")
+          .select("estimated_duration_minutes")
+          .eq("id", effectiveCurrentTripId)
+          .maybeSingle();
+        remainingActive = Math.max(5, Number(cur?.estimated_duration_minutes) || 20);
+      }
+      const fromLat = Number(
+        candidateTrip?.dropoff_latitude ?? candidateTrip?.pickup_latitude,
+      );
+      const fromLng = Number(
+        candidateTrip?.dropoff_longitude ?? candidateTrip?.pickup_longitude,
+      );
+      const gate = await driverMayAcceptAdditionalWork({
+        supabase,
+        driverId: driver_id,
+        nowMs: Date.now(),
+        remainingJourneyMinutesAfterAccept: remainingActive + candidateDur,
+        fromLat: Number.isFinite(fromLat) ? fromLat : null,
+        fromLng: Number.isFinite(fromLng) ? fromLng : null,
+      });
+      if (!gate.allowed) {
+        return businessFailureResponse(
+          "SCHEDULED_COMMITMENT_INFEASIBLE",
+          "Accepting this trip would make your confirmed scheduled booking infeasible",
+          { commitment_trip_id: gate.commitmentTripId },
+        );
+      }
+    }
+
     // Stacked rides queue as next trip only — never activate immediately.
     if (effectiveIsStacked) {
       if (!effectiveCurrentTripId) {

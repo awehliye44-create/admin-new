@@ -91,10 +91,16 @@ Deno.test("Admin HELD: T−urgent convert includes admin_held; Phase 3 marketpla
   // Phase 3: STEP 0b may publish admin_held after payment/airport gates — not raw NRO.
   assertStringIncludes(dispatchSrc, "auto-publish recovery");
   assertStringIncludes(dispatchSrc, "NO_PRECONFIRMED_CONVERT_SCHEDULED_STATUSES");
-  // Pre-confirmed activation still skips admin_held.
-  assertStringIncludes(
-    dispatchSrc,
-    '.in("scheduled_status", ["scheduled", "driver_assigned", "scheduled_committed"])',
+  // Pre-confirmed JIT activation still skips admin_held (Phase 4 includes awaiting_activation_accept residuals).
+  assertStringIncludes(dispatchSrc, "runConfirmedJitActivationPass");
+  assertStringIncludes(dispatchSrc, '"awaiting_activation_accept"');
+  assert(
+    !/\.in\("scheduled_status", \["admin_held", "scheduled", "driver_assigned"/.test(
+      dispatchSrc.slice(
+        dispatchSrc.indexOf("STEP 1: PRE-CONFIRMED JIT"),
+        dispatchSrc.indexOf("STEP 1a:"),
+      ),
+    ),
   );
 });
 

@@ -118,6 +118,44 @@ Deno.serve(async (req) => {
             "Cannot assign while existing mandatory airport charge failed to persist (Custom Zones route pricing).",
         }, 409);
       }
+      // Phase 4: Admin assign must not create an infeasible multi-commitment.
+      {
+        const candAt = Date.parse(String(trip.scheduled_at ?? ""));
+        if (Number.isFinite(candAt)) {
+          const { driverMayTakeAdditionalScheduledBooking } = await import(
+            "../_shared/scheduledCommitmentOfferGateSSOT.ts"
+          );
+          const gateCommit = await driverMayTakeAdditionalScheduledBooking({
+            supabase: gate.supabase,
+            driverId,
+            nowMs: Date.now(),
+            candidateTripId: tripId,
+            candidateScheduledAtMs: candAt,
+            candidateDurationMinutes: Number(trip.estimated_duration_minutes) || 30,
+            candidatePickupLat: trip.pickup_latitude == null
+              ? null
+              : Number(trip.pickup_latitude),
+            candidatePickupLng: trip.pickup_longitude == null
+              ? null
+              : Number(trip.pickup_longitude),
+            candidateDropoffLat: trip.dropoff_latitude == null
+              ? null
+              : Number(trip.dropoff_latitude),
+            candidateDropoffLng: trip.dropoff_longitude == null
+              ? null
+              : Number(trip.dropoff_longitude),
+          });
+          if (!gateCommit.allowed) {
+            return json({
+              success: false,
+              error: "SCHEDULED_COMMITMENT_INFEASIBLE",
+              message:
+                "This driver already has a confirmed scheduled booking that makes this assignment infeasible.",
+              conflict_trip_id: gateCommit.commitmentTripId,
+            }, 409);
+          }
+        }
+      }
     }
 
     if (

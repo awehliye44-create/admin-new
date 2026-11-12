@@ -130,8 +130,14 @@ Deno.serve(async (req) => {
       return errorResponse("FORBIDDEN", "You are not assigned to this trip", 403);
     }
 
+    // Idempotent: if already en_route (Phase 4 JIT auto-activation), return success.
+    if (trip.scheduled_status === "driver_en_route" || trip.status === "en_route_to_pickup") {
+      return successResponse({ success: true, already_checked_in: true, activated: true });
+    }
+
     // ── Guard 3: valid check-in / activation state ────────────────────────────
-    // awaiting_activation_accept = commitment-time Scheduled NRO Accept → Drive to Pickup
+    // Phase 4 prefers automatic JIT activation; start_journey remains for
+    // awaiting_activation_accept rows (legacy mid-flight / Phase 5 ack path).
     const CHECKIN_ALLOWED_STATUSES = new Set([
       "scheduled_committed",
       "driver_assigned",
@@ -144,11 +150,6 @@ Deno.serve(async (req) => {
         `Cannot check in — trip is in state: ${trip.scheduled_status}`,
         409,
       );
-    }
-
-    // Idempotent: if already en_route, return success immediately
-    if (trip.scheduled_status === "driver_en_route" || trip.status === "en_route_to_pickup") {
-      return successResponse({ success: true, already_checked_in: true, activated: true });
     }
 
     // Activation Accept = NRO Accept while armed (Driver sends start_journey).

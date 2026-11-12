@@ -32,12 +32,19 @@ Deno.test("fan-out cap is finite and positive", () => {
   assert(SCHEDULED_MARKETPLACE_NOTIFY_DRIVER_CAP <= 200);
 });
 
-Deno.test("source lock: Admin Make Available invokes marketplace notify", async () => {
+Deno.test("source lock: Admin Make Available routes Edge; Edge notifies marketplace", async () => {
+  // Phase 3: Admin UI invokes Edge only — notify lives in admin-scheduled-ride-action.
   const admin = await Deno.readTextFile(
     new URL("../../../src/pages/ScheduledRides.tsx", import.meta.url),
   );
-  assertStringIncludes(admin, "notify_marketplace_trip_id");
-  assertStringIncludes(admin, "scheduled-dispatch");
+  assertStringIncludes(admin, "admin-scheduled-ride-action");
+  assertStringIncludes(admin, "make_available_now");
+
+  const edge = await Deno.readTextFile(
+    new URL("../../functions/admin-scheduled-ride-action/index.ts", import.meta.url),
+  );
+  assertStringIncludes(edge, "notifyScheduledMarketplaceOpen");
+  assertStringIncludes(edge, 'action === "make_available_now"');
 });
 
 Deno.test("source lock: scheduled-dispatch notifies on pending jobs + notify body", async () => {
@@ -83,12 +90,18 @@ Deno.test("source lock: Broadcast Now converts to instant live NRO", async () =>
   assertStringIncludes(ssot, "converted_to_instant");
   assertEquals(ssot.includes('scheduled_status: "broadcasting"'), false);
 
+  // Phase 3: Admin UI calls Edge broadcast_now; conversion patch is Edge/SSOT-owned.
   const admin = await Deno.readTextFile(
     new URL("../../../src/pages/ScheduledRides.tsx", import.meta.url),
   );
-  assertStringIncludes(admin, "converted_to_instant");
-  assertStringIncludes(admin, "dispatch_mode: 'instant'");
-  assertStringIncludes(admin, "admin_broadcast_now");
+  assertStringIncludes(admin, "admin-scheduled-ride-action");
+  assertStringIncludes(admin, "broadcast_now");
+
+  const edge = await Deno.readTextFile(
+    new URL("../../functions/admin-scheduled-ride-action/index.ts", import.meta.url),
+  );
+  assertStringIncludes(edge, 'action === "broadcast_now"');
+  assertStringIncludes(edge, "admin_broadcast_now");
 });
 
 Deno.test("source lock: send-driver-notification accepts SCHEDULED marketplace types", async () => {
