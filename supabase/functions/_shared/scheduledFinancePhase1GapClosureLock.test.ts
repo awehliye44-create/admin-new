@@ -39,8 +39,16 @@ Deno.test("scheduled-dispatch sweeps payment_gate_blocked and gates assign/broad
   assert(gateCount >= 3);
 });
 
-Deno.test("Admin Assign Now calls assert_payment_gate before write", async () => {
+Deno.test("Admin Assign Now uses atomic admin_assign_scheduled_driver RPC", async () => {
   const src = await Deno.readTextFile(join(REPO, "src/pages/ScheduledRides.tsx"));
-  assert(src.includes("assert_payment_gate"));
+  assert(src.includes("admin_assign_scheduled_driver"));
   assert(src.includes("Cannot assign — payment authorisation"));
+  assert(!src.includes("assert_payment_gate"));
+  const sql = await Deno.readTextFile(
+    join(REPO, "supabase/migrations/20270201120200_scheduled_finance_phase1_payment_first_atomicity.sql"),
+  );
+  assert(sql.includes("admin_assign_scheduled_driver"));
+  assert(sql.includes("assert_payment_gate"));
+  assert(sql.includes("trips_enforce_payment_first_platform_card"));
+  assert(sql.includes("trips_enforce_scheduled_modification_coverage"));
 });

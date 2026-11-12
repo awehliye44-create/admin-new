@@ -375,45 +375,29 @@ export default function ScheduledRides() {
       metadata: { trip_id: selectedTrip.id },
     });
     try {
-      const nowIso = new Date().toISOString();
-      // Assign Now — pre-confirm (or swap preconfirm). Never overwrite live driver_id.
-      // Includes driver_assigned so Admin can replace a dropped pre-confirmed driver.
-      // Phase 1: never Assign Now when payment coverage is invalid.
-      const { error: gateErr } = await supabase.rpc('assert_payment_gate', {
-        p_trip_id: selectedTrip.id,
-      });
-      if (gateErr) {
-        const detail = String(gateErr.message ?? gateErr);
-        toast.error(
-          detail.includes('PAYMENT_GATE_NOT_SATISFIED')
-            ? 'Cannot assign — payment authorisation does not cover this booking.'
-            : detail || 'Payment gate check failed',
-        );
+      // Phase 1: atomic backend assign (payment gate + preconfirm in one transaction).
+      const { data: assignResult, error: assignErr } = await supabase.rpc(
+        'admin_assign_scheduled_driver' as never,
+        {
+          p_trip_id: selectedTrip.id,
+          p_driver_id: selectedDriverId,
+        } as never,
+      );
+      if (assignErr) {
+        toast.error(assignErr.message || 'Failed to assign driver');
         return;
       }
-
-      const assignedRows = await scheduledRidesTripUpdate(
-        selectedTrip.id,
-        {
-          confirmed_driver_id: selectedDriverId,
-          scheduled_status: 'driver_assigned',
-          scheduled_accepted_at: nowIso,
-          status: 'scheduled',
-          driver_id: null,
-          pending_release_kind: null,
-          pending_release_at: null,
-          pending_release_driver_id: null,
-        },
-        [
-          { op: 'in', col: 'scheduled_status', val: ['admin_held', 'scheduled', 'broadcasting', 'pending', 'driver_assigned'] },
-          { op: 'is_null', col: 'driver_id' },
-          { op: 'is_null', col: 'completed_at' },
-          { op: 'not_in', col: 'status', val: [...TERMINAL_TRIP_STATUSES] },
-        ],
-      );
-
-      if (!assignedRows?.length) {
-        toast.error('Trip is no longer available to assign (already live or converted)');
+      const assignBody = (assignResult ?? {}) as {
+        success?: boolean;
+        error?: string;
+        message?: string;
+      };
+      if (assignBody.success !== true) {
+        toast.error(
+          assignBody.error === 'PAYMENT_GATE_NOT_SATISFIED'
+            ? 'Cannot assign — payment authorisation does not cover this booking.'
+            : assignBody.message || assignBody.error || 'Trip is no longer available to assign',
+        );
         return;
       }
 

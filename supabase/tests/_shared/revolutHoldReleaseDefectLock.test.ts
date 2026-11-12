@@ -16,18 +16,17 @@ const expirePath = new URL("../../functions/expire-trip/index.ts", import.meta.u
 
 Deno.test("H: disposeTerminalTripPayment must not SELECT stripe_payment_intent_id", async () => {
   const src = await Deno.readTextFile(disposePath);
-  // Extract the dispose trip SELECT string literal that lists columns.
-  const m = src.match(
-    /disposeTerminalTripPayment[\s\S]*?\.from\("trips"\)\s*\.select\(\s*(?:\/\/[^\n]*\n\s*)*"([^"]+stripe[^"]*|[^"]+)"/,
-  );
-  // Prefer direct assertion on known select content
-  assertStringIncludes(
-    src,
-    '"id, status, started_at, arrived_at, free_wait_expires_at, cancelled_at, cancelled_by, cancellation_reason, scheduled_at, cancellation_grace_expires_at, driver_id, confirmed_driver_id, service_area_id, vehicle_type_id, payment_provider, provider_order_id, payment_session_id, authorised_amount_pence, cancellation_fee_pence, no_show_charge_pence, payment_status, arrival_cancellation_applied, dispatch_mode, scheduled_status, is_scheduled, pickup_waiting_counted_seconds"',
-  );
+  // Baseline (pre-Phase-1, MK-261104-003): previous_driver_id was added to the
+  // dispose SELECT for late-cancel entitlement. The lock is Stripe absence +
+  // required Revolut/session columns — not a frozen exact column string.
+  assertStringIncludes(src, "previous_driver_id");
+  assertStringIncludes(src, "provider_order_id");
+  assertStringIncludes(src, "payment_session_id");
+  assertStringIncludes(src, "authorised_amount_pence");
+  assertStringIncludes(src, "never select removed provider PI columns");
   assertEquals(src.includes("provider_order_id, stripe_payment_intent_id"), false);
   assertEquals(src.includes("stripe_payment_intent_id, authorised_amount_pence"), false);
-  void m;
+  assertEquals(/\bstripe_payment_intent_id\b/.test(src), false);
 });
 
 Deno.test("K: no Stripe runtime reintroduced in dispose/cancel", async () => {

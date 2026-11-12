@@ -51,6 +51,7 @@ Deno.test("mergeCaptureDeadline never overwrites valid with NULL", () => {
   const existing = "2026-06-11T12:00:00.000Z";
   const merged = mergeCaptureDeadlinePersistence({
     existingDeadlineIso: existing,
+    existingObservedAtIso: "2026-06-10T10:00:00.000Z",
     providerDeadlineRaw: null,
     source: "provider_webhook",
   });
@@ -58,28 +59,59 @@ Deno.test("mergeCaptureDeadline never overwrites valid with NULL", () => {
   assertEquals(merged.changed, false);
 });
 
-Deno.test("mergeCaptureDeadline refreshes when provider returns new value", () => {
+Deno.test("fresher observation extends deadline", () => {
   const existing = "2026-06-11T12:00:00.000Z";
   const next = "2026-06-12T18:00:00.000Z";
   const merged = mergeCaptureDeadlinePersistence({
     existingDeadlineIso: existing,
+    existingObservedAtIso: "2026-06-10T10:00:00.000Z",
     providerDeadlineRaw: next,
+    providerObservedAtIso: "2026-06-10T11:00:00.000Z",
     source: "provider_retrieve",
   });
   assertEquals(merged.captureDeadlineIso, new Date(next).toISOString());
   assertEquals(merged.changed, true);
 });
 
-Deno.test("mergeCaptureDeadline rejects stale shorter provider deadline", () => {
+Deno.test("fresher observation shortens deadline immediately", () => {
   const existing = "2026-06-12T18:00:00.000Z";
-  const stale = "2026-06-11T12:00:00.000Z";
+  const shorter = "2026-06-11T12:00:00.000Z";
   const merged = mergeCaptureDeadlinePersistence({
     existingDeadlineIso: existing,
-    providerDeadlineRaw: stale,
+    existingObservedAtIso: "2026-06-10T10:00:00.000Z",
+    providerDeadlineRaw: shorter,
+    providerObservedAtIso: "2026-06-10T12:00:00.000Z",
+    source: "provider_retrieve",
+  });
+  assertEquals(merged.captureDeadlineIso, new Date(shorter).toISOString());
+  assertEquals(merged.changed, true);
+  assertEquals(merged.reason, "authoritative_deadline_shortened");
+});
+
+Deno.test("stale out-of-order longer deadline is rejected", () => {
+  const existing = "2026-06-11T12:00:00.000Z";
+  const staleLonger = "2026-06-13T00:00:00.000Z";
+  const merged = mergeCaptureDeadlinePersistence({
+    existingDeadlineIso: existing,
+    existingObservedAtIso: "2026-06-10T12:00:00.000Z",
+    providerDeadlineRaw: staleLonger,
+    providerObservedAtIso: "2026-06-10T11:00:00.000Z",
     source: "provider_webhook",
   });
   assertEquals(merged.captureDeadlineIso, new Date(existing).toISOString());
   assertEquals(merged.changed, false);
+  assertEquals(merged.reason, "rejected_stale_observation");
+});
+
+Deno.test("conflicting deadlines without freshness require authoritative retrieve", () => {
+  const merged = mergeCaptureDeadlinePersistence({
+    existingDeadlineIso: "2026-06-11T12:00:00.000Z",
+    providerDeadlineRaw: "2026-06-12T18:00:00.000Z",
+    source: "provider_webhook",
+  });
+  assertEquals(merged.needsAuthoritativeRetrieve, true);
+  assertEquals(merged.changed, false);
+  assertEquals(merged.captureDeadlineIso, "2026-06-11T12:00:00.000Z");
 });
 
 Deno.test("delayed pickup extends required coverage horizon", () => {

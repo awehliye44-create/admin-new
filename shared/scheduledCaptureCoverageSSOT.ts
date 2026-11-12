@@ -50,6 +50,16 @@ export type PaymentSessionCaptureFields = {
   metadata?: Record<string, unknown> | null;
 };
 
+export type CaptureDeadlineMergeResult = {
+  captureDeadlineIso: string | null;
+  changed: boolean;
+  source: CaptureDeadlineSource;
+  /** Caller should retrieve Revolut order before deciding. */
+  needsAuthoritativeRetrieve: boolean;
+  observedAtIso: string | null;
+  reason: string;
+};
+
 const TERMINAL_OR_INVALID_SESSION = new Set([
   "cancelled",
   "failed",
@@ -72,41 +82,132 @@ export function parseCaptureDeadlineIso(
   return new Date(ms).toISOString();
 }
 
+function parseObservedAtMs(raw: string | null | undefined): number | null {
+  if (raw == null) return null;
+  const ms = Date.parse(String(raw).trim());
+  return Number.isFinite(ms) ? ms : null;
+}
+
 /**
  * Merge provider capture_deadline into persisted value.
- * Never overwrite a valid persisted deadline with NULL when the provider omits the field.
+ *
+ * Rules:
+ * - Never overwrite a valid persisted deadline with NULL when the provider omits the field.
+ * - Prefer the freshest authoritative observation for the same order/session (observedAt).
+ * - A confirmed shorter deadline from a fresher observation MUST take effect.
+ * - Reject out-of-order / stale observations (older observedAt) even if their deadline is longer.
+ * - If deadlines conflict and freshness cannot be established → needsAuthoritativeRetrieve.
  */
 export function mergeCaptureDeadlinePersistence(input: {
   existingDeadlineIso: string | null | undefined;
+  existingObservedAtIso?: string | null | undefined;
   providerDeadlineRaw: string | null | undefined;
+  providerObservedAtIso?: string | null | undefined;
   source: CaptureDeadlineSource;
-}): { captureDeadlineIso: string | null; changed: boolean; source: CaptureDeadlineSource } {
+}): CaptureDeadlineMergeResult {
   const existing = parseCaptureDeadlineIso(input.existingDeadlineIso);
   const incoming = parseCaptureDeadlineIso(input.providerDeadlineRaw);
-  if (incoming) {
-    if (existing === incoming) {
-      return { captureDeadlineIso: existing, changed: false, source: input.source };
-    }
-    // Never let a stale/shorter provider payload clobber a newer authoritative deadline
-    // unless the incoming value is strictly later (re-auth / increment extended the hold).
-    if (existing) {
-      const existingMs = Date.parse(existing);
-      const incomingMs = Date.parse(incoming);
-      if (
-        Number.isFinite(existingMs) &&
-        Number.isFinite(incomingMs) &&
-        incomingMs < existingMs
-      ) {
-        return { captureDeadlineIso: existing, changed: false, source: input.source };
-      }
-    }
-    return { captureDeadlineIso: incoming, changed: true, source: input.source };
+  const existingObservedMs = parseObservedAtMs(input.existingObservedAtIso);
+  const incomingObservedMs = parseObservedAtMs(input.providerObservedAtIso);
+  const incomingObservedIso =
+    incomingObservedMs != null ? new Date(incomingObservedMs).toISOString() : null;
+
+  if (!incoming) {
+    return {
+      captureDeadlineIso: existing,
+      changed: false,
+      source: existing ? input.source : input.source,
+      needsAuthoritativeRetrieve: false,
+      observedAtIso: input.existingObservedAtIso
+        ? parseCaptureDeadlineIso(input.existingObservedAtIso) ??
+          (existingObservedMs != null ? new Date(existingObservedMs).toISOString() : null)
+        : null,
+      reason: "provider_omitted_deadline_preserved_existing",
+    };
   }
+
+  if (existing === incoming) {
+    return {
+      captureDeadlineIso: existing,
+      changed: false,
+      source: input.source,
+      needsAuthoritativeRetrieve: false,
+      observedAtIso: incomingObservedIso ??
+        (existingObservedMs != null ? new Date(existingObservedMs).toISOString() : null),
+      reason: "unchanged",
+    };
+  }
+
+  // Fresher observation wins — including legitimate deadline reductions.
+  if (incomingObservedMs != null && existingObservedMs != null) {
+    if (incomingObservedMs < existingObservedMs) {
+      return {
+        captureDeadlineIso: existing,
+        changed: false,
+        source: input.source,
+        needsAuthoritativeRetrieve: false,
+        observedAtIso: new Date(existingObservedMs).toISOString(),
+        reason: "rejected_stale_observation",
+      };
+    }
+    return {
+      captureDeadlineIso: incoming,
+      changed: true,
+      source: input.source,
+      needsAuthoritativeRetrieve: false,
+      observedAtIso: incomingObservedIso,
+      reason: incomingMsLess(existing, incoming)
+        ? "authoritative_deadline_shortened"
+        : "authoritative_deadline_extended_or_replaced",
+    };
+  }
+
+  // Only incoming has freshness → apply (authoritative retrieve/webhook with clock).
+  if (incomingObservedMs != null && existingObservedMs == null) {
+    return {
+      captureDeadlineIso: incoming,
+      changed: true,
+      source: input.source,
+      needsAuthoritativeRetrieve: false,
+      observedAtIso: incomingObservedIso,
+      reason: incomingMsLess(existing, incoming)
+        ? "authoritative_deadline_shortened"
+        : "authoritative_deadline_applied",
+    };
+  }
+
+  // Neither side has freshness and values conflict → do not guess max/min; retrieve.
+  if (existing && existing !== incoming) {
+    return {
+      captureDeadlineIso: existing,
+      changed: false,
+      source: input.source,
+      needsAuthoritativeRetrieve: true,
+      observedAtIso: existingObservedMs != null
+        ? new Date(existingObservedMs).toISOString()
+        : null,
+      reason: "conflicting_deadlines_freshness_unknown",
+    };
+  }
+
   return {
-    captureDeadlineIso: existing,
-    changed: false,
-    source: existing ? (input.source === "unknown" ? "unknown" : input.source) : input.source,
+    captureDeadlineIso: incoming,
+    changed: true,
+    source: input.source,
+    needsAuthoritativeRetrieve: false,
+    observedAtIso: incomingObservedIso,
+    reason: "initial_deadline_applied",
   };
+}
+
+function incomingMsLess(
+  existing: string | null,
+  incoming: string,
+): boolean {
+  if (!existing) return false;
+  const a = Date.parse(existing);
+  const b = Date.parse(incoming);
+  return Number.isFinite(a) && Number.isFinite(b) && b < a;
 }
 
 export function isPaymentSessionAuthorisationUsable(
@@ -122,10 +223,6 @@ export function isPaymentSessionAuthorisationUsable(
   }
   if (session.released_at && !session.captured_at) {
     return { ok: false, reason: "Authorisation hold was released", code: "HOLD_RELEASED" };
-  }
-  const providerState = String(session.provider_state ?? "").toUpperCase();
-  if (providerState && !["AUTHORISED", "AUTHORIZED", "COMPLETED", "PENDING"].includes(providerState)) {
-    // PENDING may still be settling at create; caller decides. Treat non-authorised terminal-ish as invalid for coverage gates that require AUTHORISED.
   }
   if (
     expectedTripId &&

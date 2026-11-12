@@ -1,6 +1,7 @@
 /**
  * Persist / refresh Revolut capture_deadline onto payment_sessions.
  * Never invent a universal authorisation TTL. Never overwrite valid with NULL.
+ * Freshness is driven by observation time — not by picking the maximum deadline.
  */
 
 import type { SupabaseClient } from "npm:@supabase/supabase-js@2.57.2";
@@ -47,8 +48,14 @@ export async function persistCaptureDeadlineOnSession(
     providerOrderId?: string | null;
     providerDeadlineRaw: string | null | undefined;
     source: CaptureDeadlineSource;
+    /** When this provider observation was obtained (retrieve/webhook time). */
+    observedAtIso?: string | null;
   },
-): Promise<{ captureDeadlineIso: string | null; changed: boolean }> {
+): Promise<{
+  captureDeadlineIso: string | null;
+  changed: boolean;
+  needsAuthoritativeRetrieve: boolean;
+}> {
   const filter = args.sessionId
     ? { id: args.sessionId }
     : args.clientActionId
@@ -57,12 +64,16 @@ export async function persistCaptureDeadlineOnSession(
     ? { provider_order_id: args.providerOrderId }
     : null;
   if (!filter) {
-    return { captureDeadlineIso: parseCaptureDeadlineIso(args.providerDeadlineRaw), changed: false };
+    return {
+      captureDeadlineIso: parseCaptureDeadlineIso(args.providerDeadlineRaw),
+      changed: false,
+      needsAuthoritativeRetrieve: false,
+    };
   }
 
   let q = supabase
     .from("payment_sessions")
-    .select("id, capture_deadline, provider_order_id")
+    .select("id, capture_deadline, capture_deadline_observed_at, provider_order_id, trip_id")
     .limit(1);
   if ("id" in filter) q = q.eq("id", filter.id);
   else if ("client_action_id" in filter) q = q.eq("client_action_id", filter.client_action_id);
@@ -70,43 +81,123 @@ export async function persistCaptureDeadlineOnSession(
 
   const { data: row } = await q.maybeSingle();
   if (!row?.id) {
-    return { captureDeadlineIso: parseCaptureDeadlineIso(args.providerDeadlineRaw), changed: false };
+    return {
+      captureDeadlineIso: parseCaptureDeadlineIso(args.providerDeadlineRaw),
+      changed: false,
+      needsAuthoritativeRetrieve: false,
+    };
   }
 
+  const observedNow = args.observedAtIso ?? new Date().toISOString();
   const merged = mergeCaptureDeadlinePersistence({
     existingDeadlineIso: (row as { capture_deadline?: string | null }).capture_deadline ?? null,
+    existingObservedAtIso:
+      (row as { capture_deadline_observed_at?: string | null }).capture_deadline_observed_at ?? null,
     providerDeadlineRaw: args.providerDeadlineRaw,
+    providerObservedAtIso: args.providerDeadlineRaw ? observedNow : null,
     source: args.source,
   });
 
-  if (!merged.changed && merged.captureDeadlineIso) {
-    return { captureDeadlineIso: merged.captureDeadlineIso, changed: false };
+  if (merged.needsAuthoritativeRetrieve) {
+    return {
+      captureDeadlineIso: merged.captureDeadlineIso,
+      changed: false,
+      needsAuthoritativeRetrieve: true,
+    };
+  }
+
+  if (!merged.changed) {
+    return {
+      captureDeadlineIso: merged.captureDeadlineIso,
+      changed: false,
+      needsAuthoritativeRetrieve: false,
+    };
   }
   if (!merged.captureDeadlineIso) {
-    return { captureDeadlineIso: null, changed: false };
+    return { captureDeadlineIso: null, changed: false, needsAuthoritativeRetrieve: false };
   }
 
   if (args.providerOrderId) {
     const existingOrder = String((row as { provider_order_id?: string | null }).provider_order_id ?? "");
     if (existingOrder && existingOrder !== String(args.providerOrderId)) {
-      return { captureDeadlineIso: merged.captureDeadlineIso, changed: false };
+      return {
+        captureDeadlineIso: merged.captureDeadlineIso,
+        changed: false,
+        needsAuthoritativeRetrieve: false,
+      };
     }
+  }
+
+  const patch: Record<string, unknown> = {
+    capture_deadline: merged.captureDeadlineIso,
+    capture_deadline_source: merged.source,
+    capture_deadline_updated_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+  };
+  if (merged.observedAtIso) {
+    patch.capture_deadline_observed_at = merged.observedAtIso;
   }
 
   const { error } = await supabase
     .from("payment_sessions")
-    .update({
-      capture_deadline: merged.captureDeadlineIso,
-      capture_deadline_source: merged.source,
-      capture_deadline_updated_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    })
+    .update(patch)
     .eq("id", row.id);
   if (error) {
     console.warn("[captureDeadlinePersistence] update failed", error.message);
-    return { captureDeadlineIso: merged.captureDeadlineIso, changed: false };
+    return {
+      captureDeadlineIso: merged.captureDeadlineIso,
+      changed: false,
+      needsAuthoritativeRetrieve: false,
+    };
   }
-  return { captureDeadlineIso: merged.captureDeadlineIso, changed: true };
+
+  // After an authoritative shortening, re-check coverage for any bound scheduled trip.
+  if (merged.reason === "authoritative_deadline_shortened" && row.trip_id) {
+    try {
+      const { data: trip } = await supabase
+        .from("trips")
+        .select("id, scheduled_at, estimated_duration_minutes, is_scheduled, started_at, status")
+        .eq("id", row.trip_id)
+        .maybeSingle();
+      if (
+        trip?.scheduled_at &&
+        !trip.started_at &&
+        (trip.is_scheduled || trip.scheduled_at)
+      ) {
+        const { evaluateCaptureDeadlineCoverage } = await import("./scheduledCaptureCoverageSSOT.ts");
+        const coverage = evaluateCaptureDeadlineCoverage({
+          scheduledAtIso: String(trip.scheduled_at),
+          estimatedDurationMinutes: Number(trip.estimated_duration_minutes ?? 30),
+          captureDeadlineIso: merged.captureDeadlineIso,
+          session: {
+            capture_deadline: merged.captureDeadlineIso,
+            provider_state: "AUTHORISED",
+            status: "authorised",
+            trip_id: String(row.trip_id),
+          },
+          expectedTripId: String(row.trip_id),
+        });
+        if (!coverage.covered && coverage.definitive) {
+          await supabase
+            .from("trips")
+            .update({
+              scheduled_status: "payment_gate_blocked",
+              updated_at: new Date().toISOString(),
+            })
+            .eq("id", row.trip_id)
+            .is("started_at", null);
+        }
+      }
+    } catch (reevalErr) {
+      console.warn("[captureDeadlinePersistence] coverage re-eval failed", reevalErr);
+    }
+  }
+
+  return {
+    captureDeadlineIso: merged.captureDeadlineIso,
+    changed: true,
+    needsAuthoritativeRetrieve: false,
+  };
 }
 
 export async function persistCaptureDeadlineFromOrder(
@@ -117,8 +208,13 @@ export async function persistCaptureDeadlineFromOrder(
     clientActionId?: string | null;
     providerOrderId?: string | null;
     source: CaptureDeadlineSource;
+    observedAtIso?: string | null;
   },
-): Promise<{ captureDeadlineIso: string | null; changed: boolean }> {
+): Promise<{
+  captureDeadlineIso: string | null;
+  changed: boolean;
+  needsAuthoritativeRetrieve: boolean;
+}> {
   const deadline = extractCaptureDeadlineFromRevolutOrder(args.order);
   return persistCaptureDeadlineOnSession(supabase, {
     sessionId: args.sessionId,
@@ -129,5 +225,6 @@ export async function persistCaptureDeadlineFromOrder(
         : null),
     providerDeadlineRaw: deadline,
     source: args.source,
+    observedAtIso: args.observedAtIso ?? new Date().toISOString(),
   });
 }
