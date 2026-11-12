@@ -128,6 +128,16 @@ export type MinimalTripBuildInput = {
   nowMs?: number;
   /** Validated pickup-zone surge multiplier (1 when no surge). */
   surgeMultiplier?: number;
+  /**
+   * Authoritative fare breakdown from consumed server_fare_quotes
+   * (airport / trip fare split). Preferred over session totals alone.
+   */
+  authoritativeFareBreakdown?: Record<string, unknown> | null;
+  /**
+   * When true, stamp broadcast_enabled=false + scheduled_hold_reason=airport_pricing
+   * because a required airport charge could not be persisted.
+   */
+  airportPricingHold?: boolean;
 };
 
 /** Build "First Last" from customer profile fields. */
@@ -365,6 +375,7 @@ export function buildMinimalTripInsertRow(input: MinimalTripBuildInput): Record<
       voucherDiscountPence,
       discountSource,
       pricingSource: "booking_ssot_minimal_commit",
+      authoritativeFareBreakdown: input.authoritativeFareBreakdown ?? null,
     },
   );
 
@@ -373,6 +384,11 @@ export function buildMinimalTripInsertRow(input: MinimalTripBuildInput): Record<
   }
   if (isDriverCollected) {
     Object.assign(tripData, tripCashUpfrontPaymentFields());
+  }
+
+  if (input.airportPricingHold === true) {
+    tripData.broadcast_enabled = false;
+    tripData.scheduled_hold_reason = "airport_pricing";
   }
 
   applyBookingTypeFieldsToTrip(tripData, body);

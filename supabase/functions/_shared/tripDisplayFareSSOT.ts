@@ -68,6 +68,11 @@ export type BookingFarePersistInput = {
   appliedPersonalVoucherId?: string | null;
   appliedPersonalVoucherCode?: string | null;
   pricingSource?: string;
+  /**
+   * Authoritative breakdown from consumed server_fare_quotes (payment-first).
+   * Preferred over session fare_snapshot for airport / commissionable split.
+   */
+  authoritativeFareBreakdown?: Record<string, unknown> | null;
 };
 
 export type BookingFinancialSnapshot = {
@@ -399,15 +404,34 @@ export function applyBookingFinancialSnapshotToTripData(
   tripData.created_pricing_hash = snapshot.created_pricing_hash;
   tripData.fare_snapshot_json = snapshot.fare_snapshot_json;
 
+  const authoritativeBreakdown = input.authoritativeFareBreakdown
+    && typeof input.authoritativeFareBreakdown === "object"
+    && !Array.isArray(input.authoritativeFareBreakdown)
+    ? input.authoritativeFareBreakdown
+    : null;
+  const splitSource = authoritativeBreakdown ?? fareSnapshotJson;
   const fareSplit = bookingFareSplitFromQuote({
     payablePence: snapshot.final_fare_pence,
-    fareBreakdown: fareSnapshotJson,
+    fareBreakdown: splitSource,
   });
+  if (authoritativeBreakdown) {
+    tripData.fare_breakdown = {
+      ...(typeof tripData.fare_breakdown === "object" && tripData.fare_breakdown
+        && !Array.isArray(tripData.fare_breakdown)
+        ? tripData.fare_breakdown as Record<string, unknown>
+        : {}),
+      ...authoritativeBreakdown,
+    };
+  }
   if (fareSplit) {
     tripData.airport_charge_pence = fareSplit.airport_charge_pence;
     tripData.commissionable_fare_pence = fareSplit.commissionable_fare_pence;
     snapshot.fare_snapshot_json.airport_charge_pence = fareSplit.airport_charge_pence;
     snapshot.fare_snapshot_json.commissionable_fare_pence = fareSplit.commissionable_fare_pence;
+    if (authoritativeBreakdown?.server_fare_quote_id) {
+      snapshot.fare_snapshot_json.server_fare_quote_id =
+        authoritativeBreakdown.server_fare_quote_id;
+    }
   }
 
   if (input.appliedOfferId && snapshot.discount_source === "global_offer") {

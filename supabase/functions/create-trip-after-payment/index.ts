@@ -11,6 +11,10 @@ import { assertBookingSurgeAtPickup } from "../_shared/demandZoneSurgeSSOT.ts";
 import { resolveScheduledDispatchConfig } from "../_shared/scheduledDispatchConfig.ts";
 import { findPassengerScheduleOverlap } from "../_shared/passengerScheduleOverlapSSOT.ts";
 import { buildBookingPostCommitTasks } from "../_shared/bookingPostCommit.ts";
+import {
+  evaluateAirportPersistReadiness,
+  resolveAuthoritativeAirportSplitForBooking,
+} from "../_shared/authoritativeAirportBookingPersistSSOT.ts";
 import { verifyRevolutHoldForTripCreateFast } from "../_shared/bookingPaymentVerifyFast.ts";
 import {
   assertCanBookRide,
@@ -1422,6 +1426,46 @@ serveWithEdgeTiming("create-trip-after-payment", corsHeaders, async (req) => {
       );
     }
 
+    // Authoritative airport / commissionable split from consumed server_fare_quotes.
+    // Must be stamped on insert — never deferred to fire-and-forget enrich.
+    const payableForAirport = Math.round(
+      Number(
+        sessionFareSnapshot?.final_fare_pence
+          ?? sessionFareSnapshot?.estimated_total_pence
+          ?? sessionFareSnapshot?.final_customer_fare_pence
+          ?? finalFarePence
+          ?? 0,
+      ) || finalFarePence,
+    );
+    const airportSplitResult = skipPlatformPreauth
+      ? null
+      : await resolveAuthoritativeAirportSplitForBooking(supabase, {
+        paymentSessionId,
+        clientActionId: body.client_action_id ?? null,
+        sessionFareSnapshot,
+        sessionMetadata: (loadedPaymentSession?.metadata as Record<string, unknown> | null) ?? null,
+        userId: user.id,
+        vehicleTypeId: String(body.vehicle_type_id ?? ""),
+        serviceAreaId,
+        payablePence: payableForAirport,
+      });
+    const airportReadiness = airportSplitResult
+      ? evaluateAirportPersistReadiness(airportSplitResult)
+      : {
+        split: null,
+        requiredAirportPence: 0,
+        holdBroadcast: false,
+        allowDispatch: true,
+        reason: "skip_platform_preauth",
+      };
+    if (airportReadiness.holdBroadcast) {
+      log("AIRPORT_FARE_PERSIST_REQUIRED_HOLD", {
+        reason: airportReadiness.reason,
+        required_airport_pence: airportReadiness.requiredAirportPence,
+        client_action_id: body.client_action_id ?? null,
+      });
+    }
+
     const tripData = buildMinimalTripInsertRow({
       body,
       customerId,
@@ -1447,6 +1491,8 @@ serveWithEdgeTiming("create-trip-after-payment", corsHeaders, async (req) => {
       scheduledDispatchConfig,
       financialModelSnapshot,
       surgeMultiplier: surgeCheck.multiplier,
+      authoritativeFareBreakdown: airportReadiness.split?.fareBreakdown ?? null,
+      airportPricingHold: airportReadiness.holdBroadcast,
     });
 
     if (preAssignedDriverId) {

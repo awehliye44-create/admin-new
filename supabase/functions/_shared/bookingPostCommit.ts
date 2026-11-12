@@ -21,10 +21,16 @@ import {
 import { invokeAutoDispatch } from "./dispatchOrchestrator.ts";
 import { applyBookingFareToTripData } from "./persist-booking-fare.ts";
 import {
+  applyAuthoritativeAirportSplitToTripData,
   decideDispatchAfterFareEnrich,
+  resolveAirportPenceForPostCommitEnrich,
   resolveQuoteAirportChargePence,
   type FareEnrichDispatchDecision,
 } from "./airportChargeFareSplitSSOT.ts";
+import {
+  evaluateAirportPersistReadiness,
+  resolveAuthoritativeAirportSplitForBooking,
+} from "./authoritativeAirportBookingPersistSSOT.ts";
 import { resolveBestOfferForTrip } from "./resolve-offer.ts";
 import { resolvePersonalVoucherForTrip } from "./resolve-personal-voucher.ts";
 import {
@@ -130,6 +136,18 @@ async function enrichTripFareAsync(
   let finalFarePence = ctx.finalFarePence;
   let grossFarePence = ctx.grossFarePence;
 
+  // Read existing authoritative stamp before any recalculate — never overwrite
+  // a valid airport_charge_pence with 0 / a conflicting engine result.
+  const { data: existingTrip } = await supabase
+    .from("trips")
+    .select("airport_charge_pence, commissionable_fare_pence, fare_breakdown, fare_snapshot_json")
+    .eq("id", tripId)
+    .maybeSingle();
+  const existingAirportPence = Math.max(
+    0,
+    Math.round(Number((existingTrip as { airport_charge_pence?: number } | null)?.airport_charge_pence) || 0),
+  );
+
   const personalVoucherCode = body.personal_voucher_code?.trim() || "";
   const adminClient = createClient(
     Deno.env.get("SUPABASE_URL")!,
@@ -233,6 +251,34 @@ async function enrichTripFareAsync(
     }
   }
 
+  const recalculatedAirportPence = resolveQuoteAirportChargePence(fareBreakdownJson);
+
+  // Prefer consumed server fare quote when insert left airport at 0.
+  let authoritativeQuoteAirport = 0;
+  let authoritativeSplit = null as ReturnType<
+    typeof evaluateAirportPersistReadiness
+  >["split"];
+  if (existingAirportPence <= 0) {
+    const splitResult = await resolveAuthoritativeAirportSplitForBooking(supabase, {
+      paymentSessionId: ctx.paymentSessionId,
+      clientActionId: body.client_action_id ?? null,
+      userId: ctx.userId,
+      vehicleTypeId: String(body.vehicle_type_id ?? ""),
+      serviceAreaId: ctx.serviceAreaId,
+      payablePence: finalFarePence,
+    });
+    const readiness = evaluateAirportPersistReadiness(splitResult);
+    authoritativeQuoteAirport = readiness.requiredAirportPence
+      || (readiness.split?.airportChargePence ?? 0);
+    authoritativeSplit = readiness.split;
+  }
+
+  const airportResolve = resolveAirportPenceForPostCommitEnrich({
+    existingAirportChargePence: existingAirportPence,
+    recalculatedAirportPence,
+    authoritativeQuoteAirportPence: authoritativeQuoteAirport,
+  });
+
   const patch: Record<string, unknown> = {
     fare: finalFarePence / 100,
     estimated_fare: finalFarePence / 100,
@@ -242,15 +288,25 @@ async function enrichTripFareAsync(
     offer_discount_pence: discountSource === "global_offer" ? appliedDiscountPence : 0,
     voucher_discount_pence: voucherDiscountPence,
     discount_source: discountSource,
-    ...(fareBreakdownJson ? { fare_breakdown: fareBreakdownJson } : {}),
     ...(baseFarePence != null ? { base_fare_pence: baseFarePence } : {}),
   };
+
+  // Never replace a valid stamped airport/breakdown with recalculated zero.
+  if (airportResolve.preserveExisting) {
+    // Keep existing airport_charge_pence / commissionable / fare_breakdown untouched.
+  } else if (authoritativeSplit && airportResolve.airportPenceForPatch > 0) {
+    applyAuthoritativeAirportSplitToTripData(patch, authoritativeSplit);
+  } else if (fareBreakdownJson && !airportResolve.preserveExisting) {
+    patch.fare_breakdown = fareBreakdownJson;
+  }
 
   const tripData: Record<string, unknown> = { ...patch };
   try {
     applyBookingFareToTripData(
       tripData,
-      fareBreakdownJson,
+      airportResolve.preserveExisting
+        ? (asRecordSafe(existingTrip?.fare_breakdown) ?? fareBreakdownJson)
+        : (authoritativeSplit?.fareBreakdown ?? fareBreakdownJson),
       {
         grossFarePence,
         finalPayableFarePence: finalFarePence,
@@ -261,8 +317,22 @@ async function enrichTripFareAsync(
         appliedPersonalVoucherId,
         appliedPersonalVoucherCode,
         pricingSource: "booking_post_commit",
+        authoritativeFareBreakdown: airportResolve.preserveExisting
+          ? null
+          : (authoritativeSplit?.fareBreakdown ?? null),
       },
     );
+    if (airportResolve.preserveExisting) {
+      // Strip airport fields from patch so update cannot zero them.
+      delete tripData.airport_charge_pence;
+      delete tripData.commissionable_fare_pence;
+      delete tripData.fare_breakdown;
+      if (tripData.fare_snapshot_json && typeof tripData.fare_snapshot_json === "object") {
+        const snap = { ...(tripData.fare_snapshot_json as Record<string, unknown>) };
+        // Keep snapshot money fields but do not clear airport keys on the row.
+        tripData.fare_snapshot_json = snap;
+      }
+    }
     Object.assign(patch, tripData);
   } catch (e) {
     log("post-commit financial snapshot warning", { err: String(e) });
@@ -279,13 +349,15 @@ async function enrichTripFareAsync(
     /* keep insert defaults */
   }
 
-  const quoteAirportPence = resolveQuoteAirportChargePence(fareBreakdownJson);
+  const quoteAirportPence = airportResolve.quoteAirportPenceForDispatchGate;
   const { error } = await supabase.from("trips").update(patch).eq("id", tripId);
   if (error) {
     log("post-commit trip fare patch warning", { error: error.message });
   }
 
-  let persistedAirportPence: number | null = null;
+  let persistedAirportPence: number | null = existingAirportPence > 0
+    ? existingAirportPence
+    : null;
   let updateFailed = Boolean(error);
   if (!updateFailed && quoteAirportPence > 0) {
     const { data: written, error: readErr } = await supabase
@@ -332,6 +404,11 @@ async function enrichTripFareAsync(
     }
   }
   return decision;
+}
+
+function asRecordSafe(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  return value as Record<string, unknown>;
 }
 
 export function buildBookingPostCommitTasks(ctx: BookingPostCommitContext): PromiseLike<unknown>[] {

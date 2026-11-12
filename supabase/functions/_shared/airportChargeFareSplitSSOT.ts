@@ -1,9 +1,15 @@
 /**
- * Airport charge fare split — draft SSOT.
+ * Airport charge fare split — SSOT.
  *
  * Airport is customer-payable and non-commissionable pass-through.
- * The amount comes from the route-pricing quote. The commission rate
- * comes from the active wave/tier helper. Neither is a constant here.
+ * The amount comes from the consumed server fare quote (route / airport
+ * pricing). The commission rate comes from the active wave/tier helper.
+ * Neither is a constant here.
+ *
+ * Payment-first booking (CTAP + finalize_paid_booking_session) must stamp
+ * airport_charge_pence + commissionable_fare_pence from the consumed
+ * server_fare_quotes row before the trip is dispatchable. Fire-and-forget
+ * enrich must never overwrite a valid authoritative airport with 0.
  *
  * Before: commissionable = folded payable (ride + airport), rate applied to that total.
  * After:  commissionable = customer payable − airport − other non-commissionable
@@ -241,6 +247,252 @@ export function decideDispatchAfterFareEnrich(input: {
     return { allowDispatch: true, holdBroadcast: false, reason: "airport_persisted" };
   }
   return { allowDispatch: false, holdBroadcast: true, reason: "airport_persist_failed" };
+}
+
+/** Consumed server_fare_quotes row (payment-first authority). */
+export type ServerFareQuoteAirportAuthority = {
+  id: string;
+  user_id: string;
+  vehicle_type_id: string;
+  service_area_id: string;
+  route_key?: string | null;
+  gross_fare_pence: number;
+  airport_charge_pence: number;
+  pricing_evidence?: Record<string, unknown> | null;
+  pricing_mode?: string | null;
+  fare_source?: string | null;
+};
+
+export type AuthoritativeAirportSplitOk = {
+  ok: true;
+  airportChargePence: number;
+  commissionableFarePence: number;
+  /** Shape accepted by bookingFareSplitFromQuote / Driver snapshot. */
+  fareBreakdown: Record<string, unknown>;
+  serverFareQuoteId: string;
+  requiresAirportPersist: boolean;
+};
+
+export type AuthoritativeAirportSplitErr = {
+  ok: false;
+  code:
+    | "QUOTE_MISSING"
+    | "QUOTE_MISMATCH"
+    | "SPLIT_INCONSISTENT"
+    | "AIRPORT_REQUIRED_UNRESOLVED";
+  note: string;
+  quoteAirportPence: number;
+};
+
+export type AuthoritativeAirportSplitResult =
+  | AuthoritativeAirportSplitOk
+  | AuthoritativeAirportSplitErr;
+
+const PAYABLE_GROSS_TOLERANCE_PENCE = 1;
+
+/**
+ * Build the fare-breakdown object used by bookingFareSplitFromQuote from the
+ * consumed server fare quote. Amounts are never invented — only projected.
+ */
+export function buildFareBreakdownFromServerFareQuote(
+  quote: ServerFareQuoteAirportAuthority,
+): Record<string, unknown> {
+  const airportPence = Math.max(0, Math.round(Number(quote.airport_charge_pence) || 0));
+  const grossPence = Math.max(0, Math.round(Number(quote.gross_fare_pence) || 0));
+  const evidence = asRecord(quote.pricing_evidence) ?? {};
+  const evidenceTrip = resolveQuoteRideFarePence(evidence);
+  const tripFarePence = evidenceTrip > 0
+    ? evidenceTrip
+    : Math.max(0, grossPence - airportPence);
+  return {
+    airportCharge: airportPence / 100,
+    airport_charge: airportPence / 100,
+    airport_charge_pence: airportPence,
+    tripFare: tripFarePence / 100,
+    trip_fare: tripFarePence / 100,
+    trip_fare_pence: tripFarePence,
+    finalFare: grossPence / 100,
+    totalFare: grossPence / 100,
+    final_fare_pence: grossPence,
+    gross_fare_pence: grossPence,
+    pricing_mode: quote.pricing_mode ?? evidence.pricing_mode ?? null,
+    fare_source: quote.fare_source ?? null,
+    server_fare_quote_id: quote.id,
+    matched_route_id: evidence.matched_route_id ?? null,
+    zone_applied: evidence.zone_applied ?? null,
+  };
+}
+
+/**
+ * Validate the consumed server fare quote against the booking attempt and
+ * resolve the airport / commissionable split. Never trusts client airport
+ * amounts — only the server_fare_quotes row (+ its pricing_evidence).
+ */
+export function resolveAuthoritativeAirportSplitFromServerFareQuote(input: {
+  quote: ServerFareQuoteAirportAuthority | null | undefined;
+  userId: string;
+  customerUserId?: string | null;
+  vehicleTypeId: string;
+  serviceAreaId: string;
+  payablePence: number;
+  routeKey?: string | null;
+}): AuthoritativeAirportSplitResult {
+  const quote = input.quote;
+  if (!quote?.id) {
+    return {
+      ok: false,
+      code: "QUOTE_MISSING",
+      note: "consumed_server_fare_quote_missing",
+      quoteAirportPence: 0,
+    };
+  }
+
+  const quoteAirport = Math.max(0, Math.round(Number(quote.airport_charge_pence) || 0));
+  const owner = String(quote.user_id ?? "").trim();
+  const expectedUser = String(input.userId ?? "").trim()
+    || String(input.customerUserId ?? "").trim();
+  if (!owner || !expectedUser || owner !== expectedUser) {
+    return {
+      ok: false,
+      code: "QUOTE_MISMATCH",
+      note: "server_fare_quote_user_mismatch",
+      quoteAirportPence: quoteAirport,
+    };
+  }
+  if (String(quote.vehicle_type_id ?? "") !== String(input.vehicleTypeId ?? "")) {
+    return {
+      ok: false,
+      code: "QUOTE_MISMATCH",
+      note: "server_fare_quote_vehicle_mismatch",
+      quoteAirportPence: quoteAirport,
+    };
+  }
+  if (String(quote.service_area_id ?? "") !== String(input.serviceAreaId ?? "")) {
+    return {
+      ok: false,
+      code: "QUOTE_MISMATCH",
+      note: "server_fare_quote_service_area_mismatch",
+      quoteAirportPence: quoteAirport,
+    };
+  }
+  const expectedRoute = String(input.routeKey ?? "").trim();
+  const quoteRoute = String(quote.route_key ?? "").trim();
+  if (expectedRoute && quoteRoute && expectedRoute !== quoteRoute) {
+    return {
+      ok: false,
+      code: "QUOTE_MISMATCH",
+      note: "server_fare_quote_route_mismatch",
+      quoteAirportPence: quoteAirport,
+    };
+  }
+
+  const payable = Math.max(0, Math.round(Number(input.payablePence) || 0));
+  const gross = Math.max(0, Math.round(Number(quote.gross_fare_pence) || 0));
+  if (payable > 0 && gross > 0 && Math.abs(payable - gross) > PAYABLE_GROSS_TOLERANCE_PENCE) {
+    // Discounted payable may be below gross; airport must still fit inside payable.
+    if (quoteAirport > payable) {
+      return {
+        ok: false,
+        code: "SPLIT_INCONSISTENT",
+        note: "airport_exceeds_payable",
+        quoteAirportPence: quoteAirport,
+      };
+    }
+  }
+
+  const breakdown = buildFareBreakdownFromServerFareQuote(quote);
+  const split = bookingFareSplitFromQuote({
+    payablePence: payable > 0 ? payable : gross,
+    fareBreakdown: breakdown,
+  });
+  if (!split) {
+    return {
+      ok: false,
+      code: quoteAirport > 0 ? "AIRPORT_REQUIRED_UNRESOLVED" : "SPLIT_INCONSISTENT",
+      note: "booking_fare_split_from_quote_failed",
+      quoteAirportPence: quoteAirport,
+    };
+  }
+  if (quoteAirport > 0 && split.airport_charge_pence !== quoteAirport) {
+    return {
+      ok: false,
+      code: "SPLIT_INCONSISTENT",
+      note: "airport_split_mismatch",
+      quoteAirportPence: quoteAirport,
+    };
+  }
+
+  return {
+    ok: true,
+    airportChargePence: split.airport_charge_pence,
+    commissionableFarePence: split.commissionable_fare_pence,
+    fareBreakdown: breakdown,
+    serverFareQuoteId: quote.id,
+    requiresAirportPersist: split.airport_charge_pence > 0,
+  };
+}
+
+/**
+ * Apply an authoritative airport split onto a trip insert/update payload.
+ * Sets fare_breakdown + snapshot airport fields via existing split helpers.
+ */
+export function applyAuthoritativeAirportSplitToTripData(
+  tripData: Record<string, unknown>,
+  split: AuthoritativeAirportSplitOk,
+): void {
+  tripData.airport_charge_pence = split.airportChargePence;
+  tripData.commissionable_fare_pence = split.commissionableFarePence;
+  tripData.fare_breakdown = {
+    ...(asRecord(tripData.fare_breakdown) ?? {}),
+    ...split.fareBreakdown,
+  };
+  const snap = asRecord(tripData.fare_snapshot_json) ?? {};
+  snap.airport_charge_pence = split.airportChargePence;
+  snap.commissionable_fare_pence = split.commissionableFarePence;
+  snap.server_fare_quote_id = split.serverFareQuoteId;
+  tripData.fare_snapshot_json = snap;
+}
+
+/**
+ * Post-commit enrich must not clobber a valid stamped airport with 0 / null /
+ * a newly calculated different amount. Returns the airport pence that should
+ * remain authoritative for the patch + dispatch decision.
+ */
+export function resolveAirportPenceForPostCommitEnrich(input: {
+  existingAirportChargePence: number | null | undefined;
+  recalculatedAirportPence: number | null | undefined;
+  authoritativeQuoteAirportPence: number | null | undefined;
+}): {
+  airportPenceForPatch: number;
+  preserveExisting: boolean;
+  quoteAirportPenceForDispatchGate: number;
+} {
+  const existing = Math.max(0, Math.round(Number(input.existingAirportChargePence) || 0));
+  const recalculated = Math.max(0, Math.round(Number(input.recalculatedAirportPence) || 0));
+  const authoritative = Math.max(
+    0,
+    Math.round(Number(input.authoritativeQuoteAirportPence) || 0),
+  );
+
+  if (existing > 0) {
+    return {
+      airportPenceForPatch: existing,
+      preserveExisting: true,
+      quoteAirportPenceForDispatchGate: Math.max(existing, authoritative),
+    };
+  }
+  if (authoritative > 0) {
+    return {
+      airportPenceForPatch: authoritative,
+      preserveExisting: false,
+      quoteAirportPenceForDispatchGate: authoritative,
+    };
+  }
+  return {
+    airportPenceForPatch: recalculated,
+    preserveExisting: false,
+    quoteAirportPenceForDispatchGate: recalculated,
+  };
 }
 
 function annotatePresetNets(

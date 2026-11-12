@@ -286,6 +286,10 @@ export type ServerFareArtifactRow = {
 export const SERVER_FARE_ARTIFACT_SELECT =
   "id, user_id, route_quote_id, route_key, service_area_id, vehicle_type_id, currency, distance_km, duration_min, gross_fare_pence, airport_charge_pence, surge_multiplier, surge_quote_id, fare_source, pricing_mode, minimum_applied, engine, pricing_hash, schema_version, created_at, expires_at";
 
+/** Includes pricing_evidence for payment-first airport split projection. */
+export const SERVER_FARE_ARTIFACT_SELECT_WITH_EVIDENCE =
+  `${SERVER_FARE_ARTIFACT_SELECT}, pricing_evidence`;
+
 function stableStringify(value: unknown): string {
   if (value === null || typeof value !== "object") return JSON.stringify(value ?? null);
   if (Array.isArray(value)) return `[${value.map(stableStringify).join(",")}]`;
