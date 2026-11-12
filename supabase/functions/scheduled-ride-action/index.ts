@@ -21,6 +21,12 @@ import {
 import { maxBroadcastSequences } from "../_shared/dispatch-settings.ts";
 import { notifyCustomerTripLifecycle } from "../_shared/customerTripLifecycleNotify.ts";
 import { driverMayTakeAdditionalScheduledBooking } from "../_shared/scheduledCommitmentOfferGateSSOT.ts";
+import {
+  checkScheduledCommissionWalletGate,
+  filterTripsByScheduledCommissionWalletGate,
+  SCHEDULED_COMMISSION_WALLET_ERROR,
+  SCHEDULED_COMMISSION_WALLET_MESSAGE,
+} from "../_shared/scheduledMarketplaceCommissionWalletGate.ts";
 
 const RATE_LIMIT_CONFIG = {
   limit: 60,
@@ -366,8 +372,18 @@ Deno.serve(async (req) => {
         return true;
       });
 
+      // Gap C: same commission-wallet gate as instant dispatch (fail closed per trip).
+      const { allowed: walletEligibleTrips, blockedTripIds: walletBlockedTripIds } =
+        await filterTripsByScheduledCommissionWalletGate(supabase, driver_id, filteredTrips);
+      if (walletBlockedTripIds.length > 0) {
+        console.log("[scheduled-ride-action] Excluding trips: commission wallet gate", {
+          driver_id,
+          trip_ids: walletBlockedTripIds,
+        });
+      }
+
       // Attach stops to each trip (multi-stop support)
-      const tripsWithStops = filteredTrips.map(trip => ({
+      const tripsWithStops = walletEligibleTrips.map(trip => ({
         ...trip,
         stops: stopsMap[trip.id] || [],
         is_multi_stop: (stopsMap[trip.id] || []).length > 2,
@@ -480,6 +496,23 @@ Deno.serve(async (req) => {
         }
       }
 
+      // Gap C: commission wallet gate (same RPC as instant dispatch / admin assign).
+      // accept_scheduled_ride re-checks in SQL; this gives a clear error before the lock.
+      {
+        const walletGate = await checkScheduledCommissionWalletGate(supabase, driver_id, trip_id!);
+        if (!walletGate.ok) {
+          if (walletGate.reason === "wallet_gate_error") {
+            console.error("[scheduled-ride-action] wallet gate RPC error:", walletGate.detail);
+            return errorResponse("DATABASE_ERROR", "Could not verify commission wallet eligibility", 500);
+          }
+          return errorResponse(
+            SCHEDULED_COMMISSION_WALLET_ERROR,
+            SCHEDULED_COMMISSION_WALLET_MESSAGE,
+            409,
+          );
+        }
+      }
+
       // Invoke as the authenticated driver so SECURITY DEFINER auth.uid() /
       // check_driver_documents_approved inside the RPC cannot be skipped.
       // Service-role client remains for HELD guards + post-accept normalize.
@@ -504,6 +537,8 @@ Deno.serve(async (req) => {
                           data.error === "TRIP_ALREADY_TAKEN" ? 409 :
                           data.error === "DRIVER_EXCLUDED" ? 403 :
                           data.error === "DOCUMENTS_NOT_APPROVED" ? 403 :
+                          data.error === "INSUFFICIENT_COMMISSION_WALLET_BALANCE" ? 409 :
+                          data.error === "SCHEDULED_COMMITMENT_INFEASIBLE" ? 409 :
                           data.error === "LOCK_CONTENTION" ? 409 : 400;
 
         return new Response(

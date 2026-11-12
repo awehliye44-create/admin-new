@@ -19,6 +19,10 @@ import { maxBroadcastSequences } from "../_shared/dispatch-settings.ts";
 import { disposeTerminalTripPayment } from "../_shared/terminalTripPaymentDisposition.ts";
 import { notifyCustomerTripLifecycle } from "../_shared/customerTripLifecycleNotify.ts";
 import { driverMayTakeAdditionalScheduledBooking } from "../_shared/scheduledCommitmentOfferGateSSOT.ts";
+import {
+  checkScheduledCommissionWalletGate,
+  SCHEDULED_COMMISSION_WALLET_ERROR,
+} from "../_shared/scheduledMarketplaceCommissionWalletGate.ts";
 
 function json(body: Record<string, unknown>, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -118,6 +122,24 @@ Deno.serve(async (req) => {
           message:
             "Cannot assign while existing mandatory airport charge failed to persist (Custom Zones route pricing).",
         }, 409);
+      }
+      // Gap C: Admin assign obeys the same commission-wallet gate as instant / marketplace accept.
+      {
+        const walletGate = await checkScheduledCommissionWalletGate(gate.supabase, driverId, tripId);
+        if (!walletGate.ok) {
+          if (walletGate.reason === "wallet_gate_error") {
+            return json({
+              success: false,
+              error: "COMMISSION_WALLET_GATE_CHECK_FAILED",
+              message: walletGate.detail ?? "Could not verify commission wallet eligibility",
+            }, 500);
+          }
+          return json({
+            success: false,
+            error: SCHEDULED_COMMISSION_WALLET_ERROR,
+            message: "Driver has insufficient commission wallet balance for this trip",
+          }, 409);
+        }
       }
       // Phase 4: Admin assign must not create an infeasible multi-commitment.
       {
