@@ -27,6 +27,32 @@ export function isCommitDispatchWaveVersionMismatch(error: unknown): boolean {
   return /VERSION_MISMATCH/i.test(text);
 }
 
+/** SQLSTATEs / message prefix raised by tr_ride_offer_financial_invariant_guard_fn (20270222160000/170000). */
+export const FINANCIAL_OFFER_INVARIANT_REASON = "FINANCIAL_OFFER_INVARIANT" as const;
+
+/**
+ * True when commit_dispatch_wave (or any offer insert) was rejected by the DB financial offer
+ * invariant guard: FO001 (stale / fabricated / wrong-commission / airport) or FO002 (no
+ * verifiable financial snapshot). The wave transaction is rolled back, so nothing is half-written.
+ *
+ * Recovery is NOT a new retry mechanism: auto-dispatch stamps the SAME resumable state it uses for a
+ * unique-round collision (tripPatchAfterTransientOfferCreateFailure) so expire-offers resumes the trip
+ * while the round budget and searching_expires_at remain, and expire_trip_when_search_exhausted ends the
+ * search through the normal path afterwards. A guard rejection never releases a payment hold itself and
+ * never leaves the trip with broadcast_enabled=false (which would make that terminal path return false).
+ */
+export function isFinancialOfferInvariantError(error: unknown): boolean {
+  const text = (() => {
+    if (typeof error === "string") return error;
+    if (error && typeof error === "object") {
+      const record = error as { message?: unknown; code?: unknown; error?: unknown; details?: unknown };
+      return [record.message, record.code, record.error, record.details].filter(Boolean).join(" ");
+    }
+    return String(error ?? "");
+  })();
+  return /FINANCIAL_OFFER_INVARIANT|\bFO00[12]\b/.test(text);
+}
+
 /** Effective round stamp for resume — never prefer a stranded 0 over offer history. */
 export function effectiveBroadcastRoundForResume(input: {
   storedRound: number | null | undefined;

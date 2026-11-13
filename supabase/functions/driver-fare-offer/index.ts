@@ -354,6 +354,11 @@ Deno.serve(async (req) => {
       if (rpcMsg.includes("trip_already_assigned")) {
         return errorResponse("INVALID_STATE", "Trip is no longer available", 409);
       }
+      if (rpcMsg.includes("negotiation_contention")) {
+        // 20270222180000: lock contention outlived the RPC's bounded retry. Domain outcome, not a
+        // failure to paper over with the manual (unlocked) fallback below.
+        return errorResponse("NEGOTIATION_BUSY", "Another negotiation action is in progress. Please try again.", 409);
+      }
 
       // Manual fallback when RPC is unavailable or races
       const ownerIsSelf = trip.negotiation_owner_driver_id === driver_id;

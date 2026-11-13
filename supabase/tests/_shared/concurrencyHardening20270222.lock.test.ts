@@ -93,6 +93,60 @@ Deno.test("driver_live_locations repair is idempotent schema-only (no data, no p
     "repair migration must not write or drop data");
 });
 
+/**
+ * 20270222140000 is a PRODUCTION NO-OP. Production already has public.driver_live_locations, its
+ * indexes, RLS and both policies, so every statement below must be an existence-guarded create:
+ *   CREATE EXTENSION IF NOT EXISTS / CREATE TABLE IF NOT EXISTS / CREATE INDEX IF NOT EXISTS /
+ *   ENABLE ROW LEVEL SECURITY (idempotent) / CREATE POLICY only behind a pg_policy NOT EXISTS check.
+ * Nothing may drop, truncate, rewrite, alter columns, grant/revoke, or touch another table.
+ */
+Deno.test("driver_live_locations repair 20270222140000 is a prod no-op: only IF NOT EXISTS creates, no DROP / data change", async () => {
+  const raw = await read(DLL_MIGRATION);
+  // `ON DELETE CASCADE` on the new table's own FK is a column rule, not a DELETE statement.
+  const sql = raw.replace(/--.*$/gm, "").replace(/\bON\s+DELETE\s+CASCADE\b/gi, "");
+
+  // Every CREATE is existence-guarded.
+  const creates = [...sql.matchAll(/\bCREATE\s+(?!OR\s+REPLACE)([A-Z ]+?)\s+(IF\s+NOT\s+EXISTS\s+)?([^\s(]+)/gi)];
+  const unguarded = creates
+    .filter((m) => !/^POLICY$/i.test(m[1].trim()))   // policies are guarded by the pg_policy check below
+    .filter((m) => !m[2])
+    .map((m) => `${m[1].trim()} ${m[3]}`);
+  assertEquals(unguarded, [], "every CREATE EXTENSION/TABLE/INDEX must be IF NOT EXISTS");
+  assert(!/CREATE\s+OR\s+REPLACE/i.test(sql), "must not replace any function / view on prod");
+
+  // Destructive / rewriting statements are absent.
+  for (const [label, re] of [
+    ["DROP", /\bDROP\b/i],
+    ["TRUNCATE", /\bTRUNCATE\b/i],
+    ["DELETE", /\bDELETE\b/i],
+    ["INSERT", /\bINSERT\b/i],
+    ["UPDATE", /\bUPDATE\b/i],
+    ["ALTER COLUMN / ADD / DROP COLUMN", /\bALTER\s+TABLE[^;]*\b(ALTER\s+COLUMN|ADD\s+COLUMN|DROP\s+COLUMN|RENAME)\b/i],
+    ["GRANT/REVOKE", /\b(GRANT|REVOKE)\b/i],
+    ["COPY", /\bCOPY\b/i],
+    ["DISABLE TRIGGER / RLS", /\bDISABLE\b/i],
+  ] as Array<[string, RegExp]>) {
+    assert(!re.test(sql), `prod no-op migration must not contain ${label}`);
+  }
+
+  // The only ALTER is the idempotent RLS enable, on the table this migration itself guards.
+  const alters = [...sql.matchAll(/\bALTER\s+TABLE\s+([^\s]+)\s+([A-Z ]+?);/gi)].map((m) => `${m[1]} ${m[2].replace(/\s+/g, " ")}`);
+  assertEquals(alters, ["public.driver_live_locations ENABLE ROW LEVEL SECURITY"]);
+
+  // Policies: each CREATE POLICY sits behind an IF NOT EXISTS (… pg_policy …) check.
+  const policyCreates = (sql.match(/CREATE\s+POLICY/gi) ?? []).length;
+  const policyGuards = (sql.match(/IF\s+NOT\s+EXISTS\s*\(\s*SELECT\s+1\s+FROM\s+pg_policy/gi) ?? []).length;
+  assertEquals(policyGuards, policyCreates, "every CREATE POLICY needs its own pg_policy NOT EXISTS guard");
+  assert(policyCreates >= 2);
+
+  // Only ever references the one table (plus the drivers FK target and the has_role() policy helper it calls).
+  const tables = new Set([...sql.matchAll(/\bpublic\.([a-z_]+)/gi)].map((m) => m[1].toLowerCase()));
+  assertEquals([...tables].sort(), ["driver_live_locations", "drivers", "has_role"]);
+
+  // Wrapped in one transaction so a partial failure cannot leave a half-repair behind.
+  assert(/^\s*BEGIN;/m.test(sql) && /^\s*COMMIT;/m.test(sql), "single BEGIN/COMMIT");
+});
+
 Deno.test("isolated harness drives the REAL Start Trip RPC and atomic waiting open", async () => {
   const setup = await read("../scheduled_rematch_waiting_concurrency_isolated.setup.sql");
   const verify = await read("../scheduled_rematch_waiting_concurrency_isolated.sql");

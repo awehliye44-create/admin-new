@@ -121,11 +121,12 @@ export function evaluateOfferInvariants(
     out.push(r);
   };
 
-  // Stacked offers are not stamped by the offer insert trigger. Accepted offers on a
-  // trip with a folded modification legitimately lag the (later) committed payable.
+  // Stacked pending/accepted offers use the same committed-fare contract as
+  // non-stacked (FO001/FO002). Accepted offers on a trip with a folded
+  // modification legitimately lag the (later) committed payable.
   const offers = newestFirst(
     offersIn.filter((o) =>
-      (o.status === "pending" || o.status === "accepted") && !o.is_stacked &&
+      (o.status === "pending" || o.status === "accepted") &&
       !(o.status === "accepted" && Number(trip.customer_modification_charge_pence ?? 0) !== 0)
     ),
   );

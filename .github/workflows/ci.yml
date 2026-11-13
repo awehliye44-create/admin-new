@@ -3,6 +3,8 @@ name: CI
 on:
   pull_request:
     branches: [main]
+  push:
+    branches: [main]
   workflow_dispatch:
 
 jobs:
@@ -48,13 +50,14 @@ jobs:
             supabase/functions/_shared/waitingSegmentClock.execution.test.ts \
             supabase/functions/_shared/otaAdoptionTelemetry.execution.test.ts \
             supabase/tests/_shared/concurrencyHardening20270222.lock.test.ts \
-            supabase/tests/_shared/financialSsotMonitorScansLock.test.ts
+            supabase/tests/_shared/financialSsotMonitorScansLock.test.ts \
+            supabase/tests/_shared/financialSsotMonitorScansFixtures.test.ts \
+            supabase/tests/_shared/negotiationAndOfferGuard20270222.lock.test.ts
 
-      # Re-runs vitest + Deno above (cheap) and the local-Postgres harness ONLY when a
-      # local DB accepts connections. REQUIRE_PG_HARNESS is intentionally unset: no DB in
-      # this job => PG is skipped with a NOTICE. Set REQUIRE_PG_HARNESS=1 to make it hard.
-      - name: Consolidated regression gates
-        run: bash scripts/check-consolidated-regression-gates.sh
+      # Re-runs vitest + Deno above (cheap). This job has no database: the PostgreSQL gates are NOT
+      # skipped, they run in the mandatory `pg-harness` job below (REQUIRE_PG_HARNESS=1).
+      - name: Consolidated regression gates (non-PG)
+        run: SKIP_PG_HARNESS=1 bash scripts/check-consolidated-regression-gates.sh
 
       - name: Build
         run: npm run build
@@ -63,3 +66,70 @@ jobs:
           VITE_SUPABASE_URL: https://thazislrdkjpvvghtvzo.supabase.co
           VITE_SUPABASE_PUBLISHABLE_KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRoYXppc2xyZGtqcHZ2Z2h0dnpvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njc4NzA1MjIsImV4cCI6MjA4MzQ0NjUyMn0.pXaycIz1t7JXuItyqvjNNrFsZpsaXbB5bV1OWSQLbWM
           VITE_SUPABASE_PROJECT_ID: thazislrdkjpvvghtvzo
+
+  # ---------------------------------------------------------------------------------------------
+  # Mandatory PostgreSQL gates. NOT optional and NOT skippable: REQUIRE_PG_HARNESS=1, every script
+  # exits non-zero on a missing schema / RPC, a skipped check or any failed assertion.
+  #
+  # Why not `supabase start`: supabase/migrations/ starts at an INSERT into public.drivers - the base
+  # schema was created on the hosted project before the migration history was exported, so replaying
+  # the directory on an empty database fails at the first file. Instead the plain supabase/postgres
+  # image (service container, free, no secrets) gets a schema-only baseline dump + every repo
+  # migration NEWER than the baseline. See scripts/ci/pg-harness-bootstrap.sh.
+  # ---------------------------------------------------------------------------------------------
+  pg-harness:
+    name: PostgreSQL gates · rematch/waiting + negotiation lock order + offer guard
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    services:
+      postgres:
+        image: public.ecr.aws/supabase/postgres:17.6.1.140
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 54322:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -h 127.0.0.1"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 40
+
+    env:
+      REQUIRE_PG_HARNESS: "1"
+      DB_URL: postgresql://postgres:postgres@127.0.0.1:54322/postgres
+      ADMIN_DB_URL: postgresql://supabase_admin:postgres@127.0.0.1:54322/postgres
+      PG_GATES_OUT: ${{ github.workspace }}/pg-gates-logs
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Show client / server versions
+        run: |
+          psql --version
+          psql "$ADMIN_DB_URL" -X -q -At -c 'select version()'
+          python3 --version
+
+      - name: Bootstrap database (baseline schema + migrations newer than baseline + seed)
+        run: bash scripts/ci/pg-harness-bootstrap.sh
+
+      - name: Run PostgreSQL gates (REQUIRE_PG_HARNESS=1)
+        run: |
+          mkdir -p "$PG_GATES_OUT"
+          bash scripts/ci/run-pg-gates.sh
+
+      - name: Upload gate logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pg-gates-logs
+          path: pg-gates-logs
+          if-no-files-found: warn

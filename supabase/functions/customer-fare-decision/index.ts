@@ -106,6 +106,14 @@ function mapCustomerCounterRideOfferError(
 ): { code: string; message: string; status: number } {
   const blob = `${err?.message ?? ""} ${typeof data === "string" ? data : JSON.stringify(data ?? {})}`
     .toLowerCase();
+  if (blob.includes("negotiation_contention")) {
+    // 20270222180000: lock contention outlived the RPC's bounded retry (domain outcome, not a 500).
+    return {
+      code: "NEGOTIATION_BUSY",
+      message: "Another negotiation action is in progress. Please try again.",
+      status: 409,
+    };
+  }
   if (blob.includes("fare_commit_failed")) {
     return { code: "FARE_COMMIT_FAILED", message: "Could not persist counter-offer", status: 500 };
   }

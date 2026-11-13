@@ -184,7 +184,12 @@ Deno.serve(async (req) => {
         console.log("[decline-offer] Offer already handled, treating as idempotent success");
         return successResponse({ ...data, success: true, idempotent: true });
       }
-      const statusCode = data.error === "OFFER_NOT_FOUND" ? 404 : 400;
+      // 20270222180000: NEGOTIATION_CONTENTION = lock contention outlived the RPC's bounded retry.
+      const statusCode = data.error === "OFFER_NOT_FOUND"
+        ? 404
+        : data.error === "NEGOTIATION_CONTENTION"
+        ? 409
+        : 400;
       return errorResponse(data.error, data.message || "Failed to decline offer", statusCode);
     }
 

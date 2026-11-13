@@ -108,7 +108,9 @@ import {
   OFFER_CREATE_UNIQUE_COLLISION_REASON,
 } from "../_shared/sweepExpiredOffers.ts";
 import {
+  FINANCIAL_OFFER_INVARIANT_REASON,
   isCommitDispatchWaveVersionMismatch,
+  isFinancialOfferInvariantError,
   tripPatchAfterTransientOfferCreateFailure,
 } from "../_shared/dispatchWaveCommitResumeSSOT.ts";
 import { isScheduledInstantConversionPending } from "../_shared/scheduledHandoverHoldLock.ts";
@@ -3227,6 +3229,46 @@ Deno.serve(async (req) => {
         return errorResponse(
           OFFER_CREATE_UNIQUE_COLLISION_REASON,
           "Offer create hit unique broadcast_round — stamped for stale resume",
+          409,
+          { trip_id, broadcast_round: currentRound },
+        );
+      }
+      if (
+        isFinancialOfferInvariantError(createError)
+        || isFinancialOfferInvariantError(waveErr)
+        || isFinancialOfferInvariantError(waveResult?.error)
+      ) {
+        // DB financial offer invariant guard (FO001 / FO002) rejected the wave. The wave
+        // transaction rolled back (no offer written). Do NOT leave the trip stuck: stamp the same
+        // resumable state as a unique-round collision so expire-offers resumes it (bounded by the
+        // round budget + searching_expires_at) and expire_trip_when_search_exhausted ends the
+        // search normally. No payment / hold change here.
+        const nowIso = new Date().toISOString();
+        await supabase
+          .from("trips")
+          .update(tripPatchAfterTransientOfferCreateFailure({
+            nowIso,
+            storedRound: storedRound,
+            maxExistingOfferRound,
+            attemptedBroadcastRound: currentRound,
+          }))
+          .eq("id", trip_id);
+        console.error("[auto-dispatch] FINANCIAL_OFFER_INVARIANT wave rejected — stamped for bounded resume", {
+          trip_id,
+          broadcast_round: currentRound,
+          error: createError,
+        });
+        abortDispatch(FINANCIAL_OFFER_INVARIANT_REASON, {
+          error: createError,
+          permanent: false,
+          recoverable: true,
+          attempted_broadcast_round: currentRound,
+          max_existing_offer_round: maxExistingOfferRound,
+          stored_round: storedRound,
+        });
+        return errorResponse(
+          FINANCIAL_OFFER_INVARIANT_REASON,
+          "Offer rejected by the financial invariant guard — stamped for bounded resume",
           409,
           { trip_id, broadcast_round: currentRound },
         );

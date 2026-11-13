@@ -114,7 +114,7 @@ Deno.test("offer_vs_committed: consistent offer and +/-1p tolerance produce noth
   );
 });
 
-Deno.test("offer_vs_committed: not committed (breakdown only) / closed / stacked are ignored", () => {
+Deno.test("offer_vs_committed: breakdown-only / closed ignored; stacked pending is scanned", () => {
   const offer = {
     id: "o1", trip_id: "t1", status: "pending", effective_commission_percent: 10,
     offered_driver_net_pence: 1, offer_snapshot: { baseFarePence: 999 },
@@ -125,7 +125,8 @@ Deno.test("offer_vs_committed: not committed (breakdown only) / closed / stacked
     [],
   );
   assertEquals(evaluateOfferInvariants(committed480, [{ ...offer, status: "expired" }]), []);
-  assertEquals(evaluateOfferInvariants(committed480, [{ ...offer, is_stacked: true }]), []);
+  const stacked = evaluateOfferInvariants(committed480, [{ ...offer, is_stacked: true }]);
+  assertEquals(stacked.some((r) => r.stage === "offer_vs_committed"), true);
 });
 
 Deno.test("airport_component_missing + driver_net_vs_breakdown: MK-007 Heathrow shape", () => {
