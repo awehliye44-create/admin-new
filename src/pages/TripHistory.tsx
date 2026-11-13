@@ -2030,32 +2030,6 @@ export default function TripHistory() {
                       )}
                     </div>
 
-                    {/* Driver Completion Location Warning */}
-                    {selectedTrip.driver_location_lat && selectedTrip.driver_location_lng && (() => {
-                      const dropoffLat = selectedTrip.dropoff_latitude;
-                      const dropoffLng = selectedTrip.dropoff_longitude;
-                      if (!dropoffLat || !dropoffLng) return null;
-                      const dist = haversineDistance(selectedTrip.driver_location_lat!, selectedTrip.driver_location_lng!, dropoffLat, dropoffLng);
-                      if (dist < 0.1) return null; // within 100m, no issue
-                      return (
-                        <div className="flex items-start gap-3 bg-amber-500/10 dark:bg-amber-900/20 rounded-lg p-3 border border-amber-500/30">
-                          <div className="w-6 h-6 rounded-full bg-amber-500 flex items-center justify-center shrink-0">
-                            <Navigation className="h-3 w-3 text-white" />
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <p className="text-xs font-medium text-amber-700 dark:text-amber-400">
-                              Driver Completion Location ({(dist).toFixed(2)} km from dropoff)
-                            </p>
-                            <p className="text-sm mt-0.5 text-muted-foreground">
-                              Driver completed the trip {(dist).toFixed(2)} km away from the intended destination
-                            </p>
-                            <p className="text-[10px] text-muted-foreground mt-0.5 font-mono">
-                              {selectedTrip.driver_location_lat!.toFixed(6)}, {selectedTrip.driver_location_lng!.toFixed(6)}
-                            </p>
-                          </div>
-                        </div>
-                      );
-                    })()}
                   </div>
 
                   {/* Fare Source & Pricing Mode */}
