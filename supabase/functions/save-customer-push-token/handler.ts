@@ -4,9 +4,13 @@
  * Bind/rotate the FCM token for the authenticated customer.
  * Requires device_id matching customer_active_devices (claim-device first).
  * Stale devices cannot reclaim via token refresh.
+ *
+ * client_capabilities: always replaced from the request body (missing → []).
+ * Never merge/append stale capabilities from a prior OTA.
  */
 import type { SupabaseClient } from "npm:@supabase/supabase-js@2.57.2";
 import { isRawApnsDeviceToken } from "../_shared/customerNotificationPush.ts";
+import { normalizeCapabilityList } from "../_shared/scheduledDepartureAckCapabilitySSOT.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -21,6 +25,9 @@ interface SaveTokenRequest {
   installation_id?: string;
   /** Login takeover: claim device then bind. Refresh omits / sets false. */
   claim?: boolean;
+  app_version?: unknown;
+  client_capabilities?: unknown;
+  capabilities?: unknown;
 }
 
 export async function handleSaveCustomerPushToken(
@@ -75,12 +82,27 @@ export async function handleSaveCustomerPushToken(
     const userId = userData.user.id;
     const now = new Date().toISOString();
     const wantClaim = body.claim === true;
+    // Never infer capabilities from app_version — only the loaded update's list.
+    // Missing body → [] so rollback OTAs clear previously registered capabilities.
+    const clientCapabilities = normalizeCapabilityList(
+      body.client_capabilities ?? body.capabilities,
+    );
+    const appVersion =
+      typeof body.app_version === "string" && body.app_version.trim()
+        ? body.app_version.trim()
+        : null;
 
     const { data: active } = await supabase
       .from("customer_active_devices")
       .select("device_id")
       .eq("user_id", userId)
       .maybeSingle();
+
+    const deviceCapabilityPatch = {
+      client_capabilities: clientCapabilities,
+      client_capabilities_updated_at: now,
+      ...(appVersion ? { app_version: appVersion } : {}),
+    };
 
     if (wantClaim || !active?.device_id) {
       const { error: claimErr } = await supabase
@@ -93,6 +115,7 @@ export async function handleSaveCustomerPushToken(
             claimed_at: now,
             last_seen_at: now,
             updated_at: now,
+            ...deviceCapabilityPatch,
           },
           { onConflict: "user_id" },
         );
@@ -112,7 +135,12 @@ export async function handleSaveCustomerPushToken(
     } else {
       await supabase
         .from("customer_active_devices")
-        .update({ last_seen_at: now, updated_at: now, platform: body.platform })
+        .update({
+          last_seen_at: now,
+          updated_at: now,
+          platform: body.platform,
+          ...deviceCapabilityPatch,
+        })
         .eq("user_id", userId);
     }
 

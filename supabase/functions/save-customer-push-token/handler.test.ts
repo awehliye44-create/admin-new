@@ -271,8 +271,55 @@ Deno.test("entrypoint serves the handler unconditionally; guard precedes every D
 
   const handler = await Deno.readTextFile(new URL("./handler.ts", import.meta.url));
   assert(handler.includes('from "../_shared/customerNotificationPush.ts"'));
+  assert(handler.includes("normalizeCapabilityList"));
+  assert(handler.includes("client_capabilities"));
   const guard = handler.indexOf("isRawApnsDeviceToken(body.token)");
   assert(guard > 0);
   assert(guard < handler.indexOf('.from("customer_active_devices")'));
   assert(guard < handler.indexOf('.from("customer_push_tokens")'));
+});
+
+Deno.test("F: client_capabilities replace (never merge) including empty clear", async () => {
+  const seeded = fakeSupabase({
+    customer_active_devices: [{
+      ...activeDevice(),
+      client_capabilities: ["stale_cap_v1", "other_cap"],
+    }],
+  });
+  const replace = await handleSaveCustomerPushToken(
+    post({
+      token: IOS_FCM,
+      platform: "ios",
+      device_id: DEVICE,
+      claim: false,
+      client_capabilities: ["customer_future_cap_v1"],
+      app_version: "1.0.5",
+    }),
+    () => seeded.client,
+  );
+  assertEquals(replace.status, 200);
+  assertEquals(
+    seeded.db.customer_active_devices[0].client_capabilities,
+    ["customer_future_cap_v1"],
+  );
+  assertEquals(seeded.db.customer_active_devices[0].app_version, "1.0.5");
+
+  const cleared = fakeSupabase({
+    customer_active_devices: [{
+      ...activeDevice(),
+      client_capabilities: ["stale_cap_v1"],
+    }],
+  });
+  const clearRes = await handleSaveCustomerPushToken(
+    post({
+      token: IOS_FCM,
+      platform: "ios",
+      device_id: DEVICE,
+      claim: false,
+      // omitted capabilities → []
+    }),
+    () => cleared.client,
+  );
+  assertEquals(clearRes.status, 200);
+  assertEquals(cleared.db.customer_active_devices[0].client_capabilities, []);
 });
