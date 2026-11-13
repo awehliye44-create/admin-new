@@ -101,6 +101,10 @@ jobs:
       DB_URL: postgresql://postgres:postgres@127.0.0.1:54322/postgres
       ADMIN_DB_URL: postgresql://supabase_admin:postgres@127.0.0.1:54322/postgres
       PG_GATES_OUT: ${{ github.workspace }}/pg-gates-logs
+      # Wider hold/delay than local defaults — GitHub runners need margin so
+      # Scenario A cancel_holds / start_holds losers block >=250ms every time.
+      RMCH_HOLD_MS: "800"
+      RMCH_DELAY_MS: "150"
 
     steps:
       - uses: actions/checkout@v4

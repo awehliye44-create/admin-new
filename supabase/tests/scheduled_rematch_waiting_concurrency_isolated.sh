@@ -25,8 +25,11 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 REPO="$(cd "$HERE/../.." && pwd)"
 DB_URL="${DB_URL:-postgresql://postgres:postgres@127.0.0.1:54322/postgres}"
 FIND_MINUTES="${RMCH_FIND_MINUTES:-6}"
-HOLD_MS="${RMCH_HOLD_MS:-400}"
-DELAY_MS="${RMCH_DELAY_MS:-100}"
+# Hold must clearly outlast DELAY + runner scheduling jitter so cancel_holds /
+# start_holds losers block >=250ms. 400/100 left only ~50ms margin and flaked
+# once on GitHub (cancel_holds: Start won 1/8; loser wait <250ms 1/16).
+HOLD_MS="${RMCH_HOLD_MS:-700}"
+DELAY_MS="${RMCH_DELAY_MS:-150}"
 SETUP_SQL="$HERE/scheduled_rematch_waiting_concurrency_isolated.setup.sql"
 VERIFY_SQL="$HERE/scheduled_rematch_waiting_concurrency_isolated.sql"
 WORK="$(mktemp -d)"
