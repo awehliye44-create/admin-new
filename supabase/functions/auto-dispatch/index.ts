@@ -87,6 +87,12 @@ import {
 import { resolveNegotiationBaseFarePence } from "../_shared/negotiationBaseFare.ts";
 import { tripFareFieldsForOfferSnapshot } from "../_shared/tripFareSnapshot.ts";
 import {
+  planCommittedFareDriftRestamp,
+  resolveCommittedOfferGross,
+  type CommittedFareDriftOffer,
+  type CommittedOfferFareTrip,
+} from "../_shared/committedBookingOfferFareSSOT.ts";
+import {
   isCustomerSearchWindowActive,
   resolveCustomerSearchDeadlineMs,
   shouldExpireTripAfterWavesExhausted,
@@ -369,6 +375,59 @@ function isWithinSchedule(timezone: string, windows: any[]): boolean {
 }
 
 /**
+ * Re-stamp calculated net fields on pending offers whose snapshot/net disagree with
+ * the committed booking payable. Never inserts, notifies, extends expiry or changes
+ * status/wave/presets. Failures are logged, never fatal to dispatch.
+ */
+async function applyCommittedFareDriftRestamp(
+  supabase: { from: (table: string) => any },
+  trip: CommittedOfferFareTrip & { id: string },
+  offers: CommittedFareDriftOffer[],
+  nowIso: string,
+): Promise<number> {
+  const plan = planCommittedFareDriftRestamp({
+    nowMs: Date.parse(nowIso),
+    trip,
+    offers,
+  });
+  let written = 0;
+  for (const update of plan.updates) {
+    let query = supabase
+      .from("ride_offers")
+      .update({
+        offer_snapshot: update.offer_snapshot,
+        offered_driver_net_pence: update.offered_driver_net_pence,
+      })
+      .eq("id", update.id)
+      .eq("trip_id", trip.id)
+      .eq("status", "pending")
+      .gt("expires_at", nowIso)
+      .or("is_stacked.eq.false,is_stacked.is.null");
+    if (update.match_dispatch_wave != null) {
+      query = query.eq("dispatch_wave", update.match_dispatch_wave);
+    }
+    const { data: rows, error: writeErr } = await query.select("id");
+    if (writeErr || !rows?.length) {
+      console.warn("[auto-dispatch] committed-fare drift restamp write failed", {
+        trip_id: trip.id,
+        offer_id: update.id,
+        error: writeErr?.message ?? "no_rows",
+      });
+      continue;
+    }
+    written++;
+  }
+  if (written > 0) {
+    console.log("[auto-dispatch] COMMITTED_FARE_DRIFT_RESTAMP", {
+      trip_id: trip.id,
+      offers_restamped: written,
+      committed_source: resolveCommittedOfferGross(trip).source,
+    });
+  }
+  return written;
+}
+
+/**
  * Existing pending offer: restamp calculated snapshot fields only.
  * Does not insert, notify, extend expiry, or change status/wave.
  */
@@ -400,6 +459,17 @@ async function applyAlreadyOfferedAirportRestamp(
     trip,
     offers: (data ?? []) as ExistingOfferForRestamp[],
   });
+  if (decision.action === "unchanged" && decision.reason === "airport_absent") {
+    // MK-261113-004/005: offers inserted before the committed payable was visible
+    // (SQL insert trigger) may carry a net from a stale fare_breakdown.
+    await applyCommittedFareDriftRestamp(
+      supabase,
+      trip as unknown as CommittedOfferFareTrip & { id: string },
+      (data ?? []) as CommittedFareDriftOffer[],
+      nowIso,
+    );
+    return decision;
+  }
   if (decision.action !== "restamp") return decision;
 
   for (const update of decision.updates) {
@@ -2746,7 +2816,10 @@ Deno.serve(async (req) => {
     const isCustomZoneTrip = !!(trip.pickup_zone_id || trip.dropoff_zone_id);
     const negotiationDisabledForTrip = !!(trip as { negotiation_disabled?: boolean }).negotiation_disabled;
 
+    // Committed booking payable (columns/snapshot/authorisation) — never a stale
+    // fare_breakdown. Delegates to committedBookingOfferFareSSOT (MK-261113-004/005).
     const baseFarePence = resolveNegotiationBaseFarePence(trip);
+    const committedOfferFare = resolveCommittedOfferGross(trip as CommittedOfferFareTrip);
     const tripFareSnapshotFields = tripFareFieldsForOfferSnapshot(
       trip as Record<string, unknown>,
     );
@@ -2775,6 +2848,8 @@ Deno.serve(async (req) => {
       preset_eligibility_result: presetEligibilityResult,
       service_area_id: trip.service_area_id ?? null,
       base_fare_pence: baseFarePence,
+      committed_fare_source: committedOfferFare.source,
+      committed_fare_pence: committedOfferFare.committed ? committedOfferFare.pence : null,
     });
 
     if (trip.service_area_id && mayAttachPresets) {
@@ -3248,7 +3323,10 @@ Deno.serve(async (req) => {
       );
       for (const row of stampedRows ?? []) {
         const snapshot = (row.offer_snapshot ?? {}) as Record<string, unknown>;
-        const customerGrossPence = Number(snapshot.baseFarePence ?? baseFarePence);
+        // Committed payable wins over a snapshot gross written from a stale breakdown.
+        const customerGrossPence = baseFarePence > 0
+          ? baseFarePence
+          : Number(snapshot.baseFarePence ?? 0);
         const stamped = stampOfferSnapshotAirportPassThrough({
           snapshot,
           customerGrossPence,

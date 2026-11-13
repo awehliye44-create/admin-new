@@ -2,6 +2,7 @@
  * SSOT for preset chip math â delegates to resolveTripDisplayFare for booking payable.
  */
 
+import { resolveCommittedOfferGross } from "./committedBookingOfferFareSSOT.ts";
 import { resolveTripDisplayFare } from "./tripDisplayFareSSOT.ts";
 
 export type TripForNegotiationBase = {
@@ -17,6 +18,11 @@ export type TripForNegotiationBase = {
   final_fare_pence?: number | null;
   estimated_total_pence?: number | null;
   fare_snapshot_json?: Record<string, unknown> | null;
+  locked_base_fare_pence?: number | null;
+  authorised_amount_pence?: number | null;
+  customer_modification_charge_pence?: number | null;
+  voucher_discount_pence?: number | null;
+  discount_source?: string | null;
 };
 
 function moneyToPence(raw: unknown): number | null {
@@ -195,5 +201,10 @@ export function resolveBasePayableFarePence(trip: TripForNegotiationBase): numbe
  * Resolve negotiation base fare for preset chip math (base_payable_fare_pence).
  */
 export function resolveNegotiationBaseFarePence(trip: TripForNegotiationBase): number {
+  // Committed booking payable (columns / snapshot / authorisation) always wins over
+  // a stale fare_breakdown (MK-261113-004/005). Legacy resolution only when the trip
+  // has no committed fare (breakdown-only / estimate-only trips).
+  const committed = resolveCommittedOfferGross(trip);
+  if (committed.committed && committed.pence > 0) return committed.pence;
   return resolveBasePayableFarePence(trip);
 }

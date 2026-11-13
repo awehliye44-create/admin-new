@@ -16,6 +16,7 @@ import { DRIVER_NEW_RIDE_OFFER_DATA_TYPE } from "./rideOfferClientPushData.ts";
 import { DRIVER_NEW_RIDE_OFFER_TITLE } from "./negotiationPushCopy.ts";
 import { rideOfferPushBodyDriverNet } from "./driverOfferPushCopy.ts";
 import { RIDE_OFFER_IOS_ALERT_SOUND } from "./rideOfferPushCopy.ts";
+import { resolveCommittedOfferGross } from "./committedBookingOfferFareSSOT.ts";
 
 export const SCHEDULED_ACTIVATION_EXCLUSIVE_REASON = {
   expiredOrDeclined: "scheduled_activation_nro_expired_or_declined",
@@ -39,6 +40,15 @@ export type ScheduledActivationTripFare = {
   final_customer_fare_pence?: number | null;
   gross_fare_pence?: number | null;
   locked_base_fare_pence?: number | null;
+  authorised_amount_pence?: number | null;
+  customer_modification_charge_pence?: number | null;
+  fare_snapshot_json?: unknown;
+  fare_breakdown?: unknown;
+  discount_pence?: number | null;
+  offer_discount_pence?: number | null;
+  voucher_discount_pence?: number | null;
+  promotion_discount_pence?: number | null;
+  discount_source?: string | null;
   estimated_fare?: number | null;
   fare?: number | null;
   airport_charge_pence?: number | null;
@@ -52,29 +62,24 @@ export type ScheduledActivationTripFare = {
   special_instructions?: string | null;
 };
 
-/** Gross pence for commission preview only — never display as driver net. */
+/**
+ * Gross pence for commission preview only — never display as driver net.
+ * Delegates to the committed booking offer fare SSOT so a stale fare_breakdown
+ * (e.g. 500 beside a committed 480) can never become the commission base.
+ */
 export function resolveActivationGrossPenceForPreview(
   trip: ScheduledActivationTripFare,
 ): number | null {
-  const candidates = [
-    trip.estimated_total_pence,
-    trip.final_fare_pence,
-    trip.final_customer_fare_pence,
-    trip.gross_fare_pence,
-    trip.locked_base_fare_pence,
-  ];
-  for (const raw of candidates) {
-    const n = Number(raw);
-    if (Number.isFinite(n) && n > 0) return Math.round(n);
-  }
-  const major = Number(trip.estimated_fare ?? trip.fare ?? 0);
-  if (Number.isFinite(major) && major > 0) return Math.round(major * 100);
-  return null;
+  const resolved = resolveCommittedOfferGross(trip as never);
+  return resolved.pence > 0 ? resolved.pence : null;
 }
 
 /**
  * Authoritative driver-net for exclusive activation.
- * Prefer stamped net; else computed preview from SSOT (passed in).
+ * Prefer computed preview from committed gross when present (MK-261113-004/005) —
+ * a stale trip.driver_net_pence stamped from fare_breakdown (e.g. 450 beside
+ * committed 480 → 432) must not win over recomputed SSOT.
+ * Fall back to stamped nets only when no computed preview exists.
  * NEVER returns customer gross as net.
  */
 export function resolveExclusiveActivationDriverNetPence(input: {
@@ -82,6 +87,8 @@ export function resolveExclusiveActivationDriverNetPence(input: {
   /** Result of compute_driver_net_preview_from_gross — already commission-aware. */
   computedPreviewPence?: number | null;
 }): number | null {
+  const preview = Number(input.computedPreviewPence);
+  if (Number.isFinite(preview) && preview > 0) return Math.round(preview);
   const stamped = [
     input.trip.driver_net_pence,
     input.trip.driver_net_before_tip_pence,
@@ -91,8 +98,6 @@ export function resolveExclusiveActivationDriverNetPence(input: {
     const n = Number(raw);
     if (Number.isFinite(n) && n > 0) return Math.round(n);
   }
-  const preview = Number(input.computedPreviewPence);
-  if (Number.isFinite(preview) && preview > 0) return Math.round(preview);
   return null;
 }
 

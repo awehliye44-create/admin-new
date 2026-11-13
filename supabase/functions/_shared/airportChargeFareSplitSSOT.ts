@@ -135,7 +135,12 @@ export function bookingFareSplitFromQuote(input: {
   const airport = resolveQuoteAirportChargePence(breakdown);
   const ride = resolveQuoteRideFarePence(breakdown);
   const payable = Math.max(0, Math.round(Number(input.payablePence) || 0));
-  const commissionable = ride > 0 ? ride : Math.max(0, payable - airport);
+  // The quote ride fare is only a commission base while the committed payable
+  // covers it. When payable undershoots ride + airport (e.g. committed 480 beside a
+  // quote ride of 500, or a discounted payable), commissionable follows
+  // payable − airport so it can never exceed what the customer actually pays.
+  const rideCoveredByPayable = ride > 0 && (payable <= 0 || payable >= ride + airport);
+  const commissionable = rideCoveredByPayable ? ride : Math.max(0, payable - airport);
   return {
     airport_charge_pence: airport,
     commissionable_fare_pence: commissionable,
@@ -654,10 +659,11 @@ export function planExistingPendingOfferRestamp(input: {
     }
 
     const snapshot = offer.offer_snapshot ? { ...offer.offer_snapshot } : {};
-    const customer = Math.max(
-      0,
-      Math.round(Number(snapshot.baseFarePence ?? payable) || 0),
-    );
+    // Committed payable wins over a snapshot gross written from a stale breakdown
+    // (MK-261113-004/005). Snapshot gross only when no payable was supplied.
+    const customer = payable > 0
+      ? payable
+      : Math.max(0, Math.round(Number(snapshot.baseFarePence) || 0));
     const storedRate = offer.effective_commission_percent;
     const hasStoredRate = storedRate != null && Number.isFinite(Number(storedRate));
     if (!hasStoredRate && input.requireStoredCommissionPercent) {
