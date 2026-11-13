@@ -1,3 +1,7 @@
+import {
+  buildRematchPickupWaitingResetPatch,
+  closeAllOpenWaitingSegmentsForTrip,
+} from "../_shared/waitingSegmentClock.ts";
 import { createClient } from "npm:@supabase/supabase-js@2.57.2";
 import {
   customerSearchExpiresAtIso,
@@ -107,7 +111,7 @@ Deno.serve(async (req) => {
     const { data: trip, error: tripError } = await supabase
       .from("trips")
       .select(
-        `${TRIP_CANCEL_REMATCH_SELECT}, started_at, scheduled_ack_status, broadcast_enabled, previous_driver_id`,
+        `${TRIP_CANCEL_REMATCH_SELECT}, started_at, scheduled_ack_status, broadcast_enabled, previous_driver_id, pickup_waiting_started_at`,
       )
       .eq("id", body.tripId)
       .maybeSingle();
@@ -321,6 +325,23 @@ Deno.serve(async (req) => {
           "Trip assignment or status changed — refresh and try again",
         409,
       );
+    }
+
+    // Rematch must not let the next driver inherit the cancelled driver's pickup
+    // waiting clock (open segment / arrived_at). scheduled_at is NOT touched, so
+    // the D4 eligible floor still applies to the replacement driver's Arrived.
+    // Best-effort, after the ownership CAS: a reset failure never blocks the rematch.
+    if (arrivedBeforeStartStatuses.has(rawStatus) || trip.pickup_waiting_started_at) {
+      await closeAllOpenWaitingSegmentsForTrip(supabase, body.tripId, nowIso);
+      const { error: waitResetErr } = await supabase
+        .from("trips")
+        .update(buildRematchPickupWaitingResetPatch(nowIso))
+        .eq("id", body.tripId)
+        .is("driver_id", null)
+        .is("started_at", null);
+      if (waitResetErr) {
+        console.warn("[driver-cancel-before-pickup] rematch waiting reset failed", waitResetErr.message);
+      }
     }
 
     console.log("DRIVER_CANCEL_NEW_SEARCH_CYCLE_CREATED", JSON.stringify({

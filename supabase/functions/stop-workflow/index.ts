@@ -441,6 +441,15 @@ async function finalizePickupWaitingOnStartTrip(
   const pickupLat = opts?.pickupLat ?? trip.pickup_latitude ?? null;
   const pickupLng = opts?.pickupLng ?? trip.pickup_longitude ?? null;
   const driverId = trip.driver_id ?? null;
+  // D4: Start Trip before scheduled_at must not count pre-scheduled pickup time.
+  const finalizeEligibleFromMs = eligibleFromMsForPickupTrip(
+    trip as {
+      arrived_at?: string | null;
+      pickup_arrived_at?: string | null;
+      scheduled_at?: string | null;
+      is_scheduled?: boolean | null;
+    },
+  );
   if (driverId && pickupLat != null && pickupLng != null) {
     await syncWaitingGeofenceClock(supabase, {
       tripId,
@@ -458,6 +467,7 @@ async function finalizePickupWaitingOnStartTrip(
       bodyLat: opts?.driverLat ?? null,
       bodyLng: opts?.driverLng ?? null,
       nowIso,
+      eligibleFromMs: finalizeEligibleFromMs,
     });
   }
 
@@ -465,6 +475,7 @@ async function finalizePickupWaitingOnStartTrip(
     tripId,
     locationType: 'pickup',
     nowIso,
+    eligibleFromMs: finalizeEligibleFromMs,
   });
 
   if (!config.pickup_paid_waiting_enabled || !config.config_available) {

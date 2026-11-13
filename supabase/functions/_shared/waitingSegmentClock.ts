@@ -238,7 +238,7 @@ export function sumSegmentSecondsAt(
   eligibleFromMs?: number | null,
 ): number {
   if (!Number.isFinite(atMs)) return 0;
-  let totalMs = 0;
+  const intervals: Array<[number, number]> = [];
   for (const row of rows) {
     const startRaw = Date.parse(row.started_at);
     if (!Number.isFinite(startRaw) || startRaw >= atMs) continue;
@@ -253,9 +253,94 @@ export function sumSegmentSecondsAt(
       if (end <= eligibleFromMs) continue;
       start = Math.max(start, eligibleFromMs);
     }
-    if (end > start) totalMs += end - start;
+    if (end > start) intervals.push([start, end]);
   }
+  // Overlapping rows (concurrent-open race) must never double count.
+  let totalMs = 0;
+  for (const [a, b] of mergeOverlappingIntervalsMs(intervals)) totalMs += b - a;
   return Math.floor(totalMs / 1000);
+}
+
+/** Union of [start,end) intervals — shared by the sum and the no-overlap tests. */
+export function mergeOverlappingIntervalsMs(
+  intervals: Array<[number, number]>,
+): Array<[number, number]> {
+  const sorted = intervals
+    .filter(([a, b]) => Number.isFinite(a) && Number.isFinite(b) && b > a)
+    .sort((x, y) => x[0] - y[0]);
+  const out: Array<[number, number]> = [];
+  for (const [a, b] of sorted) {
+    const last = out[out.length - 1];
+    if (last && a <= last[1]) last[1] = Math.max(last[1], b);
+    else out.push([a, b]);
+  }
+  return out;
+}
+
+export type OpenWaitingSegmentRef = { id: string; started_at: string };
+
+/**
+ * Plan the single-open-segment invariant for one waiting location.
+ * - not counting (outside radius / stale GPS / before scheduled pickup):
+ *   close EVERY open row (freeze free + chargeable together)
+ * - counting: keep the earliest open row, close any duplicate extras
+ */
+export function planOpenWaitingSegments(
+  openRows: OpenWaitingSegmentRef[],
+  counting: boolean,
+): { openNew: boolean; keepId: string | null; closeIds: string[] } {
+  const sorted = [...openRows].sort(
+    (a, b) => Date.parse(a.started_at) - Date.parse(b.started_at),
+  );
+  if (!counting) {
+    return { openNew: false, keepId: null, closeIds: sorted.map((r) => r.id) };
+  }
+  if (sorted.length === 0) return { openNew: true, keepId: null, closeIds: [] };
+  return {
+    openNew: false,
+    keepId: sorted[0].id,
+    closeIds: sorted.slice(1).map((r) => r.id),
+  };
+}
+
+/** Rematch / reassignment must not let the next driver inherit the previous driver's pickup clock. */
+export function buildRematchPickupWaitingResetPatch(
+  nowIso: string,
+): Record<string, unknown> {
+  return {
+    arrived_at: null,
+    pickup_arrived_at: null,
+    pickup_waiting_started_at: null,
+    pickup_paid_waiting_started_at: null,
+    free_wait_expires_at: null,
+    grace_period_expired_at: null,
+    pickup_waiting_counted_seconds: 0,
+    pickup_waiting_charge_pence: 0,
+    pickup_waiting_intervals_charged: 0,
+    waiting_geofence_status: "not_started",
+    updated_at: nowIso,
+  };
+}
+
+/** Close every open pickup segment for a trip (rematch / admin force end). Never throws. */
+// deno-lint-ignore no-explicit-any
+export async function closeAllOpenWaitingSegmentsForTrip(
+  supabase: any,
+  tripId: string,
+  nowIso: string,
+): Promise<void> {
+  try {
+    await supabase
+      .from("trip_waiting_segments")
+      .update({ ended_at: nowIso })
+      .eq("trip_id", tripId)
+      .is("ended_at", null);
+  } catch (err) {
+    console.warn("[waitingSegmentClock] closeAllOpenWaitingSegmentsForTrip failed", {
+      trip_id: tripId,
+      message: err instanceof Error ? err.message : String(err),
+    });
+  }
 }
 
 export function sumSegmentSeconds(
@@ -489,33 +574,43 @@ export async function syncWaitingGeofenceClock(
     .eq("trip_id", input.tripId)
     .eq("location_type", input.locationType)
     .is("ended_at", null)
-    .order("started_at", { ascending: false })
-    .limit(1);
+    .order("started_at", { ascending: true });
   if (input.locationType === "stop" && input.stopId) {
     openQuery = openQuery.eq("stop_id", input.stopId);
   }
   const { data: openRows } = await openQuery;
-  const open = Array.isArray(openRows) ? openRows[0] ?? null : openRows;
+  const openList: OpenWaitingSegmentRef[] = Array.isArray(openRows)
+    ? openRows as OpenWaitingSegmentRef[]
+    : openRows ? [openRows as OpenWaitingSegmentRef] : [];
+  const counting = verdict.inside && !beforeScheduledEligible;
+  const plan = planOpenWaitingSegments(openList, counting);
+  const open = plan.keepId
+    ? openList.find((r) => r.id === plan.keepId) ?? null
+    : counting
+    ? null
+    : (openList[0] ?? null);
+  // Single-open invariant: close duplicates (counting) or every open row (frozen).
+  for (const id of plan.closeIds) {
+    await supabase
+      .from("trip_waiting_segments")
+      .update({
+        ended_at: nowIso,
+        distance_meters: verdict.distanceMeters,
+        source_location: verdict.usedSource,
+      })
+      .eq("id", id)
+      .is("ended_at", null);
+  }
 
   let openedFresh = false;
   let segmentId: string | null =
-    open && typeof (open as { id?: string }).id === "string"
+    counting && open && typeof (open as { id?: string }).id === "string"
       ? (open as { id: string }).id
       : null;
   let skipReason: string | null = null;
 
   // Before scheduled pickup eligible floor: never open/count (pause money clock).
   if (beforeScheduledEligible) {
-    if (open?.id) {
-      await supabase
-        .from("trip_waiting_segments")
-        .update({
-          ended_at: nowIso,
-          distance_meters: verdict.distanceMeters,
-          source_location: verdict.usedSource,
-        })
-        .eq("id", open.id);
-    }
     skipReason = "before_scheduled_pickup";
   } else if (verdict.inside) {
     if (!open) {
@@ -552,15 +647,8 @@ export async function syncWaitingGeofenceClock(
     } else {
       skipReason = "already_open";
     }
-  } else if (open?.id) {
-    await supabase
-      .from("trip_waiting_segments")
-      .update({
-        ended_at: nowIso,
-        distance_meters: verdict.distanceMeters,
-        source_location: verdict.usedSource,
-      })
-      .eq("id", open.id);
+  } else if (openList.length > 0) {
+    // All open rows already closed by the plan above.
     skipReason = verdict.usedSource === "no_trusted_location"
       ? "no_trusted_location"
       : "outside_radius";
@@ -642,6 +730,8 @@ export async function closeOpenWaitingSegments(
     locationType: WaitingLocationType;
     stopId?: string | null;
     nowIso?: string;
+    /** Pickup only — max(arrived_at, scheduled_at); pre-scheduled time never counts. */
+    eligibleFromMs?: number | null;
   },
 ): Promise<number> {
   const nowIso = input.nowIso ?? new Date().toISOString();
@@ -661,6 +751,9 @@ export async function closeOpenWaitingSegments(
     locationType: input.locationType,
     stopId: input.stopId ?? null,
     atIso: nowIso,
+    eligibleFromMs: input.locationType === "pickup"
+      ? (input.eligibleFromMs ?? null)
+      : null,
   });
   if (!canonical.ok) {
     // Callers freeze money from this value; an unreadable sum must not become 0.

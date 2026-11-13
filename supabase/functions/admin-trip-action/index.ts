@@ -18,6 +18,7 @@ import {
 } from "../_shared/commissionWalletDeduction.ts";
 import { tripUsesCommissionWalletDeduction } from "../_shared/commissionWalletSSOT.ts";
 import { calculateTripSettlement, resolveTripTierPercent, tripSettlementDbColumns } from "../_shared/tripSettlement.ts";
+import { closeAllOpenWaitingSegmentsForTrip } from "../_shared/waitingSegmentClock.ts";
 import { notifyCustomerTripLifecycle } from "../_shared/customerTripLifecycleNotify.ts";
 import { assertPlatformCollectedCompletionPaymentGate } from "../_shared/executeFareIncreaseModificationPayment.ts";
 
@@ -239,6 +240,10 @@ Deno.serve(async (req) => {
       if (tripUpdateErr) {
         return json({ success: false, error: tripUpdateErr.message }, 500);
       }
+
+      // Waiting evidence: a force-ended trip must not leave an open pickup/stop
+      // segment that keeps accruing (shared helper, best-effort, no fare change).
+      await closeAllOpenWaitingSegmentsForTrip(gate.supabase, tripId, now);
 
       // After authoritative force_complete — Customer trip_completed lifecycle push/WAV.
       const passengerIdComplete =

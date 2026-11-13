@@ -10,6 +10,7 @@
  */
 import type { SupabaseClient } from "npm:@supabase/supabase-js@2.57.2";
 import { isRawApnsDeviceToken } from "../_shared/customerNotificationPush.ts";
+import { normalizeOtaAdoptionTelemetry } from "../_shared/otaAdoptionTelemetry.ts";
 import { normalizeCapabilityList } from "../_shared/scheduledDepartureAckCapabilitySSOT.ts";
 
 const corsHeaders = {
@@ -28,6 +29,10 @@ interface SaveTokenRequest {
   app_version?: unknown;
   client_capabilities?: unknown;
   capabilities?: unknown;
+  /** Currently LOADED Updates.updateId (not downloaded/available). Optional for older apps. */
+  loaded_update_id?: unknown;
+  update_is_embedded?: unknown;
+  runtime_version?: unknown;
 }
 
 export async function handleSaveCustomerPushToken(
@@ -101,6 +106,11 @@ export async function handleSaveCustomerPushToken(
     const deviceCapabilityPatch = {
       client_capabilities: clientCapabilities,
       client_capabilities_updated_at: now,
+      // Always replaced (missing → null). Telemetry only; never forces OTA reload.
+      ...normalizeOtaAdoptionTelemetry(
+        body as unknown as Record<string, unknown>,
+        now,
+      ),
       ...(appVersion ? { app_version: appVersion } : {}),
     };
 

@@ -18,6 +18,10 @@ import {
   type DriverPushPlatform,
 } from "../_shared/driverPushToken.ts";
 import {
+  buildDriverActiveDeviceUpsertRow,
+  normalizeOtaAdoptionTelemetry,
+} from "../_shared/otaAdoptionTelemetry.ts";
+import {
   checkRateLimit,
   errorResponse,
   getClientIP,
@@ -43,6 +47,10 @@ interface BindBody {
   /** Capability tokens this Driver installation supports (e.g. scheduled_departure_ack_v1). */
   client_capabilities?: unknown;
   capabilities?: unknown;
+  /** Currently LOADED Updates.updateId (not downloaded/available). Optional for older apps. */
+  loaded_update_id?: string;
+  update_is_embedded?: boolean;
+  runtime_version?: string;
   environment?: string;
   app_identifier?: string;
   /** When true, this device becomes the sole active device (login takeover). */
@@ -144,6 +152,11 @@ Deno.serve(async (req) => {
   );
 
   const now = new Date().toISOString();
+  // Always replace: missing (older apps) → null. Telemetry only, never forces OTA reload.
+  const ota = normalizeOtaAdoptionTelemetry(
+    body as unknown as Record<string, unknown>,
+    now,
+  );
   const fp = tokenFingerprint(pushToken);
 
   const { data: activeDevice } = await supabase
@@ -193,12 +206,16 @@ Deno.serve(async (req) => {
   // Persist client_capabilities + app_version for Phase 5 mixed-version gating.
   const { error: claimErr } = await supabase.from("driver_active_devices").upsert(
     {
-      driver_id: driverId,
-      device_id: installationId,
-      platform,
-      last_seen_at: now,
-      updated_at: now,
-      app_version: appVersion,
+      ...buildDriverActiveDeviceUpsertRow({
+        driverId,
+        installationId,
+        platform,
+        nowIso: now,
+        appVersion,
+        clientCapabilities,
+        ota,
+      }),
+      // Explicit for the Phase 5 capability gate: replaced on every authoritative bind.
       client_capabilities: clientCapabilities,
       client_capabilities_updated_at: now,
     },
