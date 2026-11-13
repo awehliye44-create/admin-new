@@ -23381,6 +23381,181 @@ export type Database = {
           },
         ]
       }
+      trip_action_location_evidence: {
+        Row: {
+          action: string
+          created_at: string
+          distance_to_target_m: number | null
+          driver_accuracy_m: number | null
+          driver_id: string | null
+          driver_lat: number | null
+          driver_lng: number | null
+          driver_location_age_seconds: number | null
+          driver_location_at: string | null
+          driver_location_source: string | null
+          id: string
+          passenger_accuracy_m: number | null
+          passenger_lat: number | null
+          passenger_lng: number | null
+          passenger_location_at: string | null
+          recorded_at: string
+          target_lat: number | null
+          target_lng: number | null
+          target_type: string | null
+          trip_id: string
+        }
+        Insert: {
+          action: string
+          created_at?: string
+          distance_to_target_m?: number | null
+          driver_accuracy_m?: number | null
+          driver_id?: string | null
+          driver_lat?: number | null
+          driver_lng?: number | null
+          driver_location_age_seconds?: number | null
+          driver_location_at?: string | null
+          driver_location_source?: string | null
+          id?: string
+          passenger_accuracy_m?: number | null
+          passenger_lat?: number | null
+          passenger_lng?: number | null
+          passenger_location_at?: string | null
+          recorded_at?: string
+          target_lat?: number | null
+          target_lng?: number | null
+          target_type?: string | null
+          trip_id: string
+        }
+        Update: {
+          action?: string
+          created_at?: string
+          distance_to_target_m?: number | null
+          driver_accuracy_m?: number | null
+          driver_id?: string | null
+          driver_lat?: number | null
+          driver_lng?: number | null
+          driver_location_age_seconds?: number | null
+          driver_location_at?: string | null
+          driver_location_source?: string | null
+          id?: string
+          passenger_accuracy_m?: number | null
+          passenger_lat?: number | null
+          passenger_lng?: number | null
+          passenger_location_at?: string | null
+          recorded_at?: string
+          target_lat?: number | null
+          target_lng?: number | null
+          target_type?: string | null
+          trip_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "trip_action_location_evidence_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "admin_driver_fleet_status"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "trip_action_location_evidence_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "admin_driver_online_snapshot"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "trip_action_location_evidence_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "commission_wallet_driver_financial_summary"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "trip_action_location_evidence_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "dispatchable_drivers"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "trip_action_location_evidence_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "driver_document_compliance_ssot"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "trip_action_location_evidence_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "driver_document_status"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "trip_action_location_evidence_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "driver_financial_summary"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "trip_action_location_evidence_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "driver_passenger_profile"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "trip_action_location_evidence_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "drivers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "trip_action_location_evidence_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "drivers_public_safe"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "trip_action_location_evidence_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "platform_collected_driver_financial_summary"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "trip_action_location_evidence_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "admin_trip_lifecycle_fees"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "trip_action_location_evidence_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "available_scheduled_jobs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "trip_action_location_evidence_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "trips"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "trip_action_location_evidence_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "v_payment_lifecycle_audit"
+            referencedColumns: ["trip_id"]
+          },
+        ]
+      }
       trip_capture_jobs: {
         Row: {
           admin_alert_key: string | null
@@ -30533,6 +30708,13 @@ export type Database = {
       capture_expired_tip_windows_sweep_has_work: {
         Args: never
         Returns: boolean
+      }
+      capture_trip_action_location_evidence: {
+        Args: {
+          p_action: string
+          p_trip: Database["public"]["Tables"]["trips"]["Row"]
+        }
+        Returns: undefined
       }
       check_driver_documents_approved: {
         Args: { p_driver_id: string }
