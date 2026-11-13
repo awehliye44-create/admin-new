@@ -2,10 +2,29 @@
  * Post–Heading to Pickup lateness monitoring (D6).
  * Planning early-arrival target is never a cancel/reassign deadline.
  * Detect past scheduled_at / stale GPS → ops alert + optional traffic_delay.
+ *
+ * Require LIVE pickup-en-route `status`. Sticky `scheduled_status =
+ * driver_en_route` alone must never escalate (leaked traffic_delay after
+ * complete / cancel / arrived while Customer had no active trip).
  */
+
+import { isTripTerminalForDispatch } from "./tripTerminalDispatch.ts";
 
 export const POST_ACTIVATION_STALE_GPS_MS = 5 * 60_000;
 export const TRAFFIC_DELAY_DEDUPE_PREFIX = "traffic_delay_scheduled:";
+
+/** Live trip statuses still heading to pickup (not sticky scheduled_status). */
+export const LIVE_PICKUP_EN_ROUTE_STATUSES = new Set([
+  "en_route_to_pickup",
+  "en_route",
+]);
+
+export function isLivePickupEnRouteStatus(
+  status: string | null | undefined,
+): boolean {
+  const s = String(status ?? "").trim().toLowerCase();
+  return LIVE_PICKUP_EN_ROUTE_STATUSES.has(s);
+}
 
 export function shouldSurfacePostActivationLateness(input: {
   nowMs: number;
@@ -23,11 +42,21 @@ export function shouldSurfacePostActivationLateness(input: {
   const status = String(input.status ?? "").trim().toLowerCase();
   const sched = String(input.scheduledStatus ?? "").trim().toLowerCase();
   const driver = String(input.driverId ?? "").trim();
-  const activeEnRoute =
-    Boolean(driver) &&
-    (status === "en_route_to_pickup" ||
-      status === "en_route" ||
-      sched === "driver_en_route");
+  if (
+    isTripTerminalForDispatch({
+      status,
+      scheduled_status: sched,
+    })
+  ) {
+    return {
+      lateVsPickup: false,
+      staleGps: false,
+      minutesPastPickup: null,
+      escalate: false,
+    };
+  }
+  // Live en_route only — never escalate from sticky scheduled_status alone.
+  const activeEnRoute = Boolean(driver) && isLivePickupEnRouteStatus(status);
   if (!activeEnRoute) {
     return {
       lateVsPickup: false,

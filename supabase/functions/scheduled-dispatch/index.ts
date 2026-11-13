@@ -1103,12 +1103,16 @@ Deno.serve(async (req) => {
           "id, status, scheduled_status, scheduled_at, driver_id, confirmed_driver_id, passenger_id",
         )
         .eq("scheduled_status", "driver_en_route")
+        // Live en_route only — sticky scheduled_status after terminal/arrived must not notify.
+        .in("status", ["en_route_to_pickup", "en_route"])
+        .not("status", "in", TERMINAL_TRIP_STATUS_POSTGREST_LIST)
         .not("driver_id", "is", null)
         .lte("scheduled_at", now.toISOString())
         .order("scheduled_at", { ascending: true })
         .limit(30);
 
       for (const row of enRouteLateRows ?? []) {
+        if (isTripTerminalForDispatch(row)) continue;
         const driverId = String(row.driver_id ?? row.confirmed_driver_id ?? "").trim();
         if (!driverId) continue;
         let gpsAt: string | null = null;

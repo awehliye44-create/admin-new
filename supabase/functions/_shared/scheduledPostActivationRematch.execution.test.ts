@@ -219,6 +219,36 @@ Deno.test("D6: lateness surface without auto-reassign", () => {
   );
 });
 
+Deno.test("D6: sticky driver_en_route alone must not escalate traffic_delay", () => {
+  const base = {
+    nowMs: Date.parse("2026-11-13T14:10:00.000Z"),
+    scheduledAtIso: "2026-11-13T14:00:00.000Z",
+    scheduledStatus: "driver_en_route",
+    driverId: "d1",
+    gpsSampledAtIso: "2026-11-13T14:09:00.000Z",
+  };
+  for (const status of ["completed", "cancelled", "arrived_at_pickup", "in_progress"]) {
+    const v = shouldSurfacePostActivationLateness({ ...base, status });
+    assertEquals(v.escalate, false, `status=${status}`);
+    assertEquals(v.lateVsPickup, false, `status=${status}`);
+  }
+  // Sticky scheduled_status with non-en_route live status must not escalate.
+  const orphan = shouldSurfacePostActivationLateness({
+    ...base,
+    status: "scheduled",
+  });
+  assertEquals(orphan.escalate, false);
+});
+
+Deno.test("D6: scheduled-dispatch STEP 1z gates live en_route + terminal exclude", () => {
+  const dispatch = Deno.readTextFileSync(
+    new URL("../scheduled-dispatch/index.ts", import.meta.url),
+  );
+  assert(dispatch.includes('.in("status", ["en_route_to_pickup", "en_route"])'));
+  assert(dispatch.includes("TERMINAL_TRIP_STATUS_POSTGREST_LIST"));
+  assert(dispatch.includes("isTripTerminalForDispatch(row)"));
+});
+
 Deno.test("D7: accident/breakdown reason preserved helpers", () => {
   assert(isAccidentOrBreakdownCancelReason("Accident on M1"));
   assert(isAccidentOrBreakdownCancelReason("Vehicle breakdown"));
