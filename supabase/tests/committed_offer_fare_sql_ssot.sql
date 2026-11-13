@@ -3,8 +3,11 @@
 --
 --   MK-261113-004/005  committed 480 beside stale breakdown 500, 10% commission
 --                      -> offer net 432 AT CREATION (before any Edge restamp)
---   MK-261113-007      Heathrow: committed 7300 incl. airport 700, 10% commission
+--   MK-261113-007      Heathrow: committed 7300 incl. airport 700, 10% commission, NO promotion
 --                      -> journey 5940 + airport 700 = total 6640 (not 6570)
+--   MK-007 global_offer quote ride 6800 + airport 700, global_offer -200 -> payable 7300
+--                      -> driver = 6800 x 0.9 + 700 = 6820 (promotion is ONECAB-funded from
+--                         commission, never a driver deduction; tripSettlement SSOT)
 --
 -- LOCAL DB ONLY. Everything runs inside one transaction and ends in ROLLBACK:
 -- the candidate migration is applied inside the transaction, synthetic rows are
@@ -12,12 +15,17 @@
 -- global_dispatch_settings row INSIDE the transaction; the SQL under test reads
 -- them (resolve_wave_commission_percent) - no rate is hardcoded in the function.
 --
---   psql "$DB_URL" -X -v ON_ERROR_STOP=1 -v migration=<path> -f this.sql
+--   psql "$DB_URL" -X -v ON_ERROR_STOP=1 -v migration=<150000> -v global_offer_migration=<210000> -f this.sql
 -- ============================================================================
 \set ON_ERROR_STOP on
 \if :{?migration}
 \else
-  \echo 'usage: -v migration=<path to 20270222150000_committed_offer_fare_sql_ssot.sql>'
+  \echo 'usage: -v migration=<path to 20270222150000_committed_offer_fare_sql_ssot.sql> -v global_offer_migration=<path to 20270222210000_global_offer_commission_base_pre_promotion.sql>'
+  \quit
+\endif
+\if :{?global_offer_migration}
+\else
+  \echo 'usage: -v global_offer_migration=<path to 20270222210000_global_offer_commission_base_pre_promotion.sql>'
   \quit
 \endif
 
@@ -27,6 +35,7 @@ SELECT set_config('request.jwt.claims', '{"role":"service_role"}', true);
 SELECT set_config('request.jwt.claim.role', 'service_role', true);
 
 \i :migration
+\i :global_offer_migration
 
 SET LOCAL client_min_messages = notice;
 
@@ -124,6 +133,8 @@ DECLARE
   v_offer uuid;
   v_ps uuid := gen_random_uuid();
   v_sfq uuid := gen_random_uuid();
+  v_ps2 uuid := gen_random_uuid();
+  v_sfq2 uuid := gen_random_uuid();
 BEGIN
   -- ==========================================================================
   -- TASK 4  committed gross priority (same order as committedBookingOfferFareSSOT.ts)
@@ -196,10 +207,11 @@ BEGIN
     pg_temp.base(pg_temp.mk_trip(jsonb_build_object('estimated_fare', 4.8))), 480);
 
   -- ==========================================================================
-  -- TASK 5  MK-261113-007 Heathrow: production-shaped trip
-  --   quote 7500 = ride 6800 + airport 700, global_offer discount 200 -> committed 7300
-  --   (airport is INSIDE the committed payable). Offer is created INSIDE the trip
-  --   INSERT, when trips.airport_charge_pence is still 0 and fare_breakdown is NULL.
+  -- TASK 5  MK-261113-007 Heathrow: production-shaped trip, NO promotion
+  --   committed 7300 with the airport 700 INSIDE the payable (the consumed quote is 7500 = ride
+  --   6800 + airport 700, but nothing ONECAB-funded sits between quote and payable here).
+  --   Offer is created INSIDE the trip INSERT, when trips.airport_charge_pence is still 0 and
+  --   fare_breakdown is NULL.
   -- ==========================================================================
   SET LOCAL session_replication_role = replica;
   INSERT INTO public.payment_sessions (id, client_action_id, idempotency_key, service_area_id, user_id, fare_snapshot)
@@ -218,40 +230,127 @@ BEGIN
     'final_customer_fare_pence', 7300, 'locked_base_fare_pence', 7300, 'gross_fare_pence', 7300,
     'estimated_total_pence', 7300, 'estimated_fare', 73, 'authorised_amount_pence', 7300,
     'dropoff_address', 'Heathrow Long Stay Terminal 5, Northern Perimeter Rd W, Hounslow, TW6 2RL'));
-  PERFORM pg_temp.expect('MK-007 committed payable 7300', pg_temp.base(v_trip), 7300);
-  PERFORM pg_temp.expect('MK-007 airport resolved from consumed quote (trip row unstamped)',
+  PERFORM pg_temp.expect('Heathrow committed payable 7300', pg_temp.base(v_trip), 7300);
+  PERFORM pg_temp.expect('Heathrow airport resolved from consumed quote (trip row unstamped)',
     (SELECT public.offer_resolve_airport_pence(t) FROM public.trips t WHERE t.id = v_trip), 700);
 
   v_offer := pg_temp.mk_offer(v_trip);
-  PERFORM pg_temp.expect('MK-007 offer gross', pg_temp.snap_int(v_offer, 'baseFarePence'), 7300);
-  PERFORM pg_temp.expect('MK-007 airport on snapshot', pg_temp.snap_int(v_offer, 'airport_charge_pence'), 700);
-  PERFORM pg_temp.expect('MK-007 airport state', pg_temp.snap(v_offer, 'airport_charge_state'), 'present');
-  PERFORM pg_temp.expect('MK-007 airport chip row amount',
+  PERFORM pg_temp.expect('Heathrow offer gross', pg_temp.snap_int(v_offer, 'baseFarePence'), 7300);
+  PERFORM pg_temp.expect('Heathrow airport on snapshot', pg_temp.snap_int(v_offer, 'airport_charge_pence'), 700);
+  PERFORM pg_temp.expect('Heathrow airport state', pg_temp.snap(v_offer, 'airport_charge_state'), 'present');
+  PERFORM pg_temp.expect('Heathrow airport chip row amount',
     (SELECT (offer_snapshot -> 'route_extra_items' -> 0 ->> 'amount_pence')::int FROM public.ride_offers WHERE id = v_offer), 700);
-  PERFORM pg_temp.expect('MK-007 airport chip row type',
+  PERFORM pg_temp.expect('Heathrow airport chip row type',
     (SELECT offer_snapshot -> 'route_extra_items' -> 0 ->> 'type' FROM public.ride_offers WHERE id = v_offer), 'airport');
   -- commissionable = 7300 - 700 = 6600 ; commission 10% = 660 ; journey = 5940
-  PERFORM pg_temp.expect('MK-007 journey net = 6600 - 660', pg_temp.snap_int(v_offer, 'driver_journey_net_pence'), 5940);
-  PERFORM pg_temp.expect('MK-007 total driver payable = journey + airport', pg_temp.offer_net(v_offer), 6640);
-  PERFORM pg_temp.expect('MK-007 driver_net_fare_pence includes airport', pg_temp.snap_int(v_offer, 'driver_net_fare_pence'), 6640);
-  PERFORM pg_temp.expect('MK-007 no double add: journey + airport = total',
+  PERFORM pg_temp.expect('Heathrow journey net = 6600 - 660', pg_temp.snap_int(v_offer, 'driver_journey_net_pence'), 5940);
+  PERFORM pg_temp.expect('Heathrow total driver payable = journey + airport', pg_temp.offer_net(v_offer), 6640);
+  PERFORM pg_temp.expect('Heathrow driver_net_fare_pence includes airport', pg_temp.snap_int(v_offer, 'driver_net_fare_pence'), 6640);
+  PERFORM pg_temp.expect('Heathrow no double add: journey + airport = total',
     pg_temp.snap_int(v_offer, 'driver_journey_net_pence') + pg_temp.snap_int(v_offer, 'airport_charge_pence'),
     pg_temp.snap_int(v_offer, 'driver_net_fare_pence'));
-  PERFORM pg_temp.expect('MK-007 platform commission 660 (airport not commissioned)', pg_temp.snap_int(v_offer, 'platform_commission_pence'), 660);
+  PERFORM pg_temp.expect('Heathrow platform commission 660 (airport not commissioned)', pg_temp.snap_int(v_offer, 'platform_commission_pence'), 660);
   -- the production loss: net 7300 x 0.9 = 6570 with no airport
-  PERFORM pg_temp.expect_true('MK-007 not the production-loss net 6570', pg_temp.offer_net(v_offer) <> 6570);
+  PERFORM pg_temp.expect_true('Heathrow not the production-loss net 6570', pg_temp.offer_net(v_offer) <> 6570);
 
   -- Push data payload (built from the stamped offer) carries the airport.
-  PERFORM pg_temp.expect('MK-007 push airport_charge_pence',
+  PERFORM pg_temp.expect('Heathrow push airport_charge_pence',
     (public.ride_offer_build_send_notification_body(v_offer) -> 'data' ->> 'airport_charge_pence'), '700');
-  PERFORM pg_temp.expect('MK-007 push driver_journey_net_pence',
+  PERFORM pg_temp.expect('Heathrow push driver_journey_net_pence',
     (public.ride_offer_build_send_notification_body(v_offer) -> 'data' ->> 'driver_journey_net_pence'), '5940');
-  PERFORM pg_temp.expect('MK-007 push driver_earnings_pence = total payable',
+  PERFORM pg_temp.expect('Heathrow push driver_earnings_pence = total payable',
     (public.ride_offer_build_send_notification_body(v_offer) -> 'data' ->> 'driver_earnings_pence'), '6640');
 
   -- Wave commission applies to the commissionable journey only.
   v_offer := pg_temp.mk_offer(v_trip, 2);
-  PERFORM pg_temp.expect('MK-007 wave 2 (5%): 6600 x 0.95 + 700 = 6970', pg_temp.offer_net(v_offer), 6970);
+  PERFORM pg_temp.expect('Heathrow wave 2 (5%): 6600 x 0.95 + 700 = 6970', pg_temp.offer_net(v_offer), 6970);
+
+  -- ==========================================================================
+  -- MK-007 global_offer: quote ride 6800 + airport 700 = 7500, global_offer -200 -> payable 7300.
+  --   tripSettlement SSOT: the promotion is ONECAB-funded from commission and NEVER reduces the
+  --   driver. Commission base = PRE-promotion total (payable + promotion = 7500, ride 6800).
+  --   driver = 6800 x 0.9 + 700 = 6820 ; ONECAB absorbs 200 of the 680 commission.
+  --   (NOT 6640: that took the 200 out of the driver's pocket.)
+  -- ==========================================================================
+  SET LOCAL session_replication_role = replica;
+  INSERT INTO public.payment_sessions (id, client_action_id, idempotency_key, service_area_id, user_id, fare_snapshot)
+  VALUES (v_ps2, 'mk007go-' || v_ps2::text, 'mk007go-idem-' || v_ps2::text, gen_random_uuid(), gen_random_uuid(),
+          jsonb_build_object('server_fare_quote_id', v_sfq2));
+  INSERT INTO public.server_fare_quotes (id, currency, distance_km, duration_min, expires_at, gross_fare_pence,
+                                         pricing_hash, route_key, route_quote_id, service_area_id, user_id,
+                                         vehicle_type_id, airport_charge_pence)
+  VALUES (v_sfq2, 'gbp', 92.25, 86, now() + interval '1 hour', 7500, 'h2', 'rk2', gen_random_uuid(),
+          gen_random_uuid(), gen_random_uuid(), gen_random_uuid(), 700);
+  SET LOCAL session_replication_role = origin;
+
+  v_trip := pg_temp.mk_trip(jsonb_build_object(
+    'payment_session_id', v_ps2,
+    'airport_charge_pence', 0,
+    'locked_base_fare_pence', 7500, 'gross_fare_pence', 7500,
+    'discount_source', 'global_offer', 'offer_discount_pence', 200, 'discount_pence', 200,
+    'final_customer_fare_pence', 7300, 'final_fare_pence', 7300, 'estimated_total_pence', 7300, 'authorised_amount_pence', 7300,
+    'dropoff_address', 'Heathrow Long Stay Terminal 5, Northern Perimeter Rd W, Hounslow, TW6 2RL'));
+  PERFORM pg_temp.expect('MK-007 global_offer promotion resolver = 200',
+    (SELECT public.offer_global_offer_promotion_pence(t) FROM public.trips t WHERE t.id = v_trip), 200);
+  PERFORM pg_temp.expect('MK-007 global_offer committed payable stays 7300', pg_temp.base(v_trip), 7300);
+
+  v_offer := pg_temp.mk_offer(v_trip);
+  PERFORM pg_temp.expect('MK-007 global_offer offer gross (payment) stays the payable 7300', pg_temp.snap_int(v_offer, 'baseFarePence'), 7300);
+  PERFORM pg_temp.expect('MK-007 global_offer airport on snapshot', pg_temp.snap_int(v_offer, 'airport_charge_pence'), 700);
+  PERFORM pg_temp.expect('MK-007 global_offer journey net = 6800 - 680', pg_temp.snap_int(v_offer, 'driver_journey_net_pence'), 6120);
+  PERFORM pg_temp.expect('MK-007 global_offer total driver payable = 6820', pg_temp.offer_net(v_offer), 6820);
+  PERFORM pg_temp.expect('MK-007 global_offer driver_net_fare_pence = 6820', pg_temp.snap_int(v_offer, 'driver_net_fare_pence'), 6820);
+  PERFORM pg_temp.expect_true('MK-007 global_offer is NOT 6640', pg_temp.offer_net(v_offer) <> 6640);
+  PERFORM pg_temp.expect('MK-007 global_offer platform gross commission 680', pg_temp.snap_int(v_offer, 'platform_commission_pence'), 680);
+  PERFORM pg_temp.expect('MK-007 global_offer capture identity 6120 + 680 + 700 - 200 = 7300',
+    pg_temp.snap_int(v_offer, 'driver_journey_net_pence') + pg_temp.snap_int(v_offer, 'platform_commission_pence')
+      + pg_temp.snap_int(v_offer, 'airport_charge_pence') - 200, 7300);
+  PERFORM pg_temp.expect('MK-007 global_offer push driver_earnings_pence',
+    (public.ride_offer_build_send_notification_body(v_offer) -> 'data' ->> 'driver_earnings_pence'), '6820');
+  v_offer := pg_temp.mk_offer(v_trip, 2);
+  PERFORM pg_temp.expect('MK-007 global_offer wave 2 (5%): 6800 x 0.95 + 700 = 7160', pg_temp.offer_net(v_offer), 7160);
+
+  -- Trip row not yet stamped (finalize inserts before bookingPostCommit): the consumed payment
+  -- session snapshot is the evidence for the global_offer source.
+  UPDATE public.payment_sessions
+     SET booking_snapshot = jsonb_build_object('discount_source', 'global_offer', 'offer_discount_pence', 200)
+   WHERE id = v_ps2;
+  v_trip := pg_temp.mk_trip(jsonb_build_object(
+    'payment_session_id', v_ps2, 'airport_charge_pence', 0,
+    'offer_discount_pence', 200, 'discount_pence', 200,
+    'final_customer_fare_pence', 7300, 'final_fare_pence', 7300, 'estimated_total_pence', 7300));
+  PERFORM pg_temp.expect('MK-007 global_offer evidence from payment session when trip source unstamped',
+    (SELECT public.offer_global_offer_promotion_pence(t) FROM public.trips t WHERE t.id = v_trip), 200);
+  v_offer := pg_temp.mk_offer(v_trip);
+  PERFORM pg_temp.expect('MK-007 global_offer (session evidence) driver total 6820', pg_temp.offer_net(v_offer), 6820);
+
+  -- Controls: only ONECAB-funded global_offer keeps the pre-promotion base.
+  v_trip := pg_temp.mk_trip(jsonb_build_object(
+    'airport_charge_pence', 700, 'offer_discount_pence', 0, 'voucher_discount_pence', 200, 'discount_pence', 200,
+    'discount_source', 'personal_voucher', 'gross_fare_pence', 7500,
+    'final_customer_fare_pence', 7300, 'final_fare_pence', 7300, 'estimated_total_pence', 7300));
+  v_offer := pg_temp.mk_offer(v_trip);
+  PERFORM pg_temp.expect('voucher discount is NOT ONECAB-funded: (7300 - 700) x 0.9 + 700 = 6640', pg_temp.offer_net(v_offer), 6640);
+  v_trip := pg_temp.mk_trip(jsonb_build_object(
+    'airport_charge_pence', 700, 'offer_discount_pence', 200, 'discount_pence', 200,
+    'discount_source', 'global_offer', 'locked_offer_type', 'negotiated_offer', 'gross_fare_pence', 7500,
+    'final_customer_fare_pence', 7300, 'final_fare_pence', 7300, 'estimated_total_pence', 7300));
+  v_offer := pg_temp.mk_offer(v_trip);
+  PERFORM pg_temp.expect('negotiated fare supersedes the promotion: 6640', pg_temp.offer_net(v_offer), 6640);
+
+  -- Airport stamped AFTER a global_offer offer exists: restamp lands on 6820, not 6640.
+  v_trip := pg_temp.mk_trip(jsonb_build_object(
+    'airport_charge_pence', 0, 'offer_discount_pence', 200, 'discount_pence', 200,
+    'discount_source', 'global_offer', 'gross_fare_pence', 7500,
+    'final_customer_fare_pence', 7300, 'final_fare_pence', 7300, 'estimated_total_pence', 7300));
+  v_offer := pg_temp.mk_offer(v_trip);
+  UPDATE public.trips
+     SET airport_charge_pence = 700, commissionable_fare_pence = 6800,
+         fare_breakdown = jsonb_build_object('airport_charge_pence', 700, 'trip_fare_pence', 6800, 'final_fare_pence', 7500)
+   WHERE id = v_trip;
+  PERFORM pg_temp.expect('MK-007 global_offer late airport stamp restamps offer net to 6820', pg_temp.offer_net(v_offer), 6820);
+  PERFORM pg_temp.expect('MK-007 global_offer late stamp gross stays committed 7300', pg_temp.snap_int(v_offer, 'baseFarePence'), 7300);
+  PERFORM pg_temp.expect('MK-007 global_offer late stamp restamp idempotent', public.restamp_pending_offer_financials_for_trip(v_trip), 0);
 
   -- --------------------------------------------------------------------------
   -- Defence: trip stamped AFTER the offer exists (the pre-fix order).

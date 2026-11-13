@@ -11,6 +11,8 @@
  */
 import {
   driverNetFromCustomerTotal,
+  prePromotionCustomerPence,
+  resolveGlobalOfferPromotionPence,
   resolvePersistedAirportChargePence,
 } from "./airportChargeFareSplitSSOT.ts";
 import {
@@ -139,6 +141,8 @@ export function evaluateOfferInvariants(
     fare_snapshot_json: trip.fare_snapshot_json,
   });
   const other = nonNeg(trip.other_pass_through_charges_pence);
+  // global_offer is ONECAB-funded: commission base = payable + locked promotion (MK-007 6820).
+  const promotion = resolveGlobalOfferPromotionPence(trip as unknown as Record<string, unknown>);
 
   for (const offer of offers) {
     const snap = snapshotOf(offer);
@@ -176,7 +180,8 @@ export function evaluateOfferInvariants(
 
     // 3. driver_net_vs_breakdown (airport present; the offer's own base + airport)
     if (airport > 0 && pctOk && actualNet > 0) {
-      const gross = base > 0 ? base : resolved.pence;
+      const payableBase = base > 0 ? base : resolved.pence;
+      const gross = prePromotionCustomerPence(payableBase, promotion);
       if (gross > 0) {
         const airportClamped = Math.min(airport, gross);
         const expected = driverNetFromCustomerTotal({
@@ -190,6 +195,7 @@ export function evaluateOfferInvariants(
             ...common,
             airport_pence: airportClamped,
             commission_percent: Number(pct),
+            locked_promotion_pence: promotion,
           }));
         }
       }

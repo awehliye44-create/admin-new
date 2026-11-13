@@ -3,14 +3,19 @@
 --   migrations: 20270222150000 (committed-offer SSOT)
 --               20270222160000 (guard, non-stacked / committed columns only)
 --               20270222170000 (guard: stacked + breakdown-only recovery + FO002)
+--               20270222210000 (global_offer commission base = pre-promotion; MK-007 6820)
+--               20270222230000 (rollout-safe: pending FO001/FO002 WARN by default,
+--                               EXCEPTION only when onecab.enforce_offer_financial_invariant = on)
 --
--- LOCAL DB ONLY. One transaction, ends in ROLLBACK. All three candidate migrations
+-- LOCAL DB ONLY. One transaction, ends in ROLLBACK. All candidate migrations
 -- are applied INSIDE the transaction (idempotent when already present).
 --
 --   psql "$DB_URL" -X -v ON_ERROR_STOP=1 \
 --     -v ssot_migration=supabase/migrations/20270222150000_committed_offer_fare_sql_ssot.sql \
 --     -v migration=supabase/migrations/20270222160000_financial_offer_invariant_guard.sql \
 --     -v stacked_migration=supabase/migrations/20270222170000_financial_offer_invariant_guard_stacked_and_recovery.sql \
+--     -v global_offer_migration=supabase/migrations/20270222210000_global_offer_commission_base_pre_promotion.sql \
+--     -v warn_migration=supabase/migrations/20270222230000_financial_offer_invariant_warn_by_default.sql \
 --     -f supabase/tests/financial_offer_invariant_guard.sql
 --
 -- Any FAIL raises (ON_ERROR_STOP => non-zero exit). A missing schema object also fails.
@@ -18,8 +23,18 @@
 \set ON_ERROR_STOP on
 \if :{?stacked_migration}
 \else
-  \echo 'usage: -v ssot_migration=<150000> -v migration=<160000> -v stacked_migration=<170000>'
+  \echo 'usage: -v ssot_migration=<150000> -v migration=<160000> -v stacked_migration=<170000> -v global_offer_migration=<210000> -v warn_migration=<230000>'
   SELECT 1/0 AS missing_stacked_migration_variable;
+\endif
+\if :{?global_offer_migration}
+\else
+  \echo 'usage: -v global_offer_migration=<210000>'
+  SELECT 1/0 AS missing_global_offer_migration_variable;
+\endif
+\if :{?warn_migration}
+\else
+  \echo 'usage: -v warn_migration=<230000>'
+  SELECT 1/0 AS missing_warn_migration_variable;
 \endif
 
 BEGIN;
@@ -30,6 +45,8 @@ SELECT set_config('request.jwt.claim.role', 'service_role', true);
 \i :ssot_migration
 \i :migration
 \i :stacked_migration
+\i :global_offer_migration
+\i :warn_migration
 
 SET LOCAL client_min_messages = notice;
 
@@ -150,7 +167,13 @@ DECLARE
   v_snapshot_trip uuid;      -- breakdown-only, fare_snapshot_json committed 480
   v_nothing_trip uuid;       -- breakdown-only, nothing verifiable
   v_other_trip uuid;         -- committed 7300, airport 700, other pass-through 100
+  v_go_trip uuid;            -- MK-007 global_offer: payable 7300, promotion 200, airport 700 -> 6820
+  v_vc_trip uuid;            -- voucher discount: payable 7300, airport 700 -> 6640 (not ONECAB-funded)
 BEGIN
+  -- Sections 1-N prove the ENFORCED guard (FO001 / FO002 raised). The default (WARN) mode is
+  -- proven in the last section. Enforcement is a session/DB setting, off by default.
+  PERFORM set_config('onecab.enforce_offer_financial_invariant', 'on', true);
+
   PERFORM pg_temp.expect_true('global_dispatch_settings seeded (supabase/tests/ci/pg_harness_seed.sql)',
     EXISTS (SELECT 1 FROM public.global_dispatch_settings WHERE singleton = true));
   PERFORM pg_temp.expect_true('guard + authority helper installed',
@@ -211,8 +234,9 @@ BEGIN
   RAISE NOTICE 'PASS snapshot UPDATE keeping committed base allowed';
 
   -- ======================================================================
-  -- STACKED offers: MK-007-shaped trip (payable 7300, airport 700, commission 10%)
+  -- STACKED offers: Heathrow-shaped trip, NO promotion (payable 7300, airport 700, commission 10%)
   --   expected driver net = (7300 - 700) x 0.9 + 700 = 6640
+  --   (the MK-007 global_offer variant, expected 6820, is exercised further below)
   -- ======================================================================
   v_airport_trip := pg_temp.mk_trip(jsonb_build_object(
     'locked_base_fare_pence', 7300, 'final_customer_fare_pence', 7300, 'estimated_total_pence', 7300,
@@ -365,6 +389,60 @@ BEGIN
   PERFORM pg_temp.expect_true('no verifiable snapshot: accepted not blocked', v_state = 'ok');
   v_state := pg_temp.try_offer(v_nothing_trip, 'expired', '{"baseFarePence":123}'::jsonb);
   PERFORM pg_temp.expect_true('no verifiable snapshot: closed offers untouched', v_state = 'ok');
+
+  -- ======================================================================
+  -- MK-007 global_offer: payable 7300 = quote 7500 - ONECAB-funded promotion 200, airport 700.
+  --   expected driver net = (7300 + 200 - 700) x 0.9 + 700 = 6820 (NOT 6640)
+  -- ======================================================================
+  v_go_trip := pg_temp.mk_trip(jsonb_build_object(
+    'locked_base_fare_pence', 7500, 'gross_fare_pence', 7500,
+    'final_customer_fare_pence', 7300, 'final_fare_pence', 7300, 'estimated_total_pence', 7300,
+    'airport_charge_pence', 700, 'offer_discount_pence', 200, 'discount_pence', 200,
+    'discount_source', 'global_offer'));
+  v_vc_trip := pg_temp.mk_trip(jsonb_build_object(
+    'locked_base_fare_pence', 7500, 'gross_fare_pence', 7500,
+    'final_customer_fare_pence', 7300, 'final_fare_pence', 7300, 'estimated_total_pence', 7300,
+    'airport_charge_pence', 700, 'voucher_discount_pence', 200, 'discount_pence', 200,
+    'discount_source', 'personal_voucher'));
+
+  v_state := pg_temp.try_offer(v_go_trip, 'pending', pg_temp.stk(7300, 700, 6820), true, 6820, 10);
+  PERFORM pg_temp.expect_true('MK-007 global_offer stacked 6820 passes (' || v_state || ')', v_state = 'ok');
+  v_state := pg_temp.try_offer(v_go_trip, 'pending', pg_temp.stk(7300, 700, 6640), true, 6640, 10);
+  PERFORM pg_temp.expect_true('MK-007 global_offer stacked 6640 (driver pays the promotion) rejected (got ' || v_state || ')', v_state = 'FO001');
+  PERFORM pg_temp.expect_true('  ... for the right reason (wrong_commission)', pg_temp.err_has('wrong_commission'));
+  v_state := pg_temp.try_offer(v_go_trip, 'pending', pg_temp.stk(7300, 700, 7000), true, 7000, 10);
+  PERFORM pg_temp.expect_true('MK-007 global_offer stacked inflated 7000 rejected', v_state = 'FO001');
+  v_state := pg_temp.try_offer(v_vc_trip, 'pending', pg_temp.stk(7300, 700, 6640), true, 6640, 10);
+  PERFORM pg_temp.expect_true('voucher stacked 6640 passes (promotion is not ONECAB-funded)', v_state = 'ok');
+  v_state := pg_temp.try_offer(v_vc_trip, 'pending', pg_temp.stk(7300, 700, 6820), true, 6820, 10);
+  PERFORM pg_temp.expect_true('voucher stacked 6820 rejected (driver would be paid the voucher)', v_state = 'FO001');
+
+  -- ======================================================================
+  -- ROLLOUT-SAFE DEFAULT: pending FO001 / FO002 WARN (never block a booking while old Edge is live)
+  -- ======================================================================
+  PERFORM set_config('onecab.enforce_offer_financial_invariant', '', true);
+  v_state := pg_temp.try_offer(v_committed, 'pending', '{"baseFarePence":500}'::jsonb);
+  PERFORM pg_temp.expect_true('WARN mode: stale pending insert is NOT rejected (got ' || v_state || ')', v_state = 'ok');
+  v_state := pg_temp.try_offer(v_go_trip, 'pending', pg_temp.stk(7300, 700, 6640), true, 6640, 10);
+  PERFORM pg_temp.expect_true('WARN mode: old-Edge stacked 6640 on a global_offer trip is NOT rejected', v_state = 'ok');
+  v_state := pg_temp.try_offer(v_airport_trip, 'pending', pg_temp.stk(7300, 700, 9999), true, 9999, NULL);
+  PERFORM pg_temp.expect_true('WARN mode: fabricated stacked net is NOT rejected (monitor still flags it)', v_state = 'ok');
+  v_state := pg_temp.try_offer(v_nothing_trip, 'pending', '{"baseFarePence":123}'::jsonb);
+  PERFORM pg_temp.expect_true('WARN mode: FO002 (no verifiable snapshot) is NOT rejected', v_state = 'ok');
+  SELECT id INTO v_offer FROM public.ride_offers
+   WHERE trip_id = v_committed AND status = 'pending' AND (offer_snapshot ->> 'baseFarePence') = '480'
+   ORDER BY created_at DESC LIMIT 1;
+  UPDATE public.ride_offers SET offer_snapshot = '{"baseFarePence":500}'::jsonb WHERE id = v_offer;
+  RAISE NOTICE 'PASS WARN mode: stale pending UPDATE is NOT rejected';
+  v_state := pg_temp.try_offer(v_go_trip, 'accepted', pg_temp.stk(8000, NULL, 9999), true, 9999, 10);
+  PERFORM pg_temp.expect_true('WARN mode: accepted still never blocked (got ' || v_state || ')', v_state = 'ok');
+
+  -- Explicit opt-in flips it back to EXCEPTION (the post-Edge-cutover follow-up).
+  PERFORM set_config('onecab.enforce_offer_financial_invariant', 'on', true);
+  v_state := pg_temp.try_offer(v_committed, 'pending', '{"baseFarePence":500}'::jsonb);
+  PERFORM pg_temp.expect_true('enforce=on: stale pending insert rejected FO001 again', v_state = 'FO001');
+  v_state := pg_temp.try_offer(v_nothing_trip, 'pending', '{"baseFarePence":123}'::jsonb);
+  PERFORM pg_temp.expect_true('enforce=on: FO002 raised again', v_state = 'FO002');
 
   RAISE NOTICE 'ALL financial_offer_invariant_guard CHECKS PASSED';
 END $t$;

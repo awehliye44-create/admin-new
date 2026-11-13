@@ -8,9 +8,10 @@
 # Runs, against a LOCAL database that already carries the migrations under test:
 #   1. scheduled_rematch_waiting_concurrency_isolated.sh   (scenarios A-F + H, real parallel sessions)
 #   2. negotiation_lock_order_concurrency_isolated.sh      (L lock-order proof, N1-N5 races, M bounded retry)
-#   3. financial_offer_invariant_guard.sql                 (150000 + 160000 + 170000, rolled back)
-#   4. airport_split_commissionable_follows_payable.sql    (190000, rolled back)
-#   5. vitest committedOfferFareSqlExecution               (SQL SSOT execution, rolled back)
+#   3. financial_offer_invariant_guard.sql                 (150000 + 160000 + 170000 + 210000 + 230000, rolled back)
+#   4. airport_split_commissionable_follows_payable.sql    (190000 + 210000 global_offer, rolled back)
+#   5. vitest committedOfferFareSqlExecution               (SQL SSOT execution, 150000 + 210000, rolled back)
+#   6. ack_timeout_lock_order_concurrency_isolated.sh      (220000: sweep trip->offer lock order; L, LB, A1, A1b, A2, A3)
 #
 # FAILS (non-zero) when: the database is unreachable, the schema / an RPC is missing, any assertion
 # fails, any check is SKIPPED, a harness reports a BLOCKER, or a harness prints fewer checks than
@@ -53,6 +54,9 @@ hard_missing_fn="$(psql "$DB_URL" -X -q -At -c "
     'public.trip_negotiation_base_fare_pence(public.trips)','public.offer_trip_financial_authority(public.trips)',
     'public.tr_ride_offer_financial_invariant_guard_fn()',
     'public.apply_consumed_server_fare_airport_split_to_trip(uuid,uuid,uuid,uuid,uuid,integer)',
+    'public.process_ride_offer_ack_timeouts()',
+    'public.offer_driver_net_split_for_trip(public.trips,integer,integer,integer,numeric,numeric)',
+    'public.offer_global_offer_promotion_pence(public.trips)',
     'public.driver_cancel_before_start_rematch(uuid,uuid,text,text,jsonb)']) x where to_regprocedure(x) is null")"
 [ -z "$hard_missing" ] || { echo "ERROR: schema missing tables: $hard_missing" >&2; exit 1; }
 [ -z "$hard_missing_fn" ] || { echo "ERROR: schema missing RPCs: $hard_missing_fn" >&2; exit 1; }
@@ -101,6 +105,8 @@ if run "financial offer invariant guard (incl. stacked + recovery)" "$OUT/guard.
        -v ssot_migration=supabase/migrations/20270222150000_committed_offer_fare_sql_ssot.sql \
        -v migration=supabase/migrations/20270222160000_financial_offer_invariant_guard.sql \
        -v stacked_migration=supabase/migrations/20270222170000_financial_offer_invariant_guard_stacked_and_recovery.sql \
+       -v global_offer_migration=supabase/migrations/20270222210000_global_offer_commission_base_pre_promotion.sql \
+       -v warn_migration=supabase/migrations/20270222230000_financial_offer_invariant_warn_by_default.sql \
        -f supabase/tests/financial_offer_invariant_guard.sql; then
   grep -q 'ALL financial_offer_invariant_guard CHECKS PASSED' "$OUT/guard.log" || fail "guard test: success marker missing"
   n="$(grep -c 'PASS ' "$OUT/guard.log" || true)"
@@ -112,6 +118,7 @@ fi
 if run "airport split: commissionable follows payable (MK-007)" "$OUT/split.log" \
      psql "$DB_URL" -X -q -v ON_ERROR_STOP=1 \
        -v migration=supabase/migrations/20270222190000_airport_split_commissionable_follows_payable.sql \
+       -v global_offer_migration=supabase/migrations/20270222210000_global_offer_commission_base_pre_promotion.sql \
        -f supabase/tests/airport_split_commissionable_follows_payable.sql; then
   grep -q 'ALL airport_split_commissionable_follows_payable CHECKS PASSED' "$OUT/split.log" || fail "stamp test: success marker missing"
 fi
@@ -121,6 +128,23 @@ if run "SQL offer SSOT execution (vitest, rolled back)" "$OUT/ssot.log" \
      env LOCAL_DB_URL="$DB_URL" npx vitest run tests/committedOfferFareSqlExecution.test.ts --reporter=verbose; then
   grep -q 'SQL offer SSOT — execution (local DB, rolled back)' "$OUT/ssot.log" || fail "SSOT execution suite did not run"
   if grep -qE '↓|skipped' "$OUT/ssot.log"; then fail "SSOT execution suite was SKIPPED (no database?)"; fi
+fi
+
+# --- 6. ack-timeout sweep lock order (trip -> offer) + concurrency -----------------------------------------------
+# Needs the migration APPLIED (real parallel sessions, not a rolled-back transaction). CI applies every repo
+# migration newer than the baseline (pg-harness-bootstrap.sh); a stale local DB FAILS here, never skips.
+if [ "$(psql "$DB_URL" -X -q -At -c "select position('trip_locked_or_missing' in pg_get_functiondef('public.process_ride_offer_ack_timeouts()'::regprocedure)) > 0")" != "t" ]; then
+  fail "public.process_ride_offer_ack_timeouts() is the OLD offer->trip version: apply supabase/migrations/20270222220000_ack_timeout_sweep_trip_first_lock_order.sql to $DB_URL"
+fi
+if run "ack-timeout sweep lock order + concurrency (L, LB, A1, A1b, A2, A3)" "$OUT/acktimeout.log" \
+     bash supabase/tests/ack_timeout_lock_order_concurrency_isolated.sh; then
+  grep -qE '^TOTAL fail=0 pass=[0-9]+ skipped=0' "$OUT/acktimeout.log" || fail "ack-timeout harness: 'TOTAL fail=0 ... skipped=0' line missing"
+  pass_n="$(grep -oE '^TOTAL fail=0 pass=[0-9]+' "$OUT/acktimeout.log" | grep -oE '[0-9]+$' || echo 0)"
+  [ "${pass_n:-0}" -ge 40 ] || fail "ack-timeout harness ran only ${pass_n:-0} checks (floor 40)"
+  for s in L LB A1 A1b A2 A3; do
+    grep -qE "^SCENARIO $s => PASS" "$OUT/acktimeout.log" || fail "ack-timeout harness: scenario $s not PASS"
+  done
+  grep -qE '^SYNTHETIC_ROWS_REMAINING=0' "$OUT/acktimeout.log" || fail "ack-timeout harness left synthetic rows behind"
 fi
 
 echo

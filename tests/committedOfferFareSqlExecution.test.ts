@@ -2,7 +2,9 @@
  * Execution tests for the SQL offer financial SSOT (migration 20270222150000).
  *
  *  - MK-261113-004/005: committed 480 beside breakdown 500, 10% -> net 432 AT CREATION.
- *  - MK-261113-007 (Heathrow): committed 7300 incl. airport 700 -> journey 5940 + airport 700.
+ *  - MK-261113-007 (Heathrow, no promotion): committed 7300 incl. airport 700 -> journey 5940 + airport 700 = 6640.
+ *  - MK-007 global_offer (20270222210000): ride 6800 + airport 700, promotion 200 -> payable 7300,
+ *    driver = 6800 x 0.9 + 700 = 6820 (promotion is ONECAB-funded, never a driver deduction).
  *  - SQL trip_negotiation_base_fare_pence agrees with TS resolveCommittedOfferGrossPence
  *    over a generated priority grid (no drift between the two SSOTs).
  *
@@ -21,6 +23,7 @@ import { resolveCommittedOfferGrossPence } from "../supabase/functions/_shared/c
 const here = dirname(fileURLToPath(import.meta.url));
 const root = join(here, "..");
 const MIGRATION = join(root, "supabase/migrations/20270222150000_committed_offer_fare_sql_ssot.sql");
+const GLOBAL_OFFER_MIGRATION = join(root, "supabase/migrations/20270222210000_global_offer_commission_base_pre_promotion.sql");
 const SQL_TEST = join(root, "supabase/tests/committed_offer_fare_sql_ssot.sql");
 const DB_URL = process.env.LOCAL_DB_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
 const ENV = { ...process.env, PATH: `/opt/homebrew/bin:/opt/homebrew/opt/postgresql@17/bin:/usr/local/bin:${process.env.PATH ?? ""}` };
@@ -79,15 +82,38 @@ describe("SQL offer SSOT migration — static guarantees", () => {
   });
 });
 
+describe("global_offer pre-promotion commission base migration (20270222210000) — static guarantees", () => {
+  const sql = readFileSync(GLOBAL_OFFER_MIGRATION, "utf8");
+  const code = sql.replace(/--.*$/gm, "");
+
+  it("never touches payment amounts and never rewrites rows", () => {
+    expect(code).not.toMatch(/\b(UPDATE\s+public\.|DELETE\s+FROM|INSERT\s+INTO)\b/i);
+    expect(code).not.toMatch(/revolut|capture|increment/i);
+  });
+
+  it("adds the promotion back to the payable for the commission base only", () => {
+    expect(code).toContain("offer_global_offer_promotion_pence");
+    expect(code).toContain("offer_driver_net_split_for_trip");
+    expect(code).toContain("v_payable + v_promo >= v_trip_fare + v_airport");
+    expect(code).toContain("v_commissionable := GREATEST(0, v_payable + v_promo - v_airport);");
+  });
+});
+
 describeDb("SQL offer SSOT — execution (local DB, rolled back)", () => {
-  it("MK-004 (480/500/10% -> 432 at creation) and MK-007 Heathrow production-shaped fixture", () => {
-    const r = psql(["-v", `migration=${MIGRATION}`, "-f", SQL_TEST]);
+  it("MK-004 (480/500/10% -> 432 at creation), Heathrow (no promotion 6640) and MK-007 global_offer (6820)", () => {
+    const r = psql(["-v", `migration=${MIGRATION}`, "-v", `global_offer_migration=${GLOBAL_OFFER_MIGRATION}`, "-f", SQL_TEST]);
     const out = `${r.stdout}\n${r.stderr}`;
     expect(out).not.toMatch(/ERROR:/);
     expect(r.status).toBe(0);
     expect(out).toContain("PASS MK-004 offer net at creation = 480 x (1 - 10%) = 432");
-    expect(out).toContain("PASS MK-007 total driver payable = journey + airport = 6640");
-    expect(out).toContain("PASS MK-007 journey net = 6600 - 660 = 5940");
+    // Heathrow without a promotion: commission base = payable - airport.
+    expect(out).toContain("PASS Heathrow total driver payable = journey + airport = 6640");
+    expect(out).toContain("PASS Heathrow journey net = 6600 - 660 = 5940");
+    // MK-007 global_offer: commission base = quote ride (pre-promotion); 200 comes out of ONECAB commission.
+    expect(out).toContain("PASS MK-007 global_offer total driver payable = 6820 = 6820");
+    expect(out).toContain("PASS MK-007 global_offer journey net = 6800 - 680 = 6120");
+    expect(out).toContain("PASS MK-007 global_offer is NOT 6640");
+    expect(out).toContain("PASS MK-007 global_offer capture identity 6120 + 680 + 700 - 200 = 7300 = 7300");
     expect(out).toContain("ALL committed_offer_fare_sql_ssot CHECKS PASSED");
     expect(out).toContain("ROLLED BACK - nothing committed");
   }, 120_000);

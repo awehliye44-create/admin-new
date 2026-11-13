@@ -218,7 +218,7 @@ Deno.test("auto-dispatch wires FO001 before the generic DB error and never touch
 // ---------------------------------------------------------------------------
 // 4b. MK-007 commissionable stamp follows the payable (new stamps only)
 // ---------------------------------------------------------------------------
-Deno.test("airport split 190000: commissionable = payable - airport when payable undershoots ride + airport", async () => {
+Deno.test("airport split 190000 (pushed history; superseded for global_offer by 210000): commissionable = payable - airport when payable undershoots ride + airport", async () => {
   const sql = await read(SPLIT_190);
   const code = stripSqlComments(sql);
   assertStringIncludes(code, "v_trip_fare > 0 AND (v_payable <= 0 OR v_payable >= v_trip_fare + v_airport)");
@@ -229,10 +229,14 @@ Deno.test("airport split 190000: commissionable = payable - airport when payable
   assert(!/UPDATE\s+public\./i.test(code), "the migration itself updates no rows (function body is patched from the live definition)");
   assert(!/\b(INSERT\s+INTO|DELETE\s+FROM|DROP\s+(TABLE|COLUMN))\b/i.test(code), "no data rewrite");
   assert(!/payment_sessions|ledger|settlement|revolut|capture/i.test(code), "no payment / settlement change");
-  // TypeScript twin already implements the same rule (parity).
+  // TypeScript twin keeps the same rule for NON-subsidised discounts; global_offer adds the ONECAB-funded
+  // promotion back first (MK-007 6820, see globalOfferPrePromotionCommissionBaseLock.test.ts + 20270222210000).
   const ts = await read("../../functions/_shared/airportChargeFareSplitSSOT.ts");
-  assertStringIncludes(ts, "const rideCoveredByPayable = ride > 0 && (payable <= 0 || payable >= ride + airport);");
-  assertStringIncludes(ts, "Math.max(0, payable - airport)");
+  assertStringIncludes(ts, "const preGross = prePromotionCustomerPence(payable, input.lockedPromotionPence);");
+  assertStringIncludes(ts, "const rideCoveredByPayable = ride > 0 && (payable <= 0 || preGross >= ride + airport);");
+  assertStringIncludes(ts, "Math.max(0, preGross - airport)");
+  const superseding = await read(`${M}20270222210000_global_offer_commission_base_pre_promotion.sql`);
+  assertStringIncludes(superseding, "v_payable + v_promo >= v_trip_fare + v_airport");
 });
 
 // ---------------------------------------------------------------------------
@@ -292,6 +296,9 @@ Deno.test("CI workflow has a mandatory PG job: REQUIRE_PG_HARNESS=1, A-F + negot
   }
   assertStringIncludes(gates, "20270222170000_financial_offer_invariant_guard_stacked_and_recovery.sql");
   assertStringIncludes(gates, "20270222190000_airport_split_commissionable_follows_payable.sql");
+  assertStringIncludes(gates, "20270222210000_global_offer_commission_base_pre_promotion.sql");
+  assertStringIncludes(gates, "20270222230000_financial_offer_invariant_warn_by_default.sql");
+  assertStringIncludes(gates, "ack_timeout_lock_order_concurrency_isolated.sh");
   // The local consolidated script delegates to the same strict gates; REQUIRE_PG_HARNESS=1 makes a missing DB fatal.
   const consolidated = await read("../../../scripts/check-consolidated-regression-gates.sh");
   assertStringIncludes(consolidated, "REQUIRE_PG_HARNESS");

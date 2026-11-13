@@ -420,6 +420,79 @@ describe("bookingFareSplitFromQuote — commissionable follows payable", () => {
   });
 });
 
+describe("MK-007 global_offer — commission base is the PRE-promotion total (driver 6820, never 6640)", () => {
+  // quote ride 6800 + airport 700 = 7500, global_offer -200 -> payable 7300 (ONECAB-funded from commission).
+  const trip = {
+    final_customer_fare_pence: 7300,
+    final_fare_pence: 7300,
+    estimated_total_pence: 7300,
+    gross_fare_pence: 7500,
+    airport_charge_pence: 700,
+    offer_discount_pence: 200,
+    discount_pence: 200,
+    discount_source: "global_offer",
+  };
+
+  it("offer stamp: gross stays the payable 7300, commissionable 6800, driver 6120 + 700 = 6820", () => {
+    const stamp = stampOfferDriverNetFromCommittedFare({ trip, commissionPercent: 10 });
+    expect(stamp.grossPence).toBe(7300);
+    expect(stamp.commissionablePence).toBe(6800);
+    expect(stamp.commissionPence).toBe(680);
+    expect(stamp.driverNetPence).toBe(6820);
+    expect(stamp.driverNetPence).not.toBe(6640);
+  });
+
+  it("voucher (not ONECAB-funded) keeps payable - airport: 6640", () => {
+    const stamp = stampOfferDriverNetFromCommittedFare({
+      trip: { ...trip, discount_source: "personal_voucher", offer_discount_pence: 0, voucher_discount_pence: 200 },
+      commissionPercent: 10,
+    });
+    expect(stamp.driverNetPence).toBe(6640);
+  });
+
+  it("bookingFareSplitFromQuote: global_offer never shrinks commissionable to payable - airport", () => {
+    const fareBreakdown = { trip_fare_pence: 6800, airport_charge_pence: 700 };
+    expect(bookingFareSplitFromQuote({ payablePence: 7300, fareBreakdown, lockedPromotionPence: 200 }))
+      .toEqual({ airport_charge_pence: 700, commissionable_fare_pence: 6800 });
+    expect(bookingFareSplitFromQuote({ payablePence: 7300, fareBreakdown }))
+      .toEqual({ airport_charge_pence: 700, commissionable_fare_pence: 6600 });
+  });
+
+  it("applyBookingFinancialSnapshotToTripData: global_offer stamps commissionable 6800 (payable 7300 unchanged)", () => {
+    const tripData: Record<string, unknown> = {};
+    applyBookingFinancialSnapshotToTripData(
+      tripData,
+      { trip_fare_pence: 6800, airport_charge_pence: 700 },
+      { grossFarePence: 7500, finalPayableFarePence: 7300, offerDiscountPence: 200, discountSource: "global_offer", pricingSource: "test" },
+    );
+    expect(tripData.final_customer_fare_pence).toBe(7300);
+    expect(tripData.commissionable_fare_pence).toBe(6800);
+    expect(tripData.airport_charge_pence).toBe(700);
+  });
+
+  it("applyBookingFinancialSnapshotToTripData: voucher still follows the payable (6600)", () => {
+    const tripData: Record<string, unknown> = {};
+    applyBookingFinancialSnapshotToTripData(
+      tripData,
+      { trip_fare_pence: 6800, airport_charge_pence: 700 },
+      { grossFarePence: 7500, finalPayableFarePence: 7300, voucherDiscountPence: 200, discountSource: "personal_voucher", pricingSource: "test" },
+    );
+    expect(tripData.commissionable_fare_pence).toBe(6600);
+  });
+
+  it("planCommittedFareDriftRestamp restamps a stale 6570 offer to 6820 on a global_offer trip", () => {
+    const plan = planCommittedFareDriftRestamp({
+      nowMs: Date.parse("2026-11-13T12:00:00.000Z"),
+      trip,
+      offers: [{
+        id: "o1", status: "pending", is_stacked: false, expires_at: "2026-11-13T12:10:00.000Z", dispatch_wave: 1,
+        effective_commission_percent: 10, offer_snapshot: { baseFarePence: 7300 }, offered_driver_net_pence: 6570,
+      }],
+    });
+    expect(plan.updates[0]?.offered_driver_net_pence).toBe(6820);
+  });
+});
+
 describe("wiring locks (source)", () => {
   it("negotiationBaseFare delegates to the committed SSOT", () => {
     const src = read("supabase/functions/_shared/negotiationBaseFare.ts");

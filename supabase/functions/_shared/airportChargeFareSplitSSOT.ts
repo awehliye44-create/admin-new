@@ -16,7 +16,16 @@
  *         driver_net = commissionable − commission + airport + other pass-through
  *
  * Does not write ledgers, capture, or completed-trip money.
+ *
+ * global_offer (MK-007): the promotion is ONECAB-funded from commission
+ * (tripSettlement.ts / canonicalSettlementSSOT.ts) and NEVER reduces the driver's
+ * entitlement: the customer payable is lower, but the commission base stays the
+ * PRE-promotion ride, so the driver keeps ride x (1 - commission) + airport. Every helper here that
+ * derives a commissionable base takes `lockedPromotionPence` and adds it back to the
+ * payable before the airport is carved out. Voucher / unknown sources pass 0.
  */
+
+import { resolveLockedPromotionPence, type TripSettlementTripRow } from "./tripSettlement.ts";
 
 export type WaveCommissionRate = {
   /** Already resolved by resolveWaveCommission / resolve_wave_commission_percent. */
@@ -49,6 +58,24 @@ function positiveInt(value: unknown): number | null {
   const n = Number(value);
   if (!Number.isFinite(n) || n <= 0) return null;
   return Math.round(n);
+}
+
+/**
+ * ONECAB-funded global_offer promotion locked on the trip (0 for voucher / negotiated /
+ * unknown). Single resolver: tripSettlement.resolveLockedPromotionPence.
+ */
+export function resolveGlobalOfferPromotionPence(
+  trip: TripSettlementTripRow | Record<string, unknown> | null | undefined,
+): number {
+  if (!trip || typeof trip !== "object") return 0;
+  return resolveLockedPromotionPence(trip as TripSettlementTripRow);
+}
+
+/** Commission base fed to the split: payable + ONECAB-funded promotion (pre-promotion customer total). */
+export function prePromotionCustomerPence(payablePence: number, lockedPromotionPence?: number | null): number {
+  const payable = Math.max(0, Math.round(Number(payablePence) || 0));
+  if (payable <= 0) return payable;
+  return payable + Math.max(0, Math.round(Number(lockedPromotionPence) || 0));
 }
 
 /** Named major fields on the quote (`tripFare`, `airportCharge`) are pounds. */
@@ -119,6 +146,11 @@ export function resolvePersistedAirportChargePence(trip: {
 export function bookingFareSplitFromQuote(input: {
   payablePence: number;
   fareBreakdown: Record<string, unknown> | null | undefined;
+  /**
+   * ONECAB-funded global_offer amount (offer_discount_pence). It is NOT a reason to shrink
+   * commissionable: the promotion comes out of ONECAB commission, never the driver.
+   */
+  lockedPromotionPence?: number;
 }): FareSplit | null {
   const breakdown = asRecord(input.fareBreakdown);
   if (!breakdown) return null;
@@ -135,12 +167,16 @@ export function bookingFareSplitFromQuote(input: {
   const airport = resolveQuoteAirportChargePence(breakdown);
   const ride = resolveQuoteRideFarePence(breakdown);
   const payable = Math.max(0, Math.round(Number(input.payablePence) || 0));
-  // The quote ride fare is only a commission base while the committed payable
-  // covers it. When payable undershoots ride + airport (e.g. committed 480 beside a
-  // quote ride of 500, or a discounted payable), commissionable follows
-  // payable − airport so it can never exceed what the customer actually pays.
-  const rideCoveredByPayable = ride > 0 && (payable <= 0 || payable >= ride + airport);
-  const commissionable = rideCoveredByPayable ? ride : Math.max(0, payable - airport);
+  // The quote ride fare is only a commission base while the customer total BEFORE any
+  // ONECAB-funded promotion covers it. A global_offer discount is absorbed by ONECAB
+  // commission, so payable + promotion is compared (MK-007: the promoted payable plus the
+  // promotion covers ride + airport => commissionable stays the quote ride). When it still undershoots ride + airport
+  // (e.g. committed 480 beside a quote ride of 500, or a voucher-discounted payable),
+  // commissionable follows the pre-promotion total − airport so it can never exceed what
+  // the customer actually pays plus the ONECAB-funded promotion.
+  const preGross = prePromotionCustomerPence(payable, input.lockedPromotionPence);
+  const rideCoveredByPayable = ride > 0 && (payable <= 0 || preGross >= ride + airport);
+  const commissionable = rideCoveredByPayable ? ride : Math.max(0, preGross - airport);
   return {
     airport_charge_pence: airport,
     commissionable_fare_pence: commissionable,
@@ -341,6 +377,8 @@ export function resolveAuthoritativeAirportSplitFromServerFareQuote(input: {
   serviceAreaId: string;
   payablePence: number;
   routeKey?: string | null;
+  /** global_offer promotion (offer_discount_pence) already locked for this booking. */
+  lockedPromotionPence?: number;
 }): AuthoritativeAirportSplitResult {
   const quote = input.quote;
   if (!quote?.id) {
@@ -409,6 +447,7 @@ export function resolveAuthoritativeAirportSplitFromServerFareQuote(input: {
   const split = bookingFareSplitFromQuote({
     payablePence: payable > 0 ? payable : gross,
     fareBreakdown: breakdown,
+    lockedPromotionPence: payable > 0 ? input.lockedPromotionPence : 0,
   });
   if (!split) {
     return {
@@ -616,6 +655,8 @@ export function planExistingPendingOfferRestamp(input: {
   payablePence: number;
   airportPence: number;
   otherPassThroughPence?: number;
+  /** global_offer promotion: commission base is payable + promotion (never a driver deduction). */
+  lockedPromotionPence?: number;
   offers: ExistingOfferForRestamp[];
   resolveWavePercent: (wave: number) => number;
   /** Live restamp must not invent a rate when the offer has none. */
@@ -662,7 +703,7 @@ export function planExistingPendingOfferRestamp(input: {
     // Committed payable wins over a snapshot gross written from a stale breakdown
     // (MK-261113-004/005). Snapshot gross only when no payable was supplied.
     const customer = payable > 0
-      ? payable
+      ? prePromotionCustomerPence(payable, input.lockedPromotionPence)
       : Math.max(0, Math.round(Number(snapshot.baseFarePence) || 0));
     const storedRate = offer.effective_commission_percent;
     const hasStoredRate = storedRate != null && Number.isFinite(Number(storedRate));
@@ -759,6 +800,8 @@ export type PersistedAirportSplitAssessment =
     payablePence: number;
     commissionablePence: number;
     otherPassThroughPence: number;
+    /** ONECAB-funded global_offer promotion (0 when none). */
+    lockedPromotionPence: number;
   }
   | {
     ok: false;
@@ -782,6 +825,10 @@ export function assessPersistedAirportSplit(trip: {
   other_pass_through_charges_pence?: number | null;
   fare_breakdown?: unknown;
   fare_snapshot_json?: unknown;
+  /** global_offer evidence (tripSettlement.resolveLockedPromotionPence). */
+  discount_source?: string | null;
+  offer_discount_pence?: number | null;
+  locked_offer_type?: string | null;
 }): PersistedAirportSplitAssessment {
   const breakdown = asRecord(trip.fare_breakdown);
   const snapshot = asRecord(trip.fare_snapshot_json);
@@ -801,14 +848,23 @@ export function assessPersistedAirportSplit(trip: {
     : Math.max(0, Math.round(Number(trip.commissionable_fare_pence) || 0));
   const quoteRide = resolveQuoteRideFarePence(breakdown) || resolveQuoteRideFarePence(snapshot);
   const quoteFinal = resolveQuoteFinalFarePence(breakdown) || resolveQuoteFinalFarePence(snapshot);
+  // global_offer: the promotion is absorbed by ONECAB commission, so the persisted
+  // commissionable (pre-promotion ride) + airport equals payable + promotion.
+  const promotion = resolveGlobalOfferPromotionPence({
+    discount_source: trip.discount_source,
+    offer_discount_pence: trip.offer_discount_pence,
+    locked_offer_type: trip.locked_offer_type,
+    fare_snapshot_json: snapshot,
+  });
+  const preGross = payable + promotion;
   const storedAddsUp = storedCommissionable != null
-    && payable === storedCommissionable + columnAirport + other;
+    && preGross === storedCommissionable + columnAirport + other;
   if (storedCommissionable != null && !storedAddsUp) {
     return { ok: false, reason: "split_mismatch" };
   }
   const quoteAddsUp = quoteRide > 0
     && quoteFinal === quoteRide + columnAirport
-    && payable === quoteFinal + other;
+    && preGross === quoteFinal + other;
   if (!storedAddsUp && !quoteAddsUp) {
     return { ok: false, reason: "split_mismatch" };
   }
@@ -817,8 +873,9 @@ export function assessPersistedAirportSplit(trip: {
     reason: "split_persisted",
     airportPence: columnAirport,
     payablePence: payable,
-    commissionablePence: storedCommissionable ?? Math.max(0, payable - columnAirport - other),
+    commissionablePence: storedCommissionable ?? Math.max(0, preGross - columnAirport - other),
     otherPassThroughPence: other,
+    lockedPromotionPence: promotion,
   };
 }
 
@@ -859,6 +916,7 @@ export function decideAlreadyOfferedRestamp(input: {
     payablePence: split.payablePence,
     airportPence: split.airportPence,
     otherPassThroughPence: split.otherPassThroughPence,
+    lockedPromotionPence: split.lockedPromotionPence,
     offers: input.offers,
     resolveWavePercent: () => Number.NaN,
     requireStoredCommissionPercent: true,

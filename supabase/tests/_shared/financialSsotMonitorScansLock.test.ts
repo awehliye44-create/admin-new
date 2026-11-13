@@ -129,7 +129,7 @@ Deno.test("offer_vs_committed: breakdown-only / closed ignored; stacked pending 
   assertEquals(stacked.some((r) => r.stage === "offer_vs_committed"), true);
 });
 
-Deno.test("airport_component_missing + driver_net_vs_breakdown: MK-007 Heathrow shape", () => {
+Deno.test("airport_component_missing + driver_net_vs_breakdown: Heathrow shape (no promotion)", () => {
   const trip = { ...committed480, locked_base_fare_pence: 7300, final_customer_fare_pence: 7300, estimated_total_pence: 7300, airport_charge_pence: 700 };
   // Offer net ignored the airport: 7300 x 0.9 = 6570 instead of 5940 + 700 = 6640.
   const rows = evaluateOfferInvariants(trip, [{

@@ -81,7 +81,8 @@ const T_HEATHROW: MonitorTripRow = {
   airport_charge_pence: 700,
 };
 
-// Discounted MK-007: gross 7500, global_offer -200, committed payable 7300 (net of discount).
+// MK-007 global_offer: gross 7500, global_offer -200 (ONECAB-funded from commission), committed payable 7300.
+// Driver = pre-promotion ride 6800 x 0.9 + airport 700 = 6820 (tripSettlement SSOT), never 6640.
 const T_HEATHROW_DISCOUNT: MonitorTripRow = {
   ...T_HEATHROW,
   locked_base_fare_pence: 7500,
@@ -89,6 +90,17 @@ const T_HEATHROW_DISCOUNT: MonitorTripRow = {
   discount_pence: 200,
   offer_discount_pence: 200,
   discount_source: "global_offer",
+  final_customer_fare_pence: 7300,
+};
+
+// Non-subsidised discount (personal voucher): the driver's commission base IS the discounted payable.
+const T_HEATHROW_VOUCHER: MonitorTripRow = {
+  ...T_HEATHROW,
+  locked_base_fare_pence: 7500,
+  gross_fare_pence: 7500,
+  discount_pence: 200,
+  voucher_discount_pence: 200,
+  discount_source: "personal_voucher",
   final_customer_fare_pence: 7300,
 };
 
@@ -233,8 +245,28 @@ const OFFER_CASES: OfferCase[] = [
     expect: [],
   },
   {
-    name: "MK-007 discounted: correct driver total 6640 on payable 7300 (commissionable 6600) -> nothing",
+    name: "MK-007 global_offer: correct driver total 6820 = 6800 x 0.9 + 700 on payable 7300 (commission base = pre-promotion) -> nothing",
     trip: T_HEATHROW_DISCOUNT,
+    offers: [offer({
+      id: "o1",
+      offered_driver_net_pence: 6820,
+      offer_snapshot: { baseFarePence: 7300, airport_charge_pence: 700, airport_charge_state: "present" },
+    })],
+    expect: [],
+  },
+  {
+    name: "MK-007 global_offer: old 6640 (driver paid the ONECAB-funded promotion) is flagged",
+    trip: T_HEATHROW_DISCOUNT,
+    offers: [offer({
+      id: "o1",
+      offered_driver_net_pence: 6640, // (7300 - 700) x 0.9 + 700 -- the defect
+      offer_snapshot: { baseFarePence: 7300, airport_charge_pence: 700, airport_charge_state: "present" },
+    })],
+    expect: ["driver_net_vs_breakdown/offered_driver_net_pence:6820->6640", "offer_vs_committed/driver_net_pence:6820->6640"],
+  },
+  {
+    name: "voucher discount is NOT ONECAB-funded: 6640 on payable 7300 -> nothing",
+    trip: T_HEATHROW_VOUCHER,
     offers: [offer({
       id: "o1",
       offered_driver_net_pence: 6640,
@@ -243,11 +275,11 @@ const OFFER_CASES: OfferCase[] = [
     expect: [],
   },
   {
-    name: "MK-007 discounted: commissionable stamped on the ungrossed ride (6800) is flagged",
-    trip: T_HEATHROW_DISCOUNT,
+    name: "voucher discount: 6820 (driver paid the voucher) is flagged",
+    trip: T_HEATHROW_VOUCHER,
     offers: [offer({
       id: "o1",
-      offered_driver_net_pence: 6820, // (7500 - 700) x 0.9 + 700
+      offered_driver_net_pence: 6820,
       offer_snapshot: { baseFarePence: 7300, airport_charge_pence: 700, airport_charge_state: "present" },
     })],
     expect: ["driver_net_vs_breakdown/offered_driver_net_pence:6640->6820", "offer_vs_committed/driver_net_pence:6640->6820"],

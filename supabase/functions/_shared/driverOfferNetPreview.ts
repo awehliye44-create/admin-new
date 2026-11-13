@@ -5,6 +5,7 @@
 import {
   buildAirportRouteExtraItems,
   driverNetFromCustomerTotal,
+  prePromotionCustomerPence,
   resolveQuoteAirportChargePence,
 } from "./airportChargeFareSplitSSOT.ts";
 
@@ -27,6 +28,12 @@ export function enrichOfferSnapshotDriverNet(
   commissionPercent: number,
   baseFarePence: number,
   currencyCode?: string | null,
+  /**
+   * ONECAB-funded global_offer promotion (resolveGlobalOfferPromotionPence(trip)). Added back to the
+   * commission base only — the offer still advertises the customer's payable (`baseFarePence`).
+   * Negotiated presets are priced on their own gross and never take the promotion.
+   */
+  lockedPromotionPence = 0,
 ): Record<string, unknown> {
   const base = snapshot ? { ...snapshot } : {};
   const commissionPct = Number(commissionPercent);
@@ -67,7 +74,7 @@ export function enrichOfferSnapshotDriverNet(
   }
 
   const split = driverNetFromCustomerTotal({
-    customerPence: baseFarePence,
+    customerPence: prePromotionCustomerPence(baseFarePence, lockedPromotionPence),
     airportPence,
     otherPassThroughPence,
     commissionPercent: commissionPct,

@@ -52,7 +52,8 @@ jobs:
             supabase/tests/_shared/concurrencyHardening20270222.lock.test.ts \
             supabase/tests/_shared/financialSsotMonitorScansLock.test.ts \
             supabase/tests/_shared/financialSsotMonitorScansFixtures.test.ts \
-            supabase/tests/_shared/negotiationAndOfferGuard20270222.lock.test.ts
+            supabase/tests/_shared/negotiationAndOfferGuard20270222.lock.test.ts \
+            supabase/tests/_shared/globalOfferPrePromotionCommissionBaseLock.test.ts
 
       # Re-runs vitest + Deno above (cheap). This job has no database: the PostgreSQL gates are NOT
       # skipped, they run in the mandatory `pg-harness` job below (REQUIRE_PG_HARNESS=1).

@@ -45,6 +45,8 @@ import {
 } from "../_shared/driverOfferNetPreview.ts";
 import {
   decideAlreadyOfferedRestamp,
+  prePromotionCustomerPence,
+  resolveGlobalOfferPromotionPence,
   resolvePersistedAirportChargePence,
   stampOfferSnapshotAirportPassThrough,
   type AlreadyOfferedRestampDecision,
@@ -3125,6 +3127,7 @@ Deno.serve(async (req) => {
           waveCommission.effectivePercent,
           baseFarePence,
           offerCurrencyCode,
+          resolveGlobalOfferPromotionPence(trip),
         )
         : enrichOfferSnapshotDriverNet(
           (presetEligibilityResult === "attached" && offerSnapshot)
@@ -3149,6 +3152,7 @@ Deno.serve(async (req) => {
           waveCommission.effectivePercent,
           baseFarePence,
           offerCurrencyCode,
+          resolveGlobalOfferPromotionPence(trip),
         );
 
       const driverNetPreview = Number(
@@ -3366,9 +3370,14 @@ Deno.serve(async (req) => {
       for (const row of stampedRows ?? []) {
         const snapshot = (row.offer_snapshot ?? {}) as Record<string, unknown>;
         // Committed payable wins over a snapshot gross written from a stale breakdown.
-        const customerGrossPence = baseFarePence > 0
+        const customerPayablePence = baseFarePence > 0
           ? baseFarePence
           : Number(snapshot.baseFarePence ?? 0);
+        // global_offer is ONECAB-funded from commission (tripSettlement SSOT): the driver's
+        // commission base is the PRE-promotion total, never the discounted payable (MK-007 6820).
+        const customerGrossPence = baseFarePence > 0
+          ? prePromotionCustomerPence(customerPayablePence, resolveGlobalOfferPromotionPence(trip))
+          : customerPayablePence;
         const stamped = stampOfferSnapshotAirportPassThrough({
           snapshot,
           customerGrossPence,

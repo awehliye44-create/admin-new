@@ -25,6 +25,8 @@
 
 import {
   driverNetFromCustomerTotal,
+  prePromotionCustomerPence,
+  resolveGlobalOfferPromotionPence,
   resolvePersistedAirportChargePence,
   resolveQuoteAirportChargePence,
   resolveQuoteFinalFarePence,
@@ -243,12 +245,19 @@ export type CommittedOfferDriverNetStamp = {
   commissionPence: number;
   driverNetPence: number;
   commissionPercent: number;
+  /** ONECAB-funded global_offer promotion. Added back to the commission base, never deducted from the driver. */
+  lockedPromotionPence: number;
 };
 
 /**
  * Driver net for an offer, from the committed gross and the caller's effective
  * (wave) commission. No hardcoded rate. Airport is non-commissionable pass-through
  * (clamped so it can never exceed the gross it sits inside).
+ *
+ * global_offer (MK-007): `grossPence` stays the customer's committed payable (7300 — what
+ * the offer advertises and what is captured), but the COMMISSION BASE is the pre-promotion
+ * total (payable + locked promotion = 7500): the promotion is ONECAB-funded from commission
+ * and never reduces driver entitlement. Driver = (7500 - 700) x 0.9 + 700 = 6820.
  */
 export function stampOfferDriverNetFromCommittedFare(input: {
   trip: CommittedOfferFareTrip | null | undefined;
@@ -272,10 +281,14 @@ export function stampOfferDriverNetFromCommittedFare(input: {
     })
     : 0;
   const airportPence = Math.min(airportRaw, gross);
+  const lockedPromotionPence = resolveGlobalOfferPromotionPence(
+    input.trip as unknown as Record<string, unknown> | null,
+  );
+  const commissionGross = prePromotionCustomerPence(gross, lockedPromotionPence);
   const otherRaw = input.otherPassThrough != null
     ? nonNeg(input.otherPassThrough)
     : nonNeg(input.trip?.other_pass_through_charges_pence);
-  const otherPassThroughPence = Math.min(otherRaw, Math.max(0, gross - airportPence));
+  const otherPassThroughPence = Math.min(otherRaw, Math.max(0, commissionGross - airportPence));
 
   if (gross <= 0 || !rateOk) {
     return {
@@ -289,11 +302,12 @@ export function stampOfferDriverNetFromCommittedFare(input: {
       commissionPence: 0,
       driverNetPence: 0,
       commissionPercent: rateOk ? pct : 0,
+      lockedPromotionPence,
     };
   }
 
   const split = driverNetFromCustomerTotal({
-    customerPence: gross,
+    customerPence: commissionGross,
     airportPence,
     otherPassThroughPence,
     commissionPercent: pct,
@@ -309,6 +323,7 @@ export function stampOfferDriverNetFromCommittedFare(input: {
     commissionPence: split.commissionPence,
     driverNetPence: split.driverNetPence,
     commissionPercent: pct,
+    lockedPromotionPence,
   };
 }
 
@@ -391,7 +406,7 @@ export function planCommittedFareDriftRestamp(input: {
     }
     // Zero-commission display case: the insert trigger keeps a display net.
     // Never overwrite it with the complete fare.
-    if (stamp.driverNetPence === stamp.grossPence && stamp.airportPence === 0) {
+    if (stamp.driverNetPence === stamp.grossPence + stamp.lockedPromotionPence && stamp.airportPence === 0) {
       skipped.push({ id: offer.id, reason: "display_net_case" });
       continue;
     }

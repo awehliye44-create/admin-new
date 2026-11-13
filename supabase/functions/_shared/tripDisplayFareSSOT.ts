@@ -413,6 +413,10 @@ export function applyBookingFinancialSnapshotToTripData(
   const fareSplit = bookingFareSplitFromQuote({
     payablePence: snapshot.final_fare_pence,
     fareBreakdown: splitSource,
+    // global_offer is ONECAB-funded: it must not shrink the commission base (MK-007).
+    lockedPromotionPence: snapshot.discount_source === "global_offer"
+      ? Math.max(0, Math.round(Number(snapshot.offer_discount_pence) || 0))
+      : 0,
   });
   if (authoritativeBreakdown) {
     tripData.fare_breakdown = {
