@@ -12,6 +12,122 @@ import {
   withRecoveredDebtFareComponent,
 } from "../_shared/recoveredDebtFareComponents.ts";
 import { assertCronOrServiceRoleAuth } from "../_shared/cronEdgeAuth.ts";
+import {
+  evaluateInvalidAssignmentOwnership,
+  evaluateOfferInvariants,
+  evaluateOverlappingWaitingOpen,
+  MONITOR_ASSIGNMENT_STATUSES,
+  type MonitorMismatchRow,
+  type MonitorOfferRow,
+  type MonitorTripRow,
+} from "../_shared/financialSsotMonitorScans.ts";
+
+/**
+ * Invariant scans added on top of the fare scans (same table, same onConflict).
+ * Lock: supabase/tests/_shared/financialSsotMonitorScansLock.test.ts
+ */
+const INVARIANT_SCAN_STAGES = [
+  "offer_vs_committed",
+  "airport_component_missing",
+  "driver_net_vs_breakdown",
+  "overlapping_waiting_open",
+  "invalid_assignment_ownership",
+] as const;
+
+const OFFER_TRIP_SELECT =
+  "id, trip_code, status, locked_base_fare_pence, final_customer_fare_pence, final_fare_pence, " +
+  "estimated_total_pence, gross_fare_pence, authorised_amount_pence, estimated_fare, fare, " +
+  "customer_modification_charge_pence, airport_charge_pence, other_pass_through_charges_pence, " +
+  "offer_discount_pence, voucher_discount_pence, discount_pence, discount_source, " +
+  "fare_snapshot_json, fare_breakdown";
+
+function chunk<T>(items: T[], size: number): T[][] {
+  const out: T[][] = [];
+  for (let i = 0; i < items.length; i += size) out.push(items.slice(i, i + size));
+  return out;
+}
+
+// deno-lint-ignore no-explicit-any
+async function scanOfferInvariants(admin: any, since: string): Promise<MonitorMismatchRow[]> {
+  const { data: offers, error } = await admin
+    .from("ride_offers")
+    .select(
+      "id, trip_id, status, is_stacked, created_at, effective_commission_percent, " +
+        "offered_driver_net_pence, offer_snapshot",
+    )
+    .in("status", ["pending", "accepted"])
+    .gte("created_at", since)
+    .limit(5000);
+  if (error) throw new Error(`ride_offers: ${error.message}`);
+
+  const byTrip = new Map<string, MonitorOfferRow[]>();
+  for (const o of (offers ?? []) as MonitorOfferRow[]) {
+    if (!o.trip_id) continue;
+    const list = byTrip.get(o.trip_id) ?? [];
+    list.push(o);
+    byTrip.set(o.trip_id, list);
+  }
+
+  const rows: MonitorMismatchRow[] = [];
+  for (const ids of chunk([...byTrip.keys()], 100)) {
+    const { data: trips, error: tripErr } = await admin
+      .from("trips")
+      .select(OFFER_TRIP_SELECT)
+      .in("id", ids);
+    if (tripErr) throw new Error(`trips(offers): ${tripErr.message}`);
+    for (const trip of (trips ?? []) as MonitorTripRow[]) {
+      rows.push(...evaluateOfferInvariants(trip, byTrip.get(String(trip.id)) ?? []));
+    }
+  }
+  return rows;
+}
+
+// deno-lint-ignore no-explicit-any
+async function scanOverlappingWaitingOpen(admin: any, since: string): Promise<MonitorMismatchRow[]> {
+  const { data, error } = await admin
+    .from("trip_waiting_segments")
+    .select("trip_id, location_type, stop_id, ended_at")
+    .is("ended_at", null)
+    .gte("started_at", since)
+    .limit(5000);
+  if (error) throw new Error(`trip_waiting_segments: ${error.message}`);
+  return evaluateOverlappingWaitingOpen(data ?? []);
+}
+
+// deno-lint-ignore no-explicit-any
+async function scanInvalidAssignmentOwnership(admin: any, since: string): Promise<MonitorMismatchRow[]> {
+  const { data, error } = await admin
+    .from("trips")
+    .select("id, trip_code, status, driver_id, confirmed_driver_id")
+    .in("status", [...MONITOR_ASSIGNMENT_STATUSES])
+    .gte("updated_at", since)
+    .limit(5000);
+  if (error) throw new Error(`trips(assignment): ${error.message}`);
+  return evaluateInvalidAssignmentOwnership(data ?? []);
+}
+
+/** Keys (trip|stage|field) already present, so only NEW rows are logged. */
+async function loadExistingInvariantKeys(
+  // deno-lint-ignore no-explicit-any
+  admin: any,
+  rows: MonitorMismatchRow[],
+): Promise<Set<string>> {
+  const keys = new Set<string>();
+  const tripIds = [...new Set(rows.map((r) => r.trip_id))];
+  for (const ids of chunk(tripIds, 100)) {
+    const { data, error } = await admin
+      .from("financial_ssot_mismatches")
+      .select("trip_id, stage, field_name")
+      .in("trip_id", ids)
+      .in("stage", [...INVARIANT_SCAN_STAGES]);
+    if (error) {
+      console.error("[financial-ssot-monitor] existing invariant lookup failed:", error.message);
+      continue;
+    }
+    for (const r of data ?? []) keys.add(`${r.trip_id}|${r.stage}|${r.field_name}`);
+  }
+  return keys;
+}
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -143,13 +259,62 @@ serveWithEdgeTiming("financial-ssot-monitor", async (req) => {
     if (!upsertErr) inserted++;
   }
 
-  console.log(`[financial-ssot-monitor] scanned=${trips?.length ?? 0} mismatches=${mismatches.length} upserted=${inserted}`);
+  // Invariant scans (offer / airport / waiting / assignment). Each scan is isolated:
+  // one failing query never blocks the others or the fare scan above.
+  const invariantRows: MonitorMismatchRow[] = [];
+  const scanFailures: string[] = [];
+  const invariantScans: Array<[string, () => Promise<MonitorMismatchRow[]>]> = [
+    ["offers", () => scanOfferInvariants(admin, since)],
+    ["waiting", () => scanOverlappingWaitingOpen(admin, since)],
+    ["assignment", () => scanInvalidAssignmentOwnership(admin, since)],
+  ];
+  for (const [name, run] of invariantScans) {
+    try {
+      invariantRows.push(...await run());
+    } catch (err) {
+      scanFailures.push(name);
+      console.error(`[financial-ssot-monitor] invariant scan failed scan=${name}:`, (err as Error).message);
+    }
+  }
+
+  let invariantNew = 0;
+  let invariantUpserted = 0;
+  if (invariantRows.length > 0) {
+    const existing = await loadExistingInvariantKeys(admin, invariantRows);
+    for (const r of invariantRows) {
+      const { error: upsertErr } = await admin.from("financial_ssot_mismatches").upsert(
+        { ...r, detected_at: new Date().toISOString() },
+        { onConflict: "trip_id,stage,field_name" },
+      );
+      if (upsertErr) continue;
+      invariantUpserted++;
+      if (!existing.has(`${r.trip_id}|${r.stage}|${r.field_name}`)) {
+        invariantNew++;
+        // ONE structured line per NEW mismatch. Ids only — no PII, no payload.
+        console.warn(JSON.stringify({
+          event: "financial_ssot_invariant_mismatch",
+          stage: r.stage,
+          field: r.field_name,
+          trip_id: r.trip_id,
+        }));
+      }
+    }
+  }
+
+  console.log(
+    `[financial-ssot-monitor] scanned=${trips?.length ?? 0} mismatches=${mismatches.length} upserted=${inserted} ` +
+      `invariant_found=${invariantRows.length} invariant_new=${invariantNew} invariant_upserted=${invariantUpserted} ` +
+      `invariant_scan_failures=${scanFailures.length}`,
+  );
 
   return new Response(
     JSON.stringify({
       scanned: trips?.length ?? 0,
       mismatches_found: mismatches.length,
       upserted: inserted,
+      invariant_mismatches_found: invariantRows.length,
+      invariant_mismatches_new: invariantNew,
+      invariant_scan_failures: scanFailures,
     }),
     { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
   );

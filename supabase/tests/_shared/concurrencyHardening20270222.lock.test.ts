@@ -12,6 +12,7 @@
  */
 import {
   assert,
+  assertEquals,
   assertStringIncludes,
 } from "https://deno.land/std@0.224.0/assert/mod.ts";
 
@@ -101,4 +102,60 @@ Deno.test("isolated harness drives the REAL Start Trip RPC and atomic waiting op
   assertStringIncludes(verify, "raw_no_overlapping_open_segments");
   assertStringIncludes(verify, "'PASS'");
   assert(!verify.includes("BLOCKER finalize_pickup_waiting_and_start_trip"), "A.real_start_rpc must not be skippable any more");
+});
+
+// ---------------------------------------------------------------------------
+// D. Single writer: waitingSegmentClock.ts is the ONLY Edge module that may
+//    create trip_waiting_segments rows. Anything else would bypass the atomic
+//    open-or-reuse path and re-open the overlapping-open-segment race.
+// ---------------------------------------------------------------------------
+async function* walkTs(dir: URL): AsyncGenerator<{ url: URL; rel: string }> {
+  for await (const entry of Deno.readDir(dir)) {
+    const child = new URL(entry.name + (entry.isDirectory ? "/" : ""), dir);
+    if (entry.isDirectory) {
+      if (entry.name === "node_modules" || entry.name === ".tmp") continue;
+      yield* walkTs(child);
+    } else if (entry.isFile && /\.(ts|tsx|js|mjs)$/.test(entry.name)) {
+      yield { url: child, rel: child.pathname };
+    }
+  }
+}
+
+const SEGMENT_TABLE = "trip_waiting_segments";
+const SEGMENT_WRITE_PATTERNS: Array<[string, RegExp]> = [
+  ["from(...).insert/upsert", /\.from\(\s*["'`]trip_waiting_segments["'`]\s*\)\s*\.(insert|upsert)\s*\(/],
+  ["open_waiting_segment_or_reuse rpc", /\.rpc\(\s*["'`]open_waiting_segment_or_reuse["'`]/],
+  ["raw INSERT INTO", /\bINSERT\s+INTO\s+(public\.)?trip_waiting_segments\b/i],
+  ["raw INSERT via ON CONFLICT upsert helper", /\bupsert\s*\(\s*["'`]trip_waiting_segments["'`]/],
+];
+
+Deno.test("no Edge file outside waitingSegmentClock.ts inserts into trip_waiting_segments", async () => {
+  const root = new URL("../../functions/", import.meta.url);
+  const isWriterModule = (p: string) => p.endsWith("/_shared/waitingSegmentClock.ts");
+  const isTestOrFake = (p: string) =>
+    /\.(test|spec)\.[tj]sx?$/.test(p) || /\/inMemorySupabaseFake\.ts$/.test(p) || /\/__tests__\//.test(p);
+
+  let scanned = 0;
+  let writerHits = 0;
+  const violations: string[] = [];
+  for await (const { url, rel } of walkTs(root)) {
+    if (isTestOrFake(rel)) continue;
+    scanned++;
+    const src = await Deno.readTextFile(url);
+    if (!src.includes(SEGMENT_TABLE) && !src.includes("open_waiting_segment_or_reuse")) continue;
+    for (const [label, re] of SEGMENT_WRITE_PATTERNS) {
+      if (!re.test(src)) continue;
+      if (isWriterModule(rel)) writerHits++;
+      else violations.push(`${rel.split("/functions/")[1]} -> ${label}`);
+    }
+  }
+
+  assert(scanned > 50, `scanner must actually walk supabase/functions (scanned ${scanned})`);
+  assert(writerHits > 0, "scanner must see the legitimate writer (waitingSegmentClock.ts) — pattern drift");
+  assertEquals(
+    violations,
+    [],
+    "only supabase/functions/_shared/waitingSegmentClock.ts may write trip_waiting_segments; " +
+      "route every open through openWaitingSegmentOrReuse",
+  );
 });

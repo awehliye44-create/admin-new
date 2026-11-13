@@ -34,6 +34,28 @@ jobs:
       - name: SSOT unit tests
         run: npx vitest run src/lib/__tests__/digitalFinanceSSOT.test.ts src/lib/__tests__/tripCaptureStatus.test.ts
 
+      - name: Committed offer fare SSOT tests
+        run: npx vitest run tests/committedBookingOfferFareSSOT.test.ts tests/committedOfferFareSqlExecution.test.ts
+
+      - name: Setup Deno
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+
+      - name: Deno execution + lock tests
+        run: |
+          deno test --no-check --allow-read --allow-env \
+            supabase/functions/_shared/waitingSegmentClock.execution.test.ts \
+            supabase/functions/_shared/otaAdoptionTelemetry.execution.test.ts \
+            supabase/tests/_shared/concurrencyHardening20270222.lock.test.ts \
+            supabase/tests/_shared/financialSsotMonitorScansLock.test.ts
+
+      # Re-runs vitest + Deno above (cheap) and the local-Postgres harness ONLY when a
+      # local DB accepts connections. REQUIRE_PG_HARNESS is intentionally unset: no DB in
+      # this job => PG is skipped with a NOTICE. Set REQUIRE_PG_HARNESS=1 to make it hard.
+      - name: Consolidated regression gates
+        run: bash scripts/check-consolidated-regression-gates.sh
+
       - name: Build
         run: npm run build
         env:
