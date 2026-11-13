@@ -330,8 +330,24 @@ Deno.serve(async (req) => {
         }, 409);
       }
 
-      const oldDriverId = trip.driver_id as string | null;
+      const oldDriverId =
+        (trip.confirmed_driver_id as string | null) ||
+        (trip.driver_id as string | null);
       const now = new Date().toISOString();
+
+      // Revoke stale offers for the previous assignee so reclaim cannot overwrite (D3).
+      if (oldDriverId && oldDriverId !== newDriverId) {
+        await gate.supabase
+          .from("ride_offers")
+          .update({
+            status: "revoked",
+            revoked_reason: "admin_reassign",
+            updated_at: now,
+          })
+          .eq("trip_id", tripId)
+          .eq("driver_id", oldDriverId)
+          .in("status", ["pending", "accepted", "offered", "countered"]);
+      }
 
       // Phase 6: soft-check CW reserve before hard trigger (UK / reserve-off returns true).
       const { data: passesCwGate, error: cwGateErr } = await gate.supabase.rpc(

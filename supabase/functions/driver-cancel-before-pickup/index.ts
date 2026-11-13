@@ -3,13 +3,11 @@ import {
   customerSearchExpiresAtIso,
   customerSearchWindowMs,
   loadDispatchSettings,
+  maxBroadcastSequences,
 } from "../_shared/dispatch-settings.ts";
 import { rebroadcastTripViaAutoDispatch } from "../_shared/dispatchOrchestrator.ts";
-import { isScheduledInstantConversionPending } from "../_shared/scheduledHandoverHoldLock.ts";
 import { handleQueuedTripAfterCurrentTripFailure } from "../_shared/stackedRideLifecycle.ts";
 import {
-  buildClearTripAssignmentPatch,
-  buildDriverCancelRematchBroadcastPatch,
   buildSearchCycleId,
   resolveNextRematchBroadcastRound,
   classifyTripLookupFailure,
@@ -21,6 +19,14 @@ import {
   TRIP_ASSIGNED_DRIVER_COLUMN,
   TRIP_CANCEL_REMATCH_SELECT,
 } from "../_shared/driverCancelRematch.ts";
+import {
+  buildInstantOriginDriverCancelRematchPatch,
+  buildScheduledOriginDriverCancelRematchPatch,
+  DRIVER_CANCEL_REMATCH_CAS_STATUSES,
+  isAccidentOrBreakdownCancelReason,
+  normalizeDriverCancelReason,
+  shouldConvertScheduledOriginOnDriverCancel,
+} from "../_shared/scheduledDriverCancelRematchSSOT.ts";
 import {
   handleCORSPreflight,
   successResponse,
@@ -51,6 +57,8 @@ Deno.serve(async (req) => {
     const rawBody = await req.json() as {
       tripId?: string;
       trip_id?: string;
+      reason?: string;
+      cancel_reason?: string;
     };
     const tripId =
       (typeof rawBody.tripId === "string" && rawBody.tripId.trim()) ||
@@ -59,8 +67,10 @@ Deno.serve(async (req) => {
     if (!tripId) {
       return errorResponse("VALIDATION", "Missing tripId", 400);
     }
-    // Keep local alias used throughout this handler.
     const body = { ...rawBody, tripId };
+    const cancelReason = normalizeDriverCancelReason(
+      rawBody.reason ?? rawBody.cancel_reason,
+    );
 
     console.log("DRIVER_CANCEL_PATH_ENTERED", JSON.stringify({
       trip_id: body.tripId,
@@ -71,6 +81,7 @@ Deno.serve(async (req) => {
     console.log("DRIVER_CANCEL_REQUESTED", JSON.stringify({
       trip_id: body.tripId,
       actor: "driver",
+      cancel_reason: cancelReason,
     }));
 
     const { data: driver, error: driverError } = await supabase
@@ -95,7 +106,9 @@ Deno.serve(async (req) => {
 
     const { data: trip, error: tripError } = await supabase
       .from("trips")
-      .select(TRIP_CANCEL_REMATCH_SELECT)
+      .select(
+        `${TRIP_CANCEL_REMATCH_SELECT}, started_at, scheduled_ack_status, broadcast_enabled, previous_driver_id`,
+      )
       .eq("id", body.tripId)
       .maybeSingle();
 
@@ -140,10 +153,6 @@ Deno.serve(async (req) => {
 
     const assignedDriverId = trip.confirmed_driver_id;
     if (!assignedDriverId) {
-      console.error("[driver-cancel-before-pickup] missing assignment field", {
-        trip_id: body.tripId,
-        field: TRIP_ASSIGNED_DRIVER_COLUMN,
-      });
       return errorResponse(
         "INVALID_STATE",
         "Trip has no assigned driver — cannot rematch",
@@ -161,7 +170,6 @@ Deno.serve(async (req) => {
         reason: "status_not_pre_pickup_rematch",
         status: trip.status,
         allowed: PRE_PICKUP_DRIVER_REMATCH_DB_STATUSES,
-        redirect: "no_terminal_driver_cancel_use_no_show_if_passenger_no_show",
       }));
       return errorResponse(
         "INVALID_STATE",
@@ -170,33 +178,13 @@ Deno.serve(async (req) => {
       );
     }
 
-    console.log("DRIVER_CANCELLED_AFTER_ACCEPT_CONFIRMED", JSON.stringify({
-      trip_id: body.tripId,
-      driver_id: driver.id,
-      prev_status: trip.status,
-    }));
-    console.log("DRIVER_CANCEL_REMATCH_REUSED", JSON.stringify({
-      trip_id: body.tripId,
-      workflow: "driver-cancel-before-pickup",
-      rebroadcast: "rebroadcastTripViaAutoDispatch",
-    }));
-    console.log("DRIVER_CANCEL_REUSE_EXISTING_REMATCH_WORKFLOW", JSON.stringify({
-      trip_id: body.tripId,
-      workflow: "driver-cancel-before-pickup",
-    }));
-    console.log("DRIVER_CANCEL_REMATCH_STARTED", JSON.stringify({
-      trip_id: body.tripId,
-    }));
-    console.log("DRIVER_CANCEL_SAME_RIDE_ID_KEPT", JSON.stringify({
-      trip_id: body.tripId,
-    }));
-
-    const prevCancelled = Array.isArray(trip.cancelled_driver_ids)
-      ? trip.cancelled_driver_ids.filter((x): x is string => typeof x === "string")
-      : [];
-    const nextCancelled = prevCancelled.includes(driver.id)
-      ? prevCancelled
-      : [...prevCancelled, driver.id];
+    if (trip.started_at) {
+      return errorResponse(
+        "INVALID_STATE",
+        "Trip has already started — use in-progress cancel",
+        409,
+      );
+    }
 
     const nowIso = new Date().toISOString();
 
@@ -208,7 +196,7 @@ Deno.serve(async (req) => {
         updated_at: nowIso,
       })
       .eq("trip_id", body.tripId)
-      .in("status", ["pending", "accepted"]);
+      .in("status", ["pending", "accepted", "offered", "countered"]);
 
     if (revokeOffersError) {
       console.error("[driver-cancel-before-pickup] revoke offers:", revokeOffersError);
@@ -228,18 +216,61 @@ Deno.serve(async (req) => {
       maxRoundRow?.broadcast_round ?? trip.current_broadcast_round ?? 0,
     );
 
-    const prevExcluded = Array.isArray((trip as { excluded_driver_ids?: string[] }).excluded_driver_ids)
-      ? (trip as { excluded_driver_ids: string[] }).excluded_driver_ids.filter(
-        (x): x is string => typeof x === "string",
-      )
-      : [];
-    const nextExcluded = [...new Set([...prevExcluded, ...nextCancelled])];
+    const convertScheduled = shouldConvertScheduledOriginOnDriverCancel(trip);
 
-    const handoverPending = isScheduledInstantConversionPending(trip);
-    const searchingExpiresAt = handoverPending
-      ? null
-      : customerSearchExpiresAtIso(dispatchSettings);
-    const searchWindowMs = handoverPending ? 0 : customerSearchWindowMs(dispatchSettings);
+    let searchingExpiresAt: string | null;
+    let searchWindowMs: number;
+    let patch: Record<string, unknown>;
+
+    if (convertScheduled) {
+      const { data: gds } = await supabase
+        .from("global_dispatch_settings")
+        .select("max_driver_find_time_minutes, max_dispatch_rounds")
+        .eq("singleton", true)
+        .maybeSingle();
+      const maxFind = Math.max(
+        1,
+        Number(gds?.max_driver_find_time_minutes ?? 6) || 6,
+      );
+      searchingExpiresAt = new Date(Date.now() + maxFind * 60_000).toISOString();
+      searchWindowMs = maxFind * 60_000;
+      const instantMaxSequences = maxBroadcastSequences(
+        { max_dispatch_rounds: gds?.max_dispatch_rounds },
+        null,
+      );
+      patch = buildScheduledOriginDriverCancelRematchPatch({
+        nowIso,
+        searchingExpiresAtIso: searchingExpiresAt,
+        maxExistingBroadcastRound: Number(maxRoundRow?.broadcast_round ?? 0) || 0,
+        maxBroadcastSequences: instantMaxSequences,
+        excludeDriverId: driver.id,
+        existingExcludedDriverIds: trip.excluded_driver_ids,
+        existingCancelledDriverIds: trip.cancelled_driver_ids,
+        currentBroadcastEnabled: (trip as { broadcast_enabled?: boolean | null })
+          .broadcast_enabled,
+        cancelReason,
+      });
+      console.log("DRIVER_CANCEL_SCHEDULED_ORIGIN_CONVERTED", JSON.stringify({
+        trip_id: body.tripId,
+        dispatch_mode: "instant",
+        scheduled_status: "converted_to_instant",
+        searching_expires_at: searchingExpiresAt,
+        max_find_minutes: maxFind,
+      }));
+    } else {
+      searchingExpiresAt = customerSearchExpiresAtIso(dispatchSettings);
+      searchWindowMs = customerSearchWindowMs(dispatchSettings);
+      patch = buildInstantOriginDriverCancelRematchPatch({
+        nowIso,
+        searchingExpiresAtIso: searchingExpiresAt,
+        rematchBroadcastRound,
+        excludeDriverId: driver.id,
+        existingExcludedDriverIds: trip.excluded_driver_ids,
+        existingCancelledDriverIds: trip.cancelled_driver_ids,
+        cancelReason,
+      });
+    }
+
     const rawStatus = String(trip.status ?? "").trim().toLowerCase();
     const arrivedBeforeStartStatuses = new Set([
       "arrived",
@@ -262,39 +293,32 @@ Deno.serve(async (req) => {
         status: rawStatus,
       }));
     }
-    console.log("DRIVER_CANCEL_TERMINAL_BLOCKED_BEFORE_START", JSON.stringify({
-      trip_id: body.tripId,
-      status: rawStatus,
-      rematch: true,
-    }));
-    const searchCycleId = buildSearchCycleId(body.tripId, rematchBroadcastRound, searchingExpiresAt);
 
-    const { data: updatedTrip, error: tripUpdateError } = await supabase
+    const searchCycleId = buildSearchCycleId(
+      body.tripId,
+      Number(patch.current_broadcast_round ?? rematchBroadcastRound) || 0,
+      searchingExpiresAt,
+    );
+
+    // Atomic ownership CAS: assignment + pre-start status + not started.
+    let updateQuery = supabase
       .from("trips")
-      .update({
-        status: "searching_new_driver",
-        dispatch_status: "broadcasting",
-        ...buildClearTripAssignmentPatch(),
-        ...buildDriverCancelRematchBroadcastPatch(),
-        cancelled_driver_ids: nextCancelled,
-        excluded_driver_ids: nextExcluded,
-        scheduled_accepted_at: null,
-        cancelled_by: "driver",
-        cancel_reason: "driver_cancelled",
-        current_broadcast_round: rematchBroadcastRound,
-        searching_expires_at: searchingExpiresAt,
-        updated_at: nowIso,
-      })
+      .update(patch)
       .eq("id", body.tripId)
       .eq(TRIP_ASSIGNED_DRIVER_COLUMN, driver.id)
-      .select("id, status, searching_expires_at, current_broadcast_round, dispatch_status")
+      .in("status", [...DRIVER_CANCEL_REMATCH_CAS_STATUSES])
+      .is("started_at", null);
+
+    const { data: updatedTrip, error: tripUpdateError } = await updateQuery
+      .select("id, status, searching_expires_at, current_broadcast_round, dispatch_status, dispatch_mode, scheduled_status")
       .maybeSingle();
 
     if (tripUpdateError || !updatedTrip) {
-      console.error("[driver-cancel-before-pickup] trip update:", tripUpdateError);
+      console.error("[driver-cancel-before-pickup] trip update CAS miss:", tripUpdateError);
       return errorResponse(
         "CONFLICT",
-        tripUpdateError?.message ?? "Trip assignment changed — refresh and try again",
+        tripUpdateError?.message ??
+          "Trip assignment or status changed — refresh and try again",
         409,
       );
     }
@@ -304,6 +328,9 @@ Deno.serve(async (req) => {
       search_cycle_id: searchCycleId,
       current_broadcast_round: updatedTrip.current_broadcast_round ?? 0,
       status: updatedTrip.status,
+      dispatch_mode: updatedTrip.dispatch_mode,
+      scheduled_status: updatedTrip.scheduled_status,
+      searching_expires_at: updatedTrip.searching_expires_at,
     }));
     console.log("DRIVER_CANCEL_COUNTDOWN_RESET_180", JSON.stringify({
       trip_id: body.tripId,
@@ -314,7 +341,6 @@ Deno.serve(async (req) => {
     console.log("DRIVER_CANCELLED_DRIVER_EXCLUDED", JSON.stringify({
       trip_id: body.tripId,
       driver_id: driver.id,
-      cancelled_driver_ids: nextCancelled,
     }));
 
     await supabase.from("drivers").update({ current_trip_id: null }).eq("id", driver.id).eq(
@@ -329,7 +355,6 @@ Deno.serve(async (req) => {
         .eq("id", trip.passenger_id);
     }
 
-    // Rematch (not terminal) — Customer must hear finding-another-driver, never trip_cancelled.
     void notifyCustomerTripLifecycle(supabase, {
       passengerId: typeof trip.passenger_id === "string" ? trip.passenger_id : null,
       tripId: body.tripId,
@@ -341,29 +366,55 @@ Deno.serve(async (req) => {
       console.warn("[driver-cancel-before-pickup] customer driver_cancelled push failed:", e)
     );
 
-    // Scan & Go retired — always rematch ordinary pre-pickup cancel.
+    if (isAccidentOrBreakdownCancelReason(cancelReason)) {
+      const fingerprint = `driver_cancel_incident:${body.tripId}:${driver.id}`;
+      try {
+        await supabase.from("ops_alerts").upsert(
+          {
+            fingerprint,
+            title: "Driver cancelled — accident/breakdown (pre-start rematch)",
+            related_trip_id: body.tripId,
+            metadata: {
+              trip_id: body.tripId,
+              driver_id: driver.id,
+              cancel_reason: cancelReason,
+              outcome: "rematch",
+            },
+            status: "open",
+            updated_at: nowIso,
+          },
+          { onConflict: "fingerprint" },
+        );
+      } catch (opsErr) {
+        console.warn("[driver-cancel-before-pickup] ops_alert upsert failed", opsErr);
+      }
+    }
+
     const dispatchResult = await rebroadcastTripViaAutoDispatch(
       supabase,
       body.tripId,
       "driver_cancel_before_pickup",
     );
-    console.log("DRIVER_CANCEL_MATCHING_TRIGGERED", JSON.stringify({
+
+    console.log("DRIVER_CANCEL_REMATCH_DISPATCH", JSON.stringify({
       trip_id: body.tripId,
-      search_cycle_id: searchCycleId,
       ok: dispatchResult.ok,
       path: dispatchResult.path,
       error: dispatchResult.error ?? null,
+      dispatch_mode: updatedTrip.dispatch_mode,
+      scheduled_status: updatedTrip.scheduled_status,
     }));
-    if (!dispatchResult.ok) {
-      console.error("[driver-cancel-before-pickup] auto-dispatch:", dispatchResult.error);
-    }
 
-    if ((trip as { stacked_trip_id?: string | null }).stacked_trip_id) {
-      await handleQueuedTripAfterCurrentTripFailure(supabase, {
-        currentTripId: body.tripId,
-        driverId: driver.id,
-        failureReason: "driver_cancel_before_pickup",
-      });
+    if (trip.stacked_trip_id) {
+      try {
+        await handleQueuedTripAfterCurrentTripFailure(supabase, {
+          tripId: body.tripId,
+          stackedTripId: trip.stacked_trip_id,
+          reason: "driver_cancel_before_pickup",
+        });
+      } catch (stackErr) {
+        console.warn("[driver-cancel-before-pickup] stacked follow-up failed", stackErr);
+      }
     }
 
     return successResponse({
@@ -373,12 +424,17 @@ Deno.serve(async (req) => {
       status: "searching_new_driver",
       outcome: "rematch",
       searching_expires_at: searchingExpiresAt,
-      search_cycle_id: searchCycleId,
-      current_broadcast_round: rematchBroadcastRound,
+      dispatch_mode: updatedTrip.dispatch_mode,
+      scheduled_status: updatedTrip.scheduled_status,
+      dispatch: dispatchResult,
+      cancel_reason: cancelReason,
     });
-  } catch (e: unknown) {
-    console.error("[driver-cancel-before-pickup]", e);
-    const message = e instanceof Error ? e.message : "Unknown error";
-    return errorResponse("INTERNAL_ERROR", message, 500);
+  } catch (error) {
+    console.error("[driver-cancel-before-pickup] Error:", error);
+    return errorResponse(
+      "INTERNAL_ERROR",
+      error instanceof Error ? error.message : "Unknown error",
+      500,
+    );
   }
 });

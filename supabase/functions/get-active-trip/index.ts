@@ -226,6 +226,22 @@ function isCustomerLiveTrip(row: TripRow, nowMs: number): boolean {
   }
 
   const hasDriver = Boolean(row.driver_id || row.confirmed_driver_id);
+  const scheduledStatusLive = String(row.scheduled_status ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/-/g, "_");
+  // D8: after Phase 5 Heading to Pickup, live tracking must not wait on
+  // scheduled_broadcast_at / scheduled_convert_at / scheduled_at clocks.
+  if (
+    hasDriver &&
+    SCHEDULED_LIVE_STATES.includes(status) &&
+    (scheduledStatusLive === "driver_en_route" ||
+      status === "en_route_to_pickup" ||
+      status === "arrived_at_pickup" ||
+      status === "in_progress")
+  ) {
+    return true;
+  }
   return (
     hasDriver &&
     SCHEDULED_LIVE_STATES.includes(status) &&

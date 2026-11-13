@@ -234,15 +234,25 @@ export type WaitingSegmentRow = { started_at: string; ended_at: string | null };
 export function sumSegmentSecondsAt(
   rows: WaitingSegmentRow[],
   atMs: number,
+  /** Pickup scheduled fairness floor — pre-scheduled time never counts. */
+  eligibleFromMs?: number | null,
 ): number {
   if (!Number.isFinite(atMs)) return 0;
   let totalMs = 0;
   for (const row of rows) {
-    const start = Date.parse(row.started_at);
-    if (!Number.isFinite(start) || start >= atMs) continue;
+    const startRaw = Date.parse(row.started_at);
+    if (!Number.isFinite(startRaw) || startRaw >= atMs) continue;
     const endRaw = row.ended_at ? Date.parse(row.ended_at) : atMs;
     if (!Number.isFinite(endRaw)) continue;
     const end = Math.min(endRaw, atMs);
+    let start = startRaw;
+    if (
+      eligibleFromMs != null &&
+      Number.isFinite(eligibleFromMs)
+    ) {
+      if (end <= eligibleFromMs) continue;
+      start = Math.max(start, eligibleFromMs);
+    }
     if (end > start) totalMs += end - start;
   }
   return Math.floor(totalMs / 1000);
@@ -251,8 +261,9 @@ export function sumSegmentSecondsAt(
 export function sumSegmentSeconds(
   rows: WaitingSegmentRow[],
   nowMs: number,
+  eligibleFromMs?: number | null,
 ): number {
-  return sumSegmentSecondsAt(rows, nowMs);
+  return sumSegmentSecondsAt(rows, nowMs, eligibleFromMs);
 }
 
 export const WAITING_EVIDENCE_UNAVAILABLE = "WAITING_EVIDENCE_UNAVAILABLE";
@@ -296,6 +307,8 @@ export async function resolveCanonicalWaitingSeconds(
     locationType: WaitingLocationType;
     stopId?: string | null;
     atIso: string;
+    /** Pickup only — max(arrived_at, scheduled_at) fairness floor. */
+    eligibleFromMs?: number | null;
   },
 ): Promise<CanonicalWaitingResolution> {
   const atMs = Date.parse(input.atIso);
@@ -334,9 +347,11 @@ export async function resolveCanonicalWaitingSeconds(
     };
   }
   const rows = data as WaitingSegmentRow[];
+  const eligibleFromMs =
+    input.locationType === "pickup" ? (input.eligibleFromMs ?? null) : null;
   return {
     ok: true,
-    countedSeconds: sumSegmentSecondsAt(rows, atMs),
+    countedSeconds: sumSegmentSecondsAt(rows, atMs, eligibleFromMs),
     segmentCount: rows.length,
     openSegmentCount: rows.filter((r) => !r.ended_at).length,
     evaluatedAtIso,
@@ -419,6 +434,11 @@ export async function syncWaitingGeofenceClock(
     trusted?: TrustedDriverLocation | null;
     /** When true, skip trusted lookup entirely (use provided trusted, even null). */
     trustedResolved?: boolean;
+    /**
+     * Pickup only: eligible waiting floor (max(arrived_at, scheduled_at)).
+     * Segments must not open/count before this instant.
+     */
+    eligibleFromMs?: number | null;
   },
 ): Promise<{
   status: WaitingGeofenceStatus;
@@ -438,11 +458,20 @@ export async function syncWaitingGeofenceClock(
   /**
    * Why no chargeable open happened (money fail-closed).
    * outside_radius | no_trusted_location | already_open | insert_failed | skipped_no_coords
+   * | before_scheduled_pickup
    */
   skipReason: string | null;
+  /** True when inside radius but before scheduled eligible floor. */
+  awaitingScheduledPickup: boolean;
 }> {
   const nowIso = input.nowIso ?? new Date().toISOString();
   const nowMs = Date.parse(nowIso);
+  const eligibleFromMs =
+    input.locationType === "pickup" ? (input.eligibleFromMs ?? null) : null;
+  const beforeScheduledEligible =
+    eligibleFromMs != null &&
+    Number.isFinite(eligibleFromMs) &&
+    nowMs < eligibleFromMs;
   const trusted = input.trustedResolved
     ? (input.trusted ?? null)
     : (input.trusted ??
@@ -475,7 +504,20 @@ export async function syncWaitingGeofenceClock(
       : null;
   let skipReason: string | null = null;
 
-  if (verdict.inside) {
+  // Before scheduled pickup eligible floor: never open/count (pause money clock).
+  if (beforeScheduledEligible) {
+    if (open?.id) {
+      await supabase
+        .from("trip_waiting_segments")
+        .update({
+          ended_at: nowIso,
+          distance_meters: verdict.distanceMeters,
+          source_location: verdict.usedSource,
+        })
+        .eq("id", open.id);
+    }
+    skipReason = "before_scheduled_pickup";
+  } else if (verdict.inside) {
     if (!open) {
       const { data: inserted, error: insertErr } = await supabase
         .from("trip_waiting_segments")
@@ -535,6 +577,7 @@ export async function syncWaitingGeofenceClock(
     locationType: input.locationType,
     stopId: input.stopId ?? null,
     atIso: nowIso,
+    eligibleFromMs,
   });
   const counterColumn = input.locationType === "pickup"
     ? "pickup_waiting_counted_seconds"
@@ -559,7 +602,11 @@ export async function syncWaitingGeofenceClock(
     countedSeconds = Number.isFinite(cachedNum) && cachedNum > 0 ? Math.floor(cachedNum) : 0;
   }
 
-  const status: WaitingGeofenceStatus = verdict.inside ? "counting" : "paused";
+  const status: WaitingGeofenceStatus = beforeScheduledEligible
+    ? "paused"
+    : verdict.inside
+    ? "counting"
+    : "paused";
   const tripPatch: Record<string, unknown> = {
     waiting_geofence_status: status,
     waiting_geofence_checked_at: nowIso,
@@ -576,12 +623,13 @@ export async function syncWaitingGeofenceClock(
     countedSeconds,
     evidenceComplete: canonical.ok,
     distanceMeters: verdict.distanceMeters,
-    inside: verdict.inside,
+    inside: verdict.inside && !beforeScheduledEligible,
     usedSource: verdict.usedSource,
     trustedOverridesBody: verdict.trustedOverridesBody,
     segmentOpened: openedFresh,
     segmentId,
     skipReason: openedFresh ? null : skipReason,
+    awaitingScheduledPickup: beforeScheduledEligible,
   };
 }
 

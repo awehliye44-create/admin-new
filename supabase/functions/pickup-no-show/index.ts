@@ -184,6 +184,10 @@ Deno.serve(async (req) => {
       trip.pickup_latitude != null &&
       trip.pickup_longitude != null
     ) {
+      const { eligibleFromMsForPickupTrip } = await import(
+        "../_shared/scheduledPickupWaitingFairnessSSOT.ts"
+      );
+      const eligibleFromMs = eligibleFromMsForPickupTrip(trip);
       await syncWaitingGeofenceClock(supabase, {
         tripId: trip_id,
         driverId: driver.id,
@@ -200,12 +204,17 @@ Deno.serve(async (req) => {
         bodyLat: typeof driver_lat === "number" ? driver_lat : null,
         bodyLng: typeof driver_lng === "number" ? driver_lng : null,
         nowIso: decisionAtIso,
+        eligibleFromMs,
       });
     }
+    const { eligibleFromMsForPickupTrip: eligiblePickup } = await import(
+      "../_shared/scheduledPickupWaitingFairnessSSOT.ts"
+    );
     const canonicalWaiting = await resolveCanonicalWaitingSeconds(supabase, {
       tripId: trip_id,
       locationType: "pickup",
       atIso: decisionAtIso,
+      eligibleFromMs: eligiblePickup(trip),
     });
     if (!canonicalWaiting.ok) {
       console.error("[pickup-no-show] WAITING_EVIDENCE_UNAVAILABLE — no decision, no mutation", {

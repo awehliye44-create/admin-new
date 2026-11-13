@@ -1088,6 +1088,91 @@ Deno.serve(async (req) => {
     }
 
     // ============================================================
+    // STEP 1z: Post–Heading to Pickup lateness / stale GPS (D6)
+    // Never auto-reassign. Ops alert + deduped traffic_delay only.
+    // ============================================================
+    {
+      const {
+        shouldSurfacePostActivationLateness,
+        buildPostActivationLatenessOpsAlert,
+        buildTrafficDelayNotificationId,
+      } = await import("../_shared/scheduledPostActivationLatenessSSOT.ts");
+      const { data: enRouteLateRows } = await supabase
+        .from("trips")
+        .select(
+          "id, status, scheduled_status, scheduled_at, driver_id, confirmed_driver_id, passenger_id",
+        )
+        .eq("scheduled_status", "driver_en_route")
+        .not("driver_id", "is", null)
+        .lte("scheduled_at", now.toISOString())
+        .order("scheduled_at", { ascending: true })
+        .limit(30);
+
+      for (const row of enRouteLateRows ?? []) {
+        const driverId = String(row.driver_id ?? row.confirmed_driver_id ?? "").trim();
+        if (!driverId) continue;
+        let gpsAt: string | null = null;
+        try {
+          const { data: presence } = await supabase
+            .from("driver_presence")
+            .select("last_gps_sample_at, last_location_at, updated_at")
+            .eq("driver_id", driverId)
+            .maybeSingle();
+          gpsAt =
+            (presence?.last_gps_sample_at as string | null) ??
+            (presence?.last_location_at as string | null) ??
+            (presence?.updated_at as string | null);
+        } catch {
+          gpsAt = null;
+        }
+        const verdict = shouldSurfacePostActivationLateness({
+          nowMs,
+          scheduledAtIso: row.scheduled_at,
+          status: row.status,
+          scheduledStatus: row.scheduled_status,
+          driverId,
+          gpsSampledAtIso: gpsAt,
+        });
+        if (!verdict.escalate) continue;
+        const alert = buildPostActivationLatenessOpsAlert({
+          tripId: row.id,
+          driverId,
+          nowIso: now.toISOString(),
+          lateVsPickup: verdict.lateVsPickup,
+          staleGps: verdict.staleGps,
+          minutesPastPickup: verdict.minutesPastPickup,
+        });
+        try {
+          await supabase.from("ops_alerts").upsert(
+            {
+              fingerprint: alert.fingerprint,
+              title: alert.title,
+              related_trip_id: alert.related_trip_id,
+              metadata: alert.metadata,
+              status: "open",
+              updated_at: now.toISOString(),
+            },
+            { onConflict: "fingerprint" },
+          );
+        } catch (opsErr) {
+          console.warn("[scheduled-dispatch] lateness ops_alert failed", opsErr);
+        }
+        if (verdict.lateVsPickup && row.passenger_id) {
+          void notifyCustomerTripLifecycle(supabase, {
+            passengerId: row.passenger_id,
+            tripId: row.id,
+            event: "traffic_delay",
+            title: "Traffic Update",
+            body: "Your driver is running late — still on the way to pick you up.",
+            notificationId: buildTrafficDelayNotificationId(row.id),
+          }).catch((e) =>
+            console.warn("[scheduled-dispatch] traffic_delay notify failed:", e)
+          );
+        }
+      }
+    }
+
+    // ============================================================
     // STEP 1a: ACTIVATION NRO EXPIRED / DECLINED → existing rescue
     // Reuse releaseAndRebroadcast (no parallel rescue engine).
     // ============================================================
@@ -1577,19 +1662,22 @@ Deno.serve(async (req) => {
       .order("scheduled_at", { ascending: true })
       .limit(50);
 
+    // D2: never expire confirmed / pending-ack / heading / active assignments.
+    // Exclusive rescue (STEP 1a / expire-offers) owns expired acknowledgements.
     const { data: expirePastPickup, error: expirePastError } = await supabase
       .from("trips")
       .select(expireSelect)
       .eq("is_scheduled", true)
       .is("driver_id", null)
+      .is("confirmed_driver_id", null)
       .lte("scheduled_at", now.toISOString())
       .not(
         "status",
         "in",
-        "(completed,cancelled,customer_cancelled,expired,expired_no_driver,no_show,declined)",
+        "(completed,cancelled,customer_cancelled,expired,expired_no_driver,no_show,declined,en_route_to_pickup,arrived_at_pickup,in_progress)",
       )
       .or(
-        "scheduled_status.is.null,scheduled_status.not.in.(cancelled,expired,no_driver_found)",
+        "scheduled_status.is.null,scheduled_status.not.in.(cancelled,expired,no_driver_found,awaiting_activation_accept,driver_en_route,driver_assigned,scheduled_committed)",
       )
       .order("scheduled_at", { ascending: true })
       .limit(50);

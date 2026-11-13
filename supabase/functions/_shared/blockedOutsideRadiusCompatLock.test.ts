@@ -22,6 +22,12 @@ Deno.test("resolveWaitingStatusFromResult understands blocked_outside_radius", (
   );
 });
 
+Deno.test("awaiting_scheduled_pickup is additive (older clients keep Arrived)", () => {
+  assertStringIncludes(STOP, "awaiting_scheduled_pickup");
+  // Older clients ignore unknown waiting_status strings; Arrived still succeeds.
+  assertStringIncludes(STOP, "waiting_still_starts_on_arrived");
+});
+
 Deno.test("Start Trip / complete paths do not require free_waiting exclusively", () => {
   // finalizePickupWaitingOnStartTrip must not gate on free_waiting string.
   const finalizeIdx = STOP.indexOf("finalizePickupWaitingOnStartTrip");

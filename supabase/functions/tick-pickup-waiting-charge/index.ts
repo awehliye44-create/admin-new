@@ -252,6 +252,9 @@ Deno.serve(async (req) => {
     let waitingEvidenceComplete = true;
 
     if (trip.pickup_latitude != null && trip.pickup_longitude != null) {
+      const { eligibleFromMsForPickupTrip } = await import(
+        "../_shared/scheduledPickupWaitingFairnessSSOT.ts"
+      );
       const clock = await syncWaitingGeofenceClock(supabase, {
         tripId: trip_id,
         driverId: driver.id,
@@ -268,6 +271,12 @@ Deno.serve(async (req) => {
         bodyLat: typeof driver_lat === "number" ? driver_lat : null,
         bodyLng: typeof driver_lng === "number" ? driver_lng : null,
         nowIso,
+        eligibleFromMs: eligibleFromMsForPickupTrip(trip as {
+          arrived_at?: string | null;
+          pickup_arrived_at?: string | null;
+          scheduled_at?: string | null;
+          is_scheduled?: boolean | null;
+        }),
       });
       geofenceStatus = clock.status;
       countedSeconds = clock.countedSeconds;

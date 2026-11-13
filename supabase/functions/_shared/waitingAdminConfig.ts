@@ -15,6 +15,8 @@
  * remains continuous prorate (production). Pickup waiting uses completed intervals.
  */
 
+import { resolveScheduledPickupEligibleFromMs } from "./scheduledPickupWaitingFairnessSSOT.ts";
+
 export const DEFAULT_STOP_WAITING_GRACE_SECONDS = 60;
 
 export type AdminWaitingConfigSnapshot = {
@@ -47,7 +49,15 @@ export type AdminWaitingConfigSnapshot = {
 
 export type PickupWaitingStateSnapshot = {
   driver_arrived_at: string | null;
-  pickup_waiting_state: "not_arrived" | "blocked_outside_radius" | "free_waiting" | "paid_waiting" | "not_started" | "unavailable";
+  pickup_waiting_state:
+    | "not_arrived"
+    | "blocked_outside_radius"
+    | "free_waiting"
+    | "paid_waiting"
+    | "not_started"
+    | "unavailable"
+    /** Arrived before booked pickup — eligible clocks frozen until scheduled_at. */
+    | "awaiting_scheduled_pickup";
   pickup_waiting_free_expires_at: string | null;
   pickup_waiting_elapsed_seconds: number;
   pickup_waiting_grace_remaining_seconds: number;
@@ -55,6 +65,8 @@ export type PickupWaitingStateSnapshot = {
   no_show_eligible: boolean;
   no_show_remaining_seconds: number;
   admin_waiting_config_snapshot: AdminWaitingConfigSnapshot;
+  /** ISO of max(arrived_at, scheduled_at) when scheduled-origin fairness applies. */
+  eligible_waiting_from_at?: string | null;
 };
 
 export type StopWaitingStateSnapshot = {
@@ -480,7 +492,13 @@ export async function loadAdminWaitingConfig(
 
 export function buildPickupWaitingSnapshot(input: {
   driverArrivedAt: string | null;
-  waitingStatus: "not_started" | "blocked_outside_radius" | "free_waiting" | "paid_waiting" | "unavailable";
+  waitingStatus:
+    | "not_started"
+    | "blocked_outside_radius"
+    | "free_waiting"
+    | "paid_waiting"
+    | "unavailable"
+    | "awaiting_scheduled_pickup";
   config: AdminWaitingConfigSnapshot;
   nowMs?: number;
   /**
@@ -489,6 +507,9 @@ export function buildPickupWaitingSnapshot(input: {
    * never Arrived wall-clock alone.
    */
   countedInRadiusSeconds?: number | null;
+  /** Original scheduled pickup ISO — preserves fairness after rematch convert. */
+  scheduledAtIso?: string | null;
+  isScheduledOrigin?: boolean | null;
 }): PickupWaitingStateSnapshot {
   const { driverArrivedAt, waitingStatus, config } = input;
   const nowMs = input.nowMs ?? Date.now();
@@ -498,6 +519,16 @@ export function buildPickupWaitingSnapshot(input: {
   const countedElapsed = useCounted
     ? Math.max(0, Math.floor(Number(countedRaw)))
     : null;
+
+  const eligibleFromMs = resolveScheduledPickupEligibleFromMs({
+    arrivedAtIso: driverArrivedAt,
+    scheduledAtIso: input.scheduledAtIso,
+    isScheduledOrigin: input.isScheduledOrigin,
+  });
+  const eligibleFromIso =
+    eligibleFromMs != null ? new Date(eligibleFromMs).toISOString() : null;
+  const beforeEligible =
+    eligibleFromMs != null && Number.isFinite(nowMs) && nowMs < eligibleFromMs;
 
   if (!config.config_available && waitingStatus === "unavailable") {
     return {
@@ -510,6 +541,7 @@ export function buildPickupWaitingSnapshot(input: {
       no_show_eligible: false,
       no_show_remaining_seconds: 0,
       admin_waiting_config_snapshot: config,
+      eligible_waiting_from_at: eligibleFromIso,
     };
   }
 
@@ -524,18 +556,37 @@ export function buildPickupWaitingSnapshot(input: {
       no_show_eligible: false,
       no_show_remaining_seconds: config.no_show_waiting_seconds,
       admin_waiting_config_snapshot: config,
+      eligible_waiting_from_at: eligibleFromIso,
     };
   }
 
-  const wallElapsed = elapsedSecondsSince(driverArrivedAt, nowMs);
+  // Early arrival: freeze clocks — full free allowance, zero elapsed, no no-show.
+  if (beforeEligible || waitingStatus === "awaiting_scheduled_pickup") {
+    return {
+      driver_arrived_at: driverArrivedAt,
+      pickup_waiting_state: "awaiting_scheduled_pickup",
+      pickup_waiting_free_expires_at: eligibleFromIso
+        ? addSecondsIso(eligibleFromIso, config.free_pickup_waiting_seconds)
+        : null,
+      pickup_waiting_elapsed_seconds: 0,
+      pickup_waiting_grace_remaining_seconds: config.free_pickup_waiting_seconds,
+      no_show_eligible_at: null,
+      no_show_eligible: false,
+      no_show_remaining_seconds: config.no_show_waiting_seconds,
+      admin_waiting_config_snapshot: config,
+      eligible_waiting_from_at: eligibleFromIso,
+    };
+  }
+
+  const wallBaseIso = eligibleFromIso ?? driverArrivedAt;
+  const wallElapsed = elapsedSecondsSince(wallBaseIso, nowMs);
   const elapsed = countedElapsed ?? wallElapsed;
   const graceRemaining = Math.max(0, config.free_pickup_waiting_seconds - elapsed);
-  // Wall ISO free-expires remains a session anchor; grace/no-show remaining use counted when set.
-  const freeExpiresAt = addSecondsIso(driverArrivedAt, config.free_pickup_waiting_seconds);
-  // Counted path: never advertise a wall-clock eligible_at (Driver UI must use remaining seconds).
+  // Free-expires anchors on eligible floor (not early arrived_at alone).
+  const freeExpiresAt = addSecondsIso(wallBaseIso, config.free_pickup_waiting_seconds);
   const noShowEligibleAt = useCounted
     ? null
-    : addSecondsIso(driverArrivedAt, config.no_show_waiting_seconds);
+    : addSecondsIso(wallBaseIso, config.no_show_waiting_seconds);
   const noShowRemaining = Math.max(0, config.no_show_waiting_seconds - elapsed);
   const hasArrivalForNoShow = !config.no_show_apply_after_arrival_only || !!driverArrivedAt;
   const noShowEligible =
@@ -559,6 +610,7 @@ export function buildPickupWaitingSnapshot(input: {
     no_show_eligible: noShowEligible,
     no_show_remaining_seconds: noShowRemaining,
     admin_waiting_config_snapshot: config,
+    eligible_waiting_from_at: eligibleFromIso,
   };
 }
 

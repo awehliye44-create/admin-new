@@ -48,6 +48,7 @@ import {
   syncWaitingGeofenceClock,
   type TrustedDriverLocation,
 } from "../_shared/waitingSegmentClock.ts";
+import { eligibleFromMsForPickupTrip } from "../_shared/scheduledPickupWaitingFairnessSSOT.ts";
 import {
   logStackedPromotionSkipped,
   handleQueuedTripAfterPaymentFailure,
@@ -772,8 +773,17 @@ const ARRIVE_WAITING_TRIP_SELECT =
 
 function resolveWaitingStatusFromResult(
   waitingResult: PickupWaitingStartResult | StopWaitingStartResult,
-): "not_started" | "blocked_outside_radius" | "free_waiting" {
-  if (waitingResult.waiting_status === "blocked_outside_radius") return "blocked_outside_radius";
+):
+  | "not_started"
+  | "blocked_outside_radius"
+  | "free_waiting"
+  | "awaiting_scheduled_pickup" {
+  if (waitingResult.waiting_status === "blocked_outside_radius") {
+    return "blocked_outside_radius";
+  }
+  if (waitingResult.waiting_status === "awaiting_scheduled_pickup") {
+    return "awaiting_scheduled_pickup";
+  }
   if (waitingResult.waiting_status === "free_waiting") return "free_waiting";
   return "not_started";
 }
@@ -930,9 +940,19 @@ async function enrichArrivalWaitingSnapshot(
   );
   const pickupSnapshot = buildPickupWaitingSnapshot({
     driverArrivedAt: waitingStartedAt,
-    waitingStatus: waitingStartedAt ? pickupWaitingStatus : "not_started",
+    waitingStatus: waitingStartedAt
+      ? (pickupWaitingStatus as
+        | "not_started"
+        | "blocked_outside_radius"
+        | "free_waiting"
+        | "awaiting_scheduled_pickup")
+      : "not_started",
     config,
     countedInRadiusSeconds: waitingStartedAt ? pickupCountedSeconds : null,
+    scheduledAtIso: (ctx.trip as { scheduled_at?: string | null }).scheduled_at ?? null,
+    isScheduledOrigin:
+      (ctx.trip as { is_scheduled?: boolean | null }).is_scheduled === true ||
+      Boolean((ctx.trip as { scheduled_at?: string | null }).scheduled_at),
   });
 
   const stopArrivedAt = ctx.trip.stop_arrived_at ?? ctx.stop?.arrived_at ?? null;
@@ -1037,7 +1057,11 @@ async function checkStopArrivalRadius(
 
 type PickupWaitingStartResult = {
   started: boolean;
-  waiting_status: 'not_started' | 'blocked_outside_radius' | 'free_waiting';
+  waiting_status:
+    | 'not_started'
+    | 'blocked_outside_radius'
+    | 'free_waiting'
+    | 'awaiting_scheduled_pickup';
   allowed_radius_meters?: number | null;
   distance_meters?: number | null;
   start_error?: string;
@@ -1071,9 +1095,12 @@ async function tryStartPickupWaiting(
     tripId: string;
     trip: {
       arrived_at?: string | null;
+      pickup_arrived_at?: string | null;
       pickup_waiting_started_at?: string | null;
       service_area_id?: string | null;
       driver_id?: string | null;
+      scheduled_at?: string | null;
+      is_scheduled?: boolean | null;
     };
     pickupStop: { id: string; arrived_at?: string | null; waiting_started_at?: string | null } | null | undefined;
     pickupLat: number | null;
@@ -1109,9 +1136,20 @@ async function tryStartPickupWaiting(
         bodyLat: driverLat ?? null,
         bodyLng: driverLng ?? null,
         nowIso: now,
+        eligibleFromMs: eligibleFromMsForPickupTrip(trip),
       });
       perf?.mark("waiting_geofence_end");
       distanceM = clock.distanceMeters ?? null;
+      if (clock.awaitingScheduledPickup) {
+        return {
+          started: true,
+          waiting_status: 'awaiting_scheduled_pickup',
+          allowed_radius_meters: radius.meters,
+          distance_meters: distanceM,
+          startedAt: trip.pickup_waiting_started_at,
+          tripRow: null,
+        };
+      }
     }
     const outsideExisting =
       radius.enabled &&
@@ -1236,10 +1274,21 @@ async function tryStartPickupWaiting(
       nowIso: now,
       trusted,
       trustedResolved: true,
+      eligibleFromMs: eligibleFromMsForPickupTrip(trip),
     });
     perf?.mark("waiting_geofence_end");
     distanceM = clock.distanceMeters ?? distanceM;
-    outsideRadius = !clock.inside && radiusEnabled;
+    outsideRadius = !clock.inside && radiusEnabled && !clock.awaitingScheduledPickup;
+    if (clock.awaitingScheduledPickup) {
+      return {
+        started: true,
+        waiting_status: 'awaiting_scheduled_pickup',
+        allowed_radius_meters: allowedRadius,
+        distance_meters: distanceM,
+        startedAt: startResult.startedAt ?? now,
+        tripRow: startResult.tripRow ?? null,
+      };
+    }
     console.log('[stop-workflow] PICKUP_WAITING_GEOFENCE_SYNCED', {
       trip_id: tripId,
       status: clock.status,
@@ -2191,9 +2240,10 @@ Deno.serve(async (req) => {
         );
       }
 
-      // Driver has a valid offer on a live trip — assign them atomically
+      // Driver has a valid offer on a live trip — assign only when unassigned.
+      // Never let a stale accepted offer overwrite a replacement driver (D3).
       console.log("[stop-workflow] Driver has active offer, assigning to trip");
-      await supabase
+      const { data: claimRows, error: claimErr } = await supabase
         .from("trips")
         .update({
           driver_id: driver_id,
@@ -2201,7 +2251,33 @@ Deno.serve(async (req) => {
           status: 'accepted',
           updated_at: new Date().toISOString(),
         })
-        .eq("id", trip_id);
+        .eq("id", trip_id)
+        .is("confirmed_driver_id", null)
+        .is("started_at", null)
+        .not(
+          "status",
+          "in",
+          "(completed,cancelled,canceled,customer_cancelled,expired,expired_no_driver,no_show,declined,in_progress)",
+        )
+        .select("id");
+
+      if (claimErr) {
+        console.error("[stop-workflow] offer-claim CAS failed:", claimErr);
+        return errorResponse("CONFLICT", "Could not claim trip assignment", 409);
+      }
+      if (!claimRows?.length) {
+        const stillMine =
+          String(trip.confirmed_driver_id ?? "").trim() === String(driver_id).trim() ||
+          String(trip.driver_id ?? "").trim() === String(driver_id).trim();
+        if (!stillMine) {
+          return errorResponse(
+            "ASSIGNMENT_TAKEN",
+            "This trip was assigned to another driver",
+            409,
+            { trip_status: trip.status },
+          );
+        }
+      }
 
       trip.driver_id = driver_id;
       trip.confirmed_driver_id = driver_id;

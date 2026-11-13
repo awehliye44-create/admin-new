@@ -238,6 +238,8 @@ export function resolveFreeWaitingExpiresAtMs(args: {
   arrived_at: string | null;
   free_wait_expires_at: string | null;
   free_waiting_minutes: number | null;
+  /** Scheduled fairness floor — free wait starts at max(arrived, scheduled). */
+  eligible_waiting_from_ms?: number | null;
 }): number | null {
   const stamped = parseMs(args.free_wait_expires_at);
   if (stamped != null) return stamped;
@@ -246,7 +248,12 @@ export function resolveFreeWaitingExpiresAtMs(args: {
   if (args.free_waiting_minutes == null) return null;
   const minutes = Number(args.free_waiting_minutes);
   if (!Number.isFinite(minutes) || minutes < 0) return null;
-  return arrived + minutes * 60_000;
+  const floor =
+    args.eligible_waiting_from_ms != null &&
+      Number.isFinite(args.eligible_waiting_from_ms)
+      ? Math.max(arrived, args.eligible_waiting_from_ms)
+      : arrived;
+  return floor + minutes * 60_000;
 }
 
 function buildDecision(args: {
@@ -408,10 +415,23 @@ export function resolveTerminalPaymentDecision(args: {
     if (requireArrival && arrivedAtMs == null) {
       // Missing arrival evidence → do not apply arrival fee; fall through.
     } else if (!requireArrival || arrivedAtMs != null) {
+      const scheduledMsForFairness = parseMs(evidence.scheduled_at);
+      const eligibleFromMs =
+        arrivedAtMs != null && scheduledMsForFairness != null
+          ? Math.max(arrivedAtMs, scheduledMsForFairness)
+          : arrivedAtMs;
+      // Early arrival alone must not create arrival-cancellation liability.
+      if (
+        eligibleFromMs != null &&
+        cancelledAtMs < eligibleFromMs
+      ) {
+        // Fall through — customer cancelled before eligible waiting began.
+      } else {
       const freeExpiresMs = resolveFreeWaitingExpiresAtMs({
         arrived_at: evidence.arrived_at,
         free_wait_expires_at: evidence.free_wait_expires_at,
         free_waiting_minutes: config.free_waiting_minutes,
+        eligible_waiting_from_ms: eligibleFromMs,
       });
 
       if (requireFreeWaitExpired && freeExpiresMs == null) {
@@ -467,6 +487,7 @@ export function resolveTerminalPaymentDecision(args: {
           });
         }
       }
+      } // end: not before eligible waiting floor
     }
   }
 
@@ -475,6 +496,10 @@ export function resolveTerminalPaymentDecision(args: {
   // confirmed_driver_id). Searching / rematching with no live driver is free
   // even inside the scheduled window (MK-261104-003). Historical assigned_at,
   // revoked offers, and outstanding offers are not an active assignment.
+  //
+  // D5 fairness: do not penalise the customer when the driver is the late
+  // party (past scheduled_at without arrival) or when rematch is already
+  // running. Existing threshold policy is otherwise preserved.
   if (
     customerCancel &&
     config.late_cancel_enabled === true &&
@@ -482,15 +507,22 @@ export function resolveTerminalPaymentDecision(args: {
   ) {
     const scheduledMs = parseMs(evidence.scheduled_at);
     const thresholdMin = Number(config.late_cancel_threshold_minutes);
+    const statusLower = String(evidence.status ?? "").trim().toLowerCase();
+    const rematchInProgress =
+      statusLower === "searching_new_driver" ||
+      statusLower === "searching" ||
+      statusLower === "broadcasting";
     if (
       scheduledMs != null &&
       Number.isFinite(thresholdMin) &&
       thresholdMin >= 0
     ) {
       const minutesToPickup = (scheduledMs - cancelledAtMs) / 60_000;
+      const driverLateNoArrival =
+        cancelledAtMs > scheduledMs && arrivedAtMs == null;
       if (minutesToPickup <= thresholdMin) {
-        if (!driverWasAssigned) {
-          // Fall through to OTHER / NO_FEE_FULL_RELEASE — rematch or search.
+        if (!driverWasAssigned || rematchInProgress || driverLateNoArrival) {
+          // Fall through — rematch / search / driver-late → no late passenger fee.
         } else {
           const fee = pence(config.late_cancel_fee_pence);
           return buildDecision({
