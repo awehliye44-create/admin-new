@@ -61,7 +61,7 @@ BEGIN
   SELECT count(*) INTO v_n FROM rmch_iso.worker_out WHERE scn = 'C';
   PERFORM pg_temp.chk('H', 'C_workers_reported', (27 <> v_n)::int, 1, v_n || ' worker results (9 races x 3)', 'expected 27 got ' || v_n);
   SELECT count(*) INTO v_n FROM rmch_iso.worker_out WHERE scn = 'D';
-  PERFORM pg_temp.chk('H', 'D_workers_reported', (78 <> v_n)::int, 1, v_n || ' worker results (6 trips x (4+2+4) + 18 probes)', 'expected 78 got ' || v_n);
+  PERFORM pg_temp.chk('H', 'D_workers_reported', (98 <> v_n)::int, 1, v_n || ' worker results (6 trips x (4+2+4) + 18 probes + 4 finalisation trips x (3+2))', 'expected 98 got ' || v_n);
   SELECT count(*) INTO v_n FROM rmch_iso.worker_out WHERE scn IN ('E', 'F');
   PERFORM pg_temp.chk('H', 'EF_workers_reported', (42 <> v_n)::int, 1, v_n || ' worker results (6 trips x (1+3+3))', 'expected 42 got ' || v_n);
 
@@ -128,26 +128,84 @@ BEGIN
   PERFORM pg_temp.emit('A', 'revoke_before_cas_window', 'INFO',
     v_n || ' race(s): Start won AFTER the cancel worker had already revoked D1''s accepted offer (Edge revokes offers in its own statement before the CAS; a CAS miss does not restore them). Trip stayed in_progress with driver D1.');
 
-  -- A.7 real production start RPC probe
-  DECLARE v_t uuid; v_res jsonb; v_err text;
+  -- A.7 the Start side is the REAL public.finalize_pickup_waiting_and_start_trip RPC (no mirror).
+  --     Every Start outcome must be a domain result: ok, or driver_mismatch (cancel already released
+  --     the assignment). Any other error / SQLSTATE means the real RPC could not run.
+  SELECT count(*) FILTER (WHERE outcome = 'start_rejected' AND detail ->> 'error' IS DISTINCT FROM 'driver_mismatch'),
+         count(*),
+         'start_won=' || count(*) FILTER (WHERE outcome = 'start_won') ||
+         ' start_rejected(driver_mismatch)=' || count(*) FILTER (WHERE outcome = 'start_rejected' AND detail ->> 'error' = 'driver_mismatch') ||
+         ' idempotent=' || count(*) FILTER (WHERE outcome = 'start_idempotent')
+    INTO v_bad, v_tot, v_ev
+    FROM rmch_iso.worker_out WHERE scn = 'A' AND worker = 'start';
+  PERFORM pg_temp.chk('A', 'real_start_rpc', v_bad, v_tot,
+    'finalize_pickup_waiting_and_start_trip ran for real on every race: ' || v_ev, v_ev);
+
+  -- A.8 START WINS: in_progress, cancel failed (CAS miss), no replacement offers, original assignment intact.
+  WITH r AS (
+    SELECT iter FROM rmch_iso.worker_out WHERE scn = 'A' AND worker = 'start' AND outcome = 'start_won'),
+  j AS (
+    SELECT r.iter, t.status, t.started_at, t.driver_id, t.confirmed_driver_id, t.cancelled_by, t.dispatch_status,
+           coalesce(cardinality(t.excluded_driver_ids), 0) AS n_excl, coalesce(cardinality(t.cancelled_driver_ids), 0) AS n_canc,
+           (SELECT outcome FROM rmch_iso.worker_out w WHERE w.scn = 'A' AND w.iter = r.iter AND w.worker = 'cancel') AS c_out,
+           (SELECT count(*) FROM public.ride_offers o WHERE o.trip_id = t.id AND o.driver_id <> d1) AS n_foreign_offers,
+           (SELECT count(*) FROM public.ride_offers o WHERE o.trip_id = t.id AND o.status = 'pending') AS n_pending,
+           (SELECT status FROM public.trip_stops s WHERE s.trip_id = t.id AND s.stop_index = 0) AS pickup_stop,
+           (SELECT status FROM public.trip_stops s WHERE s.trip_id = t.id AND s.stop_index = 1) AS drop_stop,
+           (SELECT count(*) FROM public.trip_waiting_segments g WHERE g.trip_id = t.id AND g.ended_at IS NULL) AS n_open
+      FROM r JOIN public.trips t ON t.id = rmch_iso.uid('t', 100 + r.iter))
+  SELECT count(*) FILTER (WHERE NOT (status = 'in_progress' AND started_at IS NOT NULL AND driver_id = d1 AND confirmed_driver_id = d1
+                                     AND c_out = 'cas_miss' AND cancelled_by IS NULL AND n_excl = 0 AND n_canc = 0
+                                     AND n_foreign_offers = 0 AND n_pending = 0
+                                     AND pickup_stop = 'completed' AND drop_stop = 'current' AND n_open = 0)),
+         count(*)
+    INTO v_bad, v_tot FROM j;
+  PERFORM pg_temp.chk('A', 'start_wins_in_progress_cancel_fails_no_replacement_offers', v_bad, v_tot,
+    'Start won => in_progress/started_at set, D1 still assigned, cancel CAS missed (cancelled_by NULL, no excluded/cancelled drivers), no replacement or pending offers, pickup stop completed, waiting segments closed');
+
+  -- A.9 CANCEL WINS: assignment released, old driver cannot start (real RPC), rematch proceeds.
+  DECLARE
+    r_iter int; v_res jsonb; v_acc jsonb; v_t uuid; v_ok int := 0; v_tot2 int := 0; v_bad2 int := 0; v_why text := '';
+    v_st text; v_started timestamptz; v_drv uuid; v_conf uuid; v_stop0 text; v_trip_after record;
   BEGIN
-    v_t := rmch_iso.mk_trip(900, 'scheduled_arrived');
-    BEGIN
-      INSERT INTO public.trip_stops(trip_id, stop_index, type, address, lat, lng, status, arrived_at) VALUES
-        (v_t, 0, 'pickup', 'TEST pickup', 52, 0, 'arrived', now() - interval '5 minutes'),
-        (v_t, 1, 'dropoff', 'TEST dropoff', 52.1, 0.1, 'pending', NULL);
-      v_res := public.finalize_pickup_waiting_and_start_trip(v_t, d1);
-      RAISE EXCEPTION 'rmch_probe_rollback';
-    EXCEPTION WHEN OTHERS THEN
-      v_err := SQLERRM;
-    END;
-    IF v_err = 'rmch_probe_rollback' THEN
-      PERFORM pg_temp.emit('A', 'real_start_rpc', 'INFO', 'finalize_pickup_waiting_and_start_trip ran on the fixture: ' || v_res::text);
-    ELSE
-      PERFORM pg_temp.emit('A', 'real_start_rpc', 'SKIPPED',
-        'BLOCKER finalize_pickup_waiting_and_start_trip cannot run on local DB: ' || replace(v_err, E'\n', ' ') ||
-        ' — Start side is exercised with rmch_iso.start_mirror (same FOR UPDATE + driver_id/terminal/started_at guards + UPDATE started_at,status=in_progress)');
-    END IF;
+    FOR r_iter IN SELECT iter FROM rmch_iso.worker_out WHERE scn = 'A' AND worker = 'cancel' AND outcome = 'cas_won' ORDER BY iter LOOP
+      v_tot2 := v_tot2 + 1;
+      v_t := rmch_iso.uid('t', 100 + r_iter);
+      -- (1) the racing Start must have been rejected with driver_mismatch
+      IF coalesce((SELECT detail ->> 'error' FROM rmch_iso.worker_out WHERE scn = 'A' AND iter = r_iter AND worker = 'start'), '') <> 'driver_mismatch' THEN
+        v_bad2 := v_bad2 + 1; v_why := v_why || ' iter' || r_iter || ':start_not_rejected'; CONTINUE;
+      END IF;
+      -- (2) assignment released, trip not started
+      SELECT status, started_at, driver_id, confirmed_driver_id INTO v_st, v_started, v_drv, v_conf FROM public.trips WHERE id = v_t;
+      SELECT status INTO v_stop0 FROM public.trip_stops WHERE trip_id = v_t AND stop_index = 0;
+      IF NOT (v_st = 'searching_new_driver' AND v_started IS NULL AND v_drv IS NULL AND v_conf IS NULL AND v_stop0 = 'arrived') THEN
+        v_bad2 := v_bad2 + 1; v_why := v_why || ' iter' || r_iter || ':assignment_not_released(' || coalesce(v_st, '?') || ')'; CONTINUE;
+      END IF;
+      -- (3) the old driver cannot start the trip afterwards, even later (real RPC again)
+      v_res := rmch_iso.start_real(v_t, d1, 0);
+      IF NOT (coalesce((v_res ->> 'ok')::boolean, true) = false AND v_res ->> 'error' = 'driver_mismatch') THEN
+        v_bad2 := v_bad2 + 1; v_why := v_why || ' iter' || r_iter || ':old_driver_can_start'; CONTINUE;
+      END IF;
+      IF (SELECT started_at FROM public.trips WHERE id = v_t) IS NOT NULL THEN
+        v_bad2 := v_bad2 + 1; v_why := v_why || ' iter' || r_iter || ':started_after_cancel'; CONTINUE;
+      END IF;
+      -- (4) rematch proceeds: a replacement offer for D2 is accepted and the trip is re-assigned
+      PERFORM rmch_iso.ins_offer(v_t, d2, 4, 'pending', now() + interval '5 minutes');
+      v_acc := rmch_iso.accept_safe(v_t, d2, 0);
+      IF NOT (coalesce((v_acc ->> 'success')::boolean, false)
+              AND (SELECT confirmed_driver_id FROM public.trips WHERE id = v_t) = d2
+              AND (SELECT started_at FROM public.trips WHERE id = v_t) IS NULL) THEN
+        v_bad2 := v_bad2 + 1; v_why := v_why || ' iter' || r_iter || ':rematch_failed(' || coalesce(v_acc ->> 'error', '?') || ')'; CONTINUE;
+      END IF;
+      -- (5) ... and D1 STILL cannot start (assignment now belongs to D2)
+      v_res := rmch_iso.start_real(v_t, d1, 0);
+      IF coalesce((v_res ->> 'ok')::boolean, true) <> false THEN
+        v_bad2 := v_bad2 + 1; v_why := v_why || ' iter' || r_iter || ':old_driver_started_after_rematch'; CONTINUE;
+      END IF;
+      v_ok := v_ok + 1;
+    END LOOP;
+    PERFORM pg_temp.chk('A', 'cancel_wins_assignment_released_old_driver_blocked_rematch_proceeds', v_bad2, v_tot2,
+      v_ok || '/' || v_tot2 || ' cancel-wins races: Start rejected (driver_mismatch), trip searching_new_driver/started_at NULL/driver released, old driver still cannot start (before and after rematch), replacement driver D2 accepted', v_why);
   END;
 
   -- ======================================================================= B
@@ -239,7 +297,7 @@ BEGIN
      WHERE o.scn = 'C' AND o.worker IN ('d2', 'd3') AND o.outcome <> 'accepted' GROUP BY 1, 2) q;
   SELECT count(*) FILTER (WHERE o.outcome NOT IN ('TRIP_NOT_AVAILABLE', 'OFFER_NOT_PENDING')), count(*)
     INTO v_bad, v_tot FROM rmch_iso.worker_out o WHERE o.scn = 'C' AND o.worker IN ('d2', 'd3') AND o.outcome <> 'accepted';
-  PERFORM pg_temp.chk('C', 'loser_gets_clean_rejection', v_bad, v_tot, 'losers rejected with: ' || coalesce(v_ev, 'n/a'), coalesce(v_ev, 'n/a') || ' — pg_get_functiondef(accept_ride_offer): offer row FOR UPDATE (line 31) -> trip row FOR UPDATE (line 87) -> UPDATE sibling offers status=revoked (line 202). A sibling holding its own offer lock while queued on the trip lock deadlocks with the winner (lock-order inversion); exactly-one-assignment still holds, but the loser gets a raw 40P01 instead of TRIP_NOT_AVAILABLE.');
+  PERFORM pg_temp.chk('C', 'loser_gets_clean_rejection', v_bad, v_tot, 'losers rejected with: ' || coalesce(v_ev, 'n/a'), coalesce(v_ev, 'n/a') || ' — accept_ride_offer must lock trip FOR UPDATE BEFORE the offer row (20270222130000) and map any residual deadlock to a domain error; a raw SQLSTATE here means the lock order regressed.');
 
   SELECT count(*) FILTER (WHERE (detail ->> 'dur_ms')::numeric >= 250), count(*) INTO v_n, v_tot FROM rmch_iso.worker_out o
    WHERE o.scn = 'C' AND o.detail ->> 'mode' <> 'free' AND o.outcome <> 'accepted' AND o.worker IN ('d2', 'd3');
@@ -252,16 +310,34 @@ BEGIN
     v_n || '/' || v_tot || ' races were WON by D3''s still-pending prior-cycle offer (round 2 < current_broadcast_round 3). accept_ride_offer does not compare offer.broadcast_round with trips.current_broadcast_round; production defence is cancel-time revoke + driver_is_excluded_from_trip, not a round check.');
 
   -- ======================================================================= D
-  SELECT count(*) FILTER (WHERE rows_hit > 1), count(*),
+  -- D.1 THE FIX: the database itself allows ONE open segment per waiting session, so 4 parallel
+  --     openers produce exactly 1 open row IMMEDIATELY — before any heal runs (probe_raw is
+  --     recorded before the healers are spawned).
+  SELECT count(*) FILTER (WHERE rows_hit <> 1), count(*),
          '[' || string_agg(rows_hit::text, ',' ORDER BY iter) || ']'
     INTO v_bad, v_tot, v_ev FROM rmch_iso.worker_out WHERE scn = 'D' AND worker = 'probe_raw';
   IF v_bad = 0 THEN
-    PERFORM pg_temp.emit('D', 'raw_no_overlapping_open_segments', 'PASS', 'open rows per trip after 4 parallel openers = ' || v_ev);
+    PERFORM pg_temp.emit('D', 'raw_no_overlapping_open_segments', 'PASS',
+      'open rows per trip after 4 parallel openers = ' || v_ev || ' (exactly ONE, immediately, no heal involved)');
   ELSE
     PERFORM pg_temp.emit('D', 'raw_no_overlapping_open_segments', 'FAIL',
-      v_bad || '/' || v_tot || ' trips ended up with >1 OPEN pickup segment after 4 concurrent opens; open rows per trip=' || v_ev ||
-      '. trip_waiting_segments has only NON-unique idx_trip_waiting_segments_open; syncWaitingGeofenceClock does SELECT-open then INSERT with no lock, so concurrent opens overlap until the next sync heals them.');
+      v_bad || '/' || v_tot || ' trips did not end with exactly 1 OPEN pickup segment after 4 concurrent opens; open rows per trip=' || v_ev ||
+      '. uq_trip_waiting_segments_one_open_per_session / open_waiting_segment_or_reuse must make concurrent openers reuse one row.');
   END IF;
+
+  -- D.2 concurrent openers REUSE: 1 created, 3 reused, nobody failed hard
+  WITH r AS (
+    SELECT iter, count(*) FILTER (WHERE outcome = 'opened') AS n_open, count(*) FILTER (WHERE outcome = 'already_open') AS n_reuse
+      FROM rmch_iso.worker_out WHERE scn = 'D' AND detail ->> 'mode' = 'raw' GROUP BY iter)
+  SELECT count(*) FILTER (WHERE n_open <> 1 OR n_reuse <> 3), count(*) INTO v_bad, v_tot FROM r;
+  PERFORM pg_temp.chk('D', 'concurrent_openers_reuse_existing_segment', v_bad, v_tot,
+    'each race: exactly 1 opener created the segment, the other 3 reused it (no failure, no extra row)');
+
+  -- D.3 heal is defensive only: nothing left to close
+  SELECT count(*) FILTER (WHERE rows_hit <> 0), count(*) INTO v_bad, v_tot
+    FROM rmch_iso.worker_out WHERE scn = 'D' AND worker LIKE 'heal%';
+  PERFORM pg_temp.chk('D', 'heal_is_defensive_noop', v_bad, v_tot,
+    'both parallel planOpenWaitingSegments heals closed 0 rows per trip (heal is recovery only; nothing to heal)');
 
   SELECT count(*) FILTER (WHERE rows_hit <> 1), count(*) INTO v_bad, v_tot
     FROM rmch_iso.worker_out WHERE scn = 'D' AND worker = 'probe_healed';
@@ -283,15 +359,104 @@ BEGIN
       extract(epoch FROM (j.at - (SELECT min(started_at) FROM public.trip_waiting_segments WHERE trip_id = j.t))) AS expect_union,
       (SELECT sum(extract(epoch FROM (least(coalesce(ended_at, j.at), j.at) - started_at))) FROM public.trip_waiting_segments WHERE trip_id = j.t) AS naive
     FROM j)
-  SELECT count(*) FILTER (WHERE abs(uni - expect_union) > 0.5), count(*),
+  SELECT count(*) FILTER (WHERE abs(uni - expect_union) > 0.5 OR abs(naive - uni) > 0.5), count(*),
          'union_s=' || round(avg(uni), 2) || ' naive_sum_s=' || round(avg(naive), 2) INTO v_bad, v_tot, v_ev FROM m;
   PERFORM pg_temp.chk('D', 'no_double_counted_seconds', v_bad, v_tot,
-    'overlapping segments are merged: counted seconds == [earliest start, now] (' || v_ev || ' avg; naive sum would over-count)', v_ev);
+    'one segment per trip: counted seconds == [start, now] and the naive per-row sum equals the merged union (' || v_ev || ' avg) — nothing to double count', v_ev);
 
   SELECT count(*) FILTER (WHERE rows_hit <> 1), count(*) INTO v_bad, v_tot FROM rmch_iso.worker_out WHERE scn = 'D' AND worker = 'probe_reopen';
   SELECT v_bad + count(*) FILTER (WHERE outcome = 'opened') INTO v_bad FROM rmch_iso.worker_out WHERE scn = 'D' AND detail ->> 'mode' = 'reopen';
   PERFORM pg_temp.chk('D', 'open_when_already_open_is_noop', v_bad, v_tot,
     '4 parallel openers against an already-open segment all returned already_open; still exactly 1 open row');
+
+  -- D.4 the DB rejects the LEGACY overlap (plain INSERT while a segment is open) and keeps
+  --     pickup / intermediate-stop sessions separate. Rolled back (nothing persists).
+  DECLARE
+    v_t uuid := rmch_iso.uid('t', 401); v_err text; v_sess text := ''; v_legacy text;
+    v_s1 uuid := gen_random_uuid(); v_s2 uuid := gen_random_uuid();
+  BEGIN
+    BEGIN
+      -- (a) legacy plain INSERT of a 2nd open pickup row must hit the unique index
+      BEGIN
+        INSERT INTO public.trip_waiting_segments(trip_id, location_type, started_at, inside_radius)
+        VALUES (v_t, 'pickup', clock_timestamp(), true);
+        v_sess := v_sess || ' pickup_dup_ACCEPTED';
+      EXCEPTION WHEN unique_violation THEN
+        v_sess := v_sess || ' pickup_dup_rejected';
+      END;
+      -- (a2) the legacy SELECT-then-INSERT mirror cannot create a 2nd row either
+      v_legacy := rmch_iso.wseg_open_legacy(v_t, 0);
+      v_sess := v_sess || ' legacy=' || v_legacy;
+      -- (b) an open STOP session coexists with the open PICKUP session ...
+      INSERT INTO public.trip_stops(id, trip_id, stop_index, type, address, lat, lng, status) VALUES
+        (v_s1, v_t, 1, 'stop', 'TEST stop 1', 52, 0, 'pending'), (v_s2, v_t, 2, 'stop', 'TEST stop 2', 52, 0, 'pending');
+      INSERT INTO public.trip_waiting_segments(trip_id, location_type, stop_id, stop_index, started_at, inside_radius)
+      VALUES (v_t, 'stop', v_s1, 1, clock_timestamp(), true);
+      v_sess := v_sess || ' stop1_open_ok';
+      -- (c) ... a second open row for the SAME stop is rejected ...
+      BEGIN
+        INSERT INTO public.trip_waiting_segments(trip_id, location_type, stop_id, stop_index, started_at, inside_radius)
+        VALUES (v_t, 'stop', v_s1, 1, clock_timestamp(), true);
+        v_sess := v_sess || ' stop1_dup_ACCEPTED';
+      EXCEPTION WHEN unique_violation THEN
+        v_sess := v_sess || ' stop1_dup_rejected';
+      END;
+      -- (d) ... while a DIFFERENT stop keeps its own session
+      INSERT INTO public.trip_waiting_segments(trip_id, location_type, stop_id, stop_index, started_at, inside_radius)
+      VALUES (v_t, 'stop', v_s2, 2, clock_timestamp(), true);
+      v_sess := v_sess || ' stop2_open_ok';
+      -- (e) the RPC reuses per session
+      IF (SELECT opened FROM public.open_waiting_segment_or_reuse(v_t, 'stop', v_s1, 1, clock_timestamp(), NULL, NULL)) THEN
+        v_sess := v_sess || ' rpc_stop1_CREATED_DUP';
+      ELSE
+        v_sess := v_sess || ' rpc_stop1_reused';
+      END IF;
+      RAISE EXCEPTION 'rmch_probe_rollback';
+    EXCEPTION WHEN OTHERS THEN
+      v_err := SQLERRM;
+    END;
+    IF v_err = 'rmch_probe_rollback'
+       AND v_sess = ' pickup_dup_rejected legacy=already_open stop1_open_ok stop1_dup_rejected stop2_open_ok rpc_stop1_reused' THEN
+      PERFORM pg_temp.emit('D', 'db_rejects_overlap_keeps_pickup_and_stop_sessions_separate', 'PASS',
+        'unique_violation on 2nd open pickup / 2nd open row for the same stop; pickup + stop1 + stop2 may each hold ONE open row;' || v_sess);
+    ELSE
+      PERFORM pg_temp.emit('D', 'db_rejects_overlap_keeps_pickup_and_stop_sessions_separate', 'FAIL', coalesce(v_err, '?') || ' |' || v_sess);
+    END IF;
+  END;
+
+  -- D.5 concurrent waiting-segment FINALISATION: 3 parallel REAL Start-Trip finalisers + 2 racing openers.
+  WITH r AS (
+    SELECT iter,
+      count(*) FILTER (WHERE outcome = 'start_won' AND worker LIKE 'fin%') AS wins,
+      count(*) FILTER (WHERE outcome = 'start_idempotent' AND worker LIKE 'fin%') AS idem,
+      count(*) FILTER (WHERE outcome = 'start_rejected' AND worker LIKE 'fin%') AS rej,
+      count(*) FILTER (WHERE outcome = 'opened' AND worker LIKE 'open%') AS n_opened
+    FROM rmch_iso.worker_out WHERE scn = 'D' AND iter >= 11 GROUP BY iter)
+  SELECT count(*) FILTER (WHERE wins <> 1 OR idem <> 2 OR rej <> 0 OR n_opened > 1), count(*),
+         'wins=' || sum(wins) || ' idempotent=' || sum(idem) || ' rejected=' || sum(rej) || ' racing_opened=' || sum(n_opened)
+    INTO v_bad, v_tot, v_ev FROM r;
+  PERFORM pg_temp.chk('D', 'finalise_single_winner_parallel_start_rpcs', v_bad, v_tot,
+    'every race: exactly 1 Start RPC finalised + started the trip, the 2 concurrent duplicates were idempotent (' || v_ev || ')', v_ev);
+
+  WITH j AS (
+    SELECT i, rmch_iso.uid('t', 410 + i) AS t FROM generate_series(1, 4) i), m AS (
+    SELECT j.i, t.status, t.started_at, t.pickup_waiting_finalized_at AS fin_at, t.pickup_waiting_counted_seconds AS counted,
+           (SELECT count(*) FROM public.trip_waiting_segments g WHERE g.trip_id = j.t AND g.ended_at IS NULL) AS n_open,
+           (SELECT count(*) FROM public.trip_waiting_segments g WHERE g.trip_id = j.t AND g.location_type = 'pickup') AS n_seg,
+           rmch_iso.wseg_union_seconds(j.t, t.pickup_waiting_finalized_at) AS uni,
+           (SELECT coalesce(sum(extract(epoch FROM (least(coalesce(g.ended_at, t.pickup_waiting_finalized_at), t.pickup_waiting_finalized_at) - g.started_at)))
+                          FILTER (WHERE least(coalesce(g.ended_at, t.pickup_waiting_finalized_at), t.pickup_waiting_finalized_at) > g.started_at), 0)
+              FROM public.trip_waiting_segments g WHERE g.trip_id = j.t) AS naive,
+           t.pickup_waiting_charge_pence AS fee, t.total_waiting_charge_pence AS total_fee
+      FROM j JOIN public.trips t ON t.id = j.t)
+  SELECT count(*) FILTER (WHERE NOT (status = 'in_progress' AND started_at IS NOT NULL AND fin_at IS NOT NULL
+                                     AND n_open <= 1 AND abs(counted - uni) <= 1.0 AND abs(naive - uni) <= 0.5)),
+         count(*),
+         'counted_s=' || string_agg(counted::text, ',' ORDER BY i) || ' open_rows=' || string_agg(n_open::text, ',' ORDER BY i) ||
+         ' fee_pence=' || string_agg(coalesce(fee, 0)::text, ',' ORDER BY i)
+    INTO v_bad, v_tot, v_ev FROM m;
+  PERFORM pg_temp.chk('D', 'finalise_no_duplicate_seconds_fees_or_open_overlap', v_bad, v_tot,
+    'trip in_progress, finalised exactly once, <=1 open pickup segment, counted seconds == merged segment union (no duplicate counted seconds / fee: ' || v_ev || ')', v_ev);
 
   -- ======================================================================= E
   WITH st AS (SELECT * FROM rmch_iso.state WHERE scn = 'E' AND label = 'after_rematch'),
@@ -403,7 +568,7 @@ BEGIN
   SELECT string_agg(outcome || coalesce('[' || sqlstate || ']', '') || 'x' || n, ', ') INTO v_ev FROM (
     SELECT o.outcome, o.detail ->> 'sqlstate' AS sqlstate, count(*) n FROM rmch_iso.worker_out o
      WHERE o.scn = 'F' AND o.worker IN ('d2', 'd4') AND o.outcome <> 'accepted' GROUP BY 1, 2) q;
-  PERFORM pg_temp.chk('F', 'loser_gets_clean_rejection', v_bad, v_tot, 'losing replacement rejected with: ' || coalesce(v_ev, 'n/a'), coalesce(v_ev, 'n/a') || ' — pg_get_functiondef(accept_ride_offer): offer row FOR UPDATE (line 31) -> trip row FOR UPDATE (line 87) -> UPDATE sibling offers status=revoked (line 202). A sibling holding its own offer lock while queued on the trip lock deadlocks with the winner (lock-order inversion); exactly-one-assignment still holds, but the loser gets a raw 40P01 instead of TRIP_NOT_AVAILABLE.');
+  PERFORM pg_temp.chk('F', 'loser_gets_clean_rejection', v_bad, v_tot, 'losing replacement rejected with: ' || coalesce(v_ev, 'n/a'), coalesce(v_ev, 'n/a') || ' — accept_ride_offer must lock trip FOR UPDATE BEFORE the offer row (20270222130000) and map any residual deadlock to a domain error; a raw SQLSTATE here means the lock order regressed.');
 
   SELECT count(*) FILTER (WHERE (o.detail ->> 'dur_ms')::numeric >= 250), count(*) INTO v_n, v_tot
     FROM rmch_iso.worker_out o WHERE o.scn = 'F' AND o.detail ->> 'mode' = 'd2_holds' AND o.worker = 'd4';

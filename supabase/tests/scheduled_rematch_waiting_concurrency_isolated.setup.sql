@@ -507,33 +507,35 @@ BEGIN
   RETURN v_trip;
 END $$;
 
--- Mirror of finalize_pickup_waiting_and_start_trip's LOCK + START predicates:
---   SELECT ... FROM trips WHERE id = p_trip_id FOR UPDATE;
---   driver_id IS DISTINCT FROM p_driver_id        -> not ok
---   status IN completed/cancelled/canceled/no_show/expired -> not ok
---   started_at IS NOT NULL                        -> idempotent (already started)
---   UPDATE trips SET started_at = p_now, status = 'in_progress'
--- The real RPC cannot run locally (see BLOCKER probe in the verify script:
--- public.driver_live_locations is missing), so the final money-finalize call is omitted.
-CREATE FUNCTION rmch_iso.start_mirror(p_trip uuid, p_driver uuid, p_hold_ms int DEFAULT 0)
-RETURNS jsonb LANGUAGE plpgsql AS $$
-DECLARE v public.trips%ROWTYPE;
+-- Pickup + drop-off stops the REAL Start Trip RPC requires (stop_index 0 = arrived pickup).
+CREATE FUNCTION rmch_iso.mk_stops(p_trip uuid) RETURNS void LANGUAGE plpgsql AS $$
 BEGIN
-  SELECT * INTO v FROM public.trips WHERE id = p_trip FOR UPDATE;
-  IF NOT FOUND THEN RETURN jsonb_build_object('ok', false, 'error', 'trip_not_found'); END IF;
-  IF v.driver_id IS DISTINCT FROM p_driver THEN
-    RETURN jsonb_build_object('ok', false, 'error', 'driver_mismatch', 'status', v.status);
-  END IF;
-  IF v.status IN ('completed','cancelled','canceled','no_show','expired') THEN
-    RETURN jsonb_build_object('ok', false, 'error', 'trip_terminal', 'status', v.status);
-  END IF;
-  IF v.started_at IS NOT NULL THEN
-    RETURN jsonb_build_object('ok', true, 'idempotent', true, 'status', v.status);
-  END IF;
-  UPDATE public.trips SET started_at = now(), status = 'in_progress', updated_at = now()
-   WHERE id = p_trip;
+  PERFORM set_config('request.jwt.claims', '{"role":"service_role"}', true);
+  PERFORM set_config('request.jwt.claim.role', 'service_role', true);
+  INSERT INTO public.trip_stops(trip_id, stop_index, type, address, lat, lng, status, arrived_at) VALUES
+    (p_trip, 0, 'pickup',  'TEST pickup',  rmch_iso.cfg('pickup_lat')::float8, rmch_iso.cfg('pickup_lng')::float8,
+     'arrived', now() - interval '5 minutes'),
+    (p_trip, 1, 'dropoff', 'TEST dropoff', rmch_iso.cfg('pickup_lat')::float8 + 0.005, rmch_iso.cfg('pickup_lng')::float8 + 0.01,
+     'pending', NULL);
+END $$;
+
+-- THE REAL production RPC: public.finalize_pickup_waiting_and_start_trip(trip, driver)
+--   (trips row FOR UPDATE -> driver_id guard -> terminal guard -> started_at idempotency ->
+--    pickup waiting money finalize -> trip_stops -> started_at / status = in_progress).
+-- p_hold_ms keeps the transaction (and the trip row lock) open after the RPC returns so the
+-- competing Cancel CAS genuinely blocks on the row lock and re-evaluates under READ COMMITTED.
+-- No mirror: this replaces the former start_mirror (the table public.driver_live_locations the
+-- RPC reads is now provided locally by migration 20270222140000).
+CREATE FUNCTION rmch_iso.start_real(p_trip uuid, p_driver uuid, p_hold_ms int DEFAULT 0)
+RETURNS jsonb LANGUAGE plpgsql AS $$
+DECLARE v jsonb;
+BEGIN
+  PERFORM set_config('request.jwt.claims', '{"role":"service_role"}', true);
+  PERFORM set_config('request.jwt.claim.role', 'service_role', true);
+  v := public.finalize_pickup_waiting_and_start_trip(p_trip, p_driver);
   IF p_hold_ms > 0 THEN PERFORM pg_sleep(p_hold_ms / 1000.0); END IF;
-  RETURN jsonb_build_object('ok', true, 'idempotent', false, 'status', 'in_progress');
+  RETURN CASE WHEN coalesce((v ->> 'ok')::boolean, false) THEN v
+              ELSE v || jsonb_build_object('ok', false) END;
 EXCEPTION WHEN OTHERS THEN
   RETURN jsonb_build_object('ok', false, 'error', SQLERRM, 'sqlstate', SQLSTATE);
 END $$;
@@ -585,11 +587,25 @@ LANGUAGE sql AS $$
            'now', clock_timestamp()) $$;
 
 -- ---------------------------------------------------------------------------
--- Waiting segments: waitingSegmentClock.ts syncWaitingGeofenceClock mirrors
---   (SELECT open rows .is(ended_at,null); planOpenWaitingSegments; INSERT when none)
--- p_gap_ms widens the SELECT -> INSERT window (the PostgREST round trip in production).
+-- Waiting segments: waitingSegmentClock.ts openWaitingSegmentOrReuse mirrors the production
+-- open path:  public.open_waiting_segment_or_reuse(...)  (INSERT ... ON CONFLICT DO NOTHING on
+-- uq_trip_waiting_segments_one_open_per_session, else reuse the winner's row).
+-- p_gap_ms keeps the winner's INSERT uncommitted so concurrent openers genuinely block on the
+-- unique index entry (the PostgREST round-trip window in production).
 -- ---------------------------------------------------------------------------
 CREATE FUNCTION rmch_iso.wseg_open_prod(p_trip uuid, p_gap_ms int DEFAULT 0) RETURNS text
+LANGUAGE plpgsql AS $$
+DECLARE v_opened boolean;
+BEGIN
+  SELECT r.opened INTO v_opened
+    FROM public.open_waiting_segment_or_reuse(p_trip, 'pickup', NULL, NULL, clock_timestamp(), NULL, 'rmch_harness') r;
+  IF p_gap_ms > 0 THEN PERFORM pg_sleep(p_gap_ms / 1000.0); END IF;
+  RETURN CASE WHEN v_opened THEN 'opened' ELSE 'already_open' END;
+END $$;
+
+-- LEGACY path (pre-fix): SELECT open rows, gap, then plain INSERT. The DB must now REJECT the
+-- overlap (unique_violation) instead of letting a second open row exist.
+CREATE FUNCTION rmch_iso.wseg_open_legacy(p_trip uuid, p_gap_ms int DEFAULT 0) RETURNS text
 LANGUAGE plpgsql AS $$
 DECLARE v_open int;
 BEGIN
@@ -600,9 +616,12 @@ BEGIN
   INSERT INTO public.trip_waiting_segments(trip_id, location_type, started_at, ended_at, inside_radius)
   VALUES (p_trip, 'pickup', clock_timestamp(), NULL, true);
   RETURN 'opened';
+EXCEPTION WHEN unique_violation THEN
+  RETURN 'unique_violation';
 END $$;
 
--- planOpenWaitingSegments(counting=true): keep earliest open row, close every other open row.
+-- planOpenWaitingSegments(counting=true): DEFENSIVE recovery only now — keep earliest open row,
+-- close every other open row (a no-op while uq_trip_waiting_segments_one_open_per_session holds).
 CREATE FUNCTION rmch_iso.wseg_heal(p_trip uuid) RETURNS int LANGUAGE plpgsql AS $$
 DECLARE v_keep uuid; n int;
 BEGIN

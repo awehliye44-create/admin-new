@@ -343,6 +343,114 @@ export async function closeAllOpenWaitingSegmentsForTrip(
   }
 }
 
+export type OpenWaitingSegmentArgs = {
+  tripId: string;
+  locationType: "pickup" | "stop";
+  stopId: string | null;
+  stopIndex: number | null;
+  startedAtIso: string;
+  distanceMeters: number | null;
+  sourceLocation: string | null;
+};
+
+export type OpenWaitingSegmentResult =
+  | { ok: true; created: boolean; segmentId: string | null }
+  | { ok: false; message: string };
+
+function isMissingRpcError(err: { code?: string; message?: string } | null): boolean {
+  if (!err) return false;
+  const code = String(err.code ?? "");
+  const msg = String(err.message ?? "");
+  return code === "PGRST202" || code === "42883" ||
+    /could not find the function|function .* does not exist/i.test(msg);
+}
+
+function isOpenSegmentUniqueViolation(err: { code?: string; message?: string } | null): boolean {
+  if (!err) return false;
+  return String(err.code ?? "") === "23505" ||
+    /uq_trip_waiting_segments_one_open_per_session|duplicate key/i.test(String(err.message ?? ""));
+}
+
+/**
+ * Atomic waiting-segment open. The database allows at most ONE open segment per
+ * waiting session (pickup = trip, stop = trip + stop_id), so concurrent STEP 1y /
+ * location / tick requests either create the single row or REUSE the winner's row.
+ * Healing (planOpenWaitingSegments) remains recovery only.
+ *
+ * 1. `open_waiting_segment_or_reuse` RPC (INSERT ... ON CONFLICT DO NOTHING + reuse)
+ * 2. If the RPC is not deployed yet: plain INSERT; a unique violation (23505) means
+ *    another request won the race — re-select and reuse that row (never fail hard).
+ */
+// deno-lint-ignore no-explicit-any
+export async function openWaitingSegmentOrReuse(
+  supabase: any,
+  args: OpenWaitingSegmentArgs,
+): Promise<OpenWaitingSegmentResult> {
+  if (typeof supabase?.rpc === "function") {
+    const { data, error } = await supabase.rpc("open_waiting_segment_or_reuse", {
+      p_trip_id: args.tripId,
+      p_location_type: args.locationType,
+      p_stop_id: args.stopId,
+      p_stop_index: args.stopIndex,
+      p_started_at: args.startedAtIso,
+      p_distance_meters: args.distanceMeters,
+      p_source_location: args.sourceLocation,
+    });
+    if (!error) {
+      const row = (Array.isArray(data) ? data[0] : data) as
+        | { segment_id?: string; opened?: boolean }
+        | null;
+      return {
+        ok: true,
+        created: row?.opened === true,
+        segmentId: typeof row?.segment_id === "string" ? row.segment_id : null,
+      };
+    }
+    if (!isMissingRpcError(error)) {
+      return { ok: false, message: String(error.message ?? "open_waiting_segment_or_reuse failed") };
+    }
+  }
+
+  const { data: inserted, error: insertErr } = await supabase
+    .from("trip_waiting_segments")
+    .insert({
+      trip_id: args.tripId,
+      location_type: args.locationType,
+      stop_id: args.stopId,
+      stop_index: args.stopIndex,
+      started_at: args.startedAtIso,
+      ended_at: null,
+      inside_radius: true,
+      distance_meters: args.distanceMeters,
+      source_location: args.sourceLocation,
+    })
+    .select("id")
+    .maybeSingle();
+  if (!insertErr) {
+    return {
+      ok: true,
+      created: true,
+      segmentId: inserted && typeof (inserted as { id?: string }).id === "string"
+        ? (inserted as { id: string }).id
+        : null,
+    };
+  }
+  if (isOpenSegmentUniqueViolation(insertErr)) {
+    let q = supabase
+      .from("trip_waiting_segments")
+      .select("id")
+      .eq("trip_id", args.tripId)
+      .eq("location_type", args.locationType)
+      .is("ended_at", null)
+      .order("started_at", { ascending: true });
+    if (args.locationType === "stop" && args.stopId) q = q.eq("stop_id", args.stopId);
+    const { data: existing } = await q.limit(1).maybeSingle();
+    const id = (existing as { id?: string } | null)?.id;
+    if (typeof id === "string") return { ok: true, created: false, segmentId: id };
+  }
+  return { ok: false, message: String(insertErr.message ?? "segment insert failed") };
+}
+
 export function sumSegmentSeconds(
   rows: WaitingSegmentRow[],
   nowMs: number,
@@ -614,35 +722,33 @@ export async function syncWaitingGeofenceClock(
     skipReason = "before_scheduled_pickup";
   } else if (verdict.inside) {
     if (!open) {
-      const { data: inserted, error: insertErr } = await supabase
-        .from("trip_waiting_segments")
-        .insert({
-          trip_id: input.tripId,
-          location_type: input.locationType,
-          stop_id: input.stopId ?? null,
-          stop_index: input.stopIndex ?? null,
-          started_at: nowIso,
-          ended_at: null,
-          inside_radius: true,
-          distance_meters: verdict.distanceMeters,
-          source_location: verdict.usedSource,
-        })
-        .select("id")
-        .maybeSingle();
-      if (insertErr) {
+      // Atomic open-or-reuse: the DB (uq_trip_waiting_segments_one_open_per_session)
+      // allows ONE open segment per waiting session, so a concurrent opener that
+      // loses the race reuses the winner's row instead of creating an overlap.
+      const opened = await openWaitingSegmentOrReuse(supabase, {
+        tripId: input.tripId,
+        locationType: input.locationType,
+        stopId: input.stopId ?? null,
+        stopIndex: input.stopIndex ?? null,
+        startedAtIso: nowIso,
+        distanceMeters: verdict.distanceMeters,
+        sourceLocation: verdict.usedSource,
+      });
+      if (!opened.ok) {
         console.error("[waitingSegmentClock] SEGMENT_INSERT_FAILED", {
           trip_id: input.tripId,
           location_type: input.locationType,
           stop_id: input.stopId ?? null,
-          message: insertErr.message,
+          message: opened.message,
         });
         skipReason = "insert_failed";
-      } else {
+      } else if (opened.created) {
         openedFresh = true;
-        segmentId =
-          inserted && typeof (inserted as { id?: string }).id === "string"
-            ? (inserted as { id: string }).id
-            : null;
+        segmentId = opened.segmentId;
+      } else {
+        // A concurrent request already opened this session's segment: reuse it.
+        segmentId = opened.segmentId;
+        skipReason = "already_open";
       }
     } else {
       skipReason = "already_open";

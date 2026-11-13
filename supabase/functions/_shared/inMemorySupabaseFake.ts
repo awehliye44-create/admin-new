@@ -19,6 +19,7 @@ type Filter = (row: FakeRow) => boolean;
 export interface FakeSupabase {
   db: FakeDb;
   from(table: string): any;
+  rpc(name: string, args?: Record<string, any>): Promise<{ data: any; error: any }>;
   /** Every write issued, in order — for ordering/CAS assertions. */
   writes: Array<{ table: string; op: string; payload: unknown; matched: number }>;
 }
@@ -169,5 +170,50 @@ export function createInMemorySupabase(seed: FakeDb = {}): FakeSupabase {
     return builder;
   }
 
-  return { db, from, writes };
+  /**
+   * RPC emulation. `open_waiting_segment_or_reuse` mirrors the SQL function: the
+   * check + insert run in ONE synchronous step (like the unique partial index
+   * uq_trip_waiting_segments_one_open_per_session), so concurrent callers reuse.
+   */
+  function rpc(name: string, args: Record<string, any> = {}) {
+    const run = (): { data: any; error: any } => {
+      if (name === "open_waiting_segment_or_reuse") {
+        db["trip_waiting_segments"] ??= [];
+        const stop = args.p_location_type === "stop" ? (args.p_stop_id ?? null) : null;
+        const existing = db["trip_waiting_segments"]
+          .filter((r) =>
+            r.trip_id === args.p_trip_id &&
+            r.location_type === args.p_location_type &&
+            r.ended_at == null &&
+            (args.p_location_type !== "stop" || (r.stop_id ?? null) === stop)
+          )
+          .sort((a, b) => (a.started_at < b.started_at ? -1 : a.started_at > b.started_at ? 1 : 0))[0];
+        if (existing) {
+          return { data: [{ segment_id: existing.id, opened: false }], error: null };
+        }
+        const row = {
+          id: `trip_waiting_segments-${++seq}`,
+          trip_id: args.p_trip_id,
+          location_type: args.p_location_type,
+          stop_id: stop,
+          stop_index: args.p_stop_index ?? null,
+          started_at: args.p_started_at,
+          ended_at: null,
+          inside_radius: true,
+          distance_meters: args.p_distance_meters ?? null,
+          source_location: args.p_source_location ?? null,
+        };
+        db["trip_waiting_segments"].push(row);
+        writes.push({ table: "trip_waiting_segments", op: "insert", payload: row, matched: 1 });
+        return { data: [{ segment_id: row.id, opened: true }], error: null };
+      }
+      return {
+        data: null,
+        error: { code: "PGRST202", message: `Could not find the function ${name}` },
+      };
+    };
+    return Promise.resolve().then(run);
+  }
+
+  return { db, from, rpc, writes };
 }

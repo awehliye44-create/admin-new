@@ -400,6 +400,14 @@ Deno.serve(async (req) => {
           return businessFailureResponse("STACKED_FARE_SNAPSHOT_FAILED", "Could not lock stacked driver fare");
         }
 
+        // Lock-order contention loser (40P01 / 40001): domain response, never raw SQLSTATE text.
+        if (
+          String((stackedRpcErr as { code?: string }).code ?? "") === "40P01" ||
+          String((stackedRpcErr as { code?: string }).code ?? "") === "40001" ||
+          /deadlock detected|could not serialize access/i.test(msg)
+        ) {
+          return businessFailureResponse("TRIP_NOT_AVAILABLE", "Ride already taken");
+        }
         return businessFailureResponse("DATABASE_ERROR", msg);
       }
 

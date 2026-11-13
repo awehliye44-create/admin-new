@@ -144,7 +144,7 @@ SQL
 read -r -d '' SQL_START <<'SQL'
 select pg_sleep(greatest(0, extract(epoch from (:'t0'::timestamptz - clock_timestamp())) + :delay/1000.0)) \gset
 select clock_timestamp()::text as ts \gset
-select rmch_iso.start_mirror(:'trip'::uuid, :'drv'::uuid, :hold)::text as r \gset
+select rmch_iso.start_real(:'trip'::uuid, :'drv'::uuid, :hold)::text as r \gset
 select rmch_iso.rec(:'scn', :iter, :'w',
   case when (:'r'::jsonb->>'ok')::boolean and not coalesce((:'r'::jsonb->>'idempotent')::boolean, false) then 'start_won'
        when (:'r'::jsonb->>'ok')::boolean then 'start_idempotent' else 'start_rejected' end,
@@ -214,12 +214,13 @@ D1="$(did 1)"; D2="$(did 2)"; D3="$(did 3)"; D4="$(did 4)"
 # A. Cancel vs Start Trip   (trip ids 100+)
 # ---------------------------------------------------------------------------
 echo
-echo "=== RUN A: driver cancel (CAS) vs Start Trip — 24 races (free / start-holds-lock / cancel-holds-lock) ==="
+echo "=== RUN A: driver cancel (CAS) vs REAL finalize_pickup_waiting_and_start_trip RPC — 24 races (free / start-holds-lock / cancel-holds-lock) ==="
 i=0
 for mode in free start_holds cancel_holds; do
   for rep in 1 2 3 4 5 6 7 8; do
     i=$((i + 1)); n=$((100 + i)); trip="$(tid $n)"
     sql "select rmch_iso.mk_trip($n, 'scheduled_arrived')"
+    sql "select rmch_iso.mk_stops('$trip')"   # pickup(arrived)+dropoff stops the REAL Start RPC requires
     t0="$(barrier)"
     case "$mode" in
       # free: no lock held; Start is released 0..56ms after Cancel's precheck/revoke/CAS (sweeps the window)
@@ -305,6 +306,23 @@ for i in 1 2 3 4 5 6; do
   sql "select rmch_iso.rec('D', $i, 'probe_reopen', 'open_rows', (select count(*)::int from trip_waiting_segments where trip_id='$trip' and location_type='pickup' and ended_at is null), '{}', clock_timestamp())"
 done
 echo "D: 6 trips executed"
+
+# D2. Concurrent waiting-segment FINALISATION (trip ids 410+): three parallel REAL Start-Trip
+#     finalisers (same driver; one holds the trip lock) + two parallel segment openers racing them.
+echo "=== RUN D2: concurrent waiting-segment finalisation — 4 trips x (3 parallel real Start RPCs + 2 racing openers) ==="
+for i in 1 2 3 4; do
+  n=$((410 + i)); trip="$(tid $n)"
+  sql "select rmch_iso.mk_trip($n, 'scheduled_arrived')"
+  sql "select rmch_iso.mk_stops('$trip')"
+  t0="$(barrier)"
+  spawn SQL_START      D $((10 + i)) fin1  "$trip" "$D1" "$t0" 0   $HOLD_MS fin
+  spawn SQL_START      D $((10 + i)) fin2  "$trip" "$D1" "$t0" 50  0        fin
+  spawn SQL_START      D $((10 + i)) fin3  "$trip" "$D1" "$t0" 100 0        fin
+  spawn SQL_WSEG_OPEN  D $((10 + i)) open1 "$trip" "$D1" "$t0" 0   0        raceopen
+  spawn SQL_WSEG_OPEN  D $((10 + i)) open2 "$trip" "$D1" "$t0" 120 0        raceopen
+  join_workers
+done
+echo "D2: 4 trips executed"
 
 # ---------------------------------------------------------------------------
 # E. scheduled cancel -> converted rematch + fresh find window + replacement offers  (ids 500+)

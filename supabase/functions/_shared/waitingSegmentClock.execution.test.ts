@@ -480,3 +480,82 @@ Deno.test("A13 source locks: finalize on Start Trip, driver-cancel and admin for
   );
   assert(admin.includes("closeAllOpenWaitingSegmentsForTrip"));
 });
+
+// ---------------------------------------------------------------------------
+// DB-enforced single open segment per waiting session (concurrency)
+// ---------------------------------------------------------------------------
+
+Deno.test("C1 concurrent pickup opens reuse ONE segment (atomic open-or-reuse, no heal needed)", async () => {
+  const sb = createInMemorySupabase(seedTrip());
+  const results = await Promise.all([1, 2, 3, 4].map(() => sync(sb, SCHED_MS)));
+  const open = sb.db.trip_waiting_segments.filter((r) => !r.ended_at);
+  assertEquals(open.length, 1);
+  assertEquals(sb.db.trip_waiting_segments.length, 1);
+  assertEquals(results.filter((r) => r.segmentOpened).length, 1);
+  const ids = new Set(results.map((r) => r.segmentId));
+  assertEquals(ids.size, 1);
+  assertEquals(results.every((r) => r.segmentId === open[0].id), true);
+  // No duplicate counted seconds: one segment => counted == wall elapsed in radius.
+  const later = await sync(sb, SCHED_MS + 60_000);
+  assertEquals(later.countedSeconds, 60);
+});
+
+Deno.test("C2 pickup and intermediate stop keep SEPARATE sessions; per-stop sessions are separate too", async () => {
+  const sb = createInMemorySupabase(seedTrip());
+  await Promise.all([
+    sync(sb, SCHED_MS),
+    sync(sb, SCHED_MS),
+    sync(sb, SCHED_MS, { location: "stop", stopId: "stop-1" }),
+    sync(sb, SCHED_MS, { location: "stop", stopId: "stop-1" }),
+    sync(sb, SCHED_MS, { location: "stop", stopId: "stop-2" }),
+  ]);
+  const open = sb.db.trip_waiting_segments.filter((r) => !r.ended_at);
+  assertEquals(open.length, 3);
+  assertEquals(open.filter((r) => r.location_type === "pickup").length, 1);
+  assertEquals(open.filter((r) => r.stop_id === "stop-1").length, 1);
+  assertEquals(open.filter((r) => r.stop_id === "stop-2").length, 1);
+});
+
+Deno.test("C3 openWaitingSegmentOrReuse falls back to INSERT and reuses on unique violation (23505)", async () => {
+  const existing = {
+    id: "seg-winner",
+    trip_id: "trip-1",
+    location_type: "pickup",
+    stop_id: null,
+    started_at: iso(SCHED_MS),
+    ended_at: null,
+  };
+  const sb = createInMemorySupabase({ trips: [], trip_waiting_segments: [existing] });
+  // RPC not deployed + INSERT loses the race to a unique index.
+  const loser = {
+    from(table: string) {
+      const real = sb.from(table);
+      return {
+        ...real,
+        insert() {
+          return {
+            select: () => ({
+              maybeSingle: () =>
+                Promise.resolve({
+                  data: null,
+                  error: { code: "23505", message: "duplicate key value violates unique constraint \"uq_trip_waiting_segments_one_open_per_session\"" },
+                }),
+            }),
+          };
+        },
+      };
+    },
+    rpc: () => Promise.resolve({ data: null, error: { code: "PGRST202", message: "Could not find the function" } }),
+  };
+  const { openWaitingSegmentOrReuse } = await import("./waitingSegmentClock.ts");
+  const r = await openWaitingSegmentOrReuse(loser, {
+    tripId: "trip-1",
+    locationType: "pickup",
+    stopId: null,
+    stopIndex: null,
+    startedAtIso: iso(SCHED_MS + 1000),
+    distanceMeters: 1,
+    sourceLocation: "driver_presence",
+  });
+  assertEquals(r, { ok: true, created: false, segmentId: "seg-winner" });
+});

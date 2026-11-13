@@ -108,6 +108,7 @@ export function buildExclusiveActivationOfferSnapshot(input: {
     pickup_longitude?: number | null;
     dropoff_latitude?: number | null;
     dropoff_longitude?: number | null;
+    airport_charge_pence?: number | null;
   };
   confirmedDriverId: string;
   netPence: number;
@@ -119,6 +120,17 @@ export function buildExclusiveActivationOfferSnapshot(input: {
 }): Record<string, unknown> {
   const { trip, confirmedDriverId, netPence, kind, expiresAtIso } = input;
   const currency = String(trip.currency_code ?? trip.currency ?? "GBP").trim() || "GBP";
+  // Airport on Phase 5 / exclusive activation (MK-261113-007): never silent zero.
+  const airportRaw = trip.airport_charge_pence;
+  const airportNum = Number(airportRaw);
+  const hasAirport = airportRaw != null && Number.isFinite(airportNum);
+  const airportState = hasAirport ? (airportNum > 0 ? "present" : "zero") : "unknown";
+  const airportPence = airportState === "present" ? Math.round(airportNum) : 0;
+  const journeyNet = airportState === "present"
+    ? Math.max(0, Math.round(netPence) - airportPence)
+    : airportState === "zero"
+    ? Math.round(netPence)
+    : null;
   return {
     scheduled_status: "awaiting_activation_accept",
     scheduled_at: trip.scheduled_at ?? null,
@@ -138,6 +150,16 @@ export function buildExclusiveActivationOfferSnapshot(input: {
     driver_net_pence: netPence,
     driver_earnings_pence: netPence,
     driver_net_preview_pence: netPence,
+    airport_charge_state: airportState,
+    ...(airportState === "present"
+      ? {
+        airport_charge_pence: airportPence,
+        driver_journey_net_pence: journeyNet,
+        route_extra_items: [{ type: "airport", label: "Airport", amount_pence: airportPence }],
+      }
+      : airportState === "zero"
+      ? { airport_charge_pence: 0, driver_journey_net_pence: journeyNet }
+      : {}),
     negotiation_disabled: true,
     presets_enabled: false,
     scheduled_kind: kind,

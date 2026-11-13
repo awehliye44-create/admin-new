@@ -42,8 +42,16 @@ export function tripFareFieldsForOfferSnapshot(
       out.airportCharge = airportPence / 100;
       out.airport_charge = airportPence / 100;
       out.airport_charge_pence = airportPence;
+      out.airport_charge_state = "present";
       const extras = buildAirportRouteExtraItems(airportPence);
       if (extras.length > 0) out.route_extra_items = extras;
+    } else if (
+      breakdown.airport_charge_pence === 0 ||
+      breakdown.airportCharge === 0 ||
+      breakdown.airport_charge === 0
+    ) {
+      out.airport_charge_pence = 0;
+      out.airport_charge_state = "zero";
     }
 
     const pricingMode = breakdown.pricing_mode ?? breakdown.tripPricingMode;

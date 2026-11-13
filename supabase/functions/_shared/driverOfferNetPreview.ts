@@ -32,15 +32,38 @@ export function enrichOfferSnapshotDriverNet(
   const commissionPct = Number(commissionPercent);
   if (!Number.isFinite(commissionPct) || commissionPct < 0 || baseFarePence <= 0) return base;
 
-  const airportPence = resolveQuoteAirportChargePence(base);
+  // Prefer an explicit airport already on the snapshot (trip/quote overlay).
+  // Missing amount → unknown (never silently 0). Authoritative 0 stays zero.
+  const explicitAirportRaw = base.airport_charge_pence ?? base.airportChargePence;
+  const explicitAirportNum = Number(explicitAirportRaw);
+  const hasExplicitAirport = explicitAirportRaw != null &&
+    explicitAirportRaw !== "" &&
+    Number.isFinite(explicitAirportNum);
+  const resolvedAirport = resolveQuoteAirportChargePence(base);
+  const airportState: "present" | "zero" | "unknown" = hasExplicitAirport
+    ? (explicitAirportNum > 0 ? "present" : "zero")
+    : (resolvedAirport > 0 ? "present" : "unknown");
+  const airportPence = airportState === "present"
+    ? Math.max(0, Math.round(hasExplicitAirport ? explicitAirportNum : resolvedAirport))
+    : 0;
+
   const otherPassThroughPence = Math.max(
     0,
     Math.round(Number(base.other_pass_through_charges_pence ?? base.otherPassThroughChargesPence ?? 0) || 0),
   );
   const extras = buildAirportRouteExtraItems(airportPence);
-  if (extras.length > 0) {
+  if (airportState === "present" && extras.length > 0) {
     base.airport_charge_pence = airportPence;
+    base.airport_charge_state = "present";
     if (!Array.isArray(base.route_extra_items)) base.route_extra_items = extras;
+  } else if (airportState === "zero") {
+    base.airport_charge_pence = 0;
+    base.airport_charge_state = "zero";
+  } else {
+    // unknown: omit amount so clients cannot treat absence as £0
+    delete base.airport_charge_pence;
+    delete base.airportChargePence;
+    base.airport_charge_state = "unknown";
   }
 
   const split = driverNetFromCustomerTotal({
@@ -50,6 +73,7 @@ export function enrichOfferSnapshotDriverNet(
     commissionPercent: commissionPct,
   });
   const driverNet = split.driverNetPence;
+  const journeyNet = Math.max(0, split.commissionablePence - split.commissionPence);
 
   // Canonical ONECAB offer fare SSOT (backend-resolved; client must not guess).
   base.driver_net_fare_pence = driverNet;
@@ -60,6 +84,13 @@ export function enrichOfferSnapshotDriverNet(
   base.driver_earnings_pence = driverNet;
   base.commission_percent = commissionPct;
   base.effective_commission_percent = commissionPct;
+  // Journey net excludes airport; total driver_net_* includes it (MK-261113-007).
+  if (airportState === "present") {
+    base.driver_journey_net_pence = journeyNet;
+  } else if (airportState === "zero") {
+    base.driver_journey_net_pence = journeyNet;
+  }
+  // unknown: do not invent a journey split that pretends airport is known.
 
   const currency =
     (typeof currencyCode === "string" && currencyCode.trim())
