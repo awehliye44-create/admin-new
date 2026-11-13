@@ -348,6 +348,49 @@ export function validateJitEtaMinutes(input: {
 }
 
 /**
+ * Reuse a previously stamped dynamic deadline when the current tick cannot
+ * resolve ETA (stale presence / outside horizon). Fixed T−11 must not win
+ * merely because this minute's ETA failed.
+ *
+ * Invalid when: missing stamp, basis ≠ scheduled_at (reschedule), or the
+ * evaluating confirmed driver does not match the trip's current assignment.
+ * Callers must clear JIT monitor columns on release/reassignment.
+ */
+export function resolveReusableStickyJitDeadlineMs(input: {
+  activateAtIso: string | null | undefined;
+  basisScheduledAtIso: string | null | undefined;
+  currentScheduledAtIso: string | null | undefined;
+  evaluatingConfirmedDriverId: string | null | undefined;
+  tripConfirmedDriverId: string | null | undefined;
+}): { deadlineMs: number | null; reason: string } {
+  const driver = String(input.evaluatingConfirmedDriverId ?? "").trim();
+  const tripDriver = String(input.tripConfirmedDriverId ?? "").trim();
+  if (!driver || !tripDriver || driver !== tripDriver) {
+    return { deadlineMs: null, reason: "driver_mismatch_or_unassigned" };
+  }
+
+  const activateMs = input.activateAtIso ? Date.parse(String(input.activateAtIso)) : NaN;
+  if (!Number.isFinite(activateMs)) {
+    return { deadlineMs: null, reason: "no_stamped_deadline" };
+  }
+
+  const basisMs = input.basisScheduledAtIso
+    ? Date.parse(String(input.basisScheduledAtIso))
+    : NaN;
+  const scheduledMs = input.currentScheduledAtIso
+    ? Date.parse(String(input.currentScheduledAtIso))
+    : NaN;
+  if (!Number.isFinite(basisMs) || !Number.isFinite(scheduledMs)) {
+    return { deadlineMs: null, reason: "basis_or_scheduled_unreadable" };
+  }
+  if (Math.abs(basisMs - scheduledMs) >= 1_000) {
+    return { deadlineMs: null, reason: "basis_rescheduled" };
+  }
+
+  return { deadlineMs: activateMs, reason: "sticky_reused" };
+}
+
+/**
  * Sticky deadline: never postpone; only pull earlier when delta ≥ tolerance.
  * No fixed Local/Long floor clamp — genuine long ETA (e.g. 45m → 19:35) must win.
  */
@@ -505,30 +548,30 @@ export function decideConfirmedScheduledActivation(input: {
     };
   }
 
-  const dueFromJit =
-    input.jitDeadlineMs != null &&
-    Number.isFinite(input.jitDeadlineMs) &&
+  const hasJitDeadline =
+    input.jitDeadlineMs != null && Number.isFinite(input.jitDeadlineMs);
+  const dueFromJit = hasJitDeadline &&
     isJitDepartureDue({
-      deadlineMs: input.jitDeadlineMs,
+      deadlineMs: input.jitDeadlineMs as number,
       scheduledAtMs: input.scheduledAtMs,
       nowMs: input.nowMs,
     }).due;
 
-  // Fixed Local/Long is fallback only when JIT ETA deadline unavailable.
-  const due = dueFromJit ||
-    (input.jitDeadlineMs == null && input.fixedFallbackDue);
-  const deadlineMs = dueFromJit && input.jitDeadlineMs != null
-    ? input.jitDeadlineMs
+  // Fixed Local/Long is fallback only when no valid dynamic deadline exists.
+  // A later/earlier JIT stamp must never be replaced by T−11 while present.
+  const due = dueFromJit || (!hasJitDeadline && input.fixedFallbackDue);
+  const deadlineMs = hasJitDeadline
+    ? (input.jitDeadlineMs as number)
     : input.fixedFallbackActivationAtMs;
-  const source: "jit" | "fixed_fallback" = dueFromJit ? "jit" : "fixed_fallback";
-  const kind = dueFromJit ? "jit" : input.fixedFallbackKind;
+  const source: "jit" | "fixed_fallback" = hasJitDeadline ? "jit" : "fixed_fallback";
+  const kind = hasJitDeadline ? "jit" : input.fixedFallbackKind;
 
   if (!due) {
     return {
       action: "wait",
       deadlineMs,
-      source: input.jitDeadlineMs != null ? "jit" : "fixed_fallback",
-      kind: input.jitDeadlineMs != null ? "jit" : input.fixedFallbackKind,
+      source,
+      kind,
     };
   }
 

@@ -116,6 +116,14 @@ export function buildBroadcastNowPatch(input: {
     broadcast_started_at: input.nowIso,
     confirmed_driver_id: null,
     driver_id: null,
+    // Drop dynamic JIT stamps with the assignment (no cross-driver reuse).
+    scheduled_jit_activate_at: null,
+    scheduled_jit_eta_minutes: null,
+    scheduled_jit_eta_observed_at: null,
+    scheduled_jit_distance_kind: null,
+    scheduled_jit_eta_source: null,
+    scheduled_jit_basis_scheduled_at: null,
+    scheduled_jit_eta_spike_samples: 0,
   };
 }
 

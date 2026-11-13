@@ -180,6 +180,20 @@ export function buildJitMonitorPersistPatch(input: {
   };
 }
 
+/** Clear dynamic JIT stamps on release / reassignment / reschedule handoff. */
+export function buildJitMonitorClearPatch(nowIso: string): Record<string, unknown> {
+  return {
+    scheduled_jit_activate_at: null,
+    scheduled_jit_eta_minutes: null,
+    scheduled_jit_eta_observed_at: null,
+    scheduled_jit_distance_kind: null,
+    scheduled_jit_eta_source: null,
+    scheduled_jit_basis_scheduled_at: null,
+    scheduled_jit_eta_spike_samples: 0,
+    updated_at: nowIso,
+  };
+}
+
 export function buildJitEtaUnresolvedOpsAlert(input: {
   tripId: string;
   driverId: string;

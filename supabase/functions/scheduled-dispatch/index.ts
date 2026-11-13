@@ -1017,18 +1017,24 @@ Deno.serve(async (req) => {
     // ============================================================
 
     const fixedLookAheadMs = scheduledActivationLookaheadMs(activationConfig);
+    // Candidate load must cover the full JIT planning horizon (default 180m)
+    // so long ETAs can stamp deadlines before fixed T−11 becomes due.
     const jitLookAheadMs =
-      (jitConfig.longDistanceEtaThresholdMinutes +
-        jitConfig.targetEarlyArrivalMinutes +
-        jitConfig.longSafetyBufferMinutes +
-        15) *
-      60_000;
-    const lookAheadMs = Math.max(
-      fixedLookAheadMs,
-      jitLookAheadMs,
-      SCHEDULED_JIT_ACTIVATION_DEFAULTS.longDistanceEtaThresholdMinutes * 60_000,
-    );
+      Math.max(
+        jitConfig.planningHorizonMinutes,
+        jitConfig.longDistanceEtaThresholdMinutes +
+          jitConfig.targetEarlyArrivalMinutes +
+          jitConfig.longSafetyBufferMinutes +
+          15,
+        SCHEDULED_JIT_ACTIVATION_DEFAULTS.planningHorizonMinutes,
+      ) * 60_000;
+    const lookAheadMs = Math.max(fixedLookAheadMs, jitLookAheadMs);
     const lookAheadThreshold = new Date(nowMs + lookAheadMs).toISOString();
+    console.log("SCHEDULED_JIT_CANDIDATE_LOOKAHEAD", {
+      look_ahead_minutes: Math.round(lookAheadMs / 60_000),
+      planning_horizon_minutes: jitConfig.planningHorizonMinutes,
+      fixed_lookahead_minutes: Math.round(fixedLookAheadMs / 60_000),
+    });
 
     const { data: tripsForActivation, error: activationError } = await supabase
       .from("trips")
