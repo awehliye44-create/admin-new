@@ -96,6 +96,9 @@ import {
 import type { AdminTripPaymentDispositionRead } from '../../shared/adminTripPaymentDispositionSSOT';
 import { tripHistoryStatusLabel, pickPrimaryPaymentSession } from '../../shared/adminTripPaymentDispositionSSOT';
 import { tripHistoryOutcomeBadge } from '@/lib/tripHistoryOutcomeBadge';
+import { useTripLocationEvidence } from '@/hooks/useTripLocationEvidence';
+import { TripLocationEvidencePanel } from '@/components/trips/TripLocationEvidencePanel';
+import { EVIDENCE_ACTION_META, PASSENGER_MARKER_COLOR, type TripLocationEvidence } from '@/lib/tripLocationEvidence';
 
 function getTripMapCenter(trip: CompletedTrip): [number, number] {
   const lng = trip.pickup_longitude ?? trip.dropoff_longitude ?? -0.7594;
@@ -456,6 +459,13 @@ export default function TripHistory() {
     selectedTripRef.current = selectedTrip;
   }, [selectedTrip]);
 
+  const locationEvidenceQuery = useTripLocationEvidence(isViewOpen ? selectedTrip?.id : null);
+  const locationEvidence = locationEvidenceQuery.data;
+  const locationEvidenceRef = useRef<TripLocationEvidence[]>([]);
+  useEffect(() => {
+    locationEvidenceRef.current = locationEvidence ?? [];
+  }, [locationEvidence]);
+
   const getDateRange = useCallback(() => {
     const now = new Date();
     switch (dateFilter) {
@@ -795,21 +805,23 @@ export default function TripHistory() {
       bounds.extend([trip.dropoff_longitude, trip.dropoff_latitude]);
     }
 
-    if (trip.driver_location_lat && trip.driver_location_lng) {
-      const dLat = trip.driver_location_lat;
-      const dLng = trip.driver_location_lng;
-      const dropL = trip.dropoff_latitude;
-      const dropG = trip.dropoff_longitude;
-      let show = true;
-      if (dropL && dropG) {
-        const dist = haversineDistance(dLat, dLng, dropL, dropG);
-        if (dist < 0.1) show = false;
+    // Location proof: exact driver GPS at each button tap, plus passenger's shared location.
+    const passengerSeen = new Set<string>();
+    locationEvidenceRef.current.forEach((ev) => {
+      const meta = EVIDENCE_ACTION_META[ev.action];
+      if (ev.driver_lat != null && ev.driver_lng != null) {
+        addCircleMarker(ev.driver_lng, ev.driver_lat, meta.color, `Driver position — ${meta.label}`, meta.marker);
+        bounds.extend([ev.driver_lng, ev.driver_lat]);
       }
-      if (show) {
-        addCircleMarker(dLng, dLat, '#f59e0b', 'Driver Completion Location');
-        bounds.extend([dLng, dLat]);
+      if (ev.passenger_lat != null && ev.passenger_lng != null) {
+        const key = `${ev.passenger_lat},${ev.passenger_lng}`;
+        if (!passengerSeen.has(key)) {
+          passengerSeen.add(key);
+          addCircleMarker(ev.passenger_lng, ev.passenger_lat, PASSENGER_MARKER_COLOR, `Passenger location — ${meta.label}`, 'P');
+          bounds.extend([ev.passenger_lng, ev.passenger_lat]);
+        }
       }
-    }
+    });
 
     const srcId = routeSourceIdRef.current;
     const layerId = `${srcId}-layer`;
@@ -921,7 +933,7 @@ export default function TripHistory() {
     if (!map || !isMapLoaded || !selectedTrip) return;
     if (map.isStyleLoaded()) drawTripRouteOnMap(map);
     else map.once('load', () => drawTripRouteOnMap(map));
-  }, [selectedTrip, tripStops, isMapLoaded, drawTripRouteOnMap]);
+  }, [selectedTrip, tripStops, locationEvidence, isMapLoaded, drawTripRouteOnMap]);
 
   const formatDuration = (minutes: number | null) => {
     if (!minutes) return 'N/A';
@@ -2194,6 +2206,22 @@ export default function TripHistory() {
                       </div>
                     )}
                   </div>
+                  <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
+                    <span className="flex items-center gap-1"><span className="h-2.5 w-2.5 rounded-full" style={{ background: '#22c55e' }} />Pickup</span>
+                    <span className="flex items-center gap-1"><span className="h-2.5 w-2.5 rounded-full" style={{ background: '#ef4444' }} />Drop-off</span>
+                    {(['arrived_pickup', 'no_show', 'trip_completed'] as const).map((a) => (
+                      <span key={a} className="flex items-center gap-1">
+                        <span className="h-2.5 w-2.5 rounded-full" style={{ background: EVIDENCE_ACTION_META[a].color }} />
+                        {EVIDENCE_ACTION_META[a].marker} = {EVIDENCE_ACTION_META[a].label.replace('Driver tapped ', '').replace('Driver ', '')}
+                      </span>
+                    ))}
+                    <span className="flex items-center gap-1"><span className="h-2.5 w-2.5 rounded-full" style={{ background: PASSENGER_MARKER_COLOR }} />P = Passenger</span>
+                  </div>
+                  <TripLocationEvidencePanel
+                    evidence={locationEvidence}
+                    isLoading={locationEvidenceQuery.isLoading}
+                    error={locationEvidenceQuery.error as Error | null}
+                  />
                 </div>
               </div>
 
