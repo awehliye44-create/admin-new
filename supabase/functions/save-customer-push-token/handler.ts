@@ -183,10 +183,16 @@ export async function handleSaveCustomerPushToken(
       .neq("token", body.token);
 
     console.log(
-      `[save-customer-push-token] ok user=${userId} claim=${wantClaim} device=${deviceId.slice(0, 8)}…`,
+      `[save-customer-push-token] ok user=${userId} claim=${wantClaim} device=${deviceId.slice(0, 8)}… caps=${clientCapabilities.length}`,
     );
 
-    return json({ success: true, device_id: deviceId });
+    // Echo the replaced capability set so clients only mark capability sync
+    // complete after authoritative persistence (legacy {success:true} alone is insufficient).
+    return json({
+      success: true,
+      device_id: deviceId,
+      client_capabilities: clientCapabilities,
+    });
   } catch (error) {
     console.error("[save-customer-push-token] exception", error);
     return json({ error: "Internal server error" }, 500);

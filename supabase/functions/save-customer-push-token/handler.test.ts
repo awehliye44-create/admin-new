@@ -146,7 +146,11 @@ Deno.test("B: a valid iOS FCM token is accepted and stored", async () => {
     () => client,
   );
   assertEquals(res.status, 200);
-  assertEquals(await res.json(), { success: true, device_id: DEVICE });
+  assertEquals(await res.json(), {
+    success: true,
+    device_id: DEVICE,
+    client_capabilities: [],
+  });
   assertEquals(db.customer_push_tokens.length, 1);
   const row = db.customer_push_tokens[0];
   assertEquals([row.user_id, row.app_type, row.platform, row.token], [USER, "customer", "ios", IOS_FCM]);
@@ -322,4 +326,23 @@ Deno.test("F: client_capabilities replace (never merge) including empty clear", 
   );
   assertEquals(clearRes.status, 200);
   assertEquals(cleared.db.customer_active_devices[0].client_capabilities, []);
+  assertEquals((await clearRes.json()).client_capabilities, []);
+
+  const withCaps = fakeSupabase({ customer_active_devices: [activeDevice()] });
+  const withCapsRes = await handleSaveCustomerPushToken(
+    post({
+      token: IOS_FCM,
+      platform: "ios",
+      device_id: DEVICE,
+      claim: false,
+      client_capabilities: ["customer_future_cap_v1"],
+    }),
+    () => withCaps.client,
+  );
+  assertEquals(withCapsRes.status, 200);
+  assertEquals(await withCapsRes.json(), {
+    success: true,
+    device_id: DEVICE,
+    client_capabilities: ["customer_future_cap_v1"],
+  });
 });
