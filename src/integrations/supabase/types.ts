@@ -3843,7 +3843,10 @@ export type Database = {
       }
       customer_active_devices: {
         Row: {
+          app_version: string | null
           claimed_at: string
+          client_capabilities: Json
+          client_capabilities_updated_at: string | null
           device_id: string
           last_seen_at: string
           platform: string | null
@@ -3852,7 +3855,10 @@ export type Database = {
           user_id: string
         }
         Insert: {
+          app_version?: string | null
           claimed_at?: string
+          client_capabilities?: Json
+          client_capabilities_updated_at?: string | null
           device_id: string
           last_seen_at?: string
           platform?: string | null
@@ -3861,7 +3867,10 @@ export type Database = {
           user_id: string
         }
         Update: {
+          app_version?: string | null
           claimed_at?: string
+          client_capabilities?: Json
+          client_capabilities_updated_at?: string | null
           device_id?: string
           last_seen_at?: string
           platform?: string | null
@@ -6571,6 +6580,9 @@ export type Database = {
       }
       driver_active_devices: {
         Row: {
+          app_version: string | null
+          client_capabilities: Json
+          client_capabilities_updated_at: string | null
           created_at: string
           device_id: string
           device_label: string | null
@@ -6580,6 +6592,9 @@ export type Database = {
           updated_at: string
         }
         Insert: {
+          app_version?: string | null
+          client_capabilities?: Json
+          client_capabilities_updated_at?: string | null
           created_at?: string
           device_id: string
           device_label?: string | null
@@ -6589,6 +6604,9 @@ export type Database = {
           updated_at?: string
         }
         Update: {
+          app_version?: string | null
+          client_capabilities?: Json
+          client_capabilities_updated_at?: string | null
           created_at?: string
           device_id?: string
           device_label?: string | null
@@ -13651,8 +13669,17 @@ export type Database = {
           expected_stop_waiting_minutes: number
           fairness_boost_score: number
           fairness_idle_minutes: number
-          fleet_max_pickup_distance_miles: number
+          fleet_max_pickup_distance_miles: number | null
           id: string
+          jit_auto_activate_enabled: boolean
+          jit_eta_spike_confirm_samples: number
+          jit_local_safety_buffer_minutes: number
+          jit_long_distance_eta_threshold_minutes: number
+          jit_long_safety_buffer_minutes: number
+          jit_max_early_pull_ahead_of_fixed_minutes: number
+          jit_oscillation_tolerance_minutes: number
+          jit_planning_horizon_minutes: number
+          jit_target_early_arrival_minutes: number
           local_activation_minutes_before_pickup: number
           locked_driver_response_minutes: number
           long_activation_minutes_before_pickup: number
@@ -13673,6 +13700,12 @@ export type Database = {
           presence_max_age_seconds: number
           rescue_search_lead_minutes: number
           safety_buffer_minutes: number
+          scheduled_capture_coverage_enforced: boolean
+          scheduled_departure_ack_capability_key: string
+          scheduled_departure_ack_enabled: boolean
+          scheduled_departure_ack_grace_seconds: number
+          scheduled_departure_ack_min_app_version: string | null
+          scheduled_departure_ack_seconds: number
           scheduled_response_window_minutes: number
           scheduled_ride_incentives_enabled: boolean
           scheduled_rides_enabled: boolean
@@ -13740,8 +13773,17 @@ export type Database = {
           expected_stop_waiting_minutes?: number
           fairness_boost_score?: number
           fairness_idle_minutes?: number
-          fleet_max_pickup_distance_miles?: number
+          fleet_max_pickup_distance_miles?: number | null
           id?: string
+          jit_auto_activate_enabled?: boolean
+          jit_eta_spike_confirm_samples?: number
+          jit_local_safety_buffer_minutes?: number
+          jit_long_distance_eta_threshold_minutes?: number
+          jit_long_safety_buffer_minutes?: number
+          jit_max_early_pull_ahead_of_fixed_minutes?: number
+          jit_oscillation_tolerance_minutes?: number
+          jit_planning_horizon_minutes?: number
+          jit_target_early_arrival_minutes?: number
           local_activation_minutes_before_pickup?: number
           locked_driver_response_minutes?: number
           long_activation_minutes_before_pickup?: number
@@ -13762,6 +13804,12 @@ export type Database = {
           presence_max_age_seconds?: number
           rescue_search_lead_minutes?: number
           safety_buffer_minutes?: number
+          scheduled_capture_coverage_enforced?: boolean
+          scheduled_departure_ack_capability_key?: string
+          scheduled_departure_ack_enabled?: boolean
+          scheduled_departure_ack_grace_seconds?: number
+          scheduled_departure_ack_min_app_version?: string | null
+          scheduled_departure_ack_seconds?: number
           scheduled_response_window_minutes?: number
           scheduled_ride_incentives_enabled?: boolean
           scheduled_rides_enabled?: boolean
@@ -13829,8 +13877,17 @@ export type Database = {
           expected_stop_waiting_minutes?: number
           fairness_boost_score?: number
           fairness_idle_minutes?: number
-          fleet_max_pickup_distance_miles?: number
+          fleet_max_pickup_distance_miles?: number | null
           id?: string
+          jit_auto_activate_enabled?: boolean
+          jit_eta_spike_confirm_samples?: number
+          jit_local_safety_buffer_minutes?: number
+          jit_long_distance_eta_threshold_minutes?: number
+          jit_long_safety_buffer_minutes?: number
+          jit_max_early_pull_ahead_of_fixed_minutes?: number
+          jit_oscillation_tolerance_minutes?: number
+          jit_planning_horizon_minutes?: number
+          jit_target_early_arrival_minutes?: number
           local_activation_minutes_before_pickup?: number
           locked_driver_response_minutes?: number
           long_activation_minutes_before_pickup?: number
@@ -13851,6 +13908,12 @@ export type Database = {
           presence_max_age_seconds?: number
           rescue_search_lead_minutes?: number
           safety_buffer_minutes?: number
+          scheduled_capture_coverage_enforced?: boolean
+          scheduled_departure_ack_capability_key?: string
+          scheduled_departure_ack_enabled?: boolean
+          scheduled_departure_ack_grace_seconds?: number
+          scheduled_departure_ack_min_app_version?: string | null
+          scheduled_departure_ack_seconds?: number
           scheduled_response_window_minutes?: number
           scheduled_ride_incentives_enabled?: boolean
           scheduled_rides_enabled?: boolean
@@ -17952,6 +18015,8 @@ export type Database = {
       payment_sessions: {
         Row: {
           additional_authorised_pence: number | null
+          advance_window_validated_at: string | null
+          advance_window_validated_scheduled_at: string | null
           authorised_amount_pence: number | null
           authorised_at: string | null
           booking_snapshot: Json
@@ -17959,6 +18024,10 @@ export type Database = {
           cancellation_fee_pence: number | null
           capture_composition_frozen_at: string | null
           capture_composition_version: string | null
+          capture_deadline: string | null
+          capture_deadline_observed_at: string | null
+          capture_deadline_source: string | null
+          capture_deadline_updated_at: string | null
           capture_idempotency_key: string | null
           captured_amount_pence: number | null
           captured_at: string | null
@@ -18036,6 +18105,8 @@ export type Database = {
         }
         Insert: {
           additional_authorised_pence?: number | null
+          advance_window_validated_at?: string | null
+          advance_window_validated_scheduled_at?: string | null
           authorised_amount_pence?: number | null
           authorised_at?: string | null
           booking_snapshot?: Json
@@ -18043,6 +18114,10 @@ export type Database = {
           cancellation_fee_pence?: number | null
           capture_composition_frozen_at?: string | null
           capture_composition_version?: string | null
+          capture_deadline?: string | null
+          capture_deadline_observed_at?: string | null
+          capture_deadline_source?: string | null
+          capture_deadline_updated_at?: string | null
           capture_idempotency_key?: string | null
           captured_amount_pence?: number | null
           captured_at?: string | null
@@ -18120,6 +18195,8 @@ export type Database = {
         }
         Update: {
           additional_authorised_pence?: number | null
+          advance_window_validated_at?: string | null
+          advance_window_validated_scheduled_at?: string | null
           authorised_amount_pence?: number | null
           authorised_at?: string | null
           booking_snapshot?: Json
@@ -18127,6 +18204,10 @@ export type Database = {
           cancellation_fee_pence?: number | null
           capture_composition_frozen_at?: string | null
           capture_composition_version?: string | null
+          capture_deadline?: string | null
+          capture_deadline_observed_at?: string | null
+          capture_deadline_source?: string | null
+          capture_deadline_updated_at?: string | null
           capture_idempotency_key?: string | null
           captured_amount_pence?: number | null
           captured_at?: string | null
@@ -23300,6 +23381,101 @@ export type Database = {
           },
         ]
       }
+      trip_capture_jobs: {
+        Row: {
+          admin_alert_key: string | null
+          admin_alert_pending: boolean
+          admin_alerted_at: string | null
+          capture_attempt_count: number
+          claim_count: number
+          claim_expires_at: string | null
+          claim_token: string | null
+          claimed_at: string | null
+          completed_at: string | null
+          created_at: string
+          id: string
+          last_error: string | null
+          last_finalize_status: string | null
+          next_attempt_at: string
+          source: string
+          status: string
+          tip_pence: number
+          trip_id: string
+          updated_at: string
+        }
+        Insert: {
+          admin_alert_key?: string | null
+          admin_alert_pending?: boolean
+          admin_alerted_at?: string | null
+          capture_attempt_count?: number
+          claim_count?: number
+          claim_expires_at?: string | null
+          claim_token?: string | null
+          claimed_at?: string | null
+          completed_at?: string | null
+          created_at?: string
+          id?: string
+          last_error?: string | null
+          last_finalize_status?: string | null
+          next_attempt_at?: string
+          source?: string
+          status?: string
+          tip_pence?: number
+          trip_id: string
+          updated_at?: string
+        }
+        Update: {
+          admin_alert_key?: string | null
+          admin_alert_pending?: boolean
+          admin_alerted_at?: string | null
+          capture_attempt_count?: number
+          claim_count?: number
+          claim_expires_at?: string | null
+          claim_token?: string | null
+          claimed_at?: string | null
+          completed_at?: string | null
+          created_at?: string
+          id?: string
+          last_error?: string | null
+          last_finalize_status?: string | null
+          next_attempt_at?: string
+          source?: string
+          status?: string
+          tip_pence?: number
+          trip_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "trip_capture_jobs_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: true
+            referencedRelation: "admin_trip_lifecycle_fees"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "trip_capture_jobs_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: true
+            referencedRelation: "available_scheduled_jobs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "trip_capture_jobs_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: true
+            referencedRelation: "trips"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "trip_capture_jobs_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: true
+            referencedRelation: "v_payment_lifecycle_audit"
+            referencedColumns: ["trip_id"]
+          },
+        ]
+      }
       trip_change_requests: {
         Row: {
           after_route_snapshot: Json
@@ -24800,11 +24976,30 @@ export type Database = {
           refunded_at: string | null
           region_id: string | null
           scheduled_accepted_at: string | null
+          scheduled_ack_acknowledged_at: string | null
+          scheduled_ack_armed_at: string | null
+          scheduled_ack_deadline_at: string | null
+          scheduled_ack_driver_id: string | null
+          scheduled_ack_nonce: string | null
+          scheduled_ack_resolution_reason: string | null
+          scheduled_ack_resolved_at: string | null
+          scheduled_ack_status: string | null
           scheduled_at: string | null
           scheduled_broadcast_at: string | null
           scheduled_committed_at: string | null
           scheduled_convert_at: string | null
           scheduled_driver_risk: boolean
+          scheduled_hold_reason: string | null
+          scheduled_jit_activate_at: string | null
+          scheduled_jit_activated_at: string | null
+          scheduled_jit_activation_source: string | null
+          scheduled_jit_basis_scheduled_at: string | null
+          scheduled_jit_distance_kind: string | null
+          scheduled_jit_eta_minutes: number | null
+          scheduled_jit_eta_observed_at: string | null
+          scheduled_jit_eta_source: string | null
+          scheduled_jit_eta_spike_samples: number
+          scheduled_publish_attempts: number
           scheduled_status: string | null
           searching_expires_at: string | null
           sequence_no: number | null
@@ -25108,11 +25303,30 @@ export type Database = {
           refunded_at?: string | null
           region_id?: string | null
           scheduled_accepted_at?: string | null
+          scheduled_ack_acknowledged_at?: string | null
+          scheduled_ack_armed_at?: string | null
+          scheduled_ack_deadline_at?: string | null
+          scheduled_ack_driver_id?: string | null
+          scheduled_ack_nonce?: string | null
+          scheduled_ack_resolution_reason?: string | null
+          scheduled_ack_resolved_at?: string | null
+          scheduled_ack_status?: string | null
           scheduled_at?: string | null
           scheduled_broadcast_at?: string | null
           scheduled_committed_at?: string | null
           scheduled_convert_at?: string | null
           scheduled_driver_risk?: boolean
+          scheduled_hold_reason?: string | null
+          scheduled_jit_activate_at?: string | null
+          scheduled_jit_activated_at?: string | null
+          scheduled_jit_activation_source?: string | null
+          scheduled_jit_basis_scheduled_at?: string | null
+          scheduled_jit_distance_kind?: string | null
+          scheduled_jit_eta_minutes?: number | null
+          scheduled_jit_eta_observed_at?: string | null
+          scheduled_jit_eta_source?: string | null
+          scheduled_jit_eta_spike_samples?: number
+          scheduled_publish_attempts?: number
           scheduled_status?: string | null
           searching_expires_at?: string | null
           sequence_no?: number | null
@@ -25416,11 +25630,30 @@ export type Database = {
           refunded_at?: string | null
           region_id?: string | null
           scheduled_accepted_at?: string | null
+          scheduled_ack_acknowledged_at?: string | null
+          scheduled_ack_armed_at?: string | null
+          scheduled_ack_deadline_at?: string | null
+          scheduled_ack_driver_id?: string | null
+          scheduled_ack_nonce?: string | null
+          scheduled_ack_resolution_reason?: string | null
+          scheduled_ack_resolved_at?: string | null
+          scheduled_ack_status?: string | null
           scheduled_at?: string | null
           scheduled_broadcast_at?: string | null
           scheduled_committed_at?: string | null
           scheduled_convert_at?: string | null
           scheduled_driver_risk?: boolean
+          scheduled_hold_reason?: string | null
+          scheduled_jit_activate_at?: string | null
+          scheduled_jit_activated_at?: string | null
+          scheduled_jit_activation_source?: string | null
+          scheduled_jit_basis_scheduled_at?: string | null
+          scheduled_jit_distance_kind?: string | null
+          scheduled_jit_eta_minutes?: number | null
+          scheduled_jit_eta_observed_at?: string | null
+          scheduled_jit_eta_source?: string | null
+          scheduled_jit_eta_spike_samples?: number
+          scheduled_publish_attempts?: number
           scheduled_status?: string | null
           searching_expires_at?: string | null
           sequence_no?: number | null
@@ -29547,6 +29780,8 @@ export type Database = {
         Args: { p_page_slug: string }
         Returns: boolean
       }
+      _admin_trips_protected_mutate_columns: { Args: never; Returns: string[] }
+      _debug_vcr_visible: { Args: never; Returns: Json }
       _on_active: { Args: { tid: string }; Returns: boolean }
       _on_sched: { Args: { tid: string }; Returns: boolean }
       abort_driver_payout_submission_claim: {
@@ -29600,6 +29835,14 @@ export type Database = {
         Args: { p_trip_id: string }
         Returns: undefined
       }
+      activate_verified_driver_payout_destination: {
+        Args: {
+          p_driver_id: string
+          p_new_destination_id: string
+          p_previous_destination_id: string
+        }
+        Returns: Json
+      }
       active_super_admin_count: { Args: never; Returns: number }
       adjust_merchant_credits: {
         Args: { _delta: number; _merchant_id: string; _notes?: string }
@@ -29628,6 +29871,10 @@ export type Database = {
       admin_assert_staff_page: {
         Args: { p_page_slug: string }
         Returns: undefined
+      }
+      admin_assign_scheduled_driver: {
+        Args: { p_driver_id: string; p_trip_id: string }
+        Returns: Json
       }
       admin_assign_staff_role: {
         Args: {
@@ -29965,6 +30212,17 @@ export type Database = {
         }
         Returns: string
       }
+      admin_scheduled_emergency_mutate: {
+        Args: {
+          p_action: string
+          p_actor_user_id: string
+          p_meta?: Json
+          p_patch?: Json
+          p_reason: string
+          p_trip_id: string
+        }
+        Returns: Json
+      }
       admin_service_areas_lookup: {
         Args: { p_args?: Json; p_page_slug: string }
         Returns: Json
@@ -30120,6 +30378,17 @@ export type Database = {
         }
         Returns: Json
       }
+      apply_consumed_server_fare_airport_split_to_trip: {
+        Args: {
+          p_payable_pence: number
+          p_payment_session_id: string
+          p_service_area_id: string
+          p_trip_id: string
+          p_user_id: string
+          p_vehicle_type_id: string
+        }
+        Returns: Json
+      }
       apply_customer_decline_grace: {
         Args: { p_offer_id: string; p_reason?: string }
         Returns: Json
@@ -30168,6 +30437,14 @@ export type Database = {
         Args: { p_payout_item_id: string }
         Returns: undefined
       }
+      assert_scheduled_advance_window: {
+        Args: {
+          p_grandfather_max_advance?: boolean
+          p_now?: string
+          p_scheduled_at: string
+        }
+        Returns: undefined
+      }
       assert_trip_completion_customer_payment_gate: {
         Args: { p_trip_id: string }
         Returns: Json
@@ -30201,6 +30478,10 @@ export type Database = {
       booking_delivery_phase_is_idempotent: {
         Args: { p_phase: string }
         Returns: boolean
+      }
+      bump_trip_capture_attempt: {
+        Args: { p_claim_token: string; p_job_id: string }
+        Returns: number
       }
       campaign_heads_up_due_sweep: { Args: never; Returns: undefined }
       can_corporate_user_view_driver: {
@@ -30373,6 +30654,36 @@ export type Database = {
         }
         Returns: Json
       }
+      claim_trip_capture_job_by_trip_id: {
+        Args: {
+          p_claim_token: string
+          p_claim_ttl_seconds?: number
+          p_trip_id: string
+        }
+        Returns: {
+          capture_attempt_count: number
+          claim_count: number
+          job_id: string
+          source: string
+          tip_pence: number
+          trip_id: string
+        }[]
+      }
+      claim_trip_capture_jobs: {
+        Args: {
+          p_claim_token: string
+          p_claim_ttl_seconds?: number
+          p_limit?: number
+        }
+        Returns: {
+          capture_attempt_count: number
+          claim_count: number
+          job_id: string
+          source: string
+          tip_pence: number
+          trip_id: string
+        }[]
+      }
       claim_trip_negotiation: {
         Args: { p_driver_id: string; p_trip_id: string }
         Returns: Json
@@ -30380,6 +30691,17 @@ export type Database = {
       claim_weekly_payout_occurrence: {
         Args: { p_dry_run?: boolean; p_schedule_occurrence_key: string }
         Returns: Json
+      }
+      classify_scheduled_capture_deadline_backfill: {
+        Args: { p_dry_run?: boolean }
+        Returns: {
+          capture_deadline: string
+          classification: string
+          payment_session_id: string
+          provider_order_id: string
+          scheduled_at: string
+          trip_id: string
+        }[]
       }
       cleanup_expired_pending_email_changes: { Args: never; Returns: Json }
       cleanup_expired_pending_phone_changes: { Args: never; Returns: Json }
@@ -31009,6 +31331,14 @@ export type Database = {
         }
         Returns: Json
       }
+      driver_scheduled_commitment_gate: {
+        Args: {
+          p_candidate_trip_id: string
+          p_driver_id: string
+          p_mode?: string
+        }
+        Returns: Json
+      }
       driver_send_preset_offer: {
         Args: {
           p_allowed_total_fares_pence: number[]
@@ -31138,6 +31468,22 @@ export type Database = {
         Args: { p_trip_id: string }
         Returns: undefined
       }
+      evaluate_scheduled_advance_window: {
+        Args: {
+          p_grandfather_max_advance?: boolean
+          p_max_advance_days?: number
+          p_min_advance_minutes?: number
+          p_now?: string
+          p_scheduled_at: string
+        }
+        Returns: {
+          code: string
+          max_advance_days: number
+          min_advance_minutes: number
+          ok: boolean
+          reason: string
+        }[]
+      }
       evaluate_trip_schedule_conflict: {
         Args: {
           p_candidate_estimated_end: string
@@ -31148,6 +31494,10 @@ export type Database = {
           p_subject_id: string
           p_subject_kind: string
         }
+        Returns: Json
+      }
+      execute_due_pending_scheduled_assign: {
+        Args: { p_trip_id: string }
         Returns: Json
       }
       expire_due_call_masking_sessions: { Args: never; Returns: undefined }
@@ -32169,6 +32519,19 @@ export type Database = {
           id: string
         }[]
       }
+      list_trip_capture_jobs_alert_pending: {
+        Args: { p_limit?: number }
+        Returns: {
+          admin_alert_key: string
+          capture_attempt_count: number
+          claim_count: number
+          job_id: string
+          last_error: string
+          last_finalize_status: string
+          source: string
+          trip_id: string
+        }[]
+      }
       lock_driver_vehicle: { Args: { p_driver_id: string }; Returns: undefined }
       log_audit_event: {
         Args: {
@@ -32261,6 +32624,10 @@ export type Database = {
         Args: { p_driver_id: string }
         Returns: undefined
       }
+      mark_trip_capture_admin_alert_delivered: {
+        Args: { p_alert_key?: string; p_job_id: string }
+        Returns: boolean
+      }
       maybe_advance_dispatch_after_offer_resolution: {
         Args: { p_resolved_driver_id?: string; p_trip_id: string }
         Returns: undefined
@@ -32274,6 +32641,16 @@ export type Database = {
         Returns: string
       }
       next_trip_invoice_number: { Args: never; Returns: string }
+      normalise_payment_gate_blocked_terminal_rows: {
+        Args: { p_dry_run?: boolean }
+        Returns: {
+          action: string
+          new_scheduled_status: string
+          old_scheduled_status: string
+          trip_id: string
+          trip_status: string
+        }[]
+      }
       normalize_driver_offline_reason: {
         Args: { p_reason: string }
         Returns: string
@@ -32823,6 +33200,10 @@ export type Database = {
         Args: { p_smoke_run_id: string }
         Returns: Json
       }
+      release_scheduled_airport_broadcast_hold: {
+        Args: { p_trip_id: string }
+        Returns: Json
+      }
       release_sub_minimum_weekly_payout_reservations: {
         Args: { p_driver_id?: string }
         Returns: Json
@@ -32858,6 +33239,14 @@ export type Database = {
         Returns: Json
       }
       require_authenticated_driver_id: { Args: never; Returns: string }
+      required_capture_coverage_until: {
+        Args: {
+          p_estimated_duration_minutes?: number
+          p_safety_margin_minutes?: number
+          p_scheduled_at: string
+        }
+        Returns: string
+      }
       required_commission_reserve_minor: {
         Args: {
           p_commission_rate_bps: number
@@ -32965,6 +33354,7 @@ export type Database = {
         Args: { p_driver_id: string }
         Returns: string
       }
+      resolve_fleet_max_pickup_distance_meters: { Args: never; Returns: number }
       resolve_negotiation_rebroadcast_fare: {
         Args: { p_trip_id: string }
         Returns: Json
@@ -33087,6 +33477,24 @@ export type Database = {
       ride_offer_retry_unacked_push_deliveries: { Args: never; Returns: number }
       run_digital_finance_migration: { Args: never; Returns: Json }
       schedule_dispatch_sweep: { Args: never; Returns: undefined }
+      scheduled_commitment_estimate_eta_minutes: {
+        Args: {
+          p_from_lat: number
+          p_from_lng: number
+          p_to_lat: number
+          p_to_lng: number
+        }
+        Returns: number
+      }
+      scheduled_commitment_is_feasible: {
+        Args: {
+          p_now: string
+          p_remaining_journey_minutes: number
+          p_scheduled_at: string
+          p_travel_eta_minutes: number
+        }
+        Returns: boolean
+      }
       scheduled_dispatch_sweep: { Args: never; Returns: undefined }
       scheduled_marketplace_is_open: {
         Args: {
@@ -33462,6 +33870,18 @@ export type Database = {
           p_intent_id: string
           p_next_reconcile_at: string
           p_provider_state: string
+        }
+        Returns: boolean
+      }
+      update_trip_capture_job_after_attempt: {
+        Args: {
+          p_admin_alert_key?: string
+          p_claim_token: string
+          p_job_id: string
+          p_last_error?: string
+          p_last_finalize_status?: string
+          p_next_attempt_at?: string
+          p_status: string
         }
         Returns: boolean
       }
