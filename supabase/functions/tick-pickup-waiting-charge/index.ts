@@ -41,11 +41,16 @@ function noShowFieldsFromCounted(input: {
   geofenceStatus: WaitingGeofenceStatus | string | null | undefined;
   config: AdminWaitingConfigSnapshot;
   nowMs: number;
+  scheduledAtIso?: string | null;
+  isScheduledOrigin?: boolean | null;
 }): {
   no_show_remaining_seconds: number;
   no_show_eligible: boolean;
   no_show_eligible_at: string | null;
   can_mark_no_show: boolean;
+  pickup_waiting_state: string;
+  early_arrival: boolean;
+  eligible_waiting_from_at: string | null;
 } {
   const snap = buildPickupWaitingSnapshot({
     driverArrivedAt: input.pickupWaitingStartedAt,
@@ -53,12 +58,19 @@ function noShowFieldsFromCounted(input: {
     config: input.config,
     nowMs: input.nowMs,
     countedInRadiusSeconds: input.countedSeconds,
+    scheduledAtIso: input.scheduledAtIso ?? null,
+    isScheduledOrigin: input.isScheduledOrigin ?? null,
   });
+  const earlyArrival =
+    snap.pickup_waiting_state === "awaiting_scheduled_pickup";
   return {
     no_show_remaining_seconds: snap.no_show_remaining_seconds,
     no_show_eligible: snap.no_show_eligible,
     no_show_eligible_at: snap.no_show_eligible_at,
     can_mark_no_show: snap.no_show_eligible,
+    pickup_waiting_state: snap.pickup_waiting_state,
+    early_arrival: earlyArrival,
+    eligible_waiting_from_at: snap.eligible_waiting_from_at ?? null,
   };
 }
 
@@ -113,7 +125,7 @@ Deno.serve(async (req) => {
     }
 
     const tripSelectCols =
-      "id, driver_id, confirmed_driver_id, status, arrived_at, pickup_arrived_at, pickup_waiting_started_at, service_area_id, vehicle_type_id, pickup_latitude, pickup_longitude, pickup_waiting_charge_pence, pickup_paid_waiting_started_at, grace_period_expired_at, no_show_charge_pence, late_cancel_fee_pence, pickup_waiting_admin_config, pickup_waiting_finalized_at, pickup_waiting_intervals_charged, free_wait_expires_at, final_customer_fare_pence, final_fare_pence, locked_base_fare_pence, stop_waiting_charge_pence, stop_charge_total_pence, customer_modification_charge_pence, modification_delta_pence, accepted_commission_percent, driver_tier_commission_percent, commission_pct, commission_pence, gross_fare_pence, offer_discount_pence, discount_pence, pickup_waiting_counted_seconds, waiting_geofence_status";
+      "id, driver_id, confirmed_driver_id, status, arrived_at, pickup_arrived_at, pickup_waiting_started_at, service_area_id, vehicle_type_id, pickup_latitude, pickup_longitude, pickup_waiting_charge_pence, pickup_paid_waiting_started_at, grace_period_expired_at, no_show_charge_pence, late_cancel_fee_pence, pickup_waiting_admin_config, pickup_waiting_finalized_at, pickup_waiting_intervals_charged, free_wait_expires_at, final_customer_fare_pence, final_fare_pence, locked_base_fare_pence, stop_waiting_charge_pence, stop_charge_total_pence, customer_modification_charge_pence, modification_delta_pence, accepted_commission_percent, driver_tier_commission_percent, commission_pct, commission_pence, gross_fare_pence, offer_discount_pence, discount_pence, pickup_waiting_counted_seconds, waiting_geofence_status, scheduled_at, is_scheduled";
 
     const liveFareFields = (row: Record<string, unknown>, pickupChargeOverride?: number) => {
       const preview = computeLiveTripFarePreview({
@@ -298,6 +310,10 @@ Deno.serve(async (req) => {
       geofenceStatus,
       config,
       nowMs,
+      scheduledAtIso: (trip as { scheduled_at?: string | null }).scheduled_at ?? null,
+      isScheduledOrigin:
+        (trip as { is_scheduled?: boolean | null }).is_scheduled === true ||
+        Boolean((trip as { scheduled_at?: string | null }).scheduled_at),
     });
 
     if (!waitingEvidenceComplete) {

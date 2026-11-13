@@ -629,16 +629,25 @@ export async function buildRestoreActiveTripPayload(
     typeof trip.waiting_geofence_status === "string"
       ? trip.waiting_geofence_status
       : null;
+  const scheduledAtIso =
+    typeof trip.scheduled_at === "string" ? trip.scheduled_at : null;
+  const isScheduledOrigin =
+    trip.is_scheduled === true || Boolean(scheduledAtIso);
   const pickupSnapshot = buildPickupWaitingSnapshot({
     driverArrivedAt,
     waitingStatus: pickupWaitingStatus as
       | "not_started"
       | "blocked_outside_radius"
       | "free_waiting"
-      | "paid_waiting",
+      | "paid_waiting"
+      | "awaiting_scheduled_pickup",
     config,
     countedInRadiusSeconds: driverArrivedAt ? pickupWaitingCountedSeconds : null,
+    scheduledAtIso,
+    isScheduledOrigin,
   });
+  const earlyArrival =
+    pickupSnapshot.pickup_waiting_state === "awaiting_scheduled_pickup";
 
   const currentStop = stops.find((s) => {
     const idx = Number(s.stop_index ?? -1);
@@ -689,6 +698,13 @@ export async function buildRestoreActiveTripPayload(
     waiting_geofence_status: waitingGeofenceStatus,
     pickup_waiting_counted_seconds: pickupWaitingCountedSeconds,
     stop_waiting_counted_seconds: stopWaitingCountedSeconds,
+    pickup_waiting_state: pickupSnapshot.pickup_waiting_state,
+    pickup_waiting_elapsed_seconds: pickupSnapshot.pickup_waiting_elapsed_seconds,
+    pickup_waiting_grace_remaining_seconds:
+      pickupSnapshot.pickup_waiting_grace_remaining_seconds,
+    scheduled_at: scheduledAtIso,
+    eligible_waiting_from_at: pickupSnapshot.eligible_waiting_from_at ?? null,
+    early_arrival: earlyArrival,
   };
 
   return {

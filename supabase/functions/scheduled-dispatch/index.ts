@@ -1173,6 +1173,89 @@ Deno.serve(async (req) => {
     }
 
     // ============================================================
+    // STEP 1y: Early Arrived → auto-start eligible waiting at scheduled_at
+    // No second Arrived press. Opens segment only if inside radius + fresh GPS.
+    // ============================================================
+    {
+      const {
+        isScheduledEarlyArrivalDueForUnlock,
+        unlockScheduledEarlyArrivalWaiting,
+      } = await import("../_shared/scheduledEarlyArrivalUnlockSSOT.ts");
+      const { data: earlyArrivedRows } = await supabase
+        .from("trips")
+        .select(
+          "id, status, scheduled_at, is_scheduled, driver_id, confirmed_driver_id, arrived_at, pickup_arrived_at, pickup_waiting_started_at, pickup_waiting_finalized_at, started_at, pickup_latitude, pickup_longitude, service_area_id",
+        )
+        .eq("is_scheduled", true)
+        .not("pickup_waiting_started_at", "is", null)
+        .is("started_at", null)
+        .is("pickup_waiting_finalized_at", null)
+        .lte("scheduled_at", now.toISOString())
+        .in("status", [
+          "arrived_at_pickup",
+          "arrived",
+          "at_pickup",
+          "waiting",
+          "waiting_at_pickup",
+          "pickup_waiting",
+        ])
+        .order("scheduled_at", { ascending: true })
+        .limit(40);
+
+      for (const row of earlyArrivedRows ?? []) {
+        if (
+          !isScheduledEarlyArrivalDueForUnlock({
+            nowMs,
+            status: row.status,
+            scheduledAtIso: row.scheduled_at,
+            pickupWaitingStartedAt: row.pickup_waiting_started_at,
+            startedAt: row.started_at,
+            pickupWaitingFinalizedAt: row.pickup_waiting_finalized_at,
+          })
+        ) {
+          continue;
+        }
+        let radiusMeters: number | null = 150;
+        let radiusEnabled = true;
+        try {
+          const { data: ds } = await supabase
+            .from("dispatch_settings")
+            .select("pickup_radius_meters, pickup_radius_enabled")
+            .eq("service_area_id", row.service_area_id)
+            .maybeSingle();
+          if (ds) {
+            radiusMeters = Number(ds.pickup_radius_meters) || 150;
+            radiusEnabled = ds.pickup_radius_enabled !== false;
+          }
+        } catch {
+          /* keep defaults */
+        }
+        try {
+          const result = await unlockScheduledEarlyArrivalWaiting(
+            supabase,
+            {
+              ...row,
+              pickup_radius_meters: radiusMeters,
+              pickup_radius_enabled: radiusEnabled,
+            },
+            now.toISOString(),
+          );
+          console.log("SCHEDULED_EARLY_ARRIVAL_UNLOCK", {
+            trip_id: row.id,
+            unlocked: result.unlocked,
+            geofence_status: result.status,
+            counted_seconds: result.countedSeconds,
+          });
+        } catch (unlockErr) {
+          console.warn("[scheduled-dispatch] early arrival unlock failed", {
+            trip_id: row.id,
+            error: unlockErr instanceof Error ? unlockErr.message : String(unlockErr),
+          });
+        }
+      }
+    }
+
+    // ============================================================
     // STEP 1a: ACTIVATION NRO EXPIRED / DECLINED → existing rescue
     // Reuse releaseAndRebroadcast (no parallel rescue engine).
     // ============================================================

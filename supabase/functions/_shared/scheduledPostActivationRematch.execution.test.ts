@@ -225,10 +225,14 @@ Deno.test("D2/D8/D1 source locks", () => {
   );
   assert(dispatch.includes('.is("confirmed_driver_id", null)'));
   assert(dispatch.includes("scheduledPostActivationLatenessSSOT"));
+  assert(dispatch.includes("scheduledEarlyArrivalUnlockSSOT"));
+  assert(dispatch.includes("SCHEDULED_EARLY_ARRIVAL_UNLOCK"));
   const getActive = Deno.readTextFileSync(
     new URL("../get-active-trip/index.ts", import.meta.url),
   );
   assert(getActive.includes('scheduledStatusLive === "driver_en_route"'));
+  assert(getActive.includes("early_arrival"));
+  assert(getActive.includes("eligible_waiting_from_at"));
   const cancelEdge = Deno.readTextFileSync(
     new URL("../driver-cancel-before-pickup/index.ts", import.meta.url),
   );
@@ -240,4 +244,41 @@ Deno.test("D2/D8/D1 source locks", () => {
   );
   assert(stopWf.includes('.is("confirmed_driver_id", null)'));
   assert(stopWf.includes("ASSIGNMENT_TAKEN"));
+  assert(stopWf.includes("eligibleFromMsForPickupTrip"));
+  assert(stopWf.includes("early_arrival"));
 });
+
+Deno.test("D4 early arrival unlock gate — due only at/after scheduled_at", async () => {
+  const { isScheduledEarlyArrivalDueForUnlock } = await import(
+    "./scheduledEarlyArrivalUnlockSSOT.ts"
+  );
+  const base = {
+    status: "arrived_at_pickup",
+    scheduledAtIso: "2026-11-13T14:00:00.000Z",
+    pickupWaitingStartedAt: "2026-11-13T13:45:00.000Z",
+    startedAt: null as string | null,
+  };
+  assertEquals(
+    isScheduledEarlyArrivalDueForUnlock({
+      ...base,
+      nowMs: Date.parse("2026-11-13T13:59:00.000Z"),
+    }),
+    false,
+  );
+  assertEquals(
+    isScheduledEarlyArrivalDueForUnlock({
+      ...base,
+      nowMs: Date.parse("2026-11-13T14:00:00.000Z"),
+    }),
+    true,
+  );
+  assertEquals(
+    isScheduledEarlyArrivalDueForUnlock({
+      ...base,
+      nowMs: Date.parse("2026-11-13T14:00:00.000Z"),
+      startedAt: "2026-11-13T13:50:00.000Z",
+    }),
+    false,
+  );
+});
+

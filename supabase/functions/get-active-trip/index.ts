@@ -13,6 +13,13 @@ import {
   isScheduledWorkflowOrigin,
 } from "../_shared/scheduledHandoverHoldLock.ts";
 import { expireTripWhenSearchExhaustedAndNotifyCustomer } from "../_shared/customerTripLifecycleNotify.ts";
+import {
+  buildPickupWaitingSnapshot,
+  loadAdminWaitingConfig,
+  resolveFrozenOrLiveWaitingConfig,
+  resolveFrozenWaitingConfigOrNull,
+  type AdminWaitingConfigSnapshot,
+} from "../_shared/waitingAdminConfig.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -571,6 +578,46 @@ serveWithEdgeTiming("get-active-trip", corsHeaders, async (req) => {
       }
     }
 
+    // D4: authoritative early-arrival / free-wait / no-show projection for Customer.
+    const existingFrozen = trip.pickup_waiting_admin_config ?? null;
+    const frozenOnly = resolveFrozenWaitingConfigOrNull(existingFrozen);
+    const liveWaitingConfig =
+      frozenOnly == null
+        ? await loadAdminWaitingConfig(
+          supabase,
+          trip.service_area_id ?? null,
+          trip.vehicle_type_id ?? null,
+        )
+        : null;
+    const waitingConfig: AdminWaitingConfigSnapshot =
+      frozenOnly ??
+      (existingFrozen && liveWaitingConfig
+        ? resolveFrozenOrLiveWaitingConfig(existingFrozen, liveWaitingConfig)
+        : liveWaitingConfig!);
+    const driverArrivedAt =
+      (typeof trip.pickup_waiting_started_at === "string" &&
+        trip.pickup_waiting_started_at) ||
+      (typeof trip.pickup_arrived_at === "string" && trip.pickup_arrived_at) ||
+      (typeof trip.arrived_at === "string" && trip.arrived_at) ||
+      null;
+    const scheduledAtIso =
+      typeof trip.scheduled_at === "string" ? trip.scheduled_at : null;
+    const pickupWaitingCountedSeconds = Math.max(
+      0,
+      Math.floor(Number(trip.pickup_waiting_counted_seconds ?? 0)),
+    );
+    const pickupWaitingSnapshot = buildPickupWaitingSnapshot({
+      driverArrivedAt,
+      waitingStatus: driverArrivedAt ? "free_waiting" : "not_started",
+      config: waitingConfig,
+      countedInRadiusSeconds: driverArrivedAt ? pickupWaitingCountedSeconds : null,
+      scheduledAtIso,
+      isScheduledOrigin:
+        trip.is_scheduled === true || Boolean(scheduledAtIso),
+    });
+    const earlyArrival =
+      pickupWaitingSnapshot.pickup_waiting_state === "awaiting_scheduled_pickup";
+
     const displayFarePence = resolveCustomerPreauthBasePence(trip);
     const displayFareMajor = displayFarePence / 100;
     const liveFarePreview = computeLiveTripFarePreview({
@@ -720,10 +767,26 @@ serveWithEdgeTiming("get-active-trip", corsHeaders, async (req) => {
           pickupWaitingStartedAt: trip.pickup_waiting_started_at ?? null,
           pickupPaidWaitingStartedAt: trip.pickup_paid_waiting_started_at ?? null,
           gracePeriodExpiredAt: trip.grace_period_expired_at ?? null,
-          freeWaitExpiresAt: trip.free_wait_expires_at ?? null,
-          pickupWaitingFreeExpiresAt: trip.free_wait_expires_at ?? null,
-          pickupWaitingAdminConfig: trip.pickup_waiting_admin_config ?? null,
-          adminWaitingConfigSnapshot: trip.pickup_waiting_admin_config ?? null,
+          freeWaitExpiresAt:
+            trip.free_wait_expires_at ??
+            pickupWaitingSnapshot.pickup_waiting_free_expires_at ??
+            null,
+          pickupWaitingFreeExpiresAt:
+            trip.free_wait_expires_at ??
+            pickupWaitingSnapshot.pickup_waiting_free_expires_at ??
+            null,
+          pickupWaitingState: pickupWaitingSnapshot.pickup_waiting_state,
+          pickup_waiting_state: pickupWaitingSnapshot.pickup_waiting_state,
+          eligibleWaitingFromAt:
+            pickupWaitingSnapshot.eligible_waiting_from_at ?? null,
+          eligible_waiting_from_at:
+            pickupWaitingSnapshot.eligible_waiting_from_at ?? null,
+          earlyArrival,
+          early_arrival: earlyArrival,
+          pickupWaitingAdminConfig:
+            trip.pickup_waiting_admin_config ?? waitingConfig,
+          adminWaitingConfigSnapshot:
+            trip.pickup_waiting_admin_config ?? waitingConfig,
           pickupWaitingChargePence: trip.pickup_waiting_charge_pence ?? null,
           finalCustomerFarePence: liveFarePreview.final_customer_fare_pence,
           stopWaitingChargePence: liveFarePreview.stop_waiting_charge_pence,

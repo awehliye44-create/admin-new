@@ -769,7 +769,7 @@ function mergeTripWaitingCtx(
 }
 
 const ARRIVE_WAITING_TRIP_SELECT =
-  "id, status, arrived_at, pickup_arrived_at, pickup_waiting_started_at, pickup_waiting_admin_config, free_wait_expires_at, pickup_waiting_charge_pence, pickup_paid_waiting_started_at, pickup_waiting_finalized_at, pickup_waiting_intervals_charged, pickup_waiting_counted_seconds, stop_waiting_counted_seconds, waiting_geofence_status, waiting_geofence_distance_m, service_area_id, vehicle_type_id, driver_id, confirmed_driver_id, financial_model, driver_net_pence, driver_net_before_tip_pence, airport_charge_pence, commissionable_fare_pence, updated_at";
+  "id, status, arrived_at, pickup_arrived_at, pickup_waiting_started_at, pickup_waiting_admin_config, free_wait_expires_at, pickup_waiting_charge_pence, pickup_paid_waiting_started_at, pickup_waiting_finalized_at, pickup_waiting_intervals_charged, pickup_waiting_counted_seconds, stop_waiting_counted_seconds, waiting_geofence_status, waiting_geofence_distance_m, service_area_id, vehicle_type_id, driver_id, confirmed_driver_id, financial_model, driver_net_pence, driver_net_before_tip_pence, airport_charge_pence, commissionable_fare_pence, scheduled_at, is_scheduled, updated_at";
 
 function resolveWaitingStatusFromResult(
   waitingResult: PickupWaitingStartResult | StopWaitingStartResult,
@@ -839,13 +839,24 @@ async function enrichArrivalWaitingSnapshot(
         ctx.trip.pickup_waiting_started_at.trim()
         ? ctx.trip.pickup_waiting_started_at
         : null;
-    const freeWaitExpiresAt =
-      waitingAnchorIso != null
-        ? new Date(
-          new Date(waitingAnchorIso).getTime() +
-            config.free_pickup_waiting_seconds * 1000,
-        ).toISOString()
-        : null;
+    // D4: free-wait clock starts at max(arrived, scheduled_at), not early Arrived alone.
+    const eligibleFromMs = eligibleFromMsForPickupTrip({
+      arrived_at: ctx.trip.arrived_at ?? null,
+      pickup_arrived_at: ctx.trip.pickup_arrived_at ?? null,
+      scheduled_at: (ctx.trip as { scheduled_at?: string | null }).scheduled_at ?? null,
+      is_scheduled: (ctx.trip as { is_scheduled?: boolean | null }).is_scheduled ?? null,
+    });
+    const freeWaitAnchorMs =
+      eligibleFromMs != null && Number.isFinite(eligibleFromMs)
+        ? eligibleFromMs
+        : waitingAnchorIso
+        ? Date.parse(waitingAnchorIso)
+        : NaN;
+    const freeWaitExpiresAt = Number.isFinite(freeWaitAnchorMs)
+      ? new Date(
+        freeWaitAnchorMs + config.free_pickup_waiting_seconds * 1000,
+      ).toISOString()
+      : null;
 
     const existingObj =
       existingFrozen && typeof existingFrozen === "object" && !Array.isArray(existingFrozen)
@@ -970,8 +981,13 @@ async function enrichArrivalWaitingSnapshot(
 
   const freeWaitExpiresAt =
     waitingStartedAt != null
-      ? (ctx.trip.free_wait_expires_at ?? pickupSnapshot.pickup_waiting_free_expires_at)
+      ? (pickupSnapshot.pickup_waiting_free_expires_at ??
+        ctx.trip.free_wait_expires_at)
       : null;
+  const scheduledAtIso =
+    (ctx.trip as { scheduled_at?: string | null }).scheduled_at ?? null;
+  const earlyArrival =
+    pickupSnapshot.pickup_waiting_state === "awaiting_scheduled_pickup";
 
   return {
     ...radiusFields,
@@ -987,6 +1003,9 @@ async function enrichArrivalWaitingSnapshot(
     no_show_eligible_at: pickupSnapshot.no_show_eligible_at,
     no_show_eligible: pickupSnapshot.no_show_eligible,
     no_show_remaining_seconds: pickupSnapshot.no_show_remaining_seconds,
+    scheduled_at: scheduledAtIso,
+    eligible_waiting_from_at: pickupSnapshot.eligible_waiting_from_at ?? null,
+    early_arrival: earlyArrival,
     pickup_waiting_counted_seconds: pickupCountedSeconds,
     stop_waiting_counted_seconds: Math.max(
       0,
