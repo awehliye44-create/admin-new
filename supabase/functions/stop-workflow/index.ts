@@ -768,7 +768,7 @@ function mergeTripWaitingCtx(
 }
 
 const ARRIVE_WAITING_TRIP_SELECT =
-  "id, status, arrived_at, pickup_arrived_at, pickup_waiting_started_at, pickup_waiting_admin_config, free_wait_expires_at, pickup_waiting_charge_pence, pickup_paid_waiting_started_at, pickup_waiting_finalized_at, pickup_waiting_intervals_charged, pickup_waiting_counted_seconds, stop_waiting_counted_seconds, waiting_geofence_status, waiting_geofence_distance_m, service_area_id, vehicle_type_id, driver_id, financial_model, updated_at";
+  "id, status, arrived_at, pickup_arrived_at, pickup_waiting_started_at, pickup_waiting_admin_config, free_wait_expires_at, pickup_waiting_charge_pence, pickup_paid_waiting_started_at, pickup_waiting_finalized_at, pickup_waiting_intervals_charged, pickup_waiting_counted_seconds, stop_waiting_counted_seconds, waiting_geofence_status, waiting_geofence_distance_m, service_area_id, vehicle_type_id, driver_id, confirmed_driver_id, financial_model, driver_net_pence, driver_net_before_tip_pence, airport_charge_pence, commissionable_fare_pence, updated_at";
 
 function resolveWaitingStatusFromResult(
   waitingResult: PickupWaitingStartResult | StopWaitingStartResult,
@@ -1113,9 +1113,14 @@ async function tryStartPickupWaiting(
       perf?.mark("waiting_geofence_end");
       distanceM = clock.distanceMeters ?? null;
     }
+    const outsideExisting =
+      radius.enabled &&
+      distanceM != null &&
+      radius.meters != null &&
+      distanceM > radius.meters;
     return {
       started: true,
-      waiting_status: 'free_waiting',
+      waiting_status: outsideExisting ? 'blocked_outside_radius' : 'free_waiting',
       allowed_radius_meters: radius.meters,
       distance_meters: distanceM,
       startedAt: trip.pickup_waiting_started_at,
@@ -1246,7 +1251,9 @@ async function tryStartPickupWaiting(
 
   return {
     started: true,
-    waiting_status: 'free_waiting',
+    // Session exists; eligible accumulation stays geofenced. Outside → blocked
+    // so Driver/Customer pause free/chargeable clocks (money already segment-based).
+    waiting_status: outsideRadius ? 'blocked_outside_radius' : 'free_waiting',
     allowed_radius_meters: allowedRadius,
     distance_meters: distanceM,
     startedAt: startResult.startedAt,
