@@ -12,7 +12,10 @@ declare const EdgeRuntime:
  * Best-effort invoke of publish-customer-live-trip after lifecycle changes.
  * Failures are logged only — callers must not await for correctness of booking.
  */
-export function publishCustomerLiveTripBestEffort(tripId: string): void {
+export function publishCustomerLiveTripBestEffort(
+  tripId: string,
+  opts?: { priority?: "lifecycle" | "assignment" | "rematch" | "arrival" | "terminal" | "eta" },
+): void {
   const id = tripId.trim();
   if (!id) return;
 
@@ -34,7 +37,10 @@ export function publishCustomerLiveTripBestEffort(tripId: string): void {
           apikey: serviceRoleKey,
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ trip_id: id }),
+        body: JSON.stringify({
+          trip_id: id,
+          priority: opts?.priority ?? "lifecycle",
+        }),
       },
     );
     if (!response.ok) {

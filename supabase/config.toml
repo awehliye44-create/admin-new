@@ -367,6 +367,16 @@ verify_jwt = false
 [functions.reconcile-payment-session]
 verify_jwt = false
 
+# Customer Live Trip Lock Screen — presentation delivery only.
+[functions.publish-customer-live-trip]
+verify_jwt = false
+
+[functions.register-customer-live-activity-token]
+verify_jwt = false
+
+[functions.refresh-customer-live-trip-etas]
+verify_jwt = false
+
 # --- AUTH SSOT (managed) ---
 # enable_confirmations=false: public /auth/v1/signup must not call broken GoTrue SMTP.
 # Customer phone OTP is MSG91 Edge (not GoTrue SMS). Keep redirect allow-list for deep links.

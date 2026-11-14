@@ -8,6 +8,7 @@ import {
   resolveCustomerLiveTripEligibility,
   type LiveTripEligibilityInput,
 } from "./customerLiveTripEligibilitySSOT.ts";
+import { resolveAuthoritativeLiveTripEta } from "./customerLiveTripEtaSSOT.ts";
 
 export type LiveTripProjectionRow = {
   trip_id: string;
@@ -247,6 +248,15 @@ export function buildCustomerLiveTripProjection(args: {
   customerId?: string | null;
   previous?: Partial<LiveTripProjectionRow> | null;
   nowMs?: number;
+  /** Explicit ETA override (publish body / Customer tick). */
+  etaOverrideMinutes?: number | null;
+  /** Existing trip_route_cache row for the active leg — never fetched here. */
+  cachedRoute?: {
+    duration_min?: number | null;
+    eta_at?: string | null;
+    expires_at?: string | null;
+    cached_at?: string | null;
+  } | null;
 }): LiveTripProjectionRow | null {
   const trip = args.trip;
   const tripId = readString(trip.id) ?? readString(trip.trip_id);
@@ -321,12 +331,21 @@ export function buildCustomerLiveTripProjection(args: {
   const previousPresentation = Number(args.previous?.presentation_version ?? 0) || 0;
   const presentationVersion = previousPresentation + 1;
 
-  const etaMinutes = showDriver
-    ? (readNumber(driverNode?.etaMinutes) ??
+  const etaResolution = resolveAuthoritativeLiveTripEta({
+    lifecycleStage: stage,
+    showDriver,
+    nowMs,
+    etaOverrideMinutes:
+      args.etaOverrideMinutes ??
+      readNumber(driverNode?.etaMinutes) ??
       readNumber(driverNode?.eta_minutes) ??
       readNumber(trip.eta_minutes) ??
-      null)
-    : null;
+      null,
+    cachedRoute: args.cachedRoute ?? null,
+    lastEtaMinutes: readNumber(trip.last_eta_minutes),
+    lastEtaCalculatedAt: readString(trip.last_eta_calculated_at),
+  });
+  const etaMinutes = etaResolution.etaMinutes;
 
   const ratingCount =
     readNumber(driverNode?.rating_count) ?? readNumber(trip.driver_rating_count);
@@ -352,12 +371,9 @@ export function buildCustomerLiveTripProjection(args: {
     phase: stage,
     statusTitle: copy.status_title,
     statusDescription: copy.status_description,
-    etaLabel:
-      etaMinutes == null
-        ? null
-        : etaMinutes <= 0
-        ? "<1 min"
-        : `${Math.round(etaMinutes)} min`,
+    etaLabel: etaResolution.etaLabel,
+    etaFresh: etaResolution.fresh,
+    etaSource: etaResolution.source,
     progressStepIndex: copy.progress_step_index,
     showDriverVehicle: showDriver,
     assignedDriverId: assignedDriverId ?? "unassigned",

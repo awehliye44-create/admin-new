@@ -59,6 +59,44 @@ async function apnsJwt(): Promise<string> {
   return `${unsigned}.${sigB64}`;
 }
 
+const APNS_PRODUCTION_HOST = "https://api.push.apple.com";
+const APNS_SANDBOX_HOST = "https://api.sandbox.push.apple.com";
+
+function apnsHostsForAttempt(preferred?: string | null): string[] {
+  const primary =
+    preferred?.trim() ||
+    Deno.env.get("APNS_HOST")?.trim() ||
+    APNS_PRODUCTION_HOST;
+  const other = primary.includes("sandbox")
+    ? APNS_PRODUCTION_HOST
+    : APNS_SANDBOX_HOST;
+  // Always allow one fallback host: development-signed Release IPAs use sandbox
+  // tokens even when the client reports production.
+  return primary === other ? [primary] : [primary, other];
+}
+
+async function postLiveActivityApns(args: {
+  host: string;
+  jwt: string;
+  topic: string;
+  pushToken: string;
+  aps: Record<string, unknown>;
+}): Promise<{ ok: boolean; status: number; body: string }> {
+  const res = await fetch(`${args.host}/3/device/${args.pushToken}`, {
+    method: "POST",
+    headers: {
+      authorization: `bearer ${args.jwt}`,
+      "apns-topic": args.topic,
+      "apns-push-type": "liveactivity",
+      "apns-priority": "10",
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({ aps: args.aps }),
+  });
+  const body = await res.text();
+  return { ok: res.ok, status: res.status, body };
+}
+
 export async function sendCustomerLiveActivityApns(args: {
   pushToken: string;
   event: LiveActivityApnsEvent;
@@ -71,15 +109,14 @@ export async function sendCustomerLiveActivityApns(args: {
   staleDateSec?: number;
   alertTitle?: string;
   alertBody?: string;
+  /** Optional token-scoped host (production / sandbox). */
+  apnsHost?: string | null;
 }): Promise<{ ok: boolean; status: number; body: string }> {
   if (!liveActivityApnsConfigured()) {
     return { ok: false, status: 0, body: "APNS_NOT_CONFIGURED" };
   }
   const bundleId = customerBundleId();
   const topic = `${bundleId}.push-type.liveactivity`;
-  const host =
-    Deno.env.get("APNS_HOST")?.trim() ||
-    "https://api.push.apple.com";
   const jwt = await apnsJwt();
 
   const aps: Record<string, unknown> = {
@@ -105,17 +142,24 @@ export async function sendCustomerLiveActivityApns(args: {
     aps["stale-date"] = args.staleDateSec;
   }
 
-  const res = await fetch(`${host}/3/device/${args.pushToken}`, {
-    method: "POST",
-    headers: {
-      authorization: `bearer ${jwt}`,
-      "apns-topic": topic,
-      "apns-push-type": "liveactivity",
-      "apns-priority": "10",
-      "content-type": "application/json",
-    },
-    body: JSON.stringify({ aps }),
-  });
-  const body = await res.text();
-  return { ok: res.ok, status: res.status, body };
+  const hosts = apnsHostsForAttempt(args.apnsHost);
+  let last: { ok: boolean; status: number; body: string } = {
+    ok: false,
+    status: 0,
+    body: "APNS_NO_HOST",
+  };
+  for (const host of hosts) {
+    last = await postLiveActivityApns({
+      host,
+      jwt,
+      topic,
+      pushToken: args.pushToken,
+      aps,
+    });
+    if (last.ok || last.status === 410) return last;
+    // Wrong APNs environment commonly returns 400 BadDeviceToken — try fallback host.
+    if (last.status === 400 && hosts.length > 1) continue;
+    break;
+  }
+  return last;
 }

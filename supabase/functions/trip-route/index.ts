@@ -29,6 +29,7 @@ import {
   type RouteLeg,
   type RerouteReason,
 } from "../_shared/routeCache.ts";
+import { publishCustomerLiveTripBestEffort } from "../_shared/publishCustomerLiveTripBestEffort.ts";
 
 const RATE_LIMIT_CONFIG = { limit: 60, windowMs: 60 * 1000 };
 
@@ -89,6 +90,9 @@ serve(async (req) => {
           waypoints
         );
 
+        // Best-effort Live Trip lock-screen ETA from the same authoritative cache.
+        publishCustomerLiveTripBestEffort(String(trip_id), { priority: "eta" });
+
         return successResponse({ route });
       }
 
@@ -131,6 +135,8 @@ serve(async (req) => {
           triggerReason,
           true // force refresh
         );
+
+        publishCustomerLiveTripBestEffort(String(trip_id), { priority: "eta" });
 
         return successResponse({ rerouted: true, reason: triggerReason, route: newRoute });
       }

@@ -57,6 +57,14 @@ Deno.serve(async (req) => {
     const bundleId =
       sanitizeString(String(body.bundle_id ?? body.bundleId ?? ""), 128) ||
       "com.onecab.customer.app";
+    const apnsEnvironmentRaw = sanitizeString(
+      String(body.apns_environment ?? body.apnsEnvironment ?? ""),
+      32,
+    ).toLowerCase();
+    const apnsEnvironment =
+      apnsEnvironmentRaw === "sandbox" || apnsEnvironmentRaw === "production"
+        ? apnsEnvironmentRaw
+        : null;
     const invalidate = body.invalidate === true;
 
     const errors: Record<string, string> = {};
@@ -123,7 +131,7 @@ Deno.serve(async (req) => {
       });
     }
 
-    const row = {
+    const row: Record<string, unknown> = {
       customer_user_id: user.id,
       device_id: deviceId,
       trip_id: tripIdRaw || null,
@@ -135,6 +143,7 @@ Deno.serve(async (req) => {
       updated_at: new Date().toISOString(),
       invalidated_at: null,
     };
+    if (apnsEnvironment) row.apns_environment = apnsEnvironment;
 
     const { error: upsertErr } = await admin
       .from("customer_live_activity_tokens")

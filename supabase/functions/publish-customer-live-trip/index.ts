@@ -26,7 +26,11 @@ import {
   sendFcmHttpV1Message,
 } from "../_shared/fcmHttpV1.ts";
 import { resolveCustomerAuthoritativeToken } from "../_shared/authoritativeDevicePush.ts";
-import { isCustomerLiveTripFeatureEnabled } from "../_shared/customerLiveTripFeatureFlag.ts";
+import { resolveCustomerLiveTripPlatformGates } from "../_shared/customerLiveTripFeatureFlag.ts";
+import {
+  peekTripRouteCacheLeg,
+  resolveLiveTripEtaLeg,
+} from "../_shared/customerLiveTripEtaSSOT.ts";
 
 const RATE = { limit: 400, windowMs: 60_000, keyPrefix: "pub-live-trip" };
 
@@ -49,6 +53,9 @@ Deno.serve(async (req) => {
     if (!tripId || !isValidUUID(tripId)) {
       return validationErrorResponse({ trip_id: "trip_id UUID required" });
     }
+
+    const priority = String(body.priority ?? "").trim().toLowerCase();
+    const forceEnd = body.force_end === true || body.forceEnd === true;
 
     const { data: trip, error: tripErr } = await admin
       .from("trips")
@@ -83,7 +90,7 @@ Deno.serve(async (req) => {
       }
     }
 
-    const featureEnabled = await isCustomerLiveTripFeatureEnabled(admin);
+    const gates = await resolveCustomerLiveTripPlatformGates(admin);
 
     const { data: previous } = await admin
       .from("customer_live_trip_projections")
@@ -97,35 +104,139 @@ Deno.serve(async (req) => {
         ? etaOverrideRaw
         : null;
 
-    const tripForProjection = {
-      ...(trip as Record<string, unknown>),
-      ...(etaOverride != null ? { eta_minutes: etaOverride } : {}),
-    };
+    // Peek existing route cache only — never force a Google/Mapbox refresh here.
+    const provisionalStageHint = String(
+      (previous as { lifecycle_stage?: string } | null)?.lifecycle_stage ?? "",
+    );
+    const hintLeg =
+      resolveLiveTripEtaLeg(provisionalStageHint) ??
+      resolveLiveTripEtaLeg("heading_to_pickup");
+    const cachedRoute = hintLeg
+      ? await peekTripRouteCacheLeg(admin, tripId, hintLeg)
+      : null;
 
-    const projection = buildCustomerLiveTripProjection({
-      trip: tripForProjection,
+    // Second peek after projection stage is known (below) if stage implies other leg.
+    let projection = buildCustomerLiveTripProjection({
+      trip: trip as Record<string, unknown>,
       customerUserId,
       customerId,
       previous: previous as Record<string, unknown> | null,
+      etaOverrideMinutes: etaOverride,
+      cachedRoute,
     });
     if (!projection) {
       return errorResponse("PROJECTION_FAILED", "Could not build projection", 500);
     }
 
-    // Feature OFF: still persist terminal cleanup projections, skip push fanout
-    // for live updates so unsupported / pre-release builds stay quiet.
-    const allowFanout =
-      featureEnabled || projection.terminal || !projection.eligible;
+    const stageLeg = resolveLiveTripEtaLeg(projection.lifecycle_stage);
+    if (stageLeg && stageLeg !== hintLeg) {
+      const stageCache = await peekTripRouteCacheLeg(admin, tripId, stageLeg);
+      projection = buildCustomerLiveTripProjection({
+        trip: trip as Record<string, unknown>,
+        customerUserId,
+        customerId,
+        previous: previous as Record<string, unknown> | null,
+        etaOverrideMinutes: etaOverride,
+        cachedRoute: stageCache,
+      })!;
+    }
 
-    const { error: upsertErr } = await admin
-      .from("customer_live_trip_projections")
-      .upsert({
+    const hadLive =
+      Boolean(previous?.eligible) && !Boolean(previous?.terminal);
+    const emergencyEndExisting =
+      (!gates.globalEnabled || forceEnd) && hadLive;
+    if (emergencyEndExisting) {
+      projection = {
         ...projection,
-        last_published_at: new Date().toISOString(),
+        eligible: false,
+        terminal: true,
+        lifecycle_stage: "ended",
+        eta_minutes: null,
+        status_title: "Trip ended",
+        status_description: "Live tracking ended",
+        content_state: {
+          ...projection.content_state,
+          phase: "ended",
+          statusTitle: "Trip ended",
+          statusDescription: "Live tracking ended",
+          etaLabel: null,
+          showDriverVehicle: false,
+          silent: true,
+        },
+        stale_at: null,
+      };
+    }
+
+    // Coalesce routine ETA ticks: skip fanout when nothing material changed recently.
+    const coalesceMs = 35_000;
+    const lastPublishedMs = previous?.last_published_at
+      ? Date.parse(String(previous.last_published_at))
+      : 0;
+    const etaUnchanged =
+      previous?.eta_minutes === projection.eta_minutes &&
+      previous?.lifecycle_stage === projection.lifecycle_stage &&
+      previous?.assignment_generation === projection.assignment_generation;
+    const isPriority =
+      priority === "lifecycle" ||
+      priority === "assignment" ||
+      priority === "rematch" ||
+      priority === "arrival" ||
+      priority === "terminal" ||
+      emergencyEndExisting ||
+      projection.terminal ||
+      !projection.eligible;
+    const withinCoalesce =
+      Number.isFinite(lastPublishedMs) &&
+      Date.now() - lastPublishedMs < coalesceMs &&
+      etaUnchanged &&
+      !isPriority;
+
+    // Feature OFF: still persist + fanout end for previously live activities.
+    const allowPersist = true;
+    const allowIosFanout =
+      (gates.iosEnabled || emergencyEndExisting) && liveActivityApnsConfigured();
+    const allowAndroidFanout = gates.androidEnabled || emergencyEndExisting;
+    const allowFanout =
+      !withinCoalesce &&
+      (allowIosFanout || allowAndroidFanout) &&
+      (gates.globalEnabled || emergencyEndExisting || projection.terminal ||
+        !projection.eligible);
+
+    if (allowPersist) {
+      const { error: upsertErr } = await admin
+        .from("customer_live_trip_projections")
+        .upsert({
+          ...projection,
+          last_published_at: withinCoalesce
+            ? previous?.last_published_at ?? new Date().toISOString()
+            : new Date().toISOString(),
+        });
+      if (upsertErr) {
+        console.error("[publish-customer-live-trip] upsert", upsertErr);
+        // Do not fail trip producers hard — still attempt best-effort fanout.
+      }
+    }
+
+    if (withinCoalesce) {
+      return successResponse({
+        ok: true,
+        trip_id: tripId,
+        coalesced: true,
+        eligible: projection.eligible,
+        terminal: projection.terminal,
+        assignment_generation: projection.assignment_generation,
+        presentation_version: projection.presentation_version,
+        lifecycle_stage: projection.lifecycle_stage,
+        feature_enabled: gates.globalEnabled,
+        gates,
+        fanout: false,
+        delivery: {
+          apns_attempted: false,
+          apns_ok: false,
+          fcm_attempted: false,
+          fcm_ok: false,
+        },
       });
-    if (upsertErr) {
-      console.error("[publish-customer-live-trip] upsert", upsertErr);
-      // Do not fail trip producers hard — still attempt best-effort fanout.
     }
 
     const delivery: Record<string, unknown> = {
@@ -135,11 +246,18 @@ Deno.serve(async (req) => {
       fcm_ok: false,
     };
 
-    // iOS ActivityKit — start / update / end. Skipped when feature OFF (except end).
-    if (allowFanout && liveActivityApnsConfigured()) {
+    const event =
+      projection.terminal || !projection.eligible || emergencyEndExisting
+        ? "end"
+        : hadLive
+        ? "update"
+        : "start";
+
+    // iOS ActivityKit — gated on APNs readiness (Android independent).
+    if (allowFanout && allowIosFanout) {
       const { data: tokens } = await admin
         .from("customer_live_activity_tokens")
-        .select("push_token, push_to_start_token, trip_id")
+        .select("push_token, push_to_start_token, trip_id, apns_environment")
         .eq("customer_user_id", customerUserId)
         .is("invalidated_at", null)
         .or(`trip_id.eq.${tripId},trip_id.is.null`);
@@ -148,19 +266,18 @@ Deno.serve(async (req) => {
       const staleSec = projection.stale_at
         ? Math.floor(Date.parse(projection.stale_at) / 1000)
         : nowSec + 8 * 60;
-      const hadLive =
-        Boolean(previous?.eligible) && !Boolean(previous?.terminal);
-      const event =
-        projection.terminal || !projection.eligible
-          ? "end"
-          : hadLive
-          ? "update"
-          : "start";
 
       for (const row of tokens ?? []) {
         const token = String(row.push_token ?? "").trim();
         if (!token) continue;
         delivery.apns_attempted = true;
+        const env = String(row.apns_environment ?? "").trim().toLowerCase();
+        const apnsHost =
+          env === "sandbox"
+            ? "https://api.sandbox.push.apple.com"
+            : env === "production"
+            ? "https://api.push.apple.com"
+            : null;
         const result = await sendCustomerLiveActivityApns({
           pushToken: token,
           event,
@@ -179,6 +296,7 @@ Deno.serve(async (req) => {
             event === "start"
               ? String(projection.status_title || "Live trip tracking")
               : undefined,
+          apnsHost,
         });
         delivery.apns_ok = Boolean(delivery.apns_ok) || result.ok;
         if (!result.ok && result.status === 410) {
@@ -192,7 +310,7 @@ Deno.serve(async (req) => {
 
     // Android: data-only FCM for native LiveTrip handler (no alert / sound).
     const serviceAccountJson = readFcmServiceAccountJson();
-    if (allowFanout && serviceAccountJson) {
+    if (allowFanout && allowAndroidFanout && serviceAccountJson) {
       try {
         const authToken = await resolveCustomerAuthoritativeToken(
           admin,
@@ -238,8 +356,10 @@ Deno.serve(async (req) => {
       assignment_generation: projection.assignment_generation,
       presentation_version: projection.presentation_version,
       lifecycle_stage: projection.lifecycle_stage,
-      feature_enabled: featureEnabled,
+      feature_enabled: gates.globalEnabled,
+      gates,
       fanout: allowFanout,
+      event,
       delivery,
     });
   } catch (err) {
