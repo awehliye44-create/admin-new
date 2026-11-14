@@ -29962,6 +29962,10 @@ export type Database = {
         Args: { p_op: string; p_table: string }
         Returns: string[]
       }
+      _admin_page_patch_value: {
+        Args: { p_col: string; p_table: string; p_val: Json }
+        Returns: string
+      }
       _admin_page_pred_group: {
         Args: { p_allowed_cols: string[]; p_filters: Json; p_table: string }
         Returns: string
