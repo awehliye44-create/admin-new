@@ -47,10 +47,16 @@ interface NotificationPayload {
     // Scheduled Jobs marketplace / commitment alerts (not NRO envelopes).
     | 'SCHEDULED_RIDE_REQUEST'
     | 'SCHEDULED_JOB_CONFIRMED'
-    | 'SCHEDULED_COMMITMENT';
+    | 'SCHEDULED_COMMITMENT'
+    // Silent GPS readiness wake for confirmed scheduled JIT (no tray / no sound).
+    | 'SCHEDULED_JIT_LOCATION_READINESS';
   title: string;
   body: string;
   data?: Record<string, string>;
+  /** Optional aliases accepted on the wire (normalised below). */
+  driver_id?: string;
+  silent?: boolean;
+  skip_alert?: boolean;
 }
 
 const VALID_NOTIFICATION_TYPES = [
@@ -63,6 +69,7 @@ const VALID_NOTIFICATION_TYPES = [
   'SCHEDULED_RIDE_REQUEST',
   'SCHEDULED_JOB_CONFIRMED',
   'SCHEDULED_COMMITMENT',
+  'SCHEDULED_JIT_LOCATION_READINESS',
 ];
 const RATE_LIMIT_CONFIG = { limit: 200, windowMs: 60000, keyPrefix: 'send-notification' };
 
@@ -254,7 +261,14 @@ Deno.serve(async (req) => {
     }
 
     const supabase = createClient(SUPABASE_URL, SERVICE_ROLE_KEY);
-    const payload: NotificationPayload = await req.json();
+    const rawPayload = await req.json() as NotificationPayload & {
+      driver_id?: string;
+    };
+    // Accept driverId or driver_id (JIT readiness invoke historically used snake_case).
+    const payload: NotificationPayload = {
+      ...rawPayload,
+      driverId: rawPayload.driverId || rawPayload.driver_id || "",
+    };
 
     console.log("[send-driver-notification] Request:", {
       driverId: payload.driverId,
@@ -274,14 +288,23 @@ Deno.serve(async (req) => {
     } else if (!isValidAction(payload.type, VALID_NOTIFICATION_TYPES)) {
       validationErrors.type = `type must be one of: ${VALID_NOTIFICATION_TYPES.join(', ')}`;
     }
-    if (!payload.title) validationErrors.title = "title is required";
-    if (!payload.body) validationErrors.body = "body is required";
+    const isJitLocationReadiness =
+      payload.type === 'SCHEDULED_JIT_LOCATION_READINESS';
+    // Silent readiness: empty title/body is intentional (no tray copy).
+    if (!isJitLocationReadiness) {
+      if (!payload.title) validationErrors.title = "title is required";
+      if (!payload.body) validationErrors.body = "body is required";
+    }
     if (Object.keys(validationErrors).length > 0) {
       return validationErrorResponse(validationErrors);
     }
 
-    const sanitizedTitle = sanitizeString(payload.title, 100) || 'Notification';
-    const sanitizedBody = sanitizeString(payload.body, 500) || '';
+    const sanitizedTitle = isJitLocationReadiness
+      ? ''
+      : (sanitizeString(payload.title, 100) || 'Notification');
+    const sanitizedBody = isJitLocationReadiness
+      ? ''
+      : (sanitizeString(payload.body, 500) || '');
 
     const isRideOffer = payload.type === 'RIDE_OFFER';
     const isRideStop = payload.type === 'RIDE_STOP';
@@ -605,16 +628,25 @@ Deno.serve(async (req) => {
                 sound: "trip_cancelled",
               },
             };
-          } else if (isRideStop) {
-            // ── RIDE STOP (offer expire / accept): Data-only, silent ──
+          } else if (isRideStop || isJitLocationReadiness) {
+            // ── Silent data-only (offer-expire RIDE_STOP / JIT GPS readiness) ──
+            // No message.notification — tray would bypass JS and show a ghost alert.
             message.data = {
               ...dataPayload,
+              ...(isJitLocationReadiness
+                ? {
+                    type: 'SCHEDULED_JIT_LOCATION_READINESS',
+                    silent: 'true',
+                    content_available: '1',
+                  }
+                : {}),
               title: sanitizedTitle,
               body: sanitizedBody,
             };
             message.android = {
               priority: 'HIGH',
-              ttl: '10s',
+              // Readiness can wait briefly for Doze delivery; offer-stop stays short.
+              ttl: isJitLocationReadiness ? '60s' : '10s',
               direct_boot_ok: true,
             };
           } else {
@@ -667,13 +699,27 @@ Deno.serve(async (req) => {
                 },
               },
             };
-          } else if (isRideStop) {
-            // ── RIDE STOP on iOS: silent data-only push (offer expire) ──
-            message.data = dataPayload;
+          } else if (isRideStop || isJitLocationReadiness) {
+            // ── Silent background wake (offer-expire / JIT GPS readiness) ──
+            // APNs: push-type=background + content-available=1, NO alert/sound.
+            // Delivery is best-effort; sticky/cached/degraded JIT fallbacks remain.
+            const silentData = isJitLocationReadiness
+              ? {
+                  ...dataPayload,
+                  type: 'SCHEDULED_JIT_LOCATION_READINESS',
+                  silent: 'true',
+                  content_available: '1',
+                }
+              : dataPayload;
+            message.data = silentData;
             message.apns = {
               headers: {
                 'apns-priority': '5',
                 'apns-push-type': 'background',
+                'apns-topic': 'com.onecab.driver.app',
+                ...(isJitLocationReadiness && tripId
+                  ? { 'apns-collapse-id': `jit_loc_ready_${tripId}` }
+                  : {}),
               },
               payload: {
                 aps: {

@@ -20,11 +20,14 @@ import {
 import { evaluateJitDriverLocationFreshness } from "./scheduledJitEtaMonitorSSOT.ts";
 import {
   applyLastKnownUncertaintyMinutes,
+  buildScheduledJitLocationReadinessPushBody,
   computeDegradedUnknownEtaMinutes,
   evaluateJitLateRisk,
   resolvePickupAwareJitDeadline,
   shouldEscalateScheduledLocationReadiness,
+  shouldSendJitLocationReadinessPush,
   SCHEDULED_JIT_FALLBACK_DEFAULTS,
+  SCHEDULED_JIT_LOCATION_READINESS_PUSH_COOLDOWN_MS,
 } from "./scheduledJitPickupAwareFallbackSSOT.ts";
 
 const DRIVER = "56136f5f-1a3a-4a14-bb23-439b3951415a";
@@ -370,6 +373,40 @@ Deno.test("19. location readiness escalation is silent (no Heading)", () => {
   assertEquals(noEscalateWithSticky, false);
 });
 
+Deno.test("19b. readiness push rate-limit + silent wire body", () => {
+  const now = Date.parse("2026-11-14T18:50:00.000Z");
+  assertEquals(
+    shouldSendJitLocationReadinessPush({ nowMs: now, lastPushAtMs: null }),
+    true,
+  );
+  assertEquals(
+    shouldSendJitLocationReadinessPush({
+      nowMs: now,
+      lastPushAtMs: now - 60_000,
+    }),
+    false,
+  );
+  assertEquals(
+    shouldSendJitLocationReadinessPush({
+      nowMs: now,
+      lastPushAtMs: now - SCHEDULED_JIT_LOCATION_READINESS_PUSH_COOLDOWN_MS,
+    }),
+    true,
+  );
+  const body = buildScheduledJitLocationReadinessPushBody({
+    driverId: DRIVER,
+    tripId: "fd678e9c-19c8-4a75-94e4-3527d276f0c9",
+  });
+  assertEquals(body.type, "SCHEDULED_JIT_LOCATION_READINESS");
+  assertEquals(body.title, "");
+  assertEquals(body.body, "");
+  assertEquals(body.silent, true);
+  assertEquals(body.data.type, "SCHEDULED_JIT_LOCATION_READINESS");
+  assertEquals(body.data.silent, "true");
+  assertEquals(body.data.content_available, "1");
+  assertEquals(body.driverId, DRIVER);
+});
+
 Deno.test("20. Phase 5 acknowledgement 45s window preserved", () => {
   const now = Date.parse("2026-11-14T19:46:00.000Z");
   const d = decideConfirmedScheduledActivation({
@@ -488,9 +525,16 @@ Deno.test("source lock: pass suppresses fixed fallback and uses pickup-aware hie
   );
   assert(pass.includes("resolvePickupAwareJitDeadline"));
   assert(pass.includes("fixedFallbackDue: false"));
-  assert(pass.includes("SCHEDULED_JIT_LOCATION_READINESS"));
+  assert(pass.includes("buildScheduledJitLocationReadinessPushBody"));
+  assert(pass.includes("shouldSendJitLocationReadinessPush"));
   assert(pass.includes("buildJitLateRiskOpsAlert"));
   assert(pass.includes("last_gps_sample_at"));
+  const sendNotif = await Deno.readTextFile(
+    new URL("../send-driver-notification/index.ts", import.meta.url),
+  );
+  assert(sendNotif.includes("SCHEDULED_JIT_LOCATION_READINESS"));
+  assert(sendNotif.includes("'apns-push-type': 'background'"));
+  assert(sendNotif.includes("content-available"));
   const etaMon = await Deno.readTextFile(
     new URL("./scheduledJitEtaMonitorSSOT.ts", import.meta.url),
   );

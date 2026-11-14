@@ -45,8 +45,10 @@ import {
 import {
   buildJitLateRiskOpsAlert,
   buildJitLocationReadinessOpsAlert,
+  buildScheduledJitLocationReadinessPushBody,
   resolvePickupAwareJitDeadline,
   shouldEscalateScheduledLocationReadiness,
+  shouldSendJitLocationReadinessPush,
   SCHEDULED_JIT_FALLBACK_DEFAULTS,
 } from "./scheduledJitPickupAwareFallbackSSOT.ts";
 import {
@@ -517,37 +519,78 @@ export async function runConfirmedJitActivationPass(input: {
           degradedDeadlineIso: new Date(aware.deadlineMs).toISOString(),
           gpsAgeSeconds: presence.freshness.gpsAgeSeconds,
         });
+
+        // Rate-limit FCM/APNs wakes using prior ops_alert metadata.last_push_at.
+        // Ops visibility still upserts every escalate; push is capped.
+        let lastPushAtMs: number | null = null;
+        try {
+          const { data: existingReady } = await supabase
+            .from("ops_alerts")
+            .select("metadata")
+            .eq("fingerprint", ready.fingerprint)
+            .maybeSingle();
+          const rawLast =
+            existingReady &&
+            typeof existingReady === "object" &&
+            existingReady.metadata &&
+            typeof (existingReady.metadata as Record<string, unknown>)
+              .last_push_at === "string"
+              ? String(
+                (existingReady.metadata as Record<string, unknown>)
+                  .last_push_at,
+              )
+              : null;
+          const parsedLast = rawLast ? Date.parse(rawLast) : NaN;
+          lastPushAtMs = Number.isFinite(parsedLast) ? parsedLast : null;
+        } catch {
+          lastPushAtMs = null;
+        }
+
+        const sendPush = shouldSendJitLocationReadinessPush({
+          nowMs,
+          lastPushAtMs,
+        });
+        const metadata = {
+          ...ready.metadata,
+          ...(sendPush
+            ? { last_push_at: now.toISOString(), push_attempted: true }
+            : {
+              last_push_at: lastPushAtMs != null
+                ? new Date(lastPushAtMs).toISOString()
+                : null,
+              push_attempted: false,
+              push_skipped_reason: "cooldown",
+            }),
+        };
+
         await supabase.from("ops_alerts").upsert(
           {
             fingerprint: ready.fingerprint,
             title: ready.title,
             related_trip_id: ready.related_trip_id,
-            metadata: ready.metadata,
+            metadata,
             status: "open",
             updated_at: now.toISOString(),
           },
           { onConflict: "fingerprint" },
         );
-        // Best-effort silent data wake — no sound / no Heading copy.
-        // Native Driver must handle SCHEDULED_JIT_LOCATION_READINESS to publish GPS.
-        void supabase.functions.invoke("send-driver-notification", {
-          body: {
-            driver_id: confirmedDriverId,
-            type: "SCHEDULED_JIT_LOCATION_READINESS",
-            title: "",
-            body: "",
-            data: {
-              type: "SCHEDULED_JIT_LOCATION_READINESS",
-              trip_id: trip.id,
-              silent: "true",
-              content_available: "1",
-            },
-            silent: true,
-            skip_alert: true,
-          },
-        }).catch((err: unknown) => {
-          console.warn("[jit-activation] location readiness push failed", err);
-        });
+
+        if (sendPush) {
+          // Best-effort silent data wake — no sound / no Heading copy.
+          // OS may suppress; sticky/cached/degraded hierarchy remains authoritative.
+          const pushBody = buildScheduledJitLocationReadinessPushBody({
+            driverId: confirmedDriverId,
+            tripId: trip.id,
+          });
+          void supabase.functions.invoke("send-driver-notification", {
+            body: pushBody,
+          }).catch((err: unknown) => {
+            console.warn(
+              "[jit-activation] location readiness push failed",
+              err,
+            );
+          });
+        }
       } catch (opsErr) {
         console.warn("[jit-activation] location readiness escalate failed", opsErr);
       }

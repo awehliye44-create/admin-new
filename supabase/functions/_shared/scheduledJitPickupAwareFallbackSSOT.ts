@@ -361,6 +361,55 @@ export function shouldEscalateScheduledLocationReadiness(input: {
   return input.nowMs >= input.degradedDeadlineMs - lead;
 }
 
+/** Cooldown between silent readiness push attempts for the same trip. */
+export const SCHEDULED_JIT_LOCATION_READINESS_PUSH_COOLDOWN_MS = 5 * 60_000;
+
+/**
+ * Rate-limit silent readiness pushes. Ops alert upsert may still run every pass;
+ * FCM/APNs wake is capped so we do not spam Doze / background budgets.
+ */
+export function shouldSendJitLocationReadinessPush(input: {
+  nowMs: number;
+  lastPushAtMs: number | null | undefined;
+  cooldownMs?: number;
+}): boolean {
+  const last = Number(input.lastPushAtMs);
+  if (!Number.isFinite(last)) return true;
+  const cooldown =
+    input.cooldownMs ?? SCHEDULED_JIT_LOCATION_READINESS_PUSH_COOLDOWN_MS;
+  return input.nowMs - last >= cooldown;
+}
+
+/** Wire body for send-driver-notification (silent data-only). */
+export function buildScheduledJitLocationReadinessPushBody(input: {
+  driverId: string;
+  tripId: string;
+}): {
+  driverId: string;
+  type: "SCHEDULED_JIT_LOCATION_READINESS";
+  title: string;
+  body: string;
+  silent: true;
+  skip_alert: true;
+  data: Record<string, string>;
+} {
+  return {
+    driverId: input.driverId,
+    type: "SCHEDULED_JIT_LOCATION_READINESS",
+    title: "",
+    body: "",
+    silent: true,
+    skip_alert: true,
+    data: {
+      type: "SCHEDULED_JIT_LOCATION_READINESS",
+      trip_id: input.tripId,
+      tripId: input.tripId,
+      silent: "true",
+      content_available: "1",
+    },
+  };
+}
+
 export function buildJitLocationReadinessOpsAlert(input: {
   tripId: string;
   driverId: string;
