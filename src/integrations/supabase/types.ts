@@ -3849,7 +3849,11 @@ export type Database = {
           client_capabilities_updated_at: string | null
           device_id: string
           last_seen_at: string
+          loaded_update_id: string | null
+          loaded_update_registered_at: string | null
           platform: string | null
+          runtime_version: string | null
+          update_is_embedded: boolean | null
           updated_at: string
           user_agent: string | null
           user_id: string
@@ -3861,7 +3865,11 @@ export type Database = {
           client_capabilities_updated_at?: string | null
           device_id: string
           last_seen_at?: string
+          loaded_update_id?: string | null
+          loaded_update_registered_at?: string | null
           platform?: string | null
+          runtime_version?: string | null
+          update_is_embedded?: boolean | null
           updated_at?: string
           user_agent?: string | null
           user_id: string
@@ -3873,7 +3881,11 @@ export type Database = {
           client_capabilities_updated_at?: string | null
           device_id?: string
           last_seen_at?: string
+          loaded_update_id?: string | null
+          loaded_update_registered_at?: string | null
           platform?: string | null
+          runtime_version?: string | null
+          update_is_embedded?: boolean | null
           updated_at?: string
           user_agent?: string | null
           user_id?: string
@@ -6588,7 +6600,11 @@ export type Database = {
           device_label: string | null
           driver_id: string
           last_seen_at: string
+          loaded_update_id: string | null
+          loaded_update_registered_at: string | null
           platform: string
+          runtime_version: string | null
+          update_is_embedded: boolean | null
           updated_at: string
         }
         Insert: {
@@ -6600,7 +6616,11 @@ export type Database = {
           device_label?: string | null
           driver_id: string
           last_seen_at?: string
+          loaded_update_id?: string | null
+          loaded_update_registered_at?: string | null
           platform: string
+          runtime_version?: string | null
+          update_is_embedded?: boolean | null
           updated_at?: string
         }
         Update: {
@@ -6612,7 +6632,11 @@ export type Database = {
           device_label?: string | null
           driver_id?: string
           last_seen_at?: string
+          loaded_update_id?: string | null
+          loaded_update_registered_at?: string | null
           platform?: string
+          runtime_version?: string | null
+          update_is_embedded?: boolean | null
           updated_at?: string
         }
         Relationships: [
@@ -29938,6 +29962,10 @@ export type Database = {
         Args: { p_op: string; p_table: string }
         Returns: string[]
       }
+      _admin_page_patch_value: {
+        Args: { p_col: string; p_table: string; p_val: Json }
+        Returns: string
+      }
       _admin_page_pred_group: {
         Args: { p_allowed_cols: string[]; p_filters: Json; p_table: string }
         Returns: string
@@ -29969,6 +29997,18 @@ export type Database = {
         Returns: Json
       }
       accept_ride_offer: {
+        Args: {
+          p_allow_customer_counter?: boolean
+          p_driver_id: string
+          p_offer_id: string
+        }
+        Returns: Json
+      }
+      accept_ride_offer_contention_result: {
+        Args: { p_driver_id: string; p_offer_id: string }
+        Returns: Json
+      }
+      accept_ride_offer_core: {
         Args: {
           p_allow_customer_counter?: boolean
           p_driver_id: string
@@ -30568,6 +30608,10 @@ export type Database = {
         Args: { p_offer_id: string; p_reason?: string }
         Returns: Json
       }
+      apply_customer_decline_grace_core: {
+        Args: { p_offer_id: string; p_reason?: string }
+        Returns: Json
+      }
       apply_terminal_trip_cancellation: {
         Args: { p_cancelled_by?: string; p_reason?: string; p_trip_id: string }
         Returns: Json
@@ -31075,6 +31119,15 @@ export type Database = {
         }
         Returns: Json
       }
+      customer_counter_ride_offer_core: {
+        Args: {
+          p_actor_user_id?: string
+          p_customer_id?: string
+          p_offer_id: string
+          p_selected_fare_pence: number
+        }
+        Returns: Json
+      }
       customer_driver_pair_blocked: {
         Args: { p_customer_id: string; p_driver_id: string }
         Returns: boolean
@@ -31140,6 +31193,10 @@ export type Database = {
             Args: { p_driver_id: string; p_offer_id: string; p_reason?: string }
             Returns: Json
           }
+      decline_ride_offer_core: {
+        Args: { p_driver_id: string; p_offer_id: string; p_reason?: string }
+        Returns: Json
+      }
       decline_scheduled_ride: {
         Args: { p_driver_id?: string; p_reason?: string; p_trip_id: string }
         Returns: Json
@@ -31261,6 +31318,10 @@ export type Database = {
         Returns: Json
       }
       driver_cancel_negotiation: {
+        Args: { p_driver_id: string; p_offer_id: string }
+        Returns: Json
+      }
+      driver_cancel_negotiation_core: {
         Args: { p_driver_id: string; p_offer_id: string }
         Returns: Json
       }
@@ -31530,6 +31591,15 @@ export type Database = {
         }
         Returns: Json
       }
+      driver_send_preset_offer_core: {
+        Args: {
+          p_allowed_total_fares_pence: number[]
+          p_customer_respond_seconds: number
+          p_offer_id: string
+          p_selected_total_fare_pence: number
+        }
+        Returns: Json
+      }
       driver_signup_country_label: { Args: { p_code: string }; Returns: string }
       driver_tip_thanks_decision: {
         Args: { p_driver_id: string; p_ledger_id: string }
@@ -31684,6 +31754,10 @@ export type Database = {
       }
       expire_due_call_masking_sessions: { Args: never; Returns: undefined }
       expire_negotiation_offer: { Args: { p_offer_id: string }; Returns: Json }
+      expire_negotiation_offer_core: {
+        Args: { p_offer_id: string }
+        Returns: Json
+      }
       expire_offers_sweep: { Args: never; Returns: undefined }
       expire_offers_sweep_has_work: { Args: never; Returns: boolean }
       expire_stale_drivers: {
@@ -31920,6 +31994,7 @@ export type Database = {
         Args: { p_exception_id: string; p_note: string }
         Returns: Json
       }
+      financial_ssot_monitor_sweep: { Args: never; Returns: undefined }
       find_nearby_drivers: {
         Args: {
           p_lat: number
@@ -32822,6 +32897,10 @@ export type Database = {
         Args: { t: Database["public"]["Tables"]["trips"]["Row"] }
         Returns: string
       }
+      negotiation_contention_outcome: {
+        Args: { p_offer_id: string; p_rpc?: string }
+        Returns: string
+      }
       next_trip_invoice_number: { Args: never; Returns: string }
       normalise_payment_gate_blocked_terminal_rows: {
         Args: { p_dry_run?: boolean }
@@ -32845,6 +32924,59 @@ export type Database = {
       notify_drivers_trip_cancelled: {
         Args: { p_reason: string; p_trip_id: string }
         Returns: undefined
+      }
+      offer_annotate_preset_nets: {
+        Args: {
+          p_airport: number
+          p_effective_percent: number
+          p_other: number
+          p_presets: Json
+        }
+        Returns: Json
+      }
+      offer_driver_net_split: {
+        Args: {
+          p_airport: number
+          p_base_percent: number
+          p_effective_percent: number
+          p_gross: number
+          p_other: number
+        }
+        Returns: Json
+      }
+      offer_driver_net_split_for_trip: {
+        Args: {
+          p_airport: number
+          p_base_percent: number
+          p_effective_percent: number
+          p_other: number
+          p_payable: number
+          p_trip: Database["public"]["Tables"]["trips"]["Row"]
+        }
+        Returns: Json
+      }
+      offer_global_offer_promotion_pence: {
+        Args: { p_trip: Database["public"]["Tables"]["trips"]["Row"] }
+        Returns: number
+      }
+      offer_jsonb_major_to_pence: {
+        Args: { p_json: Json; p_key: string }
+        Returns: number
+      }
+      offer_jsonb_pence: {
+        Args: { p_json: Json; p_key: string }
+        Returns: number
+      }
+      offer_quote_airport_pence: { Args: { p_quote: Json }; Returns: number }
+      offer_quote_final_pence: { Args: { p_quote: Json }; Returns: number }
+      offer_quote_ride_pence: { Args: { p_quote: Json }; Returns: number }
+      offer_resolve_airport_pence: {
+        Args: { p_trip: Database["public"]["Tables"]["trips"]["Row"] }
+        Returns: number
+      }
+      offer_trip_financial_authority: {
+        Args: { p_trip: Database["public"]["Tables"]["trips"]["Row"] }
+        Returns: Record<string, unknown>
       }
       onecab_assistant_cleanup: { Args: never; Returns: undefined }
       onecab_assistant_consume_quota: {
@@ -32883,6 +33015,21 @@ export type Database = {
         Returns: Json
       }
       onecab_internal_notification_http_headers: { Args: never; Returns: Json }
+      open_waiting_segment_or_reuse: {
+        Args: {
+          p_distance_meters?: number
+          p_location_type: string
+          p_source_location?: string
+          p_started_at?: string
+          p_stop_id?: string
+          p_stop_index?: number
+          p_trip_id: string
+        }
+        Returns: {
+          opened: boolean
+          segment_id: string
+        }[]
+      }
       ops_acknowledge_alert: {
         Args: { p_alert_id: string; p_user_id: string }
         Returns: undefined
@@ -33622,6 +33769,10 @@ export type Database = {
           _service_area_id: string
         }
         Returns: Json
+      }
+      restamp_pending_offer_financials_for_trip: {
+        Args: { p_trip_id: string }
+        Returns: number
       }
       retire_unsubmitted_payout_item: {
         Args: {
