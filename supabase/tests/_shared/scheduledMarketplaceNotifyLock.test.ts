@@ -58,16 +58,19 @@ Deno.test("source lock: scheduled-dispatch notifies on pending jobs + notify bod
   assertStringIncludes(src, "dispatch_mode, status");
 });
 
-Deno.test("source lock: marketplace notify applies new-work eligibility (MK0009)", async () => {
+Deno.test("source lock: marketplace notify applies online+docs recipient eligibility", async () => {
   const src = await Deno.readTextFile(
     new URL(
       "../../functions/_shared/scheduledMarketplaceNotifySSOT.ts",
       import.meta.url,
     ),
   );
-  assertStringIncludes(src, "evaluateDriverNewWorkInvitationEligibility");
+  assertStringIncludes(src, "evaluateScheduledMarketplaceRecipientEligibility");
   assertStringIncludes(src, "isScheduledMarketplaceBookingOpenForInvitation");
+  assertStringIncludes(src, "marketplace_pre_send");
+  assertEquals(src.includes("evaluateDriverNewWorkInvitationEligibility"), false);
   assertEquals(src.includes('.eq("approval_status", "approved")'), false);
+  assertStringIncludes(src, "Offline / intent-off / stale drivers are never invited");
 });
 
 Deno.test("source lock: auto-dispatch allows scheduled broadcasting NRO", async () => {

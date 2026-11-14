@@ -66,6 +66,6 @@ Deno.test("source lock: Edge push gate + marketplace still use shared SSOT", asy
     ),
   );
   assertStringIncludes(rideOffer, "evaluateDriverDocumentState");
-  assertStringIncludes(marketplace, "evaluateDriverNewWorkInvitationEligibility");
+  assertStringIncludes(marketplace, "evaluateScheduledMarketplaceRecipientEligibility");
   assertStringIncludes(send, "evaluateScheduledMarketplaceInviteSendGate");
 });

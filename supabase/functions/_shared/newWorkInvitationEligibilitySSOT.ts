@@ -2,15 +2,21 @@
  * Shared “eligible for new-work invitations” SSOT (MK-261105-002 / MK0009).
  *
  * Applies to:
- * - Scheduled marketplace invites (SCHEDULED_RIDE_REQUEST) — offline OK
+ * - Scheduled marketplace availability invites (SCHEDULED_RIDE_REQUEST) —
+ *   account/docs via this module PLUS online + fresh presence
+ *   (`evaluateScheduledMarketplaceOnlinePresence` / recipient + send gates)
  * - Instant / rematch / stacked NEW_RIDE_OFFER create+push — online/presence
  *   still required by rideOfferDriverEligibility (not this module)
+ *
+ * Previously accepted scheduled booking reminders / activation /
+ * SCHEDULED_JOB_CONFIRMED / SCHEDULED_COMMITMENT are NOT gated here.
  *
  * Never rely only on cached drivers.documents_approved — live Europe/London
  * document eligibility is authoritative for invitations to new work.
  */
 
 import type { SupabaseClient } from "npm:@supabase/supabase-js@2.57.2";
+import { isPresenceLivenessFresh } from "./dispatchEligibilityPolicy.ts";
 import {
   evaluateDriverDocumentState,
   type DriverDocumentEligibilityResult,
@@ -34,7 +40,13 @@ export type NewWorkInvitationDenyReason =
   | "marketplace_not_open"
   | "trip_already_assigned"
   | "trip_terminal"
-  | "trip_not_found";
+  | "trip_not_found"
+  | "driver_offline"
+  | "online_intent_false"
+  | "no_presence_row"
+  | "presence_not_online"
+  | "stale_heartbeat"
+  | "presence_max_age_missing";
 
 export type NewWorkInvitationAccountSnapshot = {
   approval_status?: string | null;
@@ -88,7 +100,7 @@ function norm(value: string | null | undefined): string {
   return String(value ?? "").trim().toLowerCase();
 }
 
-/** Account / status gates — no online/presence (marketplace may invite offline). */
+/** Account / status gates — online/presence applied separately for marketplace. */
 export function evaluateNewWorkInvitationAccountEligibility(
   driver: NewWorkInvitationAccountSnapshot | null | undefined,
 ): NewWorkInvitationAccountResult {
@@ -228,6 +240,56 @@ type SupabaseLike = {
   rpc?: (fn: string, args?: Record<string, unknown>) => any;
 };
 
+export type ScheduledMarketplacePresenceSnapshot = {
+  is_online?: boolean | null;
+  driver_online_intent?: boolean | null;
+  presence?: {
+    status?: string | null;
+    last_heartbeat_at?: string | null;
+    last_gps_sample_at?: string | null;
+  } | null;
+  presenceMaxAgeSeconds: number;
+  nowMs?: number;
+};
+
+/**
+ * Online + fresh presence for SCHEDULED_RIDE_REQUEST availability pushes.
+ * Does not apply to accepted-booking reminders / activation / commitment.
+ */
+export function evaluateScheduledMarketplaceOnlinePresence(
+  input: ScheduledMarketplacePresenceSnapshot,
+): NewWorkInvitationAccountResult {
+  if (input.is_online !== true) {
+    return { ok: false, reason: "driver_offline" };
+  }
+  if (input.driver_online_intent !== true) {
+    return { ok: false, reason: "online_intent_false" };
+  }
+  const maxAge = input.presenceMaxAgeSeconds;
+  if (!Number.isFinite(maxAge) || maxAge <= 0) {
+    return { ok: false, reason: "presence_max_age_missing" };
+  }
+  const presence = input.presence;
+  if (!presence) {
+    return { ok: false, reason: "no_presence_row" };
+  }
+  if (String(presence.status ?? "").trim().toLowerCase() !== "online") {
+    return { ok: false, reason: "presence_not_online" };
+  }
+  const nowMs = input.nowMs ?? Date.now();
+  const fresh = isPresenceLivenessFresh({
+    lastHeartbeatAt: presence.last_heartbeat_at ?? null,
+    lastGpsSampleAt: presence.last_gps_sample_at ?? null,
+    lastSeenAt: null,
+    presenceMaxAgeSeconds: maxAge,
+    nowMs,
+  });
+  if (!fresh) {
+    return { ok: false, reason: "stale_heartbeat" };
+  }
+  return { ok: true };
+}
+
 export async function evaluateDriverNewWorkInvitationEligibility(
   supabase: SupabaseLike,
   driverId: string,
@@ -256,6 +318,70 @@ export async function evaluateDriverNewWorkInvitationEligibility(
     id,
   );
   return evaluateNewWorkInvitationEligibilityFromParts({ account: driver, documents });
+}
+
+/**
+ * Full recipient gate for new scheduled marketplace availability:
+ * account + live docs + online intent + fresh presence.
+ */
+export async function evaluateScheduledMarketplaceRecipientEligibility(
+  supabase: SupabaseLike,
+  driverId: string,
+  nowMs: number = Date.now(),
+): Promise<NewWorkInvitationEligibilityResult> {
+  const base = await evaluateDriverNewWorkInvitationEligibility(supabase, driverId);
+  if (!base.ok) return base;
+
+  const id = String(driverId ?? "").trim();
+  const { data: driver } = await supabase
+    .from("drivers")
+    .select("id, is_online, driver_online_intent, last_gps_sample_at")
+    .eq("id", id)
+    .maybeSingle();
+
+  if (!driver) {
+    return { ok: false, reason: "driver_not_found" };
+  }
+
+  const { data: gds } = await supabase
+    .from("global_dispatch_settings")
+    .select("presence_max_age_seconds")
+    .eq("singleton", true)
+    .maybeSingle();
+
+  const presenceMaxAgeSeconds = Number(
+    (gds as { presence_max_age_seconds?: number } | null)?.presence_max_age_seconds,
+  );
+
+  const { data: presence } = await supabase
+    .from("driver_presence")
+    .select("status, last_heartbeat_at, last_gps_sample_at")
+    .eq("driver_id", id)
+    .maybeSingle();
+
+  const online = evaluateScheduledMarketplaceOnlinePresence({
+    is_online: (driver as { is_online?: boolean | null }).is_online,
+    driver_online_intent: (driver as { driver_online_intent?: boolean | null })
+      .driver_online_intent,
+    presence: presence
+      ? {
+        status: (presence as { status?: string | null }).status,
+        last_heartbeat_at: (presence as { last_heartbeat_at?: string | null })
+          .last_heartbeat_at,
+        last_gps_sample_at:
+          (presence as { last_gps_sample_at?: string | null }).last_gps_sample_at ??
+          (driver as { last_gps_sample_at?: string | null }).last_gps_sample_at,
+      }
+      : null,
+    presenceMaxAgeSeconds,
+    nowMs,
+  });
+
+  if (!online.ok) {
+    return { ok: false, reason: online.reason };
+  }
+
+  return base;
 }
 
 export async function evaluateScheduledMarketplaceInviteSendGate(
@@ -289,7 +415,12 @@ export async function evaluateScheduledMarketplaceInviteSendGate(
     return { ok: false, reason: booking.reason };
   }
 
-  return evaluateDriverNewWorkInvitationEligibility(supabase, args.driverId);
+  // Delivery-time recheck: online + docs (queued retries must not reach offline).
+  return evaluateScheduledMarketplaceRecipientEligibility(
+    supabase,
+    args.driverId,
+    nowMs,
+  );
 }
 
 /** Safe log fields only — never document filenames, phones, or tokens. */

@@ -9,6 +9,7 @@ import {
 import {
   evaluateNewWorkInvitationAccountEligibility,
   evaluateNewWorkInvitationEligibilityFromParts,
+  evaluateScheduledMarketplaceOnlinePresence,
   isScheduledMarketplaceBookingOpenForInvitation,
   mapDocumentStateToNewWorkDenyReason,
   newWorkInvitationSuppressionLogFields,
@@ -235,14 +236,72 @@ Deno.test("suppression log omits sensitive payloads", () => {
   assertEquals("email" in fields, false);
 });
 
-Deno.test("source lock: marketplace notify uses shared eligibility on both recipient paths", async () => {
+Deno.test("marketplace online presence: requires online + intent + fresh presence", () => {
+  const now = Date.parse("2026-11-14T08:00:00.000Z");
+  const freshHb = "2026-11-14T07:59:50.000Z";
+  assertEquals(
+    evaluateScheduledMarketplaceOnlinePresence({
+      is_online: true,
+      driver_online_intent: true,
+      presence: { status: "online", last_heartbeat_at: freshHb },
+      presenceMaxAgeSeconds: 45,
+      nowMs: now,
+    }).ok,
+    true,
+  );
+  assertEquals(
+    (evaluateScheduledMarketplaceOnlinePresence({
+      is_online: false,
+      driver_online_intent: true,
+      presence: { status: "online", last_heartbeat_at: freshHb },
+      presenceMaxAgeSeconds: 45,
+      nowMs: now,
+    }) as { reason: string }).reason,
+    "driver_offline",
+  );
+  assertEquals(
+    (evaluateScheduledMarketplaceOnlinePresence({
+      is_online: true,
+      driver_online_intent: false,
+      presence: { status: "online", last_heartbeat_at: freshHb },
+      presenceMaxAgeSeconds: 45,
+      nowMs: now,
+    }) as { reason: string }).reason,
+    "online_intent_false",
+  );
+  assertEquals(
+    (evaluateScheduledMarketplaceOnlinePresence({
+      is_online: true,
+      driver_online_intent: true,
+      presence: null,
+      presenceMaxAgeSeconds: 45,
+      nowMs: now,
+    }) as { reason: string }).reason,
+    "no_presence_row",
+  );
+  assertEquals(
+    (evaluateScheduledMarketplaceOnlinePresence({
+      is_online: true,
+      driver_online_intent: true,
+      presence: {
+        status: "online",
+        last_heartbeat_at: "2026-11-14T07:00:00.000Z",
+      },
+      presenceMaxAgeSeconds: 45,
+      nowMs: now,
+    }) as { reason: string }).reason,
+    "stale_heartbeat",
+  );
+});
+
+Deno.test("source lock: marketplace notify uses online recipient eligibility on both paths", async () => {
   const src = await Deno.readTextFile(
     new URL(
       "../../functions/_shared/scheduledMarketplaceNotifySSOT.ts",
       import.meta.url,
     ),
   );
-  assertStringIncludes(src, "evaluateDriverNewWorkInvitationEligibility");
+  assertStringIncludes(src, "evaluateScheduledMarketplaceRecipientEligibility");
   assertStringIncludes(src, "isScheduledMarketplaceBookingOpenForInvitation");
   assertStringIncludes(src, "driver_service_areas");
   assertStringIncludes(src, "marketplace_pre_send");
@@ -250,7 +309,7 @@ Deno.test("source lock: marketplace notify uses shared eligibility on both recip
   assertEquals(src.includes('.eq("approval_status", "approved")'), false);
 });
 
-Deno.test("source lock: send-driver-notification gates SCHEDULED_RIDE_REQUEST", async () => {
+Deno.test("source lock: send-driver-notification gates SCHEDULED_RIDE_REQUEST with online recheck", async () => {
   const src = await Deno.readTextFile(
     new URL(
       "../../functions/send-driver-notification/index.ts",
@@ -260,6 +319,25 @@ Deno.test("source lock: send-driver-notification gates SCHEDULED_RIDE_REQUEST", 
   assertStringIncludes(src, "evaluateScheduledMarketplaceInviteSendGate");
   assertStringIncludes(src, "isScheduledMarketplaceInvite");
   assertStringIncludes(src, "SCHEDULED_RIDE_REQUEST");
+  assertStringIncludes(src, "Requires online + online intent + fresh presence");
+  // Commitment / confirmed paths must not share the marketplace invite gate.
+  assertEquals(src.includes("SCHEDULED_JOB_CONFIRMED") && src.includes("evaluateScheduledMarketplaceInviteSendGate"), true);
+  const confirmedGateMisuse = /isScheduledMarketplaceInvite\s*=\s*payload\.type === 'SCHEDULED_JOB_CONFIRMED'/.test(src);
+  assertEquals(confirmedGateMisuse, false);
+});
+
+Deno.test("source lock: recipient eligibility composes docs + online presence", async () => {
+  const src = await Deno.readTextFile(
+    new URL(
+      "../../functions/_shared/newWorkInvitationEligibilitySSOT.ts",
+      import.meta.url,
+    ),
+  );
+  assertStringIncludes(src, "evaluateScheduledMarketplaceOnlinePresence");
+  assertStringIncludes(src, "evaluateScheduledMarketplaceRecipientEligibility");
+  assertStringIncludes(src, "isPresenceLivenessFresh");
+  assertStringIncludes(src, "driver_online_intent");
+  assertStringIncludes(src, "SCHEDULED_JOB_CONFIRMED / SCHEDULED_COMMITMENT are NOT gated");
 });
 
 Deno.test("source lock: ride-offer push gate uses live document eligibility", async () => {

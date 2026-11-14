@@ -3,13 +3,15 @@
  * List-only (not NRO). Fan-out to drivers in the trip service area via
  * send-driver-notification (authoritative device only inside that edge).
  *
- * MK-261105-002 / MK0009: recipients must pass shared new-work invitation
- * eligibility (live docs + active/approved). Offline drivers may still be
- * invited. Send path re-checks in send-driver-notification.
+ * Recipients must pass shared marketplace recipient eligibility:
+ * live docs + active/approved + online + online intent + fresh presence.
+ * Offline / intent-off / stale drivers are never invited.
+ * send-driver-notification re-checks at delivery (queued retries included).
+ * Does not gate SCHEDULED_JOB_CONFIRMED / SCHEDULED_COMMITMENT / activation.
  */
 
 import {
-  evaluateDriverNewWorkInvitationEligibility,
+  evaluateScheduledMarketplaceRecipientEligibility,
   isScheduledMarketplaceBookingOpenForInvitation,
   newWorkInvitationSuppressionLogFields,
   type NewWorkInvitationDenyReason,
@@ -81,7 +83,10 @@ async function filterEligibleMarketplaceRecipients(
   const suppressed: Array<{ driverId: string; reason: NewWorkInvitationDenyReason }> = [];
 
   for (const driverId of candidateIds) {
-    const gate = await evaluateDriverNewWorkInvitationEligibility(supabase, driverId);
+    const gate = await evaluateScheduledMarketplaceRecipientEligibility(
+      supabase,
+      driverId,
+    );
     if (!gate.ok) {
       suppressed.push({ driverId, reason: gate.reason });
       console.warn(
@@ -186,8 +191,11 @@ export async function notifyScheduledMarketplaceOpen(
   const push = buildScheduledMarketplacePushPayload(trip);
   let notified = 0;
   for (const driverId of driverIds) {
-    // Immediate pre-send recheck (eligibility may change after selection).
-    const recheck = await evaluateDriverNewWorkInvitationEligibility(supabase, driverId);
+    // Immediate pre-send recheck (driver may have gone offline after selection).
+    const recheck = await evaluateScheduledMarketplaceRecipientEligibility(
+      supabase,
+      driverId,
+    );
     if (!recheck.ok) {
       console.warn(
         "[scheduledMarketplaceNotify] pre_send_suppressed",

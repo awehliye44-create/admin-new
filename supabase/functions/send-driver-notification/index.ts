@@ -317,9 +317,10 @@ Deno.serve(async (req) => {
         eventRaw === "trip_canceled" ||
         CANCEL_STOP_REASONS.has(stopReasonRaw));
 
-    // ── SCHEDULED_RIDE_REQUEST: recheck new-work invitation + open booking ──
+    // ── SCHEDULED_RIDE_REQUEST: recheck marketplace invite + open booking ──
     // Applies to primary sends, queued retries, and remotes that re-invoke this edge.
-    // Does NOT require online/presence (marketplace may reach eligible offline drivers).
+    // Requires online + online intent + fresh presence (as well as docs/account).
+    // Does NOT gate SCHEDULED_JOB_CONFIRMED / SCHEDULED_COMMITMENT / activation.
     if (isScheduledMarketplaceInvite) {
       const tripId =
         payload.data?.trip_id ||
