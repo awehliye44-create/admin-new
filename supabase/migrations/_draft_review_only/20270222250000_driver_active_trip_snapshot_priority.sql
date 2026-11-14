@@ -2,7 +2,8 @@
 -- Final migration version: 20270222250000 (after remote head 20270222240000).
 -- MK-261114-002: get_driver_active_trip_snapshot must never prefer a newer
 -- future scheduled commitment over a genuine active trip, and must return
--- empty active_trip when the driver only has Scheduled Jobs commitments.
+-- empty active_trip when the driver only has unactivated Scheduled Jobs
+-- commitments — including legacy accept_scheduled_ride status='accepted'.
 --
 -- Rollback: supabase/migrations/rollback/rollback_20270222250000_driver_active_trip_snapshot_priority.sql
 -- Isolated tests: supabase/tests/driver_active_trip_snapshot_priority_isolated.sql
@@ -13,6 +14,9 @@
 -- Preserves RPC signature, response shape keys, auth, grants, SECURITY DEFINER,
 -- search_path=public, and assignment ownership (driver_id OR confirmed_driver_id).
 
+-- ---------------------------------------------------------------------------
+-- Status allowlist (necessary but not sufficient for scheduled-origin rows).
+-- ---------------------------------------------------------------------------
 CREATE OR REPLACE FUNCTION public.is_driver_active_trip_snapshot_status(p_status text)
 RETURNS boolean
 LANGUAGE sql
@@ -80,10 +84,143 @@ AS $helper$
   END;
 $helper$;
 
+-- ---------------------------------------------------------------------------
+-- Authoritative scheduled activation (composite — mirrors
+-- scheduledConfirmedActivationSSOT.isAlreadyConfirmedActivated + live workflow
+-- progression + Phase 4/5 / legacy journey metadata). Never uses scheduled_at
+-- future-ness alone.
+-- ---------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public.is_driver_active_trip_snapshot_scheduled_activated(
+  p_status text,
+  p_scheduled_status text,
+  p_scheduled_jit_activated_at timestamptz,
+  p_driver_started_journey_to_pickup_at timestamptz,
+  p_driver_checked_in_at timestamptz,
+  p_pickup_arrived_at timestamptz,
+  p_arrived_at timestamptz,
+  p_started_at timestamptz,
+  p_scheduled_ack_status text DEFAULT NULL,
+  p_scheduled_ack_acknowledged_at timestamptz DEFAULT NULL
+)
+RETURNS boolean
+LANGUAGE sql
+IMMUTABLE
+PARALLEL SAFE
+AS $helper$
+  SELECT
+    -- Primary activation SSOT
+    lower(trim(coalesce(p_scheduled_status, ''))) IN ('driver_en_route', 'en_route_to_pickup')
+    -- Live workflow statuses (past mere assignment aliases)
+    OR lower(trim(coalesce(p_status, ''))) IN (
+      'en_route', 'en_route_to_pickup', 'en_route_pickup',
+      'driver_en_route', 'enroute_to_pickup', 'driver_arriving',
+      'arrived', 'arrived_pickup', 'arrived_at_pickup', 'at_pickup',
+      'pickup_waiting', 'waiting', 'waiting_at_pickup', 'driver_arrived',
+      'at_stop', 'arrived_stop', 'arrived_at_stop', 'stop_waiting',
+      'waiting_at_stop', 'intermediate_stop_waiting',
+      'en_route_to_stop', 'en_route_stop',
+      'in_progress', 'started', 'on_trip', 'ongoing', 'trip_started',
+      'pickup_in_progress',
+      'en_route_to_dropoff', 'en_route_destination', 'en_route_dropoff'
+    )
+    -- Activation / journey / arrival metadata
+    OR p_scheduled_jit_activated_at IS NOT NULL
+    OR p_driver_started_journey_to_pickup_at IS NOT NULL
+    OR p_driver_checked_in_at IS NOT NULL
+    OR p_pickup_arrived_at IS NOT NULL
+    OR p_arrived_at IS NOT NULL
+    OR p_started_at IS NOT NULL
+    -- Phase 5 Heading acknowledgement (activation may stamp en_route next)
+    OR lower(trim(coalesce(p_scheduled_ack_status, ''))) = 'acknowledged'
+    OR p_scheduled_ack_acknowledged_at IS NOT NULL;
+$helper$;
+
+-- True ⇒ still a Scheduled Jobs reservation; must NOT appear in active snapshot.
+CREATE OR REPLACE FUNCTION public.is_driver_active_trip_snapshot_unactivated_scheduled(
+  p_status text,
+  p_scheduled_status text,
+  p_is_scheduled boolean,
+  p_dispatch_mode text,
+  p_scheduled_at timestamptz,
+  p_scheduled_jit_activated_at timestamptz,
+  p_driver_started_journey_to_pickup_at timestamptz,
+  p_driver_checked_in_at timestamptz,
+  p_pickup_arrived_at timestamptz,
+  p_arrived_at timestamptz,
+  p_started_at timestamptz,
+  p_scheduled_ack_status text DEFAULT NULL,
+  p_scheduled_ack_acknowledged_at timestamptz DEFAULT NULL
+)
+RETURNS boolean
+LANGUAGE sql
+IMMUTABLE
+PARALLEL SAFE
+AS $helper$
+  SELECT
+    (
+      coalesce(p_is_scheduled, false)
+      OR lower(replace(trim(coalesce(p_dispatch_mode, '')), '-', '_')) = 'scheduled'
+      OR p_scheduled_at IS NOT NULL
+    )
+    -- Converted / instant dispatch is live work, not a reservation
+    AND lower(replace(trim(coalesce(p_scheduled_status, '')), '-', '_'))
+          IS DISTINCT FROM 'converted_to_instant'
+    AND lower(replace(trim(coalesce(p_dispatch_mode, '')), '-', '_'))
+          IS DISTINCT FROM 'instant'
+    AND NOT public.is_driver_active_trip_snapshot_scheduled_activated(
+      p_status,
+      p_scheduled_status,
+      p_scheduled_jit_activated_at,
+      p_driver_started_journey_to_pickup_at,
+      p_driver_checked_in_at,
+      p_pickup_arrived_at,
+      p_arrived_at,
+      p_started_at,
+      p_scheduled_ack_status,
+      p_scheduled_ack_acknowledged_at
+    );
+$helper$;
+
+-- Row eligibility used by the RPC (status allowlist ∧ ¬unactivated scheduled).
+CREATE OR REPLACE FUNCTION public.is_driver_active_trip_snapshot_row_eligible(p_trip public.trips)
+RETURNS boolean
+LANGUAGE sql
+STABLE
+PARALLEL SAFE
+SET search_path TO 'public'
+AS $helper$
+  SELECT
+    public.is_driver_active_trip_snapshot_status(p_trip.status)
+    AND NOT public.is_driver_active_trip_snapshot_unactivated_scheduled(
+      p_trip.status,
+      p_trip.scheduled_status,
+      p_trip.is_scheduled,
+      p_trip.dispatch_mode,
+      p_trip.scheduled_at,
+      p_trip.scheduled_jit_activated_at,
+      p_trip.driver_started_journey_to_pickup_at,
+      p_trip.driver_checked_in_at,
+      p_trip.pickup_arrived_at,
+      p_trip.arrived_at,
+      p_trip.started_at,
+      p_trip.scheduled_ack_status,
+      p_trip.scheduled_ack_acknowledged_at
+    );
+$helper$;
+
 REVOKE EXECUTE ON FUNCTION public.is_driver_active_trip_snapshot_status(text) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.is_driver_active_trip_snapshot_status(text) TO authenticated, service_role;
 REVOKE EXECUTE ON FUNCTION public.driver_active_trip_snapshot_lifecycle_rank(text) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.driver_active_trip_snapshot_lifecycle_rank(text) TO authenticated, service_role;
+
+REVOKE EXECUTE ON FUNCTION public.is_driver_active_trip_snapshot_scheduled_activated(text, text, timestamptz, timestamptz, timestamptz, timestamptz, timestamptz, timestamptz, text, timestamptz) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.is_driver_active_trip_snapshot_scheduled_activated(text, text, timestamptz, timestamptz, timestamptz, timestamptz, timestamptz, timestamptz, text, timestamptz) TO authenticated, service_role;
+
+REVOKE EXECUTE ON FUNCTION public.is_driver_active_trip_snapshot_unactivated_scheduled(text, text, boolean, text, timestamptz, timestamptz, timestamptz, timestamptz, timestamptz, timestamptz, timestamptz, text, timestamptz) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.is_driver_active_trip_snapshot_unactivated_scheduled(text, text, boolean, text, timestamptz, timestamptz, timestamptz, timestamptz, timestamptz, timestamptz, timestamptz, text, timestamptz) TO authenticated, service_role;
+
+REVOKE EXECUTE ON FUNCTION public.is_driver_active_trip_snapshot_row_eligible(public.trips) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.is_driver_active_trip_snapshot_row_eligible(public.trips) TO authenticated, service_role;
 
 CREATE OR REPLACE FUNCTION public.get_driver_active_trip_snapshot()
  RETURNS jsonb
@@ -126,21 +263,20 @@ BEGIN
   SELECT count(*)::int INTO v_active_count
   FROM public.trips t
   WHERE (t.driver_id = v_driver_id OR t.confirmed_driver_id = v_driver_id)
-    AND public.is_driver_active_trip_snapshot_status(t.status);
+    AND public.is_driver_active_trip_snapshot_row_eligible(t);
   IF coalesce(v_active_count, 0) > 1 THEN
     RAISE LOG 'driver_active_trip_snapshot_anomaly driver_id=% active_count=%',
       v_driver_id, v_active_count;
   END IF;
 
-  -- MK-261114-002: future scheduled commitments (status=scheduled /
-  -- scheduled_committed) and searching/offer/queued statuses are NOT active.
-  -- Prefer genuine live workflow statuses by lifecycle rank — never
-  -- updated_at / created_at alone (scheduled can be newer and must lose).
+  -- MK-261114-002: exclude unactivated scheduled commitments regardless of
+  -- status aliases (scheduled/accepted/assigned/confirmed/driver_assigned).
+  -- Prefer genuine live workflow by lifecycle rank — never updated_at alone.
   SELECT t.*
   INTO v_trip
   FROM public.trips t
   WHERE (t.driver_id = v_driver_id OR t.confirmed_driver_id = v_driver_id)
-    AND public.is_driver_active_trip_snapshot_status(t.status)
+    AND public.is_driver_active_trip_snapshot_row_eligible(t)
   ORDER BY
     public.driver_active_trip_snapshot_lifecycle_rank(t.status) ASC,
     t.updated_at DESC NULLS LAST

@@ -2,6 +2,9 @@
 -- Restores currently deployed production selection (updated_at DESC, includes scheduled).
 -- REVIEW ONLY companion — apply only if the forward draft was applied and must be reverted.
 
+DROP FUNCTION IF EXISTS public.is_driver_active_trip_snapshot_row_eligible(public.trips);
+DROP FUNCTION IF EXISTS public.is_driver_active_trip_snapshot_unactivated_scheduled(text, text, boolean, text, timestamptz, timestamptz, timestamptz, timestamptz, timestamptz, timestamptz, timestamptz, text, timestamptz);
+DROP FUNCTION IF EXISTS public.is_driver_active_trip_snapshot_scheduled_activated(text, text, timestamptz, timestamptz, timestamptz, timestamptz, timestamptz, timestamptz, text, timestamptz);
 DROP FUNCTION IF EXISTS public.is_driver_active_trip_snapshot_status(text);
 DROP FUNCTION IF EXISTS public.driver_active_trip_snapshot_lifecycle_rank(text);
 

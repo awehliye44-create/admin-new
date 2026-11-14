@@ -1,8 +1,5 @@
--- ARTIFACT: rolled-back linked verification for draft 20270222250000.
+-- ARTIFACT: rolled-back linked verification for draft 20270222250000 (corrected eligibility).
 -- MUST end in ROLLBACK. Never COMMIT. Never use as a production apply script.
--- Prefer scripts/build-guarded-migration-apply.py only after draft is promoted
--- out of _draft_review_only/ and explicitly approved.
--- TRANSACTIONAL VERIFICATION ONLY. Ends with ROLLBACK. Never COMMIT.
 BEGIN;
 
 CREATE TEMP TABLE _verify_results (
@@ -17,28 +14,14 @@ INSERT INTO _verify_results
 SELECT 'prod_before_has_updated_at_order',
   CASE WHEN pg_get_functiondef('public.get_driver_active_trip_snapshot()'::regprocedure)
     LIKE '%ORDER BY t.updated_at DESC NULLS LAST%' THEN 'yes' ELSE 'no' END;
-INSERT INTO _verify_results
-SELECT 'prod_before_security',
-  CASE WHEN p.prosecdef THEN 'SECURITY DEFINER' ELSE 'INVOKER' END
-FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
-WHERE n.nspname='public' AND p.proname='get_driver_active_trip_snapshot'
-  AND pg_get_function_identity_arguments(p.oid)='';
-INSERT INTO _verify_results
-SELECT 'prod_before_search_path', coalesce(array_to_string(p.proconfig,','),'')
-FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
-WHERE n.nspname='public' AND p.proname='get_driver_active_trip_snapshot'
-  AND pg_get_function_identity_arguments(p.oid)='';
-INSERT INTO _verify_results
-SELECT 'prod_before_args', pg_get_function_identity_arguments(p.oid)
-FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
-WHERE n.nspname='public' AND p.proname='get_driver_active_trip_snapshot';
 
 -- === INSTALL PROPOSED DRAFT ===
 -- REVIEW ONLY — DO NOT APPLY IN PRODUCTION WITHOUT EXPLICIT APPROVAL.
 -- Final migration version: 20270222250000 (after remote head 20270222240000).
 -- MK-261114-002: get_driver_active_trip_snapshot must never prefer a newer
 -- future scheduled commitment over a genuine active trip, and must return
--- empty active_trip when the driver only has Scheduled Jobs commitments.
+-- empty active_trip when the driver only has unactivated Scheduled Jobs
+-- commitments — including legacy accept_scheduled_ride status='accepted'.
 --
 -- Rollback: supabase/migrations/rollback/rollback_20270222250000_driver_active_trip_snapshot_priority.sql
 -- Isolated tests: supabase/tests/driver_active_trip_snapshot_priority_isolated.sql
@@ -49,6 +32,9 @@ WHERE n.nspname='public' AND p.proname='get_driver_active_trip_snapshot';
 -- Preserves RPC signature, response shape keys, auth, grants, SECURITY DEFINER,
 -- search_path=public, and assignment ownership (driver_id OR confirmed_driver_id).
 
+-- ---------------------------------------------------------------------------
+-- Status allowlist (necessary but not sufficient for scheduled-origin rows).
+-- ---------------------------------------------------------------------------
 CREATE OR REPLACE FUNCTION public.is_driver_active_trip_snapshot_status(p_status text)
 RETURNS boolean
 LANGUAGE sql
@@ -116,10 +102,143 @@ AS $helper$
   END;
 $helper$;
 
+-- ---------------------------------------------------------------------------
+-- Authoritative scheduled activation (composite — mirrors
+-- scheduledConfirmedActivationSSOT.isAlreadyConfirmedActivated + live workflow
+-- progression + Phase 4/5 / legacy journey metadata). Never uses scheduled_at
+-- future-ness alone.
+-- ---------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public.is_driver_active_trip_snapshot_scheduled_activated(
+  p_status text,
+  p_scheduled_status text,
+  p_scheduled_jit_activated_at timestamptz,
+  p_driver_started_journey_to_pickup_at timestamptz,
+  p_driver_checked_in_at timestamptz,
+  p_pickup_arrived_at timestamptz,
+  p_arrived_at timestamptz,
+  p_started_at timestamptz,
+  p_scheduled_ack_status text DEFAULT NULL,
+  p_scheduled_ack_acknowledged_at timestamptz DEFAULT NULL
+)
+RETURNS boolean
+LANGUAGE sql
+IMMUTABLE
+PARALLEL SAFE
+AS $helper$
+  SELECT
+    -- Primary activation SSOT
+    lower(trim(coalesce(p_scheduled_status, ''))) IN ('driver_en_route', 'en_route_to_pickup')
+    -- Live workflow statuses (past mere assignment aliases)
+    OR lower(trim(coalesce(p_status, ''))) IN (
+      'en_route', 'en_route_to_pickup', 'en_route_pickup',
+      'driver_en_route', 'enroute_to_pickup', 'driver_arriving',
+      'arrived', 'arrived_pickup', 'arrived_at_pickup', 'at_pickup',
+      'pickup_waiting', 'waiting', 'waiting_at_pickup', 'driver_arrived',
+      'at_stop', 'arrived_stop', 'arrived_at_stop', 'stop_waiting',
+      'waiting_at_stop', 'intermediate_stop_waiting',
+      'en_route_to_stop', 'en_route_stop',
+      'in_progress', 'started', 'on_trip', 'ongoing', 'trip_started',
+      'pickup_in_progress',
+      'en_route_to_dropoff', 'en_route_destination', 'en_route_dropoff'
+    )
+    -- Activation / journey / arrival metadata
+    OR p_scheduled_jit_activated_at IS NOT NULL
+    OR p_driver_started_journey_to_pickup_at IS NOT NULL
+    OR p_driver_checked_in_at IS NOT NULL
+    OR p_pickup_arrived_at IS NOT NULL
+    OR p_arrived_at IS NOT NULL
+    OR p_started_at IS NOT NULL
+    -- Phase 5 Heading acknowledgement (activation may stamp en_route next)
+    OR lower(trim(coalesce(p_scheduled_ack_status, ''))) = 'acknowledged'
+    OR p_scheduled_ack_acknowledged_at IS NOT NULL;
+$helper$;
+
+-- True ⇒ still a Scheduled Jobs reservation; must NOT appear in active snapshot.
+CREATE OR REPLACE FUNCTION public.is_driver_active_trip_snapshot_unactivated_scheduled(
+  p_status text,
+  p_scheduled_status text,
+  p_is_scheduled boolean,
+  p_dispatch_mode text,
+  p_scheduled_at timestamptz,
+  p_scheduled_jit_activated_at timestamptz,
+  p_driver_started_journey_to_pickup_at timestamptz,
+  p_driver_checked_in_at timestamptz,
+  p_pickup_arrived_at timestamptz,
+  p_arrived_at timestamptz,
+  p_started_at timestamptz,
+  p_scheduled_ack_status text DEFAULT NULL,
+  p_scheduled_ack_acknowledged_at timestamptz DEFAULT NULL
+)
+RETURNS boolean
+LANGUAGE sql
+IMMUTABLE
+PARALLEL SAFE
+AS $helper$
+  SELECT
+    (
+      coalesce(p_is_scheduled, false)
+      OR lower(replace(trim(coalesce(p_dispatch_mode, '')), '-', '_')) = 'scheduled'
+      OR p_scheduled_at IS NOT NULL
+    )
+    -- Converted / instant dispatch is live work, not a reservation
+    AND lower(replace(trim(coalesce(p_scheduled_status, '')), '-', '_'))
+          IS DISTINCT FROM 'converted_to_instant'
+    AND lower(replace(trim(coalesce(p_dispatch_mode, '')), '-', '_'))
+          IS DISTINCT FROM 'instant'
+    AND NOT public.is_driver_active_trip_snapshot_scheduled_activated(
+      p_status,
+      p_scheduled_status,
+      p_scheduled_jit_activated_at,
+      p_driver_started_journey_to_pickup_at,
+      p_driver_checked_in_at,
+      p_pickup_arrived_at,
+      p_arrived_at,
+      p_started_at,
+      p_scheduled_ack_status,
+      p_scheduled_ack_acknowledged_at
+    );
+$helper$;
+
+-- Row eligibility used by the RPC (status allowlist ∧ ¬unactivated scheduled).
+CREATE OR REPLACE FUNCTION public.is_driver_active_trip_snapshot_row_eligible(p_trip public.trips)
+RETURNS boolean
+LANGUAGE sql
+STABLE
+PARALLEL SAFE
+SET search_path TO 'public'
+AS $helper$
+  SELECT
+    public.is_driver_active_trip_snapshot_status(p_trip.status)
+    AND NOT public.is_driver_active_trip_snapshot_unactivated_scheduled(
+      p_trip.status,
+      p_trip.scheduled_status,
+      p_trip.is_scheduled,
+      p_trip.dispatch_mode,
+      p_trip.scheduled_at,
+      p_trip.scheduled_jit_activated_at,
+      p_trip.driver_started_journey_to_pickup_at,
+      p_trip.driver_checked_in_at,
+      p_trip.pickup_arrived_at,
+      p_trip.arrived_at,
+      p_trip.started_at,
+      p_trip.scheduled_ack_status,
+      p_trip.scheduled_ack_acknowledged_at
+    );
+$helper$;
+
 REVOKE EXECUTE ON FUNCTION public.is_driver_active_trip_snapshot_status(text) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.is_driver_active_trip_snapshot_status(text) TO authenticated, service_role;
 REVOKE EXECUTE ON FUNCTION public.driver_active_trip_snapshot_lifecycle_rank(text) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.driver_active_trip_snapshot_lifecycle_rank(text) TO authenticated, service_role;
+
+REVOKE EXECUTE ON FUNCTION public.is_driver_active_trip_snapshot_scheduled_activated(text, text, timestamptz, timestamptz, timestamptz, timestamptz, timestamptz, timestamptz, text, timestamptz) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.is_driver_active_trip_snapshot_scheduled_activated(text, text, timestamptz, timestamptz, timestamptz, timestamptz, timestamptz, timestamptz, text, timestamptz) TO authenticated, service_role;
+
+REVOKE EXECUTE ON FUNCTION public.is_driver_active_trip_snapshot_unactivated_scheduled(text, text, boolean, text, timestamptz, timestamptz, timestamptz, timestamptz, timestamptz, timestamptz, timestamptz, text, timestamptz) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.is_driver_active_trip_snapshot_unactivated_scheduled(text, text, boolean, text, timestamptz, timestamptz, timestamptz, timestamptz, timestamptz, timestamptz, timestamptz, text, timestamptz) TO authenticated, service_role;
+
+REVOKE EXECUTE ON FUNCTION public.is_driver_active_trip_snapshot_row_eligible(public.trips) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.is_driver_active_trip_snapshot_row_eligible(public.trips) TO authenticated, service_role;
 
 CREATE OR REPLACE FUNCTION public.get_driver_active_trip_snapshot()
  RETURNS jsonb
@@ -162,21 +281,20 @@ BEGIN
   SELECT count(*)::int INTO v_active_count
   FROM public.trips t
   WHERE (t.driver_id = v_driver_id OR t.confirmed_driver_id = v_driver_id)
-    AND public.is_driver_active_trip_snapshot_status(t.status);
+    AND public.is_driver_active_trip_snapshot_row_eligible(t);
   IF coalesce(v_active_count, 0) > 1 THEN
     RAISE LOG 'driver_active_trip_snapshot_anomaly driver_id=% active_count=%',
       v_driver_id, v_active_count;
   END IF;
 
-  -- MK-261114-002: future scheduled commitments (status=scheduled /
-  -- scheduled_committed) and searching/offer/queued statuses are NOT active.
-  -- Prefer genuine live workflow statuses by lifecycle rank — never
-  -- updated_at / created_at alone (scheduled can be newer and must lose).
+  -- MK-261114-002: exclude unactivated scheduled commitments regardless of
+  -- status aliases (scheduled/accepted/assigned/confirmed/driver_assigned).
+  -- Prefer genuine live workflow by lifecycle rank — never updated_at alone.
   SELECT t.*
   INTO v_trip
   FROM public.trips t
   WHERE (t.driver_id = v_driver_id OR t.confirmed_driver_id = v_driver_id)
-    AND public.is_driver_active_trip_snapshot_status(t.status)
+    AND public.is_driver_active_trip_snapshot_row_eligible(t)
   ORDER BY
     public.driver_active_trip_snapshot_lifecycle_rank(t.status) ASC,
     t.updated_at DESC NULLS LAST
@@ -396,6 +514,10 @@ SELECT 'draft_has_lifecycle_order',
   CASE WHEN pg_get_functiondef('public.get_driver_active_trip_snapshot()'::regprocedure)
     LIKE '%driver_active_trip_snapshot_lifecycle_rank(t.status) ASC%' THEN 'yes' ELSE 'no' END;
 INSERT INTO _verify_results
+SELECT 'draft_has_row_eligible',
+  CASE WHEN pg_get_functiondef('public.get_driver_active_trip_snapshot()'::regprocedure)
+    LIKE '%is_driver_active_trip_snapshot_row_eligible(t)%' THEN 'yes' ELSE 'no' END;
+INSERT INTO _verify_results
 SELECT 'draft_security',
   CASE WHEN p.prosecdef THEN 'SECURITY DEFINER' ELSE 'INVOKER' END
 FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
@@ -430,15 +552,14 @@ SELECT 'draft_rpc_no_trip_update',
   CASE WHEN pg_get_functiondef('public.get_driver_active_trip_snapshot()'::regprocedure)
     ~* 'UPDATE[[:space:]]+trips' THEN 'FAIL' ELSE 'ok' END;
 INSERT INTO _verify_results
-SELECT 'mk_status', status || '|' || coalesce(scheduled_status,'') || '|' || coalesce(gross_fare_pence,0)::text
+SELECT 'mk_status', status || '|' || coalesce(scheduled_status,'') || '|' || coalesce(gross_fare_pence,0)::text || '|' || id::text
 FROM trips WHERE trip_number = 'MK-261114-002';
 
 -- === ISOLATED EXECUTION SUITE ===
 
 -- Isolated PostgreSQL execution suite for MK-261114-002 snapshot priority.
--- Exercises the immutable helpers + the same WHERE/ORDER BY the draft RPC uses.
--- Does not mutate production trips. Ownership / rematch / queued RPC parity are
--- proven with candidate rows + the unchanged ownership predicate.
+-- Exercises immutable helpers + the same eligibility/ORDER BY the draft RPC uses.
+-- Does not mutate production trips.
 -- Run after loading helpers from the draft (or inside a rolled-back txn).
 
 CREATE OR REPLACE FUNCTION public.t_ok(cond boolean, label text)
@@ -453,6 +574,35 @@ BEGIN
   ON CONFLICT (step) DO UPDATE SET detail = EXCLUDED.detail;
   RETURN 'PASS: ' || label;
 END;
+$$;
+
+-- Scalar eligibility mirror of is_driver_active_trip_snapshot_row_eligible
+-- for fixture rows that are not typed as public.trips.
+CREATE OR REPLACE FUNCTION public.t_snap_eligible(
+  p_status text,
+  p_scheduled_status text,
+  p_is_scheduled boolean,
+  p_dispatch_mode text,
+  p_scheduled_at timestamptz,
+  p_jit timestamptz DEFAULT NULL,
+  p_started_journey timestamptz DEFAULT NULL,
+  p_checked_in timestamptz DEFAULT NULL,
+  p_pickup_arrived timestamptz DEFAULT NULL,
+  p_arrived timestamptz DEFAULT NULL,
+  p_started timestamptz DEFAULT NULL,
+  p_ack_status text DEFAULT NULL,
+  p_ack_at timestamptz DEFAULT NULL
+)
+RETURNS boolean
+LANGUAGE sql
+AS $$
+  SELECT
+    public.is_driver_active_trip_snapshot_status(p_status)
+    AND NOT public.is_driver_active_trip_snapshot_unactivated_scheduled(
+      p_status, p_scheduled_status, p_is_scheduled, p_dispatch_mode, p_scheduled_at,
+      p_jit, p_started_journey, p_checked_in, p_pickup_arrived, p_arrived, p_started,
+      p_ack_status, p_ack_at
+    );
 $$;
 
 SELECT t_ok(NOT public.is_driver_active_trip_snapshot_status('scheduled'), '1/5 scheduled excluded');
@@ -487,10 +637,21 @@ CREATE TEMP TABLE snap_candidates (
   driver_id text,
   confirmed_driver_id text,
   status text NOT NULL,
+  scheduled_status text,
+  is_scheduled boolean,
+  dispatch_mode text,
+  scheduled_at timestamptz,
+  jit_at timestamptz,
+  started_journey_at timestamptz,
+  checked_in_at timestamptz,
+  pickup_arrived_at timestamptz,
+  arrived_at timestamptz,
+  started_at timestamptz,
+  ack_status text,
+  ack_at timestamptz,
   updated_at timestamptz NOT NULL
 ) ON COMMIT DROP;
 
--- Shared picker matching draft RPC selection (ownership + allowlist + rank).
 CREATE OR REPLACE FUNCTION public.t_pick_active(p_driver text)
 RETURNS text
 LANGUAGE sql
@@ -498,7 +659,11 @@ AS $$
   SELECT id
   FROM snap_candidates t
   WHERE (t.driver_id = p_driver OR t.confirmed_driver_id = p_driver)
-    AND public.is_driver_active_trip_snapshot_status(t.status)
+    AND public.t_snap_eligible(
+      t.status, t.scheduled_status, t.is_scheduled, t.dispatch_mode, t.scheduled_at,
+      t.jit_at, t.started_journey_at, t.checked_in_at, t.pickup_arrived_at,
+      t.arrived_at, t.started_at, t.ack_status, t.ack_at
+    )
   ORDER BY
     public.driver_active_trip_snapshot_lifecycle_rank(t.status) ASC,
     t.updated_at DESC NULLS LAST
@@ -506,122 +671,318 @@ AS $$
 $$;
 
 DELETE FROM snap_candidates;
-INSERT INTO snap_candidates VALUES
-  ('live-progress', 'D1', 'D1', 'in_progress', now() - interval '1 hour'),
-  ('future-scheduled', 'D1', 'D1', 'scheduled', now() - interval '1 minute');
+INSERT INTO snap_candidates (
+  id, driver_id, confirmed_driver_id, status, scheduled_status, is_scheduled,
+  dispatch_mode, scheduled_at, updated_at
+) VALUES
+  ('live-progress', 'D1', 'D1', 'in_progress', NULL, false, 'instant', NULL, now() - interval '1 hour'),
+  ('future-scheduled', 'D1', 'D1', 'scheduled', 'driver_assigned', true, 'scheduled', now() + interval '8 hours', now() - interval '1 minute');
 SELECT t_ok(public.t_pick_active('D1') = 'live-progress', '1 in_progress beats newer scheduled');
 
 DELETE FROM snap_candidates;
-INSERT INTO snap_candidates VALUES
-  ('live-arrived', 'D1', 'D1', 'at_pickup', now() - interval '30 minutes'),
-  ('future-scheduled', 'D1', 'D1', 'scheduled', now());
+INSERT INTO snap_candidates (
+  id, driver_id, confirmed_driver_id, status, scheduled_status, is_scheduled,
+  dispatch_mode, scheduled_at, updated_at
+) VALUES
+  ('live-arrived', 'D1', 'D1', 'at_pickup', NULL, false, 'instant', NULL, now() - interval '30 minutes'),
+  ('future-scheduled', 'D1', 'D1', 'scheduled', 'driver_assigned', true, 'scheduled', now() + interval '8 hours', now());
 SELECT t_ok(public.t_pick_active('D1') = 'live-arrived', '2 arrived beats newer scheduled');
 
 DELETE FROM snap_candidates;
-INSERT INTO snap_candidates VALUES
-  ('live-heading', 'D1', 'D1', 'en_route_to_pickup', now() - interval '20 minutes'),
-  ('future-scheduled', 'D1', 'D1', 'scheduled', now());
+INSERT INTO snap_candidates (
+  id, driver_id, confirmed_driver_id, status, scheduled_status, is_scheduled,
+  dispatch_mode, scheduled_at, updated_at
+) VALUES
+  ('live-heading', 'D1', 'D1', 'en_route_to_pickup', NULL, false, 'instant', NULL, now() - interval '20 minutes'),
+  ('future-scheduled', 'D1', 'D1', 'scheduled', 'driver_assigned', true, 'scheduled', now() + interval '8 hours', now());
 SELECT t_ok(public.t_pick_active('D1') = 'live-heading', '3 heading beats newer scheduled');
 
 DELETE FROM snap_candidates;
-INSERT INTO snap_candidates VALUES
-  ('live-stop', 'D1', 'D1', 'at_stop', now() - interval '15 minutes'),
-  ('future-scheduled', 'D1', 'D1', 'scheduled', now());
+INSERT INTO snap_candidates (
+  id, driver_id, confirmed_driver_id, status, scheduled_status, is_scheduled,
+  dispatch_mode, scheduled_at, updated_at
+) VALUES
+  ('live-stop', 'D1', 'D1', 'at_stop', NULL, false, 'instant', NULL, now() - interval '15 minutes'),
+  ('future-scheduled', 'D1', 'D1', 'scheduled', 'driver_assigned', true, 'scheduled', now() + interval '8 hours', now());
 SELECT t_ok(public.t_pick_active('D1') = 'live-stop', '4 at_stop beats newer scheduled');
 
 DELETE FROM snap_candidates;
-INSERT INTO snap_candidates VALUES
-  ('future-a', 'D1', 'D1', 'scheduled', now()),
-  ('future-b', 'D1', 'D1', 'scheduled_committed', now() - interval '5 minutes');
+INSERT INTO snap_candidates (
+  id, driver_id, confirmed_driver_id, status, scheduled_status, is_scheduled,
+  dispatch_mode, scheduled_at, updated_at
+) VALUES
+  ('future-a', 'D1', 'D1', 'scheduled', 'driver_assigned', true, 'scheduled', now() + interval '8 hours', now()),
+  ('future-b', 'D1', 'D1', 'scheduled_committed', 'driver_assigned', true, 'scheduled', now() + interval '9 hours', now() - interval '5 minutes');
 SELECT t_ok(public.t_pick_active('D1') IS NULL, '5 scheduled-only empty active');
 
 DELETE FROM snap_candidates;
-INSERT INTO snap_candidates VALUES
-  ('done', 'D1', 'D1', 'completed', now()),
-  ('cx', 'D1', 'D1', 'cancelled', now() - interval '1 minute');
+INSERT INTO snap_candidates (
+  id, driver_id, confirmed_driver_id, status, scheduled_status, is_scheduled,
+  dispatch_mode, scheduled_at, updated_at
+) VALUES
+  ('done', 'D1', 'D1', 'completed', NULL, false, 'instant', NULL, now()),
+  ('cx', 'D1', 'D1', 'cancelled', NULL, false, 'instant', NULL, now() - interval '1 minute');
 SELECT t_ok(public.t_pick_active('D1') IS NULL, '6 terminal-only empty active');
 
 DELETE FROM snap_candidates;
-INSERT INTO snap_candidates VALUES
-  ('activated', 'D1', 'D1', 'en_route_to_pickup', now()),
-  ('other-future', 'D1', 'D1', 'scheduled', now() + interval '1 minute');
+INSERT INTO snap_candidates (
+  id, driver_id, confirmed_driver_id, status, scheduled_status, is_scheduled,
+  dispatch_mode, scheduled_at, jit_at, updated_at
+) VALUES
+  ('activated', 'D1', 'D1', 'en_route_to_pickup', 'driver_en_route', true, 'scheduled', now() + interval '30 minutes', now(), now()),
+  ('other-future', 'D1', 'D1', 'scheduled', 'driver_assigned', true, 'scheduled', now() + interval '8 hours', NULL, now() + interval '1 minute');
 SELECT t_ok(public.t_pick_active('D1') = 'activated', '7 activated scheduled restored');
 
 DELETE FROM snap_candidates;
-INSERT INTO snap_candidates VALUES
-  ('phase4', 'D1', 'D1', 'en_route_to_pickup', now() - interval '2 minutes'),
-  ('still-scheduled', 'D1', 'D1', 'scheduled', now());
+INSERT INTO snap_candidates (
+  id, driver_id, confirmed_driver_id, status, scheduled_status, is_scheduled,
+  dispatch_mode, scheduled_at, jit_at, updated_at
+) VALUES
+  ('phase4', 'D1', 'D1', 'en_route_to_pickup', 'driver_en_route', true, 'scheduled', now() + interval '25 minutes', now(), now() - interval '2 minutes'),
+  ('still-scheduled', 'D1', 'D1', 'scheduled', 'driver_assigned', true, 'scheduled', now() + interval '8 hours', NULL, now());
 SELECT t_ok(public.t_pick_active('D1') = 'phase4', '8 phase4 activation preserved');
 
--- Departure ack leaves status en_route_to_pickup / scheduled_status driver_en_route.
 DELETE FROM snap_candidates;
-INSERT INTO snap_candidates VALUES
-  ('phase5', 'D1', 'D1', 'en_route_to_pickup', now() - interval '1 minutes'),
-  ('future', 'D1', 'D1', 'scheduled', now());
+INSERT INTO snap_candidates (
+  id, driver_id, confirmed_driver_id, status, scheduled_status, is_scheduled,
+  dispatch_mode, scheduled_at, jit_at, ack_status, ack_at, updated_at
+) VALUES
+  ('phase5', 'D1', 'D1', 'en_route_to_pickup', 'driver_en_route', true, 'scheduled', now() + interval '20 minutes', now(), 'acknowledged', now(), now() - interval '1 minutes'),
+  ('future', 'D1', 'D1', 'scheduled', 'driver_assigned', true, 'scheduled', now() + interval '8 hours', NULL, NULL, NULL, now());
 SELECT t_ok(public.t_pick_active('D1') = 'phase5', '9 phase5 departure ack preserved');
 
 DELETE FROM snap_candidates;
-INSERT INTO snap_candidates VALUES
-  ('active', 'D1', 'D1', 'in_progress', now() - interval '10 minutes'),
-  ('queued-stack', 'D1', 'D1', 'queued', now());
+INSERT INTO snap_candidates (
+  id, driver_id, confirmed_driver_id, status, scheduled_status, is_scheduled,
+  dispatch_mode, scheduled_at, updated_at
+) VALUES
+  ('active', 'D1', 'D1', 'in_progress', NULL, false, 'instant', NULL, now() - interval '10 minutes'),
+  ('queued-stack', 'D1', 'D1', 'queued', NULL, false, 'instant', NULL, now());
 SELECT t_ok(public.t_pick_active('D1') = 'active', '10 active preferred over queued');
 SELECT t_ok(
-  EXISTS (
-    SELECT 1 FROM snap_candidates
-    WHERE id = 'queued-stack' AND status = 'queued'
-  ),
+  EXISTS (SELECT 1 FROM snap_candidates WHERE id = 'queued-stack' AND status = 'queued'),
   '10 queued row remains available for get_driver_queued_trips'
 );
 
 DELETE FROM snap_candidates;
-INSERT INTO snap_candidates VALUES
-  ('rematched', 'D2', 'D2', 'en_route_to_pickup', now());
+INSERT INTO snap_candidates (
+  id, driver_id, confirmed_driver_id, status, scheduled_status, is_scheduled,
+  dispatch_mode, scheduled_at, jit_at, updated_at
+) VALUES
+  ('rematched', 'D2', 'D2', 'en_route_to_pickup', 'driver_en_route', true, 'scheduled', now() + interval '15 minutes', now(), now());
 SELECT t_ok(public.t_pick_active('D1') IS NULL, '11 previous driver cannot restore rematch');
 SELECT t_ok(public.t_pick_active('D2') = 'rematched', '11 new driver restores rematch');
 
 DELETE FROM snap_candidates;
-INSERT INTO snap_candidates VALUES
-  ('other', 'D2', 'D2', 'in_progress', now());
+INSERT INTO snap_candidates (
+  id, driver_id, confirmed_driver_id, status, scheduled_status, is_scheduled,
+  dispatch_mode, scheduled_at, updated_at
+) VALUES
+  ('other', 'D2', 'D2', 'in_progress', NULL, false, 'instant', NULL, now());
 SELECT t_ok(public.t_pick_active('D1') IS NULL, '12 unrelated driver empty');
 
 DELETE FROM snap_candidates;
-INSERT INTO snap_candidates VALUES
-  ('cold-active', 'D1', 'D1', 'at_pickup', now() - interval '5 minutes'),
-  ('cold-sched', 'D1', 'D1', 'scheduled', now());
+INSERT INTO snap_candidates (
+  id, driver_id, confirmed_driver_id, status, scheduled_status, is_scheduled,
+  dispatch_mode, scheduled_at, updated_at
+) VALUES
+  ('cold-active', 'D1', 'D1', 'at_pickup', NULL, false, 'instant', NULL, now() - interval '5 minutes'),
+  ('cold-sched', 'D1', 'D1', 'scheduled', 'driver_assigned', true, 'scheduled', now() + interval '8 hours', now());
 SELECT t_ok(public.t_pick_active('D1') = 'cold-active', '13 cold start restores active');
 
 DELETE FROM snap_candidates;
-INSERT INTO snap_candidates VALUES
-  ('older-progress', 'D1', 'D1', 'in_progress', now() - interval '40 minutes'),
-  ('newer-assigned', 'D1', 'D1', 'driver_assigned', now()),
-  ('mid-heading', 'D1', 'D1', 'en_route_to_pickup', now() - interval '5 minutes');
+INSERT INTO snap_candidates (
+  id, driver_id, confirmed_driver_id, status, scheduled_status, is_scheduled,
+  dispatch_mode, scheduled_at, updated_at
+) VALUES
+  ('older-progress', 'D1', 'D1', 'in_progress', NULL, false, 'instant', NULL, now() - interval '40 minutes'),
+  ('newer-assigned', 'D1', 'D1', 'driver_assigned', NULL, false, 'instant', NULL, now()),
+  ('mid-heading', 'D1', 'D1', 'en_route_to_pickup', NULL, false, 'instant', NULL, now() - interval '5 minutes');
 SELECT t_ok(public.t_pick_active('D1') = 'older-progress', '14 deterministic in_progress wins');
 SELECT t_ok(
-  (SELECT count(*) FROM snap_candidates
-    WHERE public.is_driver_active_trip_snapshot_status(status)) = 3,
+  (SELECT count(*) FROM snap_candidates t
+    WHERE public.t_snap_eligible(
+      t.status, t.scheduled_status, t.is_scheduled, t.dispatch_mode, t.scheduled_at,
+      t.jit_at, t.started_journey_at, t.checked_in_at, t.pickup_arrived_at,
+      t.arrived_at, t.started_at, t.ack_status, t.ack_at
+    )) = 3,
   '14 no automatic trip mutation (3 active rows remain)'
 );
 
--- Top-level keys and active_trip identity keys must remain stable for OTAs.
 SELECT t_ok(
   ARRAY['server_now','driver_id','active_trip','queued_trips']::text[]
     = ARRAY['server_now','driver_id','active_trip','queued_trips']::text[],
   '15 top-level response keys stable'
 );
-
 SELECT t_ok(
   public.is_driver_active_trip_snapshot_status('assigned')
   AND NOT public.is_driver_active_trip_snapshot_status('scheduled'),
   'assigned allowlisted; scheduled not'
 );
 
+-- 1. Legacy accept_scheduled_ride writer shape
+SELECT t_ok(
+  NOT public.t_snap_eligible(
+    'accepted', 'driver_assigned', true, 'scheduled', now() + interval '8 hours'
+  ),
+  'E1 accept_scheduled_ride future accepted excluded'
+);
+
+SELECT t_ok(
+  NOT public.t_snap_eligible(
+    'assigned', 'driver_assigned', true, 'scheduled', now() + interval '8 hours'
+  ),
+  'E2 future assigned scheduled excluded'
+);
+
+SELECT t_ok(
+  NOT public.t_snap_eligible(
+    'confirmed', 'driver_assigned', true, 'scheduled', now() + interval '8 hours'
+  ),
+  'E3 future confirmed scheduled excluded'
+);
+
+SELECT t_ok(
+  NOT public.t_snap_eligible(
+    'driver_assigned', 'driver_assigned', true, 'scheduled', now() + interval '8 hours'
+  ),
+  'E4 future driver_assigned status excluded'
+);
+
+DELETE FROM snap_candidates;
+INSERT INTO snap_candidates (
+  id, driver_id, confirmed_driver_id, status, scheduled_status, is_scheduled,
+  dispatch_mode, scheduled_at, updated_at
+) VALUES
+  ('live-progress', 'D1', 'D1', 'in_progress', NULL, false, 'instant', NULL, now() - interval '1 hour'),
+  ('legacy-accepted', 'D1', 'D1', 'accepted', 'driver_assigned', true, 'scheduled', now() + interval '8 hours', now());
+SELECT t_ok(public.t_pick_active('D1') = 'live-progress', 'E5 active beats newer legacy accepted scheduled');
+
+DELETE FROM snap_candidates;
+INSERT INTO snap_candidates (
+  id, driver_id, confirmed_driver_id, status, scheduled_status, is_scheduled,
+  dispatch_mode, scheduled_at, updated_at
+) VALUES
+  ('cold-live', 'D1', 'D1', 'en_route_to_pickup', NULL, false, 'instant', NULL, now() - interval '3 minutes'),
+  ('cold-accepted', 'D1', 'D1', 'accepted', 'driver_assigned', true, 'scheduled', now() + interval '8 hours', now());
+SELECT t_ok(public.t_pick_active('D1') = 'cold-live', 'E6 cold start restores genuine active over accepted scheduled');
+
+SELECT t_ok(
+  public.t_snap_eligible('accepted', NULL, false, 'instant', NULL),
+  'E7 genuine instant accepted included'
+);
+
+SELECT t_ok(
+  public.t_snap_eligible('assigned', NULL, false, NULL, NULL),
+  'E8 genuine instant assigned included'
+);
+
+-- 9. Valid scheduled activation before pickup time
+SELECT t_ok(
+  public.t_snap_eligible(
+    'en_route_to_pickup', 'driver_en_route', true, 'scheduled',
+    now() + interval '45 minutes', now() -- jit_at
+  ),
+  'E9 activated before pickup time included'
+);
+
+-- 10. Phase 4 legacy activation recovery
+SELECT t_ok(
+  public.t_snap_eligible(
+    'en_route_to_pickup', 'driver_en_route', true, 'scheduled',
+    now() + interval '30 minutes', now(), NULL, now() -- checked_in
+  ),
+  'E10 phase4 activation recovery preserved'
+);
+
+-- 11. Phase 5 heading then active recovery (ack + en_route)
+SELECT t_ok(
+  public.t_snap_eligible(
+    'en_route_to_pickup', 'driver_en_route', true, 'scheduled',
+    now() + interval '25 minutes', now(), NULL, now(), NULL, NULL, NULL,
+    'acknowledged', now()
+  ),
+  'E11 phase5 heading active recovery preserved'
+);
+
+-- Phase 5 armed but NOT headed → still unactivated reservation
+SELECT t_ok(
+  NOT public.t_snap_eligible(
+    'accepted', 'awaiting_activation_accept', true, 'scheduled',
+    now() + interval '25 minutes'
+  ),
+  'E11b phase5 awaiting ack still excluded'
+);
+
+-- 12. Scheduled-to-instant conversion
+SELECT t_ok(
+  public.t_snap_eligible(
+    'accepted', 'converted_to_instant', true, 'instant', now() + interval '10 minutes'
+  ),
+  'E12 converted_to_instant included'
+);
+
+-- 13. Rematched scheduled — ownership (already covered); previous driver empty
+DELETE FROM snap_candidates;
+INSERT INTO snap_candidates (
+  id, driver_id, confirmed_driver_id, status, scheduled_status, is_scheduled,
+  dispatch_mode, scheduled_at, jit_at, updated_at
+) VALUES
+  ('sched-rematch', 'D2', 'D2', 'en_route_to_pickup', 'driver_en_route', true, 'scheduled', now() + interval '20 minutes', now(), now());
+SELECT t_ok(public.t_pick_active('D1') IS NULL, 'E13 rematched scheduled previous driver empty');
+
+-- 14. Queued stacked scheduled commitment
+SELECT t_ok(
+  NOT public.t_snap_eligible(
+    'queued', 'driver_assigned', true, 'scheduled', now() + interval '8 hours'
+  ),
+  'E14 queued stacked scheduled excluded'
+);
+
+-- 15. Past-due but unactivated reservation
+SELECT t_ok(
+  NOT public.t_snap_eligible(
+    'accepted', 'driver_assigned', true, 'scheduled', now() - interval '15 minutes'
+  ),
+  'E15 past-due unactivated reservation excluded'
+);
+
+-- 16. Missing activation metadata but genuine in_progress must not be suppressed
+SELECT t_ok(
+  public.t_snap_eligible(
+    'in_progress', NULL, true, 'scheduled', now() + interval '10 minutes'
+    -- no jit / journey / arrival stamps
+  ),
+  'E16 inconsistent metadata does not suppress in_progress'
+);
+
+-- Marketplace writer shape (MK path): status=scheduled remains excluded
+SELECT t_ok(
+  NOT public.t_snap_eligible(
+    'scheduled', 'driver_assigned', true, 'scheduled', now() + interval '8 hours'
+  ),
+  'E marketplace scheduled commitment excluded'
+);
+
+-- Admin assign unactivated driver_assigned status
+SELECT t_ok(
+  NOT public.t_snap_eligible(
+    'driver_assigned', 'driver_assigned', true, 'scheduled', now() + interval '8 hours'
+  ),
+  'E admin_assign unactivated driver_assigned excluded'
+);
+
 DROP FUNCTION IF EXISTS public.t_pick_active(text);
+DROP FUNCTION IF EXISTS public.t_snap_eligible(text, text, boolean, text, timestamptz, timestamptz, timestamptz, timestamptz, timestamptz, timestamptz, timestamptz, text, timestamptz);
 DROP FUNCTION IF EXISTS public.t_ok(boolean, text);
 -- === ROLLBACK SQL TEST ===
 -- Rollback for draft 20270222250000_driver_active_trip_snapshot_priority.sql
 -- Restores currently deployed production selection (updated_at DESC, includes scheduled).
 -- REVIEW ONLY companion — apply only if the forward draft was applied and must be reverted.
 
+DROP FUNCTION IF EXISTS public.is_driver_active_trip_snapshot_row_eligible(public.trips);
+DROP FUNCTION IF EXISTS public.is_driver_active_trip_snapshot_unactivated_scheduled(text, text, boolean, text, timestamptz, timestamptz, timestamptz, timestamptz, timestamptz, timestamptz, timestamptz, text, timestamptz);
+DROP FUNCTION IF EXISTS public.is_driver_active_trip_snapshot_scheduled_activated(text, text, timestamptz, timestamptz, timestamptz, timestamptz, timestamptz, timestamptz, text, timestamptz);
 DROP FUNCTION IF EXISTS public.is_driver_active_trip_snapshot_status(text);
 DROP FUNCTION IF EXISTS public.driver_active_trip_snapshot_lifecycle_rank(text);
 
@@ -880,7 +1241,7 @@ SELECT 'after_rollback_updated_at_order',
 INSERT INTO _verify_results
 SELECT 'after_rollback_helpers_gone',
   CASE WHEN to_regprocedure('public.is_driver_active_trip_snapshot_status(text)') IS NULL
-    AND to_regprocedure('public.driver_active_trip_snapshot_lifecycle_rank(text)') IS NULL
+    AND to_regprocedure('public.is_driver_active_trip_snapshot_row_eligible(trips)') IS NULL
   THEN 'yes' ELSE 'no' END;
 INSERT INTO _verify_results
 SELECT 'pass_count', count(*)::text FROM _verify_results WHERE step LIKE 'pass:%';
