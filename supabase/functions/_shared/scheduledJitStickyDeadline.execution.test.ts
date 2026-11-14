@@ -225,7 +225,9 @@ Deno.test("lookahead uses planning horizon 180 (source lock)", async () => {
     new URL("./runConfirmedJitActivationPass.ts", import.meta.url),
   );
   assert(pass.includes("SCHEDULED_JIT_STICKY_DEADLINE_REUSED"));
-  assert(pass.includes("resolveReusableStickyJitDeadlineMs"));
+  assert(pass.includes("resolvePickupAwareJitDeadline"));
+  assert(pass.includes("fixed_suppressed"));
+  assert(pass.includes("fixedFallbackDue: false"));
   // Silent activation remains unreachable
   assert(pass.includes("activated"));
   assert(!/action === \"activate_now\"[\s\S]{0,80}driver_en_route/.test(pass));

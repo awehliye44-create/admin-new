@@ -15,12 +15,9 @@ import {
 } from "./scheduledActivationSSOT.ts";
 import {
   classifyDriverAvailabilityForJit,
-  computeJitDepartureDeadlineMs,
   decideConfirmedScheduledActivation,
   effectiveJitPlanningHorizonMinutes,
   isWithinJitPlanningHorizon,
-  reconcileStickyJitDeadline,
-  resolveReusableStickyJitDeadlineMs,
   resolveScheduledJitActivationConfig,
   validateJitEtaMinutes,
   type ScheduledJitActivationConfig,
@@ -40,9 +37,18 @@ import {
 import {
   buildJitEtaUnresolvedOpsAlert,
   buildJitMonitorPersistPatch,
+  buildLastKnownConservativeSample,
   evaluateJitDriverLocationFreshness,
+  loadRecentDriverToPickupRouteSample,
   resolveJitDriverToPickupEta,
 } from "./scheduledJitEtaMonitorSSOT.ts";
+import {
+  buildJitLateRiskOpsAlert,
+  buildJitLocationReadinessOpsAlert,
+  resolvePickupAwareJitDeadline,
+  shouldEscalateScheduledLocationReadiness,
+  SCHEDULED_JIT_FALLBACK_DEFAULTS,
+} from "./scheduledJitPickupAwareFallbackSSOT.ts";
 import {
   activeJourneyThreatensScheduledCommitment,
   evaluateScheduledCommitmentFeasibility,
@@ -98,39 +104,50 @@ async function loadDriverPresenceSnapshot(
   currentTripId: string | null;
   firstName: string | null;
   presenceStatus: string | null;
+  gpsSampleAtMs: number | null;
 }> {
   const { data: driver } = await supabase
     .from("drivers")
-    .select("id, current_lat, current_lng, current_trip_id, first_name")
+    .select(
+      "id, current_lat, current_lng, current_trip_id, first_name, last_gps_sample_at",
+    )
     .eq("id", driverId)
     .maybeSingle();
 
   const { data: presence } = await supabase
     .from("driver_presence")
-    .select("lat, lng, last_heartbeat_at, last_location_at, status")
+    .select(
+      "lat, lng, last_heartbeat_at, last_location_at, last_gps_sample_at, status",
+    )
     .eq("driver_id", driverId)
     .maybeSingle();
 
   const lat = Number(presence?.lat ?? driver?.current_lat);
   const lng = Number(presence?.lng ?? driver?.current_lng);
   const hb = Date.parse(String(presence?.last_heartbeat_at ?? ""));
-  const loc = Date.parse(String(presence?.last_location_at ?? ""));
-  const lastSeenMs = [hb, loc].filter((n) => Number.isFinite(n)).reduce(
-    (a, b) => Math.max(a, b),
-    NaN,
+  const gps = Date.parse(
+    String(
+      presence?.last_gps_sample_at ??
+        driver?.last_gps_sample_at ??
+        presence?.last_location_at ??
+        "",
+    ),
   );
 
   return {
     freshness: evaluateJitDriverLocationFreshness({
       lat: Number.isFinite(lat) ? lat : null,
       lng: Number.isFinite(lng) ? lng : null,
-      lastSeenMs: Number.isFinite(lastSeenMs) ? lastSeenMs : null,
+      gpsSampleAtMs: Number.isFinite(gps) ? gps : null,
+      heartbeatAtMs: Number.isFinite(hb) ? hb : null,
       nowMs,
       presenceMaxAgeSeconds,
+      lastKnownMaxAgeSeconds: SCHEDULED_JIT_FALLBACK_DEFAULTS.lastKnownMaxAgeSeconds,
     }),
     currentTripId: driver?.current_trip_id ? String(driver.current_trip_id) : null,
     firstName: driver?.first_name ? String(driver.first_name) : null,
     presenceStatus: presence?.status != null ? String(presence.status) : null,
+    gpsSampleAtMs: Number.isFinite(gps) ? gps : null,
   };
 }
 
@@ -266,6 +283,7 @@ export async function runConfirmedJitActivationPass(input: {
     let jitKind = "jit";
     let etaSource = "none";
     let routingFailedWithFresh = false;
+    let resolvedEtaMinutes: number | null = null;
 
     const lastKnownEta = Number(trip.scheduled_jit_eta_minutes);
     const horizonMinutes = effectiveJitPlanningHorizonMinutes({
@@ -279,6 +297,13 @@ export async function runConfirmedJitActivationPass(input: {
       scheduledAtMs: fixedDue.pickupMs,
       planningHorizonMinutes: horizonMinutes,
     });
+
+    const prevDeadlineMs = trip.scheduled_jit_activate_at
+      ? Date.parse(String(trip.scheduled_jit_activate_at))
+      : NaN;
+
+    let freshRouteEtaMinutes: number | null = null;
+    let etaFailReason: string | null = null;
 
     if (withinHorizon) {
       const eta = await resolveJitDriverToPickupEta({
@@ -307,134 +332,224 @@ export async function runConfirmedJitActivationPass(input: {
           consecutiveElevatedSamples: Number(trip.scheduled_jit_eta_spike_samples) || 0,
           config: jitConfig,
         });
-        const computed = computeJitDepartureDeadlineMs({
-          scheduledAtMs: fixedDue.pickupMs,
-          driverToPickupEtaMinutes: validated.acceptedEtaMinutes,
-          config: jitConfig,
-        });
-        const prevMs = trip.scheduled_jit_activate_at
-          ? Date.parse(String(trip.scheduled_jit_activate_at))
-          : NaN;
-        const basisMs = trip.scheduled_jit_basis_scheduled_at
-          ? Date.parse(String(trip.scheduled_jit_basis_scheduled_at))
-          : NaN;
-        const sticky = reconcileStickyJitDeadline({
-          previousDeadlineMs: Number.isFinite(prevMs) ? prevMs : null,
-          candidateDeadlineMs: computed.deadlineMs,
-          oscillationToleranceMinutes: jitConfig.oscillationToleranceMinutes,
-          basisScheduledAtMs: Number.isFinite(basisMs) ? basisMs : null,
-          currentScheduledAtMs: fixedDue.pickupMs,
-        });
-        jitDeadlineMs = sticky.deadlineMs;
-        jitKind = computed.kind;
-        etaSource = eta.source;
+        freshRouteEtaMinutes = validated.acceptedEtaMinutes;
         monitored++;
-
-        if (sticky.changed || validated.rejectedSpike) {
+        if (validated.rejectedSpike) {
           await supabase
             .from("trips")
             .update({
-              ...buildJitMonitorPersistPatch({
-                deadlineMs: sticky.deadlineMs,
-                etaMinutes: validated.acceptedEtaMinutes,
-                kind: computed.kind,
-                etaSource: eta.source,
-                basisScheduledAtIso: trip.scheduled_at,
-                nowIso: now.toISOString(),
-              }),
               scheduled_jit_eta_spike_samples: validated.consecutiveElevatedSamples,
+              updated_at: now.toISOString(),
             })
             .eq("id", trip.id)
             .is("driver_id", null);
         }
       } else {
         if (presence.freshness.fresh) routingFailedWithFresh = true;
-        // Prefer a previously stamped dynamic deadline over fixed T−11 when
-        // this tick cannot resolve ETA (stale GPS / routing). Never invent.
-        const stickyReuse = resolveReusableStickyJitDeadlineMs({
-          activateAtIso: trip.scheduled_jit_activate_at,
-          basisScheduledAtIso: trip.scheduled_jit_basis_scheduled_at,
-          currentScheduledAtIso: trip.scheduled_at,
-          evaluatingConfirmedDriverId: confirmedDriverId,
-          tripConfirmedDriverId: trip.confirmed_driver_id,
-        });
-        if (stickyReuse.deadlineMs != null) {
-          jitDeadlineMs = stickyReuse.deadlineMs;
-          jitKind = "jit";
-          etaSource = `sticky_reuse:${eta.reason}`;
-          console.log("SCHEDULED_JIT_STICKY_DEADLINE_REUSED", {
-            trip_id: trip.id,
-            driver_id: confirmedDriverId,
-            reason: stickyReuse.reason,
-            eta_fail_reason: eta.reason,
-            freshness_reason: presence.freshness.reason,
-            deadline_iso: new Date(stickyReuse.deadlineMs).toISOString(),
-          });
-        } else {
-          console.log("SCHEDULED_JIT_ETA_UNRESOLVED", {
-            trip_id: trip.id,
-            driver_id: confirmedDriverId,
-            reason: eta.reason,
-            sticky_reject: stickyReuse.reason,
-            freshness_reason: presence.freshness.reason,
-            freshness_age_seconds: presence.freshness.ageSeconds,
-            presence_status: presence.presenceStatus,
-          });
-          try {
-            const alert = buildJitEtaUnresolvedOpsAlert({
-              tripId: trip.id,
-              driverId: confirmedDriverId,
-              reason: eta.reason,
-              nowIso: now.toISOString(),
-            });
-            await supabase.from("ops_alerts").upsert(
-              {
-                fingerprint: alert.fingerprint,
-                title: alert.title,
-                related_trip_id: alert.related_trip_id,
-                metadata: {
-                  ...alert.metadata,
-                  freshness_reason: presence.freshness.reason,
-                  freshness_age_seconds: presence.freshness.ageSeconds,
-                  presence_status: presence.presenceStatus,
-                  sticky_reject: stickyReuse.reason,
-                },
-                status: "open",
-                updated_at: now.toISOString(),
-              },
-              { onConflict: "fingerprint" },
-            );
-          } catch (opsErr) {
-            console.warn("[jit-activation] ops_alert upsert failed", opsErr);
-          }
-        }
+        etaFailReason = eta.reason;
       }
     } else {
-      const stickyReuse = resolveReusableStickyJitDeadlineMs({
-        activateAtIso: trip.scheduled_jit_activate_at,
-        basisScheduledAtIso: trip.scheduled_jit_basis_scheduled_at,
-        currentScheduledAtIso: trip.scheduled_at,
-        evaluatingConfirmedDriverId: confirmedDriverId,
-        tripConfirmedDriverId: trip.confirmed_driver_id,
+      etaFailReason = "outside_horizon";
+    }
+
+    const recentRoute = withinHorizon
+      ? await loadRecentDriverToPickupRouteSample(
+        supabase,
+        trip.id,
+        confirmedDriverId,
+      )
+      : null;
+    const lastKnown = buildLastKnownConservativeSample({
+      freshness: presence.freshness,
+      pickupLat: Number(trip.pickup_latitude),
+      pickupLng: Number(trip.pickup_longitude),
+      gpsMeasuredAtMs: presence.gpsSampleAtMs,
+    });
+
+    // Always resolve a pickup-aware deadline for confirmed drivers.
+    // Never silently assume fixed Local T−11 / Long T−30 can reach pickup.
+    const aware = resolvePickupAwareJitDeadline({
+      nowMs,
+      scheduledAtMs: fixedDue.pickupMs,
+      jitConfig,
+      freshRouteEtaMinutes,
+      stickyActivateAtIso: trip.scheduled_jit_activate_at,
+      stickyBasisScheduledAtIso: trip.scheduled_jit_basis_scheduled_at,
+      evaluatingConfirmedDriverId: confirmedDriverId,
+      tripConfirmedDriverId: trip.confirmed_driver_id,
+      recentRoute,
+      currentDriverLat: presence.freshness.lat,
+      currentDriverLng: presence.freshness.lng,
+      lastKnown,
+      previousDeadlineMs: Number.isFinite(prevDeadlineMs) ? prevDeadlineMs : null,
+    });
+
+    jitDeadlineMs = aware.deadlineMs;
+    jitKind = aware.kind;
+    etaSource = `${aware.tier}:${aware.reason}`;
+    resolvedEtaMinutes = aware.etaMinutes;
+
+    const shouldPersist =
+      aware.tier === "route_fresh" ||
+      aware.tier === "route_recent" ||
+      aware.tier === "last_known_conservative" ||
+      (aware.tier === "degraded_unknown" &&
+        (!Number.isFinite(prevDeadlineMs) ||
+          aware.deadlineMs < (prevDeadlineMs as number)));
+
+    if (shouldPersist && aware.tier !== "sticky") {
+      const persistEta = aware.etaMinutes ??
+        (Number.isFinite(lastKnownEta) ? lastKnownEta : null);
+      if (persistEta != null && Number.isFinite(persistEta)) {
+        await supabase
+          .from("trips")
+          .update({
+            ...buildJitMonitorPersistPatch({
+              deadlineMs: aware.deadlineMs,
+              etaMinutes: persistEta,
+              kind: aware.kind,
+              etaSource: etaSource,
+              basisScheduledAtIso: trip.scheduled_at,
+              nowIso: now.toISOString(),
+            }),
+          })
+          .eq("id", trip.id)
+          .is("driver_id", null);
+      }
+    }
+
+    if (aware.tier === "sticky") {
+      console.log("SCHEDULED_JIT_STICKY_DEADLINE_REUSED", {
+        trip_id: trip.id,
+        driver_id: confirmedDriverId,
+        reason: aware.reason,
+        eta_fail_reason: etaFailReason,
+        freshness_reason: presence.freshness.reason,
+        gps_age_seconds: presence.freshness.gpsAgeSeconds,
+        deadline_iso: new Date(aware.deadlineMs).toISOString(),
       });
-      if (stickyReuse.deadlineMs != null) {
-        jitDeadlineMs = stickyReuse.deadlineMs;
-        jitKind = "jit";
-        etaSource = "sticky_reuse:outside_horizon";
-        console.log("SCHEDULED_JIT_STICKY_DEADLINE_REUSED", {
-          trip_id: trip.id,
-          driver_id: confirmedDriverId,
-          reason: stickyReuse.reason,
-          planning_horizon_minutes: horizonMinutes,
-          deadline_iso: new Date(stickyReuse.deadlineMs).toISOString(),
+    }
+
+    if (aware.tier === "degraded_unknown" || etaFailReason) {
+      console.log("SCHEDULED_JIT_ETA_UNRESOLVED", {
+        trip_id: trip.id,
+        driver_id: confirmedDriverId,
+        reason: etaFailReason ?? aware.reason,
+        tier: aware.tier,
+        freshness_reason: presence.freshness.reason,
+        freshness_age_seconds: presence.freshness.ageSeconds,
+        gps_age_seconds: presence.freshness.gpsAgeSeconds,
+        presence_status: presence.presenceStatus,
+        deadline_iso: new Date(aware.deadlineMs).toISOString(),
+      });
+      try {
+        const alert = buildJitEtaUnresolvedOpsAlert({
+          tripId: trip.id,
+          driverId: confirmedDriverId,
+          reason: etaFailReason ?? aware.reason,
+          nowIso: now.toISOString(),
+          tier: aware.tier,
         });
-      } else {
-        console.log("SCHEDULED_JIT_OUTSIDE_HORIZON", {
-          trip_id: trip.id,
-          driver_id: confirmedDriverId,
-          planning_horizon_minutes: horizonMinutes,
-          sticky_reject: stickyReuse.reason,
+        await supabase.from("ops_alerts").upsert(
+          {
+            fingerprint: alert.fingerprint,
+            title: alert.title,
+            related_trip_id: alert.related_trip_id,
+            metadata: {
+              ...alert.metadata,
+              freshness_reason: presence.freshness.reason,
+              freshness_age_seconds: presence.freshness.ageSeconds,
+              gps_age_seconds: presence.freshness.gpsAgeSeconds,
+              presence_status: presence.presenceStatus,
+            },
+            status: "open",
+            updated_at: now.toISOString(),
+          },
+          { onConflict: "fingerprint" },
+        );
+      } catch (opsErr) {
+        console.warn("[jit-activation] ops_alert upsert failed", opsErr);
+      }
+    }
+
+    if (aware.lateRisk.cannotMeetTarget) {
+      try {
+        const lateAlert = buildJitLateRiskOpsAlert({
+          tripId: trip.id,
+          driverId: confirmedDriverId,
+          nowIso: now.toISOString(),
+          lateRisk: aware.lateRisk,
+          etaMinutes: resolvedEtaMinutes,
+          tier: aware.tier,
         });
+        await supabase.from("ops_alerts").upsert(
+          {
+            fingerprint: lateAlert.fingerprint,
+            title: lateAlert.title,
+            related_trip_id: lateAlert.related_trip_id,
+            metadata: lateAlert.metadata,
+            status: "open",
+            updated_at: now.toISOString(),
+          },
+          { onConflict: "fingerprint" },
+        );
+      } catch (opsErr) {
+        console.warn("[jit-activation] late-risk ops_alert upsert failed", opsErr);
+      }
+    }
+
+    // Proactive location readiness (silent ops + optional silent push). Never
+    // sends Heading to pickup / audible NEW_RIDE_OFFER.
+    if (
+      shouldEscalateScheduledLocationReadiness({
+        nowMs,
+        degradedDeadlineMs: aware.deadlineMs,
+        hasStickyDeadline: Number.isFinite(prevDeadlineMs),
+        gpsFreshForRouting: presence.freshness.fresh,
+      })
+    ) {
+      try {
+        const ready = buildJitLocationReadinessOpsAlert({
+          tripId: trip.id,
+          driverId: confirmedDriverId,
+          reason: presence.freshness.reason,
+          nowIso: now.toISOString(),
+          degradedDeadlineIso: new Date(aware.deadlineMs).toISOString(),
+          gpsAgeSeconds: presence.freshness.gpsAgeSeconds,
+        });
+        await supabase.from("ops_alerts").upsert(
+          {
+            fingerprint: ready.fingerprint,
+            title: ready.title,
+            related_trip_id: ready.related_trip_id,
+            metadata: ready.metadata,
+            status: "open",
+            updated_at: now.toISOString(),
+          },
+          { onConflict: "fingerprint" },
+        );
+        // Best-effort silent data wake — no sound / no Heading copy.
+        // Native Driver must handle SCHEDULED_JIT_LOCATION_READINESS to publish GPS.
+        void supabase.functions.invoke("send-driver-notification", {
+          body: {
+            driver_id: confirmedDriverId,
+            type: "SCHEDULED_JIT_LOCATION_READINESS",
+            title: "",
+            body: "",
+            data: {
+              type: "SCHEDULED_JIT_LOCATION_READINESS",
+              trip_id: trip.id,
+              silent: "true",
+              content_available: "1",
+            },
+            silent: true,
+            skip_alert: true,
+          },
+        }).catch((err: unknown) => {
+          console.warn("[jit-activation] location readiness push failed", err);
+        });
+      } catch (opsErr) {
+        console.warn("[jit-activation] location readiness escalate failed", opsErr);
       }
     }
 
@@ -488,11 +603,13 @@ export async function runConfirmedJitActivationPass(input: {
       snapshot: capabilitySnapshot,
     });
 
+    // Confirmed path always supplies a pickup-aware jitDeadlineMs (A–E).
+    // fixedFallbackDue is forced false so T−11/T−30 cannot silently win.
     const decision = decideConfirmedScheduledActivation({
       nowMs,
       scheduledAtMs: fixedDue.pickupMs,
       jitDeadlineMs,
-      fixedFallbackDue: fixedDue.due,
+      fixedFallbackDue: false,
       fixedFallbackActivationAtMs: fixedDue.activationAtMs,
       fixedFallbackKind: fixedDue.kind,
       intentionallyHeld,
@@ -508,26 +625,23 @@ export async function runConfirmedJitActivationPass(input: {
       departureAckCountdownSeconds: jitConfig.departureAckSeconds,
     });
 
-    if (
-      decision.action !== "wait" &&
-      decision.action !== "hold_skip" &&
-      "source" in decision &&
-      decision.source === "fixed_fallback"
-    ) {
-      console.log("SCHEDULED_JIT_FIXED_FALLBACK_SELECTED", {
-        trip_id: trip.id,
-        driver_id: confirmedDriverId,
-        action: decision.action,
-        kind: "kind" in decision ? decision.kind : null,
-        fixed_activation_at: Number.isFinite(fixedDue.activationAtMs)
-          ? new Date(fixedDue.activationAtMs).toISOString()
-          : null,
-        jit_deadline_ms: jitDeadlineMs,
-        eta_source: etaSource,
-        freshness_reason: presence.freshness.reason,
-        execution_mode: executionMode,
-      });
-    }
+    console.log("SCHEDULED_JIT_DEADLINE_RESOLVED", {
+      trip_id: trip.id,
+      driver_id: confirmedDriverId,
+      eta_source: etaSource,
+      jit_kind: jitKind,
+      deadline_iso: jitDeadlineMs != null
+        ? new Date(jitDeadlineMs).toISOString()
+        : null,
+      eta_minutes: resolvedEtaMinutes,
+      freshness_reason: presence.freshness.reason,
+      gps_age_seconds: presence.freshness.gpsAgeSeconds,
+      fixed_long_at: Number.isFinite(fixedDue.activationAtMs)
+        ? new Date(fixedDue.activationAtMs).toISOString()
+        : null,
+      fixed_suppressed: true,
+      execution_mode: executionMode,
+    });
 
     if (decision.action === "wait" || decision.action === "hold_skip") {
       continue;

@@ -144,6 +144,40 @@ async function getCachedRoute(
   return data || null;
 }
 
+/**
+ * Read the latest driver_to_pickup cache row even if TTL expired.
+ * Used only as JIT tier-C "recent trustworthy route" with caller age/drift guards.
+ * Never presents the row as a fresh Google hit.
+ */
+export async function getRecentDriverToPickupRoute(
+  supabase: any,
+  tripId: string,
+): Promise<{
+  distance_km: number;
+  duration_min: number;
+  origin_lat: number;
+  origin_lng: number;
+  dest_lat: number;
+  dest_lng: number;
+  cached_at: string;
+  expires_at: string;
+} | null> {
+  const { data, error } = await supabase
+    .from("trip_route_cache")
+    .select(
+      "distance_km, duration_min, origin_lat, origin_lng, dest_lat, dest_lng, cached_at, expires_at",
+    )
+    .eq("trip_id", tripId)
+    .eq("leg", "driver_to_pickup")
+    .order("cached_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (error || !data) return null;
+  const duration = Number(data.duration_min);
+  if (!Number.isFinite(duration) || duration <= 0) return null;
+  return data;
+}
+
 async function upsertCache(
   supabase: any,
   tripId: string,

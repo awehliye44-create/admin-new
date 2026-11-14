@@ -1,13 +1,21 @@
 /**
- * Phase 4 — ETA monitor for confirmed-driver JIT deadlines.
+ * Phase 4/5 — ETA monitor for confirmed-driver JIT deadlines.
  *
  * Reuses existing routeCache (Google Directions, driver_to_pickup TTL 90s).
- * Haversine fallback via estimateEtaMinutes when routing fails.
- * Stale / missing location → unresolved (caller uses fixed Local/Long fallback).
+ * Haversine fallback via estimateEtaMinutes when routing fails with fresh GPS.
+ *
+ * Freshness is GPS-measurement based (last_gps_sample_at), never heartbeat alone.
+ * Stale GPS does not become "fresh" by rewriting timestamps.
+ * Callers use pickup-aware fallback hierarchy (sticky / recent route /
+ * last-known conservative / degraded unknown) — never silent fixed T−11/T−30.
  */
 
-import { getRouteWithCache } from "./routeCache.ts";
+import { getRecentDriverToPickupRoute, getRouteWithCache } from "./routeCache.ts";
 import { estimateEtaMinutes } from "./scheduledDispatchConfig.ts";
+import {
+  applyLastKnownUncertaintyMinutes,
+  SCHEDULED_JIT_FALLBACK_DEFAULTS,
+} from "./scheduledJitPickupAwareFallbackSSOT.ts";
 
 export type JitLocationFreshness = {
   fresh: boolean;
@@ -15,11 +23,18 @@ export type JitLocationFreshness = {
     | "ok"
     | "missing_coords"
     | "stale_heartbeat"
+    | "stale_gps"
     | "missing_presence"
     | "presence_max_age_missing";
   lat: number | null;
   lng: number | null;
   ageSeconds: number | null;
+  /** GPS measurement age (last_gps_sample_at). Null when unknown. */
+  gpsAgeSeconds: number | null;
+  /** Heartbeat age — informational only; never makes GPS fresh. */
+  heartbeatAgeSeconds: number | null;
+  /** Coords exist and GPS measurement within last-known max age. */
+  usableLastKnown: boolean;
 };
 
 export type JitEtaResolution =
@@ -40,13 +55,30 @@ export type JitEtaResolution =
 export function evaluateJitDriverLocationFreshness(input: {
   lat: number | null | undefined;
   lng: number | null | undefined;
-  /** Epoch ms of last heartbeat or GPS sample. */
-  lastSeenMs: number | null | undefined;
+  /**
+   * @deprecated Prefer gpsSampleAtMs. Kept for callers that only have a blended
+   * last-seen; when gpsSampleAtMs is absent this is treated as GPS age only if
+   * no heartbeatMs is supplied separately.
+   */
+  lastSeenMs?: number | null | undefined;
+  /** GPS measurement time (last_gps_sample_at) — authoritative for freshness. */
+  gpsSampleAtMs?: number | null | undefined;
+  /** Heartbeat time — liveness only; must not make stale GPS appear fresh. */
+  heartbeatAtMs?: number | null | undefined;
   nowMs: number;
   presenceMaxAgeSeconds: number | null | undefined;
+  lastKnownMaxAgeSeconds?: number | null | undefined;
 }): JitLocationFreshness {
   const lat = Number(input.lat);
   const lng = Number(input.lng);
+  const lastKnownMax = Math.max(
+    1,
+    Number(
+      input.lastKnownMaxAgeSeconds ??
+        SCHEDULED_JIT_FALLBACK_DEFAULTS.lastKnownMaxAgeSeconds,
+    ) || SCHEDULED_JIT_FALLBACK_DEFAULTS.lastKnownMaxAgeSeconds,
+  );
+
   if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
     return {
       fresh: false,
@@ -54,6 +86,9 @@ export function evaluateJitDriverLocationFreshness(input: {
       lat: null,
       lng: null,
       ageSeconds: null,
+      gpsAgeSeconds: null,
+      heartbeatAgeSeconds: null,
+      usableLastKnown: false,
     };
   }
 
@@ -65,32 +100,125 @@ export function evaluateJitDriverLocationFreshness(input: {
       lat,
       lng,
       ageSeconds: null,
+      gpsAgeSeconds: null,
+      heartbeatAgeSeconds: null,
+      usableLastKnown: false,
     };
   }
 
-  const lastSeen = Number(input.lastSeenMs);
-  if (!Number.isFinite(lastSeen)) {
+  const gpsMs = Number(input.gpsSampleAtMs);
+  const hbMs = Number(input.heartbeatAtMs);
+  const legacyMs = Number(input.lastSeenMs);
+  const gpsMeasuredMs = Number.isFinite(gpsMs)
+    ? gpsMs
+    : !Number.isFinite(hbMs) && Number.isFinite(legacyMs)
+    ? legacyMs
+    : NaN;
+
+  const gpsAgeSeconds = Number.isFinite(gpsMeasuredMs)
+    ? Math.max(0, (input.nowMs - gpsMeasuredMs) / 1000)
+    : null;
+  const heartbeatAgeSeconds = Number.isFinite(hbMs)
+    ? Math.max(0, (input.nowMs - hbMs) / 1000)
+    : null;
+
+  if (gpsAgeSeconds == null) {
     return {
       fresh: false,
       reason: "missing_presence",
       lat,
       lng,
-      ageSeconds: null,
+      ageSeconds: heartbeatAgeSeconds,
+      gpsAgeSeconds: null,
+      heartbeatAgeSeconds,
+      usableLastKnown: false,
     };
   }
 
-  const ageSeconds = Math.max(0, (input.nowMs - lastSeen) / 1000);
-  if (ageSeconds > maxAge) {
+  const usableLastKnown = gpsAgeSeconds <= lastKnownMax;
+  if (gpsAgeSeconds > maxAge) {
     return {
       fresh: false,
-      reason: "stale_heartbeat",
+      reason: "stale_gps",
       lat,
       lng,
-      ageSeconds,
+      ageSeconds: gpsAgeSeconds,
+      gpsAgeSeconds,
+      heartbeatAgeSeconds,
+      usableLastKnown,
     };
   }
 
-  return { fresh: true, reason: "ok", lat, lng, ageSeconds };
+  return {
+    fresh: true,
+    reason: "ok",
+    lat,
+    lng,
+    ageSeconds: gpsAgeSeconds,
+    gpsAgeSeconds,
+    heartbeatAgeSeconds,
+    usableLastKnown: true,
+  };
+}
+
+/** Build tier-D last-known sample from freshness + haversine (with uncertainty). */
+export function buildLastKnownConservativeSample(input: {
+  freshness: JitLocationFreshness;
+  pickupLat: number;
+  pickupLng: number;
+  gpsMeasuredAtMs: number | null | undefined;
+}): {
+  lat: number;
+  lng: number;
+  gpsMeasuredAtMs: number;
+  conservativeEtaMinutes: number;
+} | null {
+  if (
+    !input.freshness.usableLastKnown ||
+    input.freshness.lat == null ||
+    input.freshness.lng == null
+  ) {
+    return null;
+  }
+  const measured = Number(input.gpsMeasuredAtMs);
+  if (!Number.isFinite(measured)) return null;
+  const base = estimateEtaMinutes(
+    input.freshness.lat,
+    input.freshness.lng,
+    input.pickupLat,
+    input.pickupLng,
+  );
+  if (base == null) return null;
+  return {
+    lat: input.freshness.lat,
+    lng: input.freshness.lng,
+    gpsMeasuredAtMs: measured,
+    conservativeEtaMinutes: applyLastKnownUncertaintyMinutes(base),
+  };
+}
+
+export async function loadRecentDriverToPickupRouteSample(
+  supabase: any,
+  tripId: string,
+  confirmedDriverId: string | null,
+): Promise<{
+  durationMin: number;
+  cachedAtMs: number;
+  originLat: number;
+  originLng: number;
+  confirmedDriverId: string | null;
+} | null> {
+  const row = await getRecentDriverToPickupRoute(supabase, tripId);
+  if (!row) return null;
+  const cachedAtMs = Date.parse(String(row.cached_at));
+  if (!Number.isFinite(cachedAtMs)) return null;
+  return {
+    durationMin: Number(row.duration_min),
+    cachedAtMs,
+    originLat: Number(row.origin_lat),
+    originLng: Number(row.origin_lng),
+    confirmedDriverId,
+  };
 }
 
 /**
@@ -199,6 +327,7 @@ export function buildJitEtaUnresolvedOpsAlert(input: {
   driverId: string;
   reason: string;
   nowIso: string;
+  tier?: string | null;
 }): {
   fingerprint: string;
   title: string;
@@ -207,14 +336,17 @@ export function buildJitEtaUnresolvedOpsAlert(input: {
 } {
   return {
     fingerprint: `scheduled_jit_eta_unresolved:${input.tripId}`,
-    title: "Scheduled JIT ETA unresolved — using fixed activation fallback",
+    title:
+      "Scheduled JIT ETA unresolved — pickup-aware degraded/sticky fallback in use",
     related_trip_id: input.tripId,
     metadata: {
       trip_id: input.tripId,
       driver_id: input.driverId,
       reason: input.reason,
       observed_at: input.nowIso,
-      phase: 4,
+      fallback_tier: input.tier ?? null,
+      phase: 5,
+      fixed_t30_forbidden_as_silent_assume: true,
     },
   };
 }
