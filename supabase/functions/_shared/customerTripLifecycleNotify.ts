@@ -8,7 +8,11 @@
  * Do not send trip_cancelled for searching_new_driver rematch.
  * Do not fan out tokens here — send-trip-notification uses the authoritative
  * Customer device-token resolver.
+ *
+ * Also schedules best-effort Live Trip projection publish (ActivityKit / Android
+ * Live Update). Presentation delivery never gates this notify path.
  */
+import { publishCustomerLiveTripBestEffort } from "./publishCustomerLiveTripBestEffort.ts";
 
 export const CUSTOMER_TRIP_LIFECYCLE_EVENTS = [
   "driver_assigned",
@@ -378,6 +382,9 @@ export async function notifyCustomerTripLifecycle(
       stop_index: stopIndex,
       message: error instanceof Error ? error.message : String(error),
     });
+  } finally {
+    // Independent of alert delivery — Live Trip projection fanout is best-effort.
+    publishCustomerLiveTripBestEffort(tripId);
   }
 }
 

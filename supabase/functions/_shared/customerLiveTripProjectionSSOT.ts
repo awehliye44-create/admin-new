@@ -1,0 +1,423 @@
+/**
+ * Authoritative Customer Live Trip projection builder — presentation only.
+ * Reuses trip lifecycle / assignment / vehicle / ETA; never invents dispatch logic.
+ */
+
+import {
+  normalizeLiveTripStatus,
+  resolveCustomerLiveTripEligibility,
+  type LiveTripEligibilityInput,
+} from "./customerLiveTripEligibilitySSOT.ts";
+
+export type LiveTripProjectionRow = {
+  trip_id: string;
+  customer_user_id: string;
+  customer_id: string | null;
+  eligible: boolean;
+  terminal: boolean;
+  lifecycle_stage: string;
+  assignment_generation: number;
+  presentation_version: number;
+  assigned_driver_id: string | null;
+  driver_first_name: string | null;
+  driver_photo_url: string | null;
+  driver_rating: number | null;
+  driver_rating_count: number | null;
+  vehicle_make: string | null;
+  vehicle_model: string | null;
+  vehicle_colour: string | null;
+  vehicle_registration: string | null;
+  vehicle_photo_url: string | null;
+  eta_minutes: number | null;
+  status_title: string;
+  status_description: string;
+  progress_step_index: number;
+  content_state: Record<string, unknown>;
+  updated_at: string;
+  stale_at: string | null;
+};
+
+function readString(raw: unknown): string | null {
+  if (typeof raw !== "string") return null;
+  const t = raw.trim();
+  return t.length > 0 ? t : null;
+}
+
+function readNumber(raw: unknown): number | null {
+  return typeof raw === "number" && Number.isFinite(raw) ? raw : null;
+}
+
+function firstName(raw: string | null): string | null {
+  if (!raw) return null;
+  return raw.split(/\s+/)[0] ?? raw;
+}
+
+function vehicleColour(trip: Record<string, unknown>, vehicle: Record<string, unknown> | null): string | null {
+  return (
+    readString(vehicle?.colour) ??
+    readString(vehicle?.color) ??
+    readString(vehicle?.vehicle_colour) ??
+    readString(trip.vehicle_colour) ??
+    readString(trip.vehicle_color) ??
+    null
+  );
+}
+
+function resolveLifecycleStage(status: string, rematching: boolean): string {
+  if (rematching) return "finding_new_driver";
+  const s = status;
+  if (
+    s === "pending" ||
+    s === "searching" ||
+    s === "broadcasting" ||
+    s === "offered" ||
+    s === "offering" ||
+    s === "negotiating" ||
+    s === "payment_pending"
+  ) {
+    return "finding_driver";
+  }
+  if (
+    s === "arrived" ||
+    s === "arrived_pickup" ||
+    s === "arrived_at_pickup" ||
+    s === "at_pickup" ||
+    s === "driver_arrived" ||
+    s === "pickup_waiting" ||
+    s === "waiting" ||
+    s === "waiting_at_pickup"
+  ) {
+    return "at_pickup";
+  }
+  if (
+    s === "in_progress" ||
+    s === "started" ||
+    s === "trip_started" ||
+    s === "on_trip" ||
+    s === "en_route_to_dropoff" ||
+    s === "passenger_onboard" ||
+    s === "ongoing" ||
+    s === "completing" ||
+    s === "en_route_to_stop" ||
+    s === "arrived_at_stop" ||
+    s === "at_stop" ||
+    s === "waiting_at_stop" ||
+    s === "arrived_at_destination"
+  ) {
+    return "trip_started";
+  }
+  if (
+    s === "en_route" ||
+    s === "en_route_to_pickup" ||
+    s === "enroute_to_pickup" ||
+    s === "driver_en_route" ||
+    s === "driver_arriving"
+  ) {
+    return "heading_to_pickup";
+  }
+  if (
+    s === "driver_assigned" ||
+    s === "assigned" ||
+    s === "accepted" ||
+    s === "confirmed" ||
+    s === "queued"
+  ) {
+    return "driver_assigned";
+  }
+  return "finding_driver";
+}
+
+function copyForStage(stage: string): {
+  status_title: string;
+  status_description: string;
+  progress_step_index: number;
+} {
+  switch (stage) {
+    case "finding_new_driver":
+      return {
+        status_title: "Finding a new driver",
+        status_description: "Searching for a nearby driver",
+        progress_step_index: 0,
+      };
+    case "finding_driver":
+      return {
+        status_title: "Finding your driver",
+        status_description: "Searching for a nearby driver",
+        progress_step_index: 0,
+      };
+    case "driver_assigned":
+      return {
+        status_title: "Driver assigned",
+        status_description: "Driver confirmed for your trip",
+        progress_step_index: 0,
+      };
+    case "heading_to_pickup":
+      return {
+        status_title: "Driver assigned",
+        status_description: "Heading to your pickup",
+        progress_step_index: 0,
+      };
+    case "at_pickup":
+      return {
+        status_title: "At pickup",
+        status_description: "Driver has arrived",
+        progress_step_index: 1,
+      };
+    case "trip_started":
+      return {
+        status_title: "Trip started",
+        status_description: "On the way to your destination",
+        progress_step_index: 2,
+      };
+    default:
+      return {
+        status_title: "Active trip",
+        status_description: "Live trip update",
+        progress_step_index: 0,
+      };
+  }
+}
+
+function isRematchStatus(status: string): boolean {
+  return (
+    status === "searching_new_driver" ||
+    status === "rematching" ||
+    status === "driver_cancelled" ||
+    status === "driver_canceled" ||
+    status === "driver_assignment_cancelled" ||
+    status === "driver_assignment_canceled"
+  );
+}
+
+/**
+ * Compute next assignment_generation from previous projection + trip row.
+ * Increments when rematch clears or assigned driver id changes.
+ */
+export function nextAssignmentGeneration(args: {
+  previousGeneration: number;
+  previousDriverId: string | null;
+  nextDriverId: string | null;
+  rematching: boolean;
+  /** Same-driver reassignment with a different approved vehicle must bump. */
+  previousVehicleRegistration?: string | null;
+  nextVehicleRegistration?: string | null;
+}): number {
+  const prev = Math.max(0, Math.floor(args.previousGeneration));
+  if (args.rematching) {
+    // Clear generation bump even if previous was already unassigned.
+    return prev + 1;
+  }
+  if (
+    args.nextDriverId &&
+    args.previousDriverId &&
+    args.nextDriverId !== args.previousDriverId
+  ) {
+    return prev + 1;
+  }
+  if (args.nextDriverId && !args.previousDriverId) {
+    return prev + 1;
+  }
+  const prevPlate = (args.previousVehicleRegistration ?? "").trim().toUpperCase();
+  const nextPlate = (args.nextVehicleRegistration ?? "").trim().toUpperCase();
+  if (
+    args.nextDriverId &&
+    args.previousDriverId === args.nextDriverId &&
+    nextPlate &&
+    prevPlate &&
+    nextPlate !== prevPlate
+  ) {
+    return prev + 1;
+  }
+  return prev;
+}
+
+export function buildCustomerLiveTripProjection(args: {
+  trip: Record<string, unknown>;
+  customerUserId: string;
+  customerId?: string | null;
+  previous?: Partial<LiveTripProjectionRow> | null;
+  nowMs?: number;
+}): LiveTripProjectionRow | null {
+  const trip = args.trip;
+  const tripId = readString(trip.id) ?? readString(trip.trip_id);
+  if (!tripId) return null;
+
+  const nowMs = args.nowMs ?? Date.now();
+  const eligibilityInput: LiveTripEligibilityInput = {
+    status: trip.status,
+    dispatch_status: trip.dispatch_status ?? trip.dispatchStatus,
+    booking_type: trip.booking_type ?? trip.trip_type,
+    is_scheduled: trip.is_scheduled,
+    scheduled_status: trip.scheduled_status ?? trip.scheduledStatus,
+    dispatch_mode: trip.dispatch_mode ?? trip.dispatchMode,
+    scheduled_at: trip.scheduled_at ?? trip.scheduledAt,
+    scheduled_broadcast_at: trip.scheduled_broadcast_at,
+    scheduled_convert_at: trip.scheduled_convert_at,
+    confirmed_driver_id: trip.confirmed_driver_id ?? trip.confirmedDriverId,
+    driver_id: trip.driver_id ?? trip.driverId,
+    nowMs,
+  };
+
+  const eligibility = resolveCustomerLiveTripEligibility(eligibilityInput);
+  const status = normalizeLiveTripStatus(trip.status);
+  const rematching = isRematchStatus(status);
+  const stage = eligibility.terminal
+    ? "ended"
+    : resolveLifecycleStage(status, rematching);
+  const copy = copyForStage(stage);
+
+  const driverNode =
+    trip.driver && typeof trip.driver === "object" && !Array.isArray(trip.driver)
+      ? (trip.driver as Record<string, unknown>)
+      : null;
+  const vehicleNode =
+    (driverNode?.vehicle &&
+    typeof driverNode.vehicle === "object" &&
+    !Array.isArray(driverNode.vehicle)
+      ? (driverNode.vehicle as Record<string, unknown>)
+      : null) ??
+    (trip.vehicle && typeof trip.vehicle === "object" && !Array.isArray(trip.vehicle)
+      ? (trip.vehicle as Record<string, unknown>)
+      : null);
+
+  const assignedDriverId = rematching || !eligibility.eligible
+    ? null
+    : (readString(trip.confirmed_driver_id) ??
+      readString(trip.confirmedDriverId) ??
+      readString(driverNode?.id) ??
+      readString(trip.driver_id) ??
+      null);
+
+  const showDriver = Boolean(assignedDriverId) && !rematching && eligibility.eligible;
+
+  const nextVehicleRegistration = showDriver
+    ? (readString(vehicleNode?.registration) ??
+      readString(vehicleNode?.license_plate) ??
+      readString(trip.license_plate) ??
+      readString(trip.vehicle_registration))
+    : null;
+
+  const previousGen = Number(args.previous?.assignment_generation ?? 0) || 0;
+  const previousDriverId = args.previous?.assigned_driver_id ?? null;
+  const assignmentGeneration = nextAssignmentGeneration({
+    previousGeneration: previousGen,
+    previousDriverId,
+    nextDriverId: assignedDriverId,
+    rematching,
+    previousVehicleRegistration: args.previous?.vehicle_registration ?? null,
+    nextVehicleRegistration,
+  });
+
+  const previousPresentation = Number(args.previous?.presentation_version ?? 0) || 0;
+  const presentationVersion = previousPresentation + 1;
+
+  const etaMinutes = showDriver
+    ? (readNumber(driverNode?.etaMinutes) ??
+      readNumber(driverNode?.eta_minutes) ??
+      readNumber(trip.eta_minutes) ??
+      null)
+    : null;
+
+  const ratingCount =
+    readNumber(driverNode?.rating_count) ?? readNumber(trip.driver_rating_count);
+  const ratingRaw = readNumber(driverNode?.rating) ?? readNumber(trip.driver_rating);
+  const driverRating =
+    showDriver && ratingCount != null && ratingCount > 0 ? ratingRaw : null;
+
+  // Never treat category / licensing docs as vehicle photo — only explicit vehicle photo URL.
+  const vehiclePhotoUrl = showDriver
+    ? (readString(vehicleNode?.photo_url) ??
+      readString(vehicleNode?.vehicle_photo_url) ??
+      null)
+    : null;
+
+  const updatedAt = new Date(nowMs).toISOString();
+  const staleMs =
+    stage === "finding_new_driver" || stage === "finding_driver"
+      ? 15 * 60_000
+      : 8 * 60_000;
+  const staleAt = new Date(nowMs + staleMs).toISOString();
+
+  const contentState: Record<string, unknown> = {
+    phase: stage,
+    statusTitle: copy.status_title,
+    statusDescription: copy.status_description,
+    etaLabel:
+      etaMinutes == null
+        ? null
+        : etaMinutes <= 0
+        ? "<1 min"
+        : `${Math.round(etaMinutes)} min`,
+    progressStepIndex: copy.progress_step_index,
+    showDriverVehicle: showDriver,
+    assignedDriverId: assignedDriverId ?? "unassigned",
+    assignmentGeneration,
+    presentationVersion,
+    driverFirstName: showDriver
+      ? firstName(
+          readString(driverNode?.first_name) ??
+            readString(driverNode?.firstName) ??
+            readString(trip.driver_first_name),
+        )
+      : null,
+    driverPhotoUrl: showDriver
+      ? (readString(driverNode?.photo_url) ??
+        readString(driverNode?.profile_photo_url) ??
+        readString(trip.driver_photo_url))
+      : null,
+    driverRatingLabel:
+      driverRating != null && Number.isFinite(driverRating)
+        ? driverRating.toFixed(1)
+        : null,
+    vehiclePhotoUrl,
+    vehicleMake: showDriver
+      ? (readString(vehicleNode?.make) ?? readString(trip.vehicle_make))
+      : null,
+    vehicleModel: showDriver
+      ? (readString(vehicleNode?.model) ?? readString(trip.vehicle_model))
+      : null,
+    vehicleColour: showDriver ? vehicleColour(trip, vehicleNode) : null,
+    vehicleRegistration: nextVehicleRegistration,
+    silent: true,
+    updatedAtMs: nowMs,
+    assignmentEpoch: [
+      tripId,
+      assignedDriverId ?? "unassigned",
+      showDriver
+        ? (readString(vehicleNode?.license_plate) ??
+          readString(vehicleNode?.registration) ??
+          "")
+        : "",
+      String(assignmentGeneration),
+      String(presentationVersion),
+    ].join("|"),
+  };
+
+  return {
+    trip_id: tripId,
+    customer_user_id: args.customerUserId,
+    customer_id: args.customerId ?? null,
+    eligible: eligibility.eligible,
+    terminal: eligibility.terminal,
+    lifecycle_stage: stage,
+    assignment_generation: assignmentGeneration,
+    presentation_version: presentationVersion,
+    assigned_driver_id: assignedDriverId,
+    driver_first_name: contentState.driverFirstName as string | null,
+    driver_photo_url: contentState.driverPhotoUrl as string | null,
+    driver_rating: driverRating,
+    driver_rating_count: showDriver ? ratingCount : null,
+    vehicle_make: contentState.vehicleMake as string | null,
+    vehicle_model: contentState.vehicleModel as string | null,
+    vehicle_colour: contentState.vehicleColour as string | null,
+    vehicle_registration: contentState.vehicleRegistration as string | null,
+    vehicle_photo_url: vehiclePhotoUrl,
+    eta_minutes: etaMinutes,
+    status_title: copy.status_title,
+    status_description: copy.status_description,
+    progress_step_index: copy.progress_step_index,
+    content_state: contentState,
+    updated_at: updatedAt,
+    stale_at: eligibility.eligible ? staleAt : null,
+  };
+}
