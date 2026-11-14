@@ -2062,11 +2062,13 @@ Deno.serve(async (req) => {
       lifecyclePerf?.mark("response_build_start");
       const duration_ms = elapsed();
       let tripSnapshot: Record<string, unknown> | null = null;
-      let stopsSnapshot: unknown[] = [];
+      /** null = omit stops key (never synthesise [] — MK-261114-006). */
+      let stopsSnapshot: unknown[] | null = null;
       const skipRefresh = Boolean(opts?.skipSnapshotRefresh && payload.trip);
       if (!skipRefresh) {
         try {
-          const [{ data: tripRow }, { data: stopsRows }] = await Promise.all([
+          const [{ data: tripRow }, { data: stopsRows, error: stopsErr }] =
+            await Promise.all([
             supabase
               .from("trips")
               .select(
@@ -2081,13 +2083,38 @@ Deno.serve(async (req) => {
               .order("stop_index", { ascending: true }),
           ]);
           tripSnapshot = (tripRow as Record<string, unknown> | null) ?? null;
-          stopsSnapshot = Array.isArray(stopsRows) ? stopsRows : [];
+          // Only attach stops when the query succeeded — a failed read must not
+          // look like "customer removed every via" on the Driver (MK-261114-006).
+          if (!stopsErr && Array.isArray(stopsRows)) {
+            stopsSnapshot = stopsRows;
+          }
         } catch (snapErr) {
           console.warn("[stop-workflow] failed to attach trip snapshot", snapErr);
         }
       } else {
         tripSnapshot = (payload.trip as Record<string, unknown>) ?? null;
-        stopsSnapshot = Array.isArray(payload.stops) ? (payload.stops as unknown[]) : [];
+        if (Array.isArray(payload.stops)) {
+          stopsSnapshot = payload.stops as unknown[];
+        } else {
+          // Caller omitted stops on the fast path (start_trip / arrive_pickup).
+          // Still attach real trip_stops — never emit synthetic [] which the
+          // Driver treated as an authoritative via clear (MK-261114-006).
+          try {
+            const { data: stopsRows, error: stopsErr } = await supabase
+              .from("trip_stops")
+              .select("*")
+              .eq("trip_id", trip_id)
+              .order("stop_index", { ascending: true });
+            if (!stopsErr && Array.isArray(stopsRows)) {
+              stopsSnapshot = stopsRows;
+            }
+          } catch (stopsSnapErr) {
+            console.warn(
+              "[stop-workflow] failed to attach trip_stops on skipSnapshotRefresh",
+              stopsSnapErr,
+            );
+          }
+        }
       }
       lifecyclePerf?.mark("response_build_end");
       lifecyclePerf?.mark("edge_response");
@@ -2112,26 +2139,32 @@ Deno.serve(async (req) => {
         ...(stagesPayload ? { stages_ms: stagesPayload } : {}),
         ...(lifecycleDurationsMs ? { lifecycle_durations_ms: lifecycleDurationsMs } : {}),
       });
+      const responseBody: Record<string, unknown> = {
+        ...payload,
+        trip: payload.trip ?? tripSnapshot,
+        ...(perfId ? { perf_id: perfId } : {}),
+        ...(completeTripStagesMs
+          ? { complete_trip_stages_ms: completeTripStagesMs }
+          : {}),
+        ...(lifecycleStagesMs
+          ? { lifecycle_perf_stages_ms: lifecycleStagesMs }
+          : {}),
+        ...(lifecycleDurationsMs
+          ? { lifecycle_perf_durations_ms: lifecycleDurationsMs }
+          : {}),
+      };
+      // Prefer explicit payload.stops; else attach fetched snapshot. Omit the
+      // key entirely when neither is available — never synthesise [] .
+      if (Array.isArray(payload.stops)) {
+        responseBody.stops = payload.stops;
+      } else if (stopsSnapshot != null) {
+        responseBody.stops = stopsSnapshot;
+      }
       return successResponse(
-        withDuration(
-          {
-            ...payload,
-            trip: payload.trip ?? tripSnapshot,
-            stops: payload.stops ?? stopsSnapshot,
-            ...(perfId ? { perf_id: perfId } : {}),
-            ...(completeTripStagesMs
-              ? { complete_trip_stages_ms: completeTripStagesMs }
-              : {}),
-            ...(lifecycleStagesMs
-              ? { lifecycle_perf_stages_ms: lifecycleStagesMs }
-              : {}),
-            ...(lifecycleDurationsMs
-              ? { lifecycle_perf_durations_ms: lifecycleDurationsMs }
-              : {}),
-          },
-          duration_ms,
-          { source: "stop-workflow", requestId },
-        ),
+        withDuration(responseBody, duration_ms, {
+          source: "stop-workflow",
+          requestId,
+        }),
       );
     };
 
@@ -3983,6 +4016,22 @@ Deno.serve(async (req) => {
         const finalStop = stops?.find(s => s.type === 'dropoff');
         if (!finalStop) {
           return errorResponse("NO_DROPOFF", "Final stop not found", 400);
+        }
+
+        // MK-261114-006: refuse Complete while intermediate vias remain.
+        // Never force-complete pending stops as a silent side-effect of Complete.
+        const pendingIntermediateStops = (stops ?? []).filter(
+          (s) =>
+            s.type === "stop" &&
+            s.status !== "completed" &&
+            s.status !== "skipped",
+        );
+        if (pendingIntermediateStops.length > 0) {
+          return errorResponse(
+            "INTERMEDIATE_STOPS_REMAIN",
+            "Finish remaining stops before completing the trip.",
+            409,
+          );
         }
 
         // P0: Close any open intermediate stop waiting before completion (multi-stop SSOT).
