@@ -19,7 +19,7 @@ async function read(rel: string): Promise<string> {
 Deno.test("draft migration version is after remote financial head 20270222240000", async () => {
   assert(DRAFT_VERSION > "20270222240000");
   const draft = await read(
-    `migrations/_draft_review_only/${DRAFT_VERSION}_${DRAFT_NAME}.sql`,
+    `migrations/${DRAFT_VERSION}_${DRAFT_NAME}.sql`,
   );
   assertStringIncludes(draft, "DO NOT APPLY");
   assertStringIncludes(draft, "MK-261114-002");
@@ -134,7 +134,7 @@ Deno.test("isolated SQL covers mandatory + expanded execution scenarios", async 
   }
   assertEquals(
     (await Deno.stat(
-      `${root}migrations/_draft_review_only/${DRAFT_VERSION}_${DRAFT_NAME}.sql`,
+      `${root}migrations/${DRAFT_VERSION}_${DRAFT_NAME}.sql`,
     )).isFile,
     true,
   );
