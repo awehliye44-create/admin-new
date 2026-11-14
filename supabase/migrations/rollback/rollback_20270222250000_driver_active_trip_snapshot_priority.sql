@@ -1,5 +1,5 @@
--- Rollback for draft 20261114130000_driver_active_trip_snapshot_priority.sql
--- Restores pre-MK-261114-002 snapshot selection (updated_at DESC, includes scheduled).
+-- Rollback for draft 20270222250000_driver_active_trip_snapshot_priority.sql
+-- Restores currently deployed production selection (updated_at DESC, includes scheduled).
 -- REVIEW ONLY companion — apply only if the forward draft was applied and must be reverted.
 
 DROP FUNCTION IF EXISTS public.is_driver_active_trip_snapshot_status(text);

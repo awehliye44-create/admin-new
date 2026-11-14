@@ -1,13 +1,18 @@
 -- REVIEW ONLY — DO NOT APPLY IN PRODUCTION WITHOUT EXPLICIT APPROVAL.
+-- Final migration version: 20270222250000 (after remote head 20270222240000).
 -- MK-261114-002: get_driver_active_trip_snapshot must never prefer a newer
 -- future scheduled commitment over a genuine active trip, and must return
 -- empty active_trip when the driver only has Scheduled Jobs commitments.
 --
--- Rollback: supabase/migrations/rollback/rollback_20261114130000_driver_active_trip_snapshot_priority.sql
+-- Rollback: supabase/migrations/rollback/rollback_20270222250000_driver_active_trip_snapshot_priority.sql
 -- Isolated tests: supabase/tests/driver_active_trip_snapshot_priority_isolated.sql
 -- Lock: supabase/tests/_shared/driverActiveTripSnapshotPriorityLock.test.ts
+--
+-- Changes ONLY active-trip selection eligibility + priority (+ anomaly LOG).
+-- No trip/payment/dispatch/notification/waiting/financial mutations.
+-- Preserves RPC signature, response shape keys, auth, grants, SECURITY DEFINER,
+-- search_path=public, and assignment ownership (driver_id OR confirmed_driver_id).
 
--- Immutable helpers (selection SSOT for RPC + isolated tests).
 CREATE OR REPLACE FUNCTION public.is_driver_active_trip_snapshot_status(p_status text)
 RETURNS boolean
 LANGUAGE sql
@@ -15,14 +20,17 @@ IMMUTABLE
 PARALLEL SAFE
 AS $helper$
   SELECT lower(coalesce(p_status, '')) IN (
-    'accepted', 'confirmed', 'driver_assigned',
+    'accepted', 'confirmed', 'driver_assigned', 'assigned',
     'en_route', 'en_route_to_pickup', 'en_route_pickup',
     'driver_en_route', 'enroute_to_pickup', 'driver_arriving',
     'arrived', 'arrived_pickup', 'arrived_at_pickup', 'at_pickup',
     'pickup_waiting', 'waiting', 'waiting_at_pickup', 'driver_arrived',
     'at_stop', 'arrived_stop', 'arrived_at_stop', 'stop_waiting',
     'waiting_at_stop', 'intermediate_stop_waiting',
-    'in_progress', 'started', 'on_trip', 'ongoing', 'trip_started'
+    'en_route_to_stop', 'en_route_stop',
+    'in_progress', 'started', 'on_trip', 'ongoing', 'trip_started',
+    'pickup_in_progress',
+    'en_route_to_dropoff', 'en_route_destination', 'en_route_dropoff'
   );
 $helper$;
 
@@ -38,12 +46,18 @@ AS $helper$
     WHEN 'on_trip' THEN 10
     WHEN 'ongoing' THEN 10
     WHEN 'trip_started' THEN 10
+    WHEN 'pickup_in_progress' THEN 10
+    WHEN 'en_route_to_dropoff' THEN 10
+    WHEN 'en_route_destination' THEN 10
+    WHEN 'en_route_dropoff' THEN 10
     WHEN 'at_stop' THEN 20
     WHEN 'arrived_stop' THEN 20
     WHEN 'arrived_at_stop' THEN 20
     WHEN 'stop_waiting' THEN 20
     WHEN 'waiting_at_stop' THEN 20
     WHEN 'intermediate_stop_waiting' THEN 20
+    WHEN 'en_route_to_stop' THEN 20
+    WHEN 'en_route_stop' THEN 20
     WHEN 'arrived' THEN 30
     WHEN 'arrived_pickup' THEN 30
     WHEN 'arrived_at_pickup' THEN 30
@@ -61,6 +75,7 @@ AS $helper$
     WHEN 'accepted' THEN 50
     WHEN 'confirmed' THEN 50
     WHEN 'driver_assigned' THEN 50
+    WHEN 'assigned' THEN 50
     ELSE 90
   END;
 $helper$;
@@ -69,7 +84,6 @@ REVOKE EXECUTE ON FUNCTION public.is_driver_active_trip_snapshot_status(text) FR
 GRANT EXECUTE ON FUNCTION public.is_driver_active_trip_snapshot_status(text) TO authenticated, service_role;
 REVOKE EXECUTE ON FUNCTION public.driver_active_trip_snapshot_lifecycle_rank(text) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.driver_active_trip_snapshot_lifecycle_rank(text) TO authenticated, service_role;
-
 
 CREATE OR REPLACE FUNCTION public.get_driver_active_trip_snapshot()
  RETURNS jsonb
@@ -97,6 +111,7 @@ DECLARE
   v_passenger_rating numeric;
   v_passenger_trip_count integer;
   v_stops jsonb := '[]'::jsonb;
+  v_active_count integer := 0;
 BEGIN
   SELECT d.id INTO v_driver_id
   FROM public.drivers d
@@ -107,10 +122,20 @@ BEGIN
     RAISE EXCEPTION 'driver_not_found' USING ERRCODE = 'P0001';
   END IF;
 
+  -- Anomaly report only (no trip mutation): multiple genuine active rows.
+  SELECT count(*)::int INTO v_active_count
+  FROM public.trips t
+  WHERE (t.driver_id = v_driver_id OR t.confirmed_driver_id = v_driver_id)
+    AND public.is_driver_active_trip_snapshot_status(t.status);
+  IF coalesce(v_active_count, 0) > 1 THEN
+    RAISE LOG 'driver_active_trip_snapshot_anomaly driver_id=% active_count=%',
+      v_driver_id, v_active_count;
+  END IF;
+
   -- MK-261114-002: future scheduled commitments (status=scheduled /
-  -- scheduled_committed) and searching/offer statuses are NOT active trips.
-  -- They belong in Scheduled Jobs / ride_offers. Prefer genuine live workflow
-  -- statuses by lifecycle rank — never updated_at / created_at alone.
+  -- scheduled_committed) and searching/offer/queued statuses are NOT active.
+  -- Prefer genuine live workflow statuses by lifecycle rank — never
+  -- updated_at / created_at alone (scheduled can be newer and must lose).
   SELECT t.*
   INTO v_trip
   FROM public.trips t
@@ -153,7 +178,8 @@ BEGIN
     END IF;
 
     IF v_status IN (
-      'accepted', 'confirmed', 'driver_assigned', 'en_route', 'en_route_to_pickup',
+      'accepted', 'confirmed', 'driver_assigned', 'assigned',
+      'en_route', 'en_route_to_pickup', 'en_route_pickup',
       'driver_en_route', 'enroute_to_pickup', 'driver_arriving'
     ) THEN
       v_actions := '["arrive_pickup","driver_cancel"]'::jsonb;
@@ -166,7 +192,11 @@ BEGIN
         'driver_cancel',
         CASE WHEN v_can_mark THEN 'passenger_no_show' ELSE NULL END
       ));
-    ELSIF v_status IN ('in_progress', 'started', 'on_trip', 'ongoing') THEN
+    ELSIF v_status IN (
+      'in_progress', 'started', 'on_trip', 'ongoing', 'trip_started',
+      'pickup_in_progress', 'en_route_to_dropoff', 'en_route_destination',
+      'en_route_dropoff', 'en_route_to_stop', 'en_route_stop'
+    ) THEN
       v_actions := '["arrive_stop","next_stop","complete_trip","driver_cancel"]'::jsonb;
     ELSE
       v_actions := '[]'::jsonb;
@@ -279,9 +309,13 @@ BEGIN
       'is_queued', (v_trip.status = 'queued'),
       'customer_live_location_allowed', (
         v_status IN (
-          'accepted', 'confirmed', 'en_route', 'en_route_to_pickup',
+          'accepted', 'confirmed', 'assigned', 'driver_assigned',
+          'en_route', 'en_route_to_pickup', 'en_route_pickup',
           'driver_en_route', 'driver_arriving', 'arrived', 'arrived_at_pickup',
-          'at_pickup', 'pickup_waiting', 'waiting', 'driver_arrived'
+          'at_pickup', 'pickup_waiting', 'waiting', 'driver_arrived',
+          'waiting_at_pickup', 'in_progress', 'started', 'on_trip', 'ongoing',
+          'pickup_in_progress', 'at_stop', 'en_route_to_stop', 'en_route_stop',
+          'en_route_to_dropoff', 'en_route_destination'
         )
       ),
       'can_mark_no_show', v_can_mark,
