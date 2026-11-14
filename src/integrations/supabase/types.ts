@@ -4242,6 +4242,83 @@ export type Database = {
           },
         ]
       }
+      customer_live_activity_tokens: {
+        Row: {
+          activity_id: string | null
+          apns_environment: string | null
+          bundle_id: string
+          created_at: string
+          customer_user_id: string
+          device_id: string
+          id: string
+          invalidated_at: string | null
+          platform: string
+          push_to_start_token: string | null
+          push_token: string
+          trip_id: string | null
+          updated_at: string
+        }
+        Insert: {
+          activity_id?: string | null
+          apns_environment?: string | null
+          bundle_id?: string
+          created_at?: string
+          customer_user_id: string
+          device_id: string
+          id?: string
+          invalidated_at?: string | null
+          platform?: string
+          push_to_start_token?: string | null
+          push_token: string
+          trip_id?: string | null
+          updated_at?: string
+        }
+        Update: {
+          activity_id?: string | null
+          apns_environment?: string | null
+          bundle_id?: string
+          created_at?: string
+          customer_user_id?: string
+          device_id?: string
+          id?: string
+          invalidated_at?: string | null
+          platform?: string
+          push_to_start_token?: string | null
+          push_token?: string
+          trip_id?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "customer_live_activity_tokens_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "admin_trip_lifecycle_fees"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "customer_live_activity_tokens_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "available_scheduled_jobs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "customer_live_activity_tokens_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "trips"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "customer_live_activity_tokens_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "v_payment_lifecycle_audit"
+            referencedColumns: ["trip_id"]
+          },
+        ]
+      }
       customer_live_locations: {
         Row: {
           accuracy: number | null
@@ -4327,6 +4404,146 @@ export type Database = {
             referencedColumns: ["trip_id"]
           },
         ]
+      }
+      customer_live_trip_projections: {
+        Row: {
+          assigned_driver_id: string | null
+          assignment_generation: number
+          content_state: Json
+          customer_id: string | null
+          customer_user_id: string
+          driver_first_name: string | null
+          driver_photo_url: string | null
+          driver_rating: number | null
+          driver_rating_count: number | null
+          eligible: boolean
+          eta_minutes: number | null
+          last_published_at: string | null
+          lifecycle_stage: string
+          presentation_version: number
+          progress_step_index: number
+          stale_at: string | null
+          status_description: string
+          status_title: string
+          terminal: boolean
+          trip_id: string
+          updated_at: string
+          vehicle_colour: string | null
+          vehicle_make: string | null
+          vehicle_model: string | null
+          vehicle_photo_url: string | null
+          vehicle_registration: string | null
+        }
+        Insert: {
+          assigned_driver_id?: string | null
+          assignment_generation?: number
+          content_state?: Json
+          customer_id?: string | null
+          customer_user_id: string
+          driver_first_name?: string | null
+          driver_photo_url?: string | null
+          driver_rating?: number | null
+          driver_rating_count?: number | null
+          eligible?: boolean
+          eta_minutes?: number | null
+          last_published_at?: string | null
+          lifecycle_stage?: string
+          presentation_version?: number
+          progress_step_index?: number
+          stale_at?: string | null
+          status_description?: string
+          status_title?: string
+          terminal?: boolean
+          trip_id: string
+          updated_at?: string
+          vehicle_colour?: string | null
+          vehicle_make?: string | null
+          vehicle_model?: string | null
+          vehicle_photo_url?: string | null
+          vehicle_registration?: string | null
+        }
+        Update: {
+          assigned_driver_id?: string | null
+          assignment_generation?: number
+          content_state?: Json
+          customer_id?: string | null
+          customer_user_id?: string
+          driver_first_name?: string | null
+          driver_photo_url?: string | null
+          driver_rating?: number | null
+          driver_rating_count?: number | null
+          eligible?: boolean
+          eta_minutes?: number | null
+          last_published_at?: string | null
+          lifecycle_stage?: string
+          presentation_version?: number
+          progress_step_index?: number
+          stale_at?: string | null
+          status_description?: string
+          status_title?: string
+          terminal?: boolean
+          trip_id?: string
+          updated_at?: string
+          vehicle_colour?: string | null
+          vehicle_make?: string | null
+          vehicle_model?: string | null
+          vehicle_photo_url?: string | null
+          vehicle_registration?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "customer_live_trip_projections_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: true
+            referencedRelation: "admin_trip_lifecycle_fees"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "customer_live_trip_projections_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: true
+            referencedRelation: "available_scheduled_jobs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "customer_live_trip_projections_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: true
+            referencedRelation: "trips"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "customer_live_trip_projections_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: true
+            referencedRelation: "v_payment_lifecycle_audit"
+            referencedColumns: ["trip_id"]
+          },
+        ]
+      }
+      customer_live_trip_settings: {
+        Row: {
+          android_enabled: boolean
+          enabled: boolean
+          id: boolean
+          ios_enabled: boolean
+          updated_at: string
+        }
+        Insert: {
+          android_enabled?: boolean
+          enabled?: boolean
+          id?: boolean
+          ios_enabled?: boolean
+          updated_at?: string
+        }
+        Update: {
+          android_enabled?: boolean
+          enabled?: boolean
+          id?: boolean
+          ios_enabled?: boolean
+          updated_at?: string
+        }
+        Relationships: []
       }
       customer_payment_failure_notices: {
         Row: {
@@ -31149,6 +31366,7 @@ export type Database = {
           waived_at: string
         }[]
       }
+      customer_live_trip_eta_refresh_sweep: { Args: never; Returns: undefined }
       customer_receivable_record_declined_increment: {
         Args: {
           p_currency: string
@@ -31281,6 +31499,10 @@ export type Database = {
       driver_accept_counter_offer: {
         Args: { p_driver_id: string; p_offer_id: string }
         Returns: Json
+      }
+      driver_active_trip_snapshot_lifecycle_rank: {
+        Args: { p_status: string }
+        Returns: number
       }
       driver_availability_ssot: {
         Args: {
@@ -32624,6 +32846,47 @@ export type Database = {
       }
       is_customer: { Args: { _user_id: string }; Returns: boolean }
       is_driver: { Args: { _user_id: string }; Returns: boolean }
+      is_driver_active_trip_snapshot_row_eligible: {
+        Args: { p_trip: Database["public"]["Tables"]["trips"]["Row"] }
+        Returns: boolean
+      }
+      is_driver_active_trip_snapshot_scheduled_activated: {
+        Args: {
+          p_arrived_at: string
+          p_driver_checked_in_at: string
+          p_driver_started_journey_to_pickup_at: string
+          p_pickup_arrived_at: string
+          p_scheduled_ack_acknowledged_at?: string
+          p_scheduled_ack_status?: string
+          p_scheduled_jit_activated_at: string
+          p_scheduled_status: string
+          p_started_at: string
+          p_status: string
+        }
+        Returns: boolean
+      }
+      is_driver_active_trip_snapshot_status: {
+        Args: { p_status: string }
+        Returns: boolean
+      }
+      is_driver_active_trip_snapshot_unactivated_scheduled: {
+        Args: {
+          p_arrived_at: string
+          p_dispatch_mode: string
+          p_driver_checked_in_at: string
+          p_driver_started_journey_to_pickup_at: string
+          p_is_scheduled: boolean
+          p_pickup_arrived_at: string
+          p_scheduled_ack_acknowledged_at?: string
+          p_scheduled_ack_status?: string
+          p_scheduled_at: string
+          p_scheduled_jit_activated_at: string
+          p_scheduled_status: string
+          p_started_at: string
+          p_status: string
+        }
+        Returns: boolean
+      }
       is_driver_cancel_rematch_eligible_status: {
         Args: { p_status: string }
         Returns: boolean
