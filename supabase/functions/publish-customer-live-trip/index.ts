@@ -13,7 +13,7 @@ import {
   successResponse,
   errorResponse,
 } from "../_shared/security.ts";
-import { requireAdminOrService } from "../_shared/callerGate.ts";
+import { requireSignedInOrService } from "../_shared/callerGate.ts";
 import { buildCustomerLiveTripProjection } from "../_shared/customerLiveTripProjectionSSOT.ts";
 import {
   liveActivityApnsConfigured,
@@ -26,12 +26,14 @@ import {
   sendFcmHttpV1Message,
 } from "../_shared/fcmHttpV1.ts";
 import { resolveCustomerAuthoritativeToken } from "../_shared/authoritativeDevicePush.ts";
+import { isCustomerLiveTripFeatureEnabled } from "../_shared/customerLiveTripFeatureFlag.ts";
 
 const RATE = { limit: 400, windowMs: 60_000, keyPrefix: "pub-live-trip" };
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return handleCORSPreflight();
-  const gate = await requireAdminOrService(req);
+  // Service role (lifecycle producers) OR signed-in Customer for own-trip ETA ticks.
+  const gate = await requireSignedInOrService(req);
   if (!gate.ok) return gate.response;
 
   const clientIP = getClientIP(req);
@@ -74,14 +76,34 @@ Deno.serve(async (req) => {
       return errorResponse("CUSTOMER_UNRESOLVED", "Cannot resolve customer user", 400);
     }
 
+    // Customer JWT may only publish for their own trip.
+    if (!gate.isService) {
+      if (!gate.userId || gate.userId !== customerUserId) {
+        return errorResponse("FORBIDDEN", "Not your trip", 403);
+      }
+    }
+
+    const featureEnabled = await isCustomerLiveTripFeatureEnabled(admin);
+
     const { data: previous } = await admin
       .from("customer_live_trip_projections")
       .select("*")
       .eq("trip_id", tripId)
       .maybeSingle();
 
+    const etaOverrideRaw = body.eta_minutes ?? body.etaMinutes;
+    const etaOverride =
+      typeof etaOverrideRaw === "number" && Number.isFinite(etaOverrideRaw)
+        ? etaOverrideRaw
+        : null;
+
+    const tripForProjection = {
+      ...(trip as Record<string, unknown>),
+      ...(etaOverride != null ? { eta_minutes: etaOverride } : {}),
+    };
+
     const projection = buildCustomerLiveTripProjection({
-      trip: trip as Record<string, unknown>,
+      trip: tripForProjection,
       customerUserId,
       customerId,
       previous: previous as Record<string, unknown> | null,
@@ -89,6 +111,11 @@ Deno.serve(async (req) => {
     if (!projection) {
       return errorResponse("PROJECTION_FAILED", "Could not build projection", 500);
     }
+
+    // Feature OFF: still persist terminal cleanup projections, skip push fanout
+    // for live updates so unsupported / pre-release builds stay quiet.
+    const allowFanout =
+      featureEnabled || projection.terminal || !projection.eligible;
 
     const { error: upsertErr } = await admin
       .from("customer_live_trip_projections")
@@ -108,11 +135,11 @@ Deno.serve(async (req) => {
       fcm_ok: false,
     };
 
-    // iOS ActivityKit — only when eligible or terminal end.
-    if (liveActivityApnsConfigured()) {
+    // iOS ActivityKit — start / update / end. Skipped when feature OFF (except end).
+    if (allowFanout && liveActivityApnsConfigured()) {
       const { data: tokens } = await admin
         .from("customer_live_activity_tokens")
-        .select("push_token, trip_id")
+        .select("push_token, push_to_start_token, trip_id")
         .eq("customer_user_id", customerUserId)
         .is("invalidated_at", null)
         .or(`trip_id.eq.${tripId},trip_id.is.null`);
@@ -121,20 +148,37 @@ Deno.serve(async (req) => {
       const staleSec = projection.stale_at
         ? Math.floor(Date.parse(projection.stale_at) / 1000)
         : nowSec + 8 * 60;
+      const hadLive =
+        Boolean(previous?.eligible) && !Boolean(previous?.terminal);
+      const event =
+        projection.terminal || !projection.eligible
+          ? "end"
+          : hadLive
+          ? "update"
+          : "start";
 
       for (const row of tokens ?? []) {
         const token = String(row.push_token ?? "").trim();
         if (!token) continue;
         delivery.apns_attempted = true;
-        const event =
-          projection.terminal || !projection.eligible ? "end" : "update";
         const result = await sendCustomerLiveActivityApns({
           pushToken: token,
           event,
           timestampSec: nowSec,
           contentState: projection.content_state,
-          staleDateSec: event === "update" ? staleSec : undefined,
+          attributesType: "OneCabLiveTripAttributes",
+          attributes: {
+            tripId,
+            publicTripId: (trip as Record<string, unknown>).trip_code ?? null,
+            deepLinkPath: `/(tabs)/home`,
+          },
+          staleDateSec: event !== "end" ? staleSec : undefined,
           dismissalDateSec: event === "end" ? nowSec + 60 : undefined,
+          alertTitle: event === "start" ? "ONECAB" : undefined,
+          alertBody:
+            event === "start"
+              ? String(projection.status_title || "Live trip tracking")
+              : undefined,
         });
         delivery.apns_ok = Boolean(delivery.apns_ok) || result.ok;
         if (!result.ok && result.status === 410) {
@@ -148,7 +192,7 @@ Deno.serve(async (req) => {
 
     // Android: data-only FCM for native LiveTrip handler (no alert / sound).
     const serviceAccountJson = readFcmServiceAccountJson();
-    if (serviceAccountJson) {
+    if (allowFanout && serviceAccountJson) {
       try {
         const authToken = await resolveCustomerAuthoritativeToken(
           admin,
@@ -194,6 +238,8 @@ Deno.serve(async (req) => {
       assignment_generation: projection.assignment_generation,
       presentation_version: projection.presentation_version,
       lifecycle_stage: projection.lifecycle_stage,
+      feature_enabled: featureEnabled,
+      fanout: allowFanout,
       delivery,
     });
   } catch (err) {

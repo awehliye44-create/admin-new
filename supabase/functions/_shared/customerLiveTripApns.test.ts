@@ -12,6 +12,8 @@ Deno.test("APNs liveactivity topic and push type contract are documented in SSOT
   assertStringIncludes(src, '"content-state"');
   assertStringIncludes(src, "stale-date");
   assertStringIncludes(src, "dismissal-date");
+  assertStringIncludes(src, "attributes-type");
+  assertStringIncludes(src, "OneCabLiveTripAttributes");
   assertStringIncludes(src, "com.onecab.customer.app");
   assertEquals(src.includes("apns-push-type\": \"alert\""), false);
 });

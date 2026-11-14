@@ -92,3 +92,14 @@ CREATE POLICY customer_live_activity_tokens_select_own
   FOR SELECT
   TO authenticated
   USING (customer_user_id = auth.uid());
+
+-- Live Trip runtime kill-switch (presentation only). Default OFF.
+CREATE TABLE IF NOT EXISTS public.customer_live_trip_settings (
+  id boolean PRIMARY KEY DEFAULT true CHECK (id),
+  enabled boolean NOT NULL DEFAULT false,
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+
+INSERT INTO public.customer_live_trip_settings (id, enabled)
+VALUES (true, false)
+ON CONFLICT (id) DO NOTHING;

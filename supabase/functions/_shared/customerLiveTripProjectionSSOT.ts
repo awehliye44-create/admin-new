@@ -90,6 +90,14 @@ function resolveLifecycleStage(status: string, rematching: boolean): string {
     return "at_pickup";
   }
   if (
+    s === "en_route_to_stop" ||
+    s === "arrived_at_stop" ||
+    s === "at_stop" ||
+    s === "waiting_at_stop"
+  ) {
+    return "intermediate_stop";
+  }
+  if (
     s === "in_progress" ||
     s === "started" ||
     s === "trip_started" ||
@@ -98,10 +106,6 @@ function resolveLifecycleStage(status: string, rematching: boolean): string {
     s === "passenger_onboard" ||
     s === "ongoing" ||
     s === "completing" ||
-    s === "en_route_to_stop" ||
-    s === "arrived_at_stop" ||
-    s === "at_stop" ||
-    s === "waiting_at_stop" ||
     s === "arrived_at_destination"
   ) {
     return "trip_started";
@@ -167,6 +171,12 @@ function copyForStage(stage: string): {
       return {
         status_title: "Trip started",
         status_description: "On the way to your destination",
+        progress_step_index: 2,
+      };
+    case "intermediate_stop":
+      return {
+        status_title: "Intermediate stop",
+        status_description: "Driver is at an intermediate stop",
         progress_step_index: 2,
       };
     default:

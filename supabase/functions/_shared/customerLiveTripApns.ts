@@ -64,8 +64,13 @@ export async function sendCustomerLiveActivityApns(args: {
   event: LiveActivityApnsEvent;
   timestampSec: number;
   contentState: Record<string, unknown>;
+  /** Required for event=start (push-to-start / remote start). */
+  attributesType?: string;
+  attributes?: Record<string, unknown>;
   dismissalDateSec?: number;
   staleDateSec?: number;
+  alertTitle?: string;
+  alertBody?: string;
 }): Promise<{ ok: boolean; status: number; body: string }> {
   if (!liveActivityApnsConfigured()) {
     return { ok: false, status: 0, body: "APNS_NOT_CONFIGURED" };
@@ -82,6 +87,17 @@ export async function sendCustomerLiveActivityApns(args: {
     event: args.event,
     "content-state": args.contentState,
   };
+  if (args.event === "start") {
+    aps["attributes-type"] =
+      args.attributesType ?? "OneCabLiveTripAttributes";
+    aps.attributes = args.attributes ?? {};
+    if (args.alertTitle || args.alertBody) {
+      aps.alert = {
+        title: args.alertTitle ?? "ONECAB",
+        body: args.alertBody ?? "Live trip tracking started",
+      };
+    }
+  }
   if (args.event === "end" && args.dismissalDateSec != null) {
     aps["dismissal-date"] = args.dismissalDateSec;
   }
