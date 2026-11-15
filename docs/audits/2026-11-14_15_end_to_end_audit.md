@@ -82,7 +82,12 @@ Pre-activation cancel / compliance release **before** unclaimed urgent deadline:
 
 ### CI / SHAs
 
-Filled after commit + remote CI (see below).
+| Repo | SHA | CI |
+| --- | --- | --- |
+| admin-new | `8b3c5c54c24f8b7068655806b2aa4ebb3fb04771` | https://github.com/awehliye44-create/admin-new/actions/runs/43704514827 (success) |
+| onecab-customer-native | `f25365baadf95c15e5e7054436f479546076bdbb` | https://github.com/awehliye44-create/onecab-customer-native/actions/runs/43704514348 (success) |
+
+**Not resolved for production** until migration + Edge `scheduled-ride-action` / compliance modules + Customer OTA are approved and verified end to end. Deploys remain paused.
 
 ---
 
