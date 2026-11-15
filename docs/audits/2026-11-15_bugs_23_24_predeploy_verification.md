@@ -83,11 +83,11 @@ Driver Complete→Rate telemetry already uses InteractionManager for rate-passen
 
 ## SHAs / CI (this verification tip)
 
-| Repo | SHA | Notes |
+| Repo | SHA | CI |
 | --- | --- | --- |
-| admin-new | *(filled after push)* | `stop-workflow` + `submit-customer-trip-tip` |
-| onecab-customer-native | *(filled after push)* | RateTrip durable tip accept + telemetry |
-| onecab-driver-native | `03a31b9` | Test-only; no new commit required |
+| admin-new | `b1a947f13c225bbfc356ad05acccee9de498cc42` | [success](https://github.com/awehliye44-create/admin-new/actions/runs/43715911543) |
+| onecab-customer-native | `b3f2f3fde2cedc57c4d748d32a871124752c12fc` | [success](https://github.com/awehliye44-create/onecab-customer-native/actions/runs/43715913372) |
+| onecab-driver-native | `03a31b9583bd725526949078962add98c4be0a70` | Test-only; no new commit / no OTA |
 
 ---
 
