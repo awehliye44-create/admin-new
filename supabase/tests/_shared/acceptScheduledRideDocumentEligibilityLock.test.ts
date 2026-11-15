@@ -38,10 +38,11 @@ Deno.test("accept_scheduled_ride migration gates on check_driver_documents_appro
 Deno.test("scheduled-ride-action accept path also checks live document eligibility", async () => {
   const src = await Deno.readTextFile(EDGE);
   assertStringIncludes(src, 'action === "accept"');
-  assertStringIncludes(src, "check_driver_documents_approved");
+  // Journey-horizon gate supersedes bare today-only RPC (still refuses unapproved docs).
+  assertStringIncludes(src, "assertScheduledJourneyComplianceForDriverTrip");
   assertStringIncludes(src, "DOCUMENTS_NOT_APPROVED");
   assertStringIncludes(src, 'rpc("accept_scheduled_ride"');
-  const docsIdx = src.indexOf("check_driver_documents_approved");
+  const docsIdx = src.indexOf("assertScheduledJourneyComplianceForDriverTrip");
   const rpcIdx = src.indexOf('rpc("accept_scheduled_ride"');
   assertEquals(docsIdx > 0, true);
   assertEquals(rpcIdx > docsIdx, true);

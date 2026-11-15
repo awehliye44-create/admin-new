@@ -1010,6 +1010,44 @@ Deno.serve(async (req) => {
     }
 
     // ============================================================
+    // STEP 0c: Confirmed scheduled journey-compliance reconcile
+    // Releases unactivated bookings when docs/account no longer cover
+    // estimated journey end. Bounded + idempotent; SQL RPC preferred.
+    // ============================================================
+    {
+      try {
+        const { data: sqlReconcile } = await supabase.rpc(
+          "reconcile_scheduled_journey_compliance",
+          { p_limit: 40 },
+        );
+        if (sqlReconcile && typeof sqlReconcile === "object") {
+          console.log("SCHEDULED_JOURNEY_COMPLIANCE_RECONCILE", sqlReconcile);
+        } else {
+          const { reconcileConfirmedScheduledJourneyCompliance } = await import(
+            "../_shared/scheduledJourneyComplianceGate.ts"
+          );
+          const edgeReconcile = await reconcileConfirmedScheduledJourneyCompliance(
+            supabase,
+            {
+              now,
+              limit: 40,
+              supabaseUrl,
+              supabaseServiceKey,
+              urgentTriggerMinutesBeforePickup:
+                schedConfig.urgentTriggerMinutesBeforePickup,
+            },
+          );
+          console.log("SCHEDULED_JOURNEY_COMPLIANCE_RECONCILE", edgeReconcile);
+        }
+      } catch (compErr) {
+        console.warn(
+          "[scheduled-dispatch] journey compliance reconcile soft-fail:",
+          compErr,
+        );
+      }
+    }
+
+    // ============================================================
     // STEP 1: PRE-CONFIRMED JIT ACTIVATION (Phase 4)
     // Dynamic departure deadline for confirmed drivers → auto en_route.
     // No second Accept. Phase 5 may later insert ack before activate.

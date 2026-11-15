@@ -28,6 +28,7 @@ import {
   SCHEDULED_COMMISSION_WALLET_MESSAGE,
 } from "../_shared/scheduledMarketplaceCommissionWalletGate.ts";
 import { broadcastScheduledMarketplaceChanged } from "../_shared/scheduledMarketplaceRealtimeBroadcastSSOT.ts";
+import { assertScheduledJourneyComplianceForDriverTrip } from "../_shared/scheduledJourneyComplianceGate.ts";
 
 const RATE_LIMIT_CONFIG = {
   limit: 60,
@@ -383,8 +384,33 @@ Deno.serve(async (req) => {
         });
       }
 
+      // Journey-horizon compliance (docs must remain valid through estimated end).
+      const complianceEligibleTrips: typeof walletEligibleTrips = [];
+      const complianceBlockedTripIds: string[] = [];
+      for (const trip of walletEligibleTrips) {
+        const journey = await assertScheduledJourneyComplianceForDriverTrip(supabase, {
+          driverId: driver_id,
+          tripId: String(trip.id),
+          scheduledAtIso: trip.scheduled_at != null ? String(trip.scheduled_at) : null,
+          estimatedDurationMinutes: trip.estimated_duration_minutes != null
+            ? Number(trip.estimated_duration_minutes)
+            : null,
+        });
+        if (journey.allowed) {
+          complianceEligibleTrips.push(trip);
+        } else {
+          complianceBlockedTripIds.push(String(trip.id));
+        }
+      }
+      if (complianceBlockedTripIds.length > 0) {
+        console.log("[scheduled-ride-action] Excluding trips: journey compliance", {
+          driver_id,
+          trip_ids: complianceBlockedTripIds,
+        });
+      }
+
       // Attach stops to each trip (multi-stop support)
-      const tripsWithStops = walletEligibleTrips.map(trip => ({
+      const tripsWithStops = complianceEligibleTrips.map(trip => ({
         ...trip,
         stops: stopsMap[trip.id] || [],
         is_multi_stop: (stopsMap[trip.id] || []).length > 2,
@@ -477,21 +503,23 @@ Deno.serve(async (req) => {
         }
       }
 
-      // Live Europe/London document eligibility (same SSOT as accept-offer).
-      // RPC also enforces this — Edge check gives a clear error before the lock.
+      // Live Europe/London document eligibility + journey-horizon (same SSOT as
+      // accept_scheduled_ride SQL). Edge check gives a clear error before the lock.
       {
-        const { data: docsApproved, error: docsErr } = await supabase.rpc(
-          "check_driver_documents_approved",
-          { p_driver_id: driver_id },
-        );
-        if (docsErr) {
-          console.error("[scheduled-ride-action] docs eligibility RPC error:", docsErr);
-          return errorResponse("DATABASE_ERROR", docsErr.message, 500);
-        }
-        if (docsApproved !== true) {
+        const journey = await assertScheduledJourneyComplianceForDriverTrip(supabase, {
+          driverId: driver_id,
+          tripId: trip_id!,
+        });
+        if (!journey.allowed) {
+          const code = journey.code === "ACCOUNT_INELIGIBLE"
+            ? "ACCOUNT_INELIGIBLE"
+            : journey.code === "DOCUMENTS_EXPIRE_BEFORE_JOURNEY_END"
+            ? "DOCUMENTS_EXPIRE_BEFORE_JOURNEY_END"
+            : "DOCUMENTS_NOT_APPROVED";
           return errorResponse(
-            "DOCUMENTS_NOT_APPROVED",
-            "One or more of your documents has expired or is not approved. Renew them before accepting scheduled rides.",
+            code,
+            journey.message ||
+              "One or more of your documents has expired or is not approved. Renew them before accepting scheduled rides.",
             403,
           );
         }
@@ -538,6 +566,8 @@ Deno.serve(async (req) => {
                           data.error === "TRIP_ALREADY_TAKEN" ? 409 :
                           data.error === "DRIVER_EXCLUDED" ? 403 :
                           data.error === "DOCUMENTS_NOT_APPROVED" ? 403 :
+                          data.error === "DOCUMENTS_EXPIRE_BEFORE_JOURNEY_END" ? 403 :
+                          data.error === "ACCOUNT_INELIGIBLE" ? 403 :
                           data.error === "INSUFFICIENT_COMMISSION_WALLET_BALANCE" ? 409 :
                           data.error === "SCHEDULED_COMMITMENT_INFEASIBLE" ? 409 :
                           data.error === "LOCK_CONTENTION" ? 409 : 400;
@@ -709,7 +739,7 @@ Deno.serve(async (req) => {
       // Check if trip is still available
       const { data: trip } = await supabase
         .from("trips")
-        .select("id, driver_id, scheduled_status, scheduled_broadcast_at")
+        .select("id, driver_id, scheduled_status, scheduled_broadcast_at, scheduled_at, estimated_duration_minutes")
         .eq("id", trip_id)
         .single();
 
@@ -728,13 +758,33 @@ Deno.serve(async (req) => {
           broadcastDue,
       );
 
+      let complianceOk = true;
+      let complianceReason: string | null = null;
+      if (!isExcluded && isAvailable && trip_id) {
+        const journey = await assertScheduledJourneyComplianceForDriverTrip(supabase, {
+          driverId: driver_id,
+          tripId: trip_id,
+          scheduledAtIso: trip?.scheduled_at != null ? String(trip.scheduled_at) : null,
+          estimatedDurationMinutes: trip?.estimated_duration_minutes != null
+            ? Number(trip.estimated_duration_minutes)
+            : null,
+        });
+        complianceOk = journey.allowed;
+        if (!journey.allowed) {
+          complianceReason =
+            journey.message ||
+            "Your account or required documents do not meet eligibility for this scheduled journey.";
+        }
+      }
+
       return successResponse({ 
         success: true, 
-        eligible: !isExcluded && isAvailable,
+        eligible: !isExcluded && isAvailable && complianceOk,
         isExcluded,
         isAvailable,
         reason: isExcluded ? "You previously declined this ride" : 
-                !isAvailable ? "This ride is no longer available" : null
+                !isAvailable ? "This ride is no longer available" :
+                !complianceOk ? complianceReason : null
       });
     }
 

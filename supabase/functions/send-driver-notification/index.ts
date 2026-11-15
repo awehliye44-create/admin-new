@@ -49,7 +49,9 @@ interface NotificationPayload {
     | 'SCHEDULED_JOB_CONFIRMED'
     | 'SCHEDULED_COMMITMENT'
     // Silent GPS readiness wake for confirmed scheduled JIT (no tray / no sound).
-    | 'SCHEDULED_JIT_LOCATION_READINESS';
+    | 'SCHEDULED_JIT_LOCATION_READINESS'
+    // Compliance release of a confirmed scheduled booking (no penalty).
+    | 'SCHEDULED_COMPLIANCE_RELEASE';
   title: string;
   body: string;
   data?: Record<string, string>;
@@ -70,6 +72,7 @@ const VALID_NOTIFICATION_TYPES = [
   'SCHEDULED_JOB_CONFIRMED',
   'SCHEDULED_COMMITMENT',
   'SCHEDULED_JIT_LOCATION_READINESS',
+  'SCHEDULED_COMPLIANCE_RELEASE',
 ];
 const RATE_LIMIT_CONFIG = { limit: 200, windowMs: 60000, keyPrefix: 'send-notification' };
 

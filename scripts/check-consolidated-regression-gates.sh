@@ -38,6 +38,9 @@ deno test --no-check --allow-read --allow-env \
   supabase/functions/_shared/scheduledJitPickupAwareFallback.execution.test.ts \
   supabase/functions/_shared/scheduledJitActivationSSOT.test.ts \
   supabase/functions/_shared/scheduledJitStickyDeadline.execution.test.ts \
+  supabase/functions/_shared/scheduledJourneyComplianceSSOT.execution.test.ts \
+  supabase/functions/_shared/scheduledJourneyComplianceLock.test.ts \
+  supabase/tests/_shared/acceptScheduledRideDocumentEligibilityLock.test.ts \
   supabase/tests/_shared/concurrencyHardening20270222.lock.test.ts \
   supabase/tests/_shared/financialSsotMonitorScansLock.test.ts \
   supabase/tests/_shared/financialSsotMonitorScansFixtures.test.ts \

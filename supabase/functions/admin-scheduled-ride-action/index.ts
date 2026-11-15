@@ -24,6 +24,7 @@ import {
   checkScheduledCommissionWalletGate,
   SCHEDULED_COMMISSION_WALLET_ERROR,
 } from "../_shared/scheduledMarketplaceCommissionWalletGate.ts";
+import { assertScheduledJourneyComplianceForDriverTrip } from "../_shared/scheduledJourneyComplianceGate.ts";
 
 function json(body: Record<string, unknown>, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -196,6 +197,29 @@ Deno.serve(async (req) => {
           }
         }
       }
+      // Journey-horizon compliance — Admin cannot bypass document/account eligibility.
+      {
+        const journey = await assertScheduledJourneyComplianceForDriverTrip(gate.supabase, {
+          driverId,
+          tripId,
+          scheduledAtIso: trip.scheduled_at != null ? String(trip.scheduled_at) : null,
+          estimatedDurationMinutes: trip.estimated_duration_minutes != null
+            ? Number(trip.estimated_duration_minutes)
+            : null,
+        });
+        if (!journey.allowed) {
+          return json({
+            success: false,
+            error: journey.code === "ACCOUNT_INELIGIBLE"
+              ? "ACCOUNT_INELIGIBLE"
+              : journey.code === "DOCUMENTS_EXPIRE_BEFORE_JOURNEY_END"
+              ? "DOCUMENTS_EXPIRE_BEFORE_JOURNEY_END"
+              : "DOCUMENTS_NOT_APPROVED",
+            message: journey.message ||
+              "Driver is not eligible for this scheduled journey (account or documents).",
+          }, 409);
+        }
+      }
     }
 
     if (
@@ -312,7 +336,10 @@ Deno.serve(async (req) => {
           result.error === "TRIP_ALREADY_COMPLETED" ||
           result.error === "ACTION_PERMISSION_DENIED" ||
           result.error === "SCHEDULED_COMMITMENT_INFEASIBLE" ||
-          result.error === "INSUFFICIENT_COMMISSION_WALLET_BALANCE"
+          result.error === "INSUFFICIENT_COMMISSION_WALLET_BALANCE" ||
+          result.error === "DOCUMENTS_EXPIRE_BEFORE_JOURNEY_END" ||
+          result.error === "DOCUMENTS_NOT_APPROVED" ||
+          result.error === "ACCOUNT_INELIGIBLE"
         ? 409
         : 400;
       return json({

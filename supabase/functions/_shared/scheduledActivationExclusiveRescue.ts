@@ -368,6 +368,29 @@ export async function evaluateConfirmedDriverExclusiveEligibility(
     return { eligible: false, reason: "driver_excluded", isStacked };
   }
 
+  // Journey-horizon compliance (Phase 4 exclusive / Phase 5 ack).
+  {
+    const { assertScheduledJourneyComplianceForDriverTrip } = await import(
+      "./scheduledJourneyComplianceGate.ts"
+    );
+    const journey = await assertScheduledJourneyComplianceForDriverTrip(supabase, {
+      driverId: args.driverId,
+      tripId: args.tripId,
+      now: new Date(nowMs),
+    });
+    if (!journey.allowed && journey.code !== "IN_PROGRESS_PROTECTED") {
+      return {
+        eligible: false,
+        reason: journey.code === "ACCOUNT_INELIGIBLE"
+          ? "account_ineligible"
+          : journey.code === "DOCUMENTS_EXPIRE_BEFORE_JOURNEY_END"
+          ? "documents_expire_before_journey_end"
+          : "documents_not_approved",
+        isStacked,
+      };
+    }
+  }
+
   const { data: walletOk, error: walletErr } = await supabase.rpc(
     "driver_passes_commission_wallet_dispatch_gate",
     { p_driver_id: args.driverId, p_trip_id: args.tripId },
