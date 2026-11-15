@@ -108,7 +108,7 @@ Preserved in pin: multi-stop sticky / post-Start floor / auto-arrival / road-awa
 - **Deferred:** Revolut incremental auth policy changes; MK0006 Luton; Live Trip packaging (fanout off); Play recommendations.
 - **Bugs #23/#24:** SHIPPED separately (`stop-workflow` v673, tip Edge v92, Customer OTA `194a3a5`) — see `2026-11-15_bugs_23_24_production_release_report.md`.
 - **Bug #25:** **SHIPPED** Customer OTA `6af35fc` (iOS `1.0.6(23)` / Android `1.0.6(46)`) — see `2026-11-15_bug25_production_ota_release_report.md`.
-- **Bug #18:** Read-only incremental-auth audit complete — see `2026-11-15_bug18_revolut_incremental_auth_failure_audit.md` (no deploy; issuer reasons mostly absent; amount SSOT correct).
+- **Bug #18:** Read-only incremental-auth audit complete — see `2026-11-15_bug18_revolut_incremental_auth_failure_audit.md` + rejection focus `2026-11-15_bug18_increment_rejection_focus.md` (issuer `reason` null; Apple Pay+card declines; original hold intact).
 - Native / store uploads: still paused.
 
 ---
