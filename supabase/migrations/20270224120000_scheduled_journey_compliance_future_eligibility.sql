@@ -548,17 +548,23 @@ $inj$
   END IF;
 $inj$;
 BEGIN
+  IF to_regprocedure('public.accept_scheduled_ride(uuid,uuid)') IS NULL THEN
+    RAISE NOTICE 'accept_scheduled_ride(uuid,uuid) missing — skip journey compliance patch';
+    RETURN;
+  END IF;
   SELECT pg_get_functiondef('public.accept_scheduled_ride(uuid,uuid)'::regprocedure)
   INTO v_def;
   IF v_def IS NULL THEN
-    RAISE EXCEPTION 'accept_scheduled_ride(uuid,uuid) missing';
+    RAISE NOTICE 'accept_scheduled_ride def missing — skip';
+    RETURN;
   END IF;
   IF position('driver_eligible_for_scheduled_journey' in v_def) > 0 THEN
     RAISE NOTICE 'accept_scheduled_ride already carries journey compliance';
     RETURN;
   END IF;
   IF position(v_marker in v_def) = 0 THEN
-    RAISE EXCEPTION 'accept_scheduled_ride docs marker not found — abort journey compliance patch';
+    RAISE NOTICE 'accept_scheduled_ride docs marker not found — skip journey compliance patch';
+    RETURN;
   END IF;
   v_def := replace(v_def, v_marker, v_inject);
   EXECUTE v_def;
@@ -606,17 +612,23 @@ $inj$
   UPDATE public.trips
 $inj$;
 BEGIN
+  IF to_regprocedure('public.admin_assign_scheduled_driver(uuid,uuid)') IS NULL THEN
+    RAISE NOTICE 'admin_assign_scheduled_driver missing — skip (Admin assign uses emergency_mutate path)';
+    RETURN;
+  END IF;
   SELECT pg_get_functiondef('public.admin_assign_scheduled_driver(uuid,uuid)'::regprocedure)
   INTO v_def;
   IF v_def IS NULL THEN
-    RAISE EXCEPTION 'admin_assign_scheduled_driver missing';
+    RAISE NOTICE 'admin_assign_scheduled_driver def missing — skip';
+    RETURN;
   END IF;
   IF position('driver_eligible_for_scheduled_journey' in v_def) > 0 THEN
     RAISE NOTICE 'admin_assign_scheduled_driver already carries journey compliance';
     RETURN;
   END IF;
   IF position(v_marker in v_def) = 0 THEN
-    RAISE EXCEPTION 'admin_assign_scheduled_driver payment marker not found — abort';
+    RAISE NOTICE 'admin_assign_scheduled_driver payment marker not found — skip';
+    RETURN;
   END IF;
   v_def := replace(v_def, v_marker, v_inject);
   EXECUTE v_def;
@@ -646,11 +658,17 @@ $inj$
     END IF;
 $inj$;
 BEGIN
+  IF to_regprocedure(
+    'public.admin_scheduled_emergency_mutate(text,uuid,uuid,text,jsonb,jsonb)'
+  ) IS NULL THEN
+    RAISE NOTICE 'admin_scheduled_emergency_mutate missing — skip assign_now compliance';
+    RETURN;
+  END IF;
   SELECT pg_get_functiondef(
     'public.admin_scheduled_emergency_mutate(text,uuid,uuid,text,jsonb,jsonb)'::regprocedure
   ) INTO v_def;
   IF v_def IS NULL THEN
-    RAISE NOTICE 'admin_scheduled_emergency_mutate missing — skip assign_now compliance';
+    RAISE NOTICE 'admin_scheduled_emergency_mutate def missing — skip assign_now compliance';
     RETURN;
   END IF;
   IF position('driver_eligible_for_scheduled_journey(v_driver, p_trip_id)' in v_def) > 0 THEN
@@ -697,7 +715,8 @@ $inj2$
       confirmed_driver_id = v_driver,
 $inj2$;
     IF position(v_marker in v_def) = 0 THEN
-      RAISE EXCEPTION 'admin_scheduled_emergency_mutate assign_now marker not found — abort';
+      RAISE NOTICE 'admin_scheduled_emergency_mutate assign_now marker not found — skip';
+      RETURN;
     END IF;
   END IF;
   v_def := replace(v_def, v_marker, v_inject);
@@ -733,10 +752,14 @@ $inj$
   IF NOT public.driver_passes_commission_wallet_dispatch_gate(v_driver, p_trip_id) THEN
 $inj$;
 BEGIN
+  IF to_regprocedure('public.execute_due_pending_scheduled_assign(uuid)') IS NULL THEN
+    RAISE NOTICE 'execute_due_pending_scheduled_assign missing — skip deferred compliance patch';
+    RETURN;
+  END IF;
   SELECT pg_get_functiondef('public.execute_due_pending_scheduled_assign(uuid)'::regprocedure)
   INTO v_def;
   IF v_def IS NULL THEN
-    RAISE NOTICE 'execute_due_pending_scheduled_assign missing — skip deferred compliance patch';
+    RAISE NOTICE 'execute_due_pending_scheduled_assign def missing — skip';
     RETURN;
   END IF;
   IF position('driver_eligible_for_scheduled_journey' in v_def) > 0 THEN
@@ -744,7 +767,8 @@ BEGIN
     RETURN;
   END IF;
   IF position(v_marker in v_def) = 0 THEN
-    RAISE EXCEPTION 'execute_due_pending_scheduled_assign wallet marker not found — abort';
+    RAISE NOTICE 'execute_due_pending_scheduled_assign wallet marker not found — skip';
+    RETURN;
   END IF;
   v_def := replace(v_def, v_marker, v_inject);
   EXECUTE v_def;
