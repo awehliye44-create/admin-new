@@ -80,6 +80,10 @@ import {
 } from "../../../shared/tipWindowConstants.ts";
 import { invoiceTipPenceFromConfirmedCapture, isFareCapturedBlockingTipWindow } from "../../../shared/tripPaymentFinalised.ts";
 import {
+  isTipWindowProcessing,
+  isTripPaymentFinalised,
+} from "../_shared/tripPaymentFinalised.ts";
+import {
   isCardPaymentMethod,
   recordTripCaptureFailure,
   requiresProviderSettlement,
@@ -2240,7 +2244,7 @@ Deno.serve(async (req) => {
     const { data: trip, error: tripError } = await supabase
       .from("trips")
       .select(
-        "id, status, dispatch_status, dispatch_mode, service_area_id, vehicle_type_id, region_id, passenger_id, driver_id, confirmed_driver_id, previous_driver_id, pickup_address, dropoff_address, pickup_latitude, pickup_longitude, dropoff_latitude, dropoff_longitude, stops, total_stops, arrived_at, pickup_arrived_at, started_at, completed_at, cancelled_at, current_stop_index, current_stop_id, pickup_waiting_started_at, pickup_paid_waiting_started_at, pickup_waiting_charge_pence, pickup_waiting_admin_config, free_wait_expires_at, pickup_waiting_finalized_at, pickup_waiting_intervals_charged, stop_waiting_charge_pence, stop_charge_total_pence, stop_arrived_at, stop_waiting_started_at, final_fare_pence, final_customer_fare_pence, locked_base_fare_pence, financial_model, payment_status, payment_method, payment_provider, provider_order_id, payment_intent_id, payment_session_id, booking_source, corporate_account_id, tip_amount_pence, tip_pence, cash_authorized_at, scheduled_at, airport_charge_pence, driver_started_journey_to_pickup_at, special_instructions, stacked_trip_id, tip_window_expires_at, tip_window_closed_at, capture_amount_pence, updated_at",
+        "id, status, dispatch_status, dispatch_mode, service_area_id, vehicle_type_id, region_id, passenger_id, driver_id, confirmed_driver_id, previous_driver_id, pickup_address, dropoff_address, pickup_latitude, pickup_longitude, dropoff_latitude, dropoff_longitude, stops, total_stops, arrived_at, pickup_arrived_at, started_at, completed_at, cancelled_at, current_stop_index, current_stop_id, pickup_waiting_started_at, pickup_paid_waiting_started_at, pickup_waiting_charge_pence, pickup_waiting_admin_config, free_wait_expires_at, pickup_waiting_finalized_at, pickup_waiting_intervals_charged, stop_waiting_charge_pence, stop_charge_total_pence, stop_arrived_at, stop_waiting_started_at, final_fare_pence, final_customer_fare_pence, locked_base_fare_pence, financial_model, payment_status, payment_method, payment_provider, provider_order_id, payment_intent_id, payment_session_id, booking_source, corporate_account_id, tip_amount_pence, tip_pence, cash_authorized_at, scheduled_at, airport_charge_pence, driver_started_journey_to_pickup_at, special_instructions, stacked_trip_id, tip_window_expires_at, tip_window_closed_at, tip_window_status, capture_amount_pence, updated_at",
       )
       .eq("id", trip_id)
       .single();
@@ -3971,8 +3975,87 @@ Deno.serve(async (req) => {
         if (trip.status === 'completed') {
           console.log("[stop-workflow] Trip already completed (idempotent)");
           stages.mark('idempotent_already_completed');
+          // Bug #23: CAPTURE_QUEUE_FAILED can leave status=completed without
+          // capture_requested. Recover the durable queue stamp + background
+          // finalize without re-running completion / settlement writes.
+          // Always return success so the Driver is never stuck on Complete.
+          let paymentCaptureDeferred = false;
+          const tipWindowOwnsCapture =
+            Boolean(trip.tip_window_expires_at)
+            && !trip.tip_window_closed_at
+            && (
+              isTipWindowProcessing(trip)
+              || new Date(String(trip.tip_window_expires_at)).getTime() > Date.now()
+            );
+          if (
+            requiresProviderSettlement(trip)
+            && !isTripPaymentFinalised(trip.payment_status)
+            && !tipWindowOwnsCapture
+          ) {
+            const pay = String(trip.payment_status ?? "").toLowerCase();
+            const recoverableHold = new Set([
+              "authorized",
+              "authorised",
+              "preauth_authorized",
+              "preauth_authorised",
+              "capture_failed",
+              "pending",
+              "preauth_created",
+              "preauth_updated",
+            ]);
+            if (pay !== "capture_requested" && recoverableHold.has(pay)) {
+              const { error: recoverStampErr } = await supabase.from("trips").update({
+                payment_status: "capture_requested",
+                payment_hold_status: "capture_requested",
+                updated_at: new Date().toISOString(),
+              }).eq("id", trip_id).eq("status", "completed").in(
+                "payment_status",
+                [...recoverableHold],
+              );
+              if (recoverStampErr) {
+                // Still Rate-path success — sweeper covers AUTHORISED completed.
+                console.error("[stop-workflow] idempotent capture_requested recover failed", {
+                  trip_id,
+                  error: recoverStampErr.message,
+                });
+              } else {
+                console.log("[PAYMENT_AUDIT]", JSON.stringify({
+                  stage: "auto_capture_queued_idempotent_recover",
+                  trip_id,
+                  source: "stop-workflow:complete_trip",
+                }));
+              }
+            }
+            const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
+            const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+            scheduleEdgeBackground(async () => {
+              try {
+                await invokeFinalizeTripCapture(
+                  supabaseUrl,
+                  serviceRoleKey,
+                  trip_id,
+                  0,
+                );
+              } catch (recoverFinalizeErr) {
+                console.error("[stop-workflow] idempotent recover finalize failed", {
+                  trip_id,
+                  error: recoverFinalizeErr instanceof Error
+                    ? recoverFinalizeErr.message
+                    : String(recoverFinalizeErr),
+                });
+              }
+            }, "complete_trip_idempotent_capture_recover");
+            paymentCaptureDeferred = true;
+          } else if (tipWindowOwnsCapture) {
+            paymentCaptureDeferred = true;
+          }
           completeTripStagesMs = stages.snapshot();
-          return await respondOk({ success: true, idempotent: true, message: "Trip already completed" });
+          return await respondOk({
+            success: true,
+            idempotent: true,
+            message: "Trip already completed",
+            payment_capture_deferred: paymentCaptureDeferred,
+          });
         }
 
         // Payment gate is advisory for driver Complete: shortfalls/unresolved
