@@ -231,7 +231,13 @@ Pending/ambiguous: reconcile-only on prior target rows; no blind second POST (MK
 
 ---
 
-## 11. Artifacts / queries
+## 11. Code-path cross-check (shared-module audit)
+
+Independent module walkthrough confirms the same SSOT: Revolut receives **target total** pence; modification payable is **new fare only**; buffer is SA DB config (`service_area_preauth_settings`) and is **not** re-applied on increment. Live prod SA row observed in this investigation: `enable_preauth_buffer=false` (historical trips still show 0/250/300p buffers from earlier config).
+
+**Residual engineering note (not a decline root cause):** two coverage helpers exist — `classifyIncrementCoverage` (requires provider-authoritative authorised increment state; used on the live POST/retrieve path) vs `classifyModificationApplyCoverage` (total-at-or-above-target; used in some simulate/decide helpers). Live apply still goes through `decideFromPreauthInvokeResult` + `claim_and_apply_fare_increase_modification` with `ADDITIONAL_AUTHORISATION_CONFIRMED` evidence. MK-260915-002 already locked processing increments out of “confirmed”. No change in this audit.
+
+## 12. Artifacts / queries
 
 Primary table: `public.payment_session_authorisations` joined to `payment_sessions` + `trips`.  
 Key modules: `revolutOrders.ts`, `executeSameOrderIncrementSSOT.ts`, `revolutModTopUp.ts`, `executeFareIncreaseModificationPayment.ts`, `tripModificationPaymentGateSSOT.ts`, `preauthBuffer.ts`.
