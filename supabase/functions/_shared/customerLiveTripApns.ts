@@ -14,12 +14,103 @@ export function liveActivityApnsConfigured(): boolean {
   );
 }
 
-function customerBundleId(): string {
+export function customerLiveActivityBundleId(): string {
   return (
     Deno.env.get("APNS_CUSTOMER_BUNDLE_ID")?.trim() ||
     Deno.env.get("APNS_BUNDLE_ID")?.trim() ||
     "com.onecab.customer.app"
   );
+}
+
+function customerBundleId(): string {
+  return customerLiveActivityBundleId();
+}
+
+/** Prefer push-to-start for remote start; activity token for update/end. */
+export function selectLiveActivityPushToken(args: {
+  event: LiveActivityApnsEvent;
+  pushToken?: string | null;
+  pushToStartToken?: string | null;
+}): string | null {
+  const activity = String(args.pushToken ?? "").trim();
+  const pushToStart = String(args.pushToStartToken ?? "").trim();
+  // Legacy register aliased PTS into push_token when activity token was absent.
+  const activityDistinct =
+    activity && pushToStart && activity === pushToStart ? "" : activity;
+  if (args.event === "start") {
+    return pushToStart || activityDistinct || activity || null;
+  }
+  return activityDistinct || activity || pushToStart || null;
+}
+
+/**
+ * Safe credential shape check — never returns secret values / digests of values.
+ * Used by service-role probe only.
+ */
+export type LiveActivityApnsCredentialProbe = {
+  configured: boolean;
+  keyIdPresent: boolean;
+  keyIdShapeOk: boolean;
+  teamIdPresent: boolean;
+  teamIdShapeOk: boolean;
+  p8Present: boolean;
+  p8PemShapeOk: boolean;
+  p8ImportOk: boolean;
+  jwtMintOk: boolean;
+  bundleId: string;
+  topic: string;
+  topicMatchesBundle: boolean;
+  expectedBundleId: string;
+};
+
+export async function probeCustomerLiveActivityApnsCredentials(): Promise<
+  LiveActivityApnsCredentialProbe
+> {
+  const expectedBundleId = "com.onecab.customer.app";
+  const keyId = Deno.env.get("APNS_KEY_ID")?.trim() ?? "";
+  const teamId = Deno.env.get("APNS_TEAM_ID")?.trim() ?? "";
+  const p8Raw = Deno.env.get("APNS_AUTH_KEY_P8")?.replace(/\\n/g, "\n").trim() ??
+    "";
+  const bundleId = customerBundleId();
+  const topic = `${bundleId}.push-type.liveactivity`;
+
+  const keyIdShapeOk = /^[A-Z0-9]{8,12}$/i.test(keyId);
+  const teamIdShapeOk = /^[A-Z0-9]{8,12}$/i.test(teamId);
+  const p8PemShapeOk =
+    p8Raw.includes("BEGIN PRIVATE KEY") &&
+    p8Raw.includes("END PRIVATE KEY") &&
+    p8Raw.replace(/-----BEGIN PRIVATE KEY-----/, "")
+      .replace(/-----END PRIVATE KEY-----/, "")
+      .replace(/\s+/g, "").length > 80;
+
+  let p8ImportOk = false;
+  let jwtMintOk = false;
+  if (keyId && teamId && p8PemShapeOk) {
+    try {
+      await apnsJwt();
+      p8ImportOk = true;
+      jwtMintOk = true;
+    } catch {
+      p8ImportOk = false;
+      jwtMintOk = false;
+    }
+  }
+
+  return {
+    configured: liveActivityApnsConfigured(),
+    keyIdPresent: Boolean(keyId),
+    keyIdShapeOk,
+    teamIdPresent: Boolean(teamId),
+    teamIdShapeOk,
+    p8Present: Boolean(p8Raw),
+    p8PemShapeOk,
+    p8ImportOk,
+    jwtMintOk,
+    bundleId,
+    topic,
+    topicMatchesBundle: topic === `${expectedBundleId}.push-type.liveactivity`,
+    expectedBundleId,
+  };
 }
 
 async function apnsJwt(): Promise<string> {

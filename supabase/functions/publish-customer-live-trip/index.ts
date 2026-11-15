@@ -17,6 +17,7 @@ import { requireSignedInOrService } from "../_shared/callerGate.ts";
 import { buildCustomerLiveTripProjection } from "../_shared/customerLiveTripProjectionSSOT.ts";
 import {
   liveActivityApnsConfigured,
+  selectLiveActivityPushToken,
   sendCustomerLiveActivityApns,
 } from "../_shared/customerLiveTripApns.ts";
 import {
@@ -268,7 +269,13 @@ Deno.serve(async (req) => {
         : nowSec + 8 * 60;
 
       for (const row of tokens ?? []) {
-        const token = String(row.push_token ?? "").trim();
+        const activityToken = String(row.push_token ?? "").trim();
+        const pushToStartToken = String(row.push_to_start_token ?? "").trim();
+        const token = selectLiveActivityPushToken({
+          event,
+          pushToken: activityToken,
+          pushToStartToken,
+        });
         if (!token) continue;
         delivery.apns_attempted = true;
         const env = String(row.apns_environment ?? "").trim().toLowerCase();
@@ -300,10 +307,17 @@ Deno.serve(async (req) => {
         });
         delivery.apns_ok = Boolean(delivery.apns_ok) || result.ok;
         if (!result.ok && result.status === 410) {
-          await admin
+          let invalidateQ = admin
             .from("customer_live_activity_tokens")
             .update({ invalidated_at: new Date().toISOString() })
-            .eq("push_token", token);
+            .eq("customer_user_id", customerUserId)
+            .is("invalidated_at", null);
+          if (activityToken) {
+            invalidateQ = invalidateQ.eq("push_token", activityToken);
+          } else if (pushToStartToken) {
+            invalidateQ = invalidateQ.eq("push_to_start_token", pushToStartToken);
+          }
+          await invalidateQ;
         }
       }
     }

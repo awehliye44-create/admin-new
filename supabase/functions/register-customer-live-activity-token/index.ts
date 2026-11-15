@@ -113,19 +113,28 @@ Deno.serve(async (req) => {
       return successResponse({ ok: true, invalidated: true });
     }
 
-    // Preserve existing push_token when rotating push-to-start only.
-    let resolvedPushToken = pushToken;
-    if (!resolvedPushToken) {
-      const { data: existing } = await admin
-        .from("customer_live_activity_tokens")
-        .select("push_token")
-        .eq("customer_user_id", user.id)
-        .eq("device_id", deviceId)
-        .is("invalidated_at", null)
-        .maybeSingle();
-      resolvedPushToken = String(existing?.push_token ?? "").trim();
+    // Preserve sibling token when rotating only one of activity / push-to-start.
+    const { data: existing } = await admin
+      .from("customer_live_activity_tokens")
+      .select("push_token, push_to_start_token")
+      .eq("customer_user_id", user.id)
+      .eq("device_id", deviceId)
+      .is("invalidated_at", null)
+      .maybeSingle();
+    const existingActivity = String(existing?.push_token ?? "").trim();
+    const existingPts = String(existing?.push_to_start_token ?? "").trim();
+    let resolvedPushToken = pushToken || existingActivity;
+    let resolvedPushToStart = pushToStart || existingPts;
+    // Drop legacy alias where push_token was a copy of push-to-start only.
+    if (
+      resolvedPushToken &&
+      resolvedPushToStart &&
+      resolvedPushToken === resolvedPushToStart &&
+      !pushToken
+    ) {
+      resolvedPushToken = "";
     }
-    if (!resolvedPushToken && !pushToStart) {
+    if (!resolvedPushToken && !resolvedPushToStart) {
       return validationErrorResponse({
         push_token: "push_token or push_to_start_token is required",
       });
@@ -136,8 +145,11 @@ Deno.serve(async (req) => {
       device_id: deviceId,
       trip_id: tripIdRaw || null,
       activity_id: activityId || null,
-      push_token: resolvedPushToken || pushToStart,
-      push_to_start_token: pushToStart || null,
+      // Keep columns distinct: activity update token vs push-to-start.
+      // When only PTS exists, store it in push_to_start_token and mirror into
+      // push_token for NOT NULL / legacy readers — publish selects by event.
+      push_token: resolvedPushToken || resolvedPushToStart,
+      push_to_start_token: resolvedPushToStart || null,
       platform: "ios",
       bundle_id: bundleId,
       updated_at: new Date().toISOString(),
