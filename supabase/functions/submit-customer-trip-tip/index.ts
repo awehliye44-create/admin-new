@@ -6,22 +6,23 @@
  * - Customer App channel only (WhatsApp / guest / corporate excluded)
  * - Only after status=completed and within tip window
  * - Exactly one trigger owns finalisation via claim_tip_window_trigger mutex
- * - tip>0 + tip auth decline → TIP_AUTHORISATION_DECLINED; no fare capture; window stays OPEN
- * - tip>0 + fare already captured / tip_shortfall → TIP_NOT_COLLECTED; never seal tip=0 under WITH_TIP; close window (MK-260926-001)
- * - Capture fare (+ tip when tip > 0) then seal CLOSED
+ * - tip>0 + tip auth decline (background) → release claim, clear tip; window stays OPEN
+ * - tip>0 + fare already captured / tip_shortfall → TIP_NOT_COLLECTED path; never seal tip=0 under WITH_TIP
+ * - Durable accept = tip amount stamp + mutex claim; Revolut finalize/seal via scheduleEdgeBackground
+ * - Response tip_accepted / tip_capture_deferred is pending — never tip paid until window seals
  * - On capture failure / decline: release claim (except provider UNKNOWN retains claim)
  */
 
 import { createClient } from "npm:@supabase/supabase-js@2.57.2";
 import { invokeFinalizeTripCapture } from "../_shared/invokeFinalizeTripCapture.ts";
+import { scheduleEdgeBackground } from "../_shared/scheduleEdgeBackground.ts";
 import { isCustomerAppTipChannelEligible } from "../_shared/tipChannelEligibilitySSOT.ts";
 import {
   TIP_AUTHORISATION_DECLINED,
-  TIP_AUTHORISATION_DECLINED_CUSTOMER_MESSAGE,
   TIP_NOT_COLLECTED,
-  TIP_NOT_COLLECTED_CUSTOMER_MESSAGE,
   TIP_WINDOW_STATUS,
   resolveCustomerTipWindowTrigger,
+  type TipWindowTrigger,
 } from "../_shared/tipWindowConstants.ts";
 import {
   claimTipWindowTrigger,
@@ -37,6 +38,7 @@ import {
   recordedTipPenceAfterCapture,
   tipWindowCloseAllowedAfterFinalize,
 } from "../_shared/tripPaymentFinalised.ts";
+import type { SupabaseClient } from "npm:@supabase/supabase-js@2.57.2";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -349,117 +351,39 @@ Deno.serve(async (req) => {
       Boolean(String(trip.payment_intent_id ?? "").trim());
 
     if (!isCash && hasProvider && provider === "revolut") {
-      const rec = await invokeFinalizeTripCapture({
-        supabaseUrl,
-        serviceRoleKey,
-        tripId,
-        tipPence: tipAmountPence,
-        source: "submit_customer_trip_tip",
-      });
-      const outcome = classifyTipWindowCaptureOutcome(rec.body);
-
-      if (outcome.kind === "tip_authorisation_declined") {
-        await releaseTipWindowTriggerClaim(admin, {
+      // Bug #24B: tip amount + mutex claim are durable before this return.
+      // Revolut finalize/seal runs via scheduleEdgeBackground — same SSOT,
+      // no second capture pipeline. Client Homes on tip_accepted (pending),
+      // never treats this as tip paid until tip_window_status seals closed.
+      const deferredTipPence = tipAmountPence;
+      const deferredClaimToken = mutex.claimToken;
+      const deferredTrigger = trigger;
+      scheduleEdgeBackground(async () => {
+        await runDeferredTipWindowFinalize({
+          admin,
+          supabaseUrl,
+          serviceRoleKey,
           tripId,
-          claimToken: mutex.claimToken,
-          clearTip: true,
-          nowIso: new Date().toISOString(),
+          tipAmountPence: deferredTipPence,
+          claimToken: deferredClaimToken,
+          trigger: deferredTrigger,
         });
-        return json({
-          success: false,
-          error: TIP_AUTHORISATION_DECLINED_CUSTOMER_MESSAGE,
-          error_code: TIP_AUTHORISATION_DECLINED,
-          tip_window_status: TIP_WINDOW_STATUS.OPEN,
-          fare_captured: false,
-        }, 402);
-      }
+      }, "deferred tip-window finalize after durable accept");
 
-      if (outcome.kind === "provider_unknown") {
-        // Retain claim — another trigger must not capture.
-        return json({
-          success: false,
-          error: "Payment is still confirming. Please wait.",
-          error_code: "PROVIDER_UNKNOWN",
-          tip_window_status: TIP_WINDOW_STATUS.PROCESSING,
-          tip_window_trigger: trigger,
-        }, 502);
-      }
-
-      if (!tipWindowCloseAllowedAfterFinalize(rec.body) || outcome.kind !== "capture_confirmed") {
-        console.error("[submit-customer-trip-tip] capture not confirmed", {
-          trip_id: tripId,
-          error: rec.error,
-          body: rec.body,
-        });
-        await releaseTipWindowTriggerClaim(admin, {
-          tripId,
-          claimToken: mutex.claimToken,
-          clearTip: true,
-          nowIso: new Date().toISOString(),
-        });
-        return json({
-          success: false,
-          error: rec.error ?? "Capture failed",
-          error_code: "CAPTURE_FAILED",
-        }, 502);
-      }
-
-      // MK-260926-001: fare-only already_captured must not seal WITH_TIP at tip=0.
-      // Close the tip window immediately so Rate Trip hides tip stepper/timer.
-      const requestedTipBeforeCollect = tipAmountPence;
-      if (
-        tipRequestedButNotCollected({
-          requestedTipPence: requestedTipBeforeCollect,
-          body: rec.body,
-        })
-      ) {
-        const closeNow = new Date().toISOString();
-        await releaseTipWindowTriggerClaim(admin, {
-          tripId,
-          claimToken: mutex.claimToken,
-          clearTip: true,
-          nowIso: closeNow,
-        });
-        await closeOpenTipWindowAfterFareCapture(admin, {
-          tripId,
-          tipPence: 0,
-          nowIso: closeNow,
-        });
-        return json({
-          success: false,
-          error: TIP_NOT_COLLECTED_CUSTOMER_MESSAGE,
-          error_code: TIP_NOT_COLLECTED,
-          tip_window_status: TIP_WINDOW_STATUS.CLOSED,
-          tip_window_closed_at: closeNow,
-          tip_amount_pence: 0,
-          fare_captured: true,
-        }, 409);
-      }
-
-      if (tipAmountPence > 0) {
-        tipAmountPence = recordedTipPenceAfterCapture(rec.body?.tip_collected_pence) ?? 0;
-      }
-
-      const sealed = await finalizeTipWindowTrigger(admin, {
-        tripId,
-        claimToken: mutex.claimToken,
-        trigger,
-        tipPence: tipAmountPence,
-        nowIso: new Date().toISOString(),
-      });
-      if (!sealed.ok) {
-        return json({
-          success: false,
-          error: "Tip captured but window close failed — retry",
-          error_code: "CAPTURE_FAILED",
-        }, 502);
-      }
+      console.log("[PAYMENT_AUDIT]", JSON.stringify({
+        stage: "tip_capture_queued",
+        trip_id: tripId,
+        tip_amount_pence: tipAmountPence,
+        tip_window_trigger: trigger,
+        source: "submit-customer-trip-tip",
+      }));
 
       return json({
         success: true,
+        tip_accepted: true,
+        tip_capture_deferred: true,
         tip_amount_pence: tipAmountPence,
-        tip_window_closed_at: nowIso,
-        tip_window_status: sealed.tipWindowStatus,
+        tip_window_status: TIP_WINDOW_STATUS.PROCESSING,
         tip_window_trigger: trigger,
         tips_disabled: tipsEnabled ? undefined : true,
       });
@@ -511,3 +435,130 @@ Deno.serve(async (req) => {
     return json({ success: false, error: message, error_code: "CAPTURE_FAILED" }, 500);
   }
 });
+
+/**
+ * Bug #24B: after tip amount + tip-window mutex are durable, fare±tip capture
+ * continues via scheduleEdgeBackground (same finalize SSOT). Client may Home
+ * on tip_accepted / tip_capture_deferred without waiting for Revolut.
+ * Never marks tip paid here — seal happens only after capture_confirmed.
+ */
+async function runDeferredTipWindowFinalize(args: {
+  admin: SupabaseClient;
+  supabaseUrl: string;
+  serviceRoleKey: string;
+  tripId: string;
+  tipAmountPence: number;
+  claimToken: string;
+  trigger: TipWindowTrigger;
+}): Promise<void> {
+  const {
+    admin,
+    supabaseUrl,
+    serviceRoleKey,
+    tripId,
+    claimToken,
+    trigger,
+  } = args;
+  let tipAmountPence = Math.max(0, Math.round(Number(args.tipAmountPence) || 0));
+
+  const rec = await invokeFinalizeTripCapture({
+    supabaseUrl,
+    serviceRoleKey,
+    tripId,
+    tipPence: tipAmountPence,
+    source: "submit_customer_trip_tip",
+  });
+  const outcome = classifyTipWindowCaptureOutcome(rec.body);
+
+  if (outcome.kind === "tip_authorisation_declined") {
+    await releaseTipWindowTriggerClaim(admin, {
+      tripId,
+      claimToken,
+      clearTip: true,
+      nowIso: new Date().toISOString(),
+    });
+    console.warn("[submit-customer-trip-tip] deferred tip auth declined", {
+      trip_id: tripId,
+      tip_amount_pence: tipAmountPence,
+      error_code: TIP_AUTHORISATION_DECLINED,
+    });
+    return;
+  }
+
+  if (outcome.kind === "provider_unknown") {
+    // Retain claim — expiry / stale reclaim GET-first; never blind second POST.
+    console.warn("[submit-customer-trip-tip] deferred tip provider_unknown; claim retained", {
+      trip_id: tripId,
+    });
+    return;
+  }
+
+  if (!tipWindowCloseAllowedAfterFinalize(rec.body) || outcome.kind !== "capture_confirmed") {
+    console.error("[submit-customer-trip-tip] deferred capture not confirmed", {
+      trip_id: tripId,
+      error: rec.error,
+      body: rec.body,
+    });
+    await releaseTipWindowTriggerClaim(admin, {
+      tripId,
+      claimToken,
+      clearTip: true,
+      nowIso: new Date().toISOString(),
+    });
+    return;
+  }
+
+  const requestedTipBeforeCollect = tipAmountPence;
+  if (
+    tipRequestedButNotCollected({
+      requestedTipPence: requestedTipBeforeCollect,
+      body: rec.body,
+    })
+  ) {
+    const closeNow = new Date().toISOString();
+    await releaseTipWindowTriggerClaim(admin, {
+      tripId,
+      claimToken,
+      clearTip: true,
+      nowIso: closeNow,
+    });
+    await closeOpenTipWindowAfterFareCapture(admin, {
+      tripId,
+      tipPence: 0,
+      nowIso: closeNow,
+    });
+    console.warn("[submit-customer-trip-tip] deferred tip not collected; window closed fare-only", {
+      trip_id: tripId,
+      error_code: TIP_NOT_COLLECTED,
+      tip_window_status: TIP_WINDOW_STATUS.CLOSED,
+    });
+    return;
+  }
+
+  if (tipAmountPence > 0) {
+    tipAmountPence = recordedTipPenceAfterCapture(rec.body?.tip_collected_pence) ?? 0;
+  }
+
+  const sealed = await finalizeTipWindowTrigger(admin, {
+    tripId,
+    claimToken,
+    trigger,
+    tipPence: tipAmountPence,
+    nowIso: new Date().toISOString(),
+  });
+  if (!sealed.ok) {
+    console.error("[submit-customer-trip-tip] deferred tip captured but window close failed", {
+      trip_id: tripId,
+      code: sealed.code,
+    });
+    return;
+  }
+  console.log("[PAYMENT_AUDIT]", JSON.stringify({
+    stage: "tip_window_capture_deferred_sealed",
+    trip_id: tripId,
+    tip_amount_pence: tipAmountPence,
+    tip_window_trigger: trigger,
+    source: "submit-customer-trip-tip",
+  }));
+}
+
