@@ -40,7 +40,11 @@ export function buildScheduledJitOpsAlertRow(
   };
 }
 
-/** Best-effort upsert; logs on failure so silent drops are visible in Edge logs. */
+/**
+ * Best-effort write. Prefer update-of-open-row then insert.
+ * Partial unique index is on (fingerprint) WHERE status IN (open, acknowledged)
+ * — PostgREST onConflict:"fingerprint" is unreliable against partial uniques.
+ */
 export async function upsertScheduledJitOpsAlert(
   supabase: AnySupabaseClient,
   input: ScheduledJitOpsAlertInput,
@@ -48,18 +52,41 @@ export async function upsertScheduledJitOpsAlert(
   const nowIso = new Date().toISOString();
   const row = buildScheduledJitOpsAlertRow(input, nowIso);
   try {
-    const { error } = await supabase.from("ops_alerts").upsert(row, {
-      onConflict: "fingerprint",
-      ignoreDuplicates: false,
-    });
-    if (!error) return true;
-    // Partial unique index on open fingerprints — plain insert fallback.
+    const { data: existing, error: selErr } = await supabase
+      .from("ops_alerts")
+      .select("id, fingerprint_count")
+      .eq("fingerprint", input.fingerprint)
+      .in("status", ["open", "acknowledged"])
+      .maybeSingle();
+    if (!selErr && existing?.id) {
+      const nextCount = Math.max(1, Number(existing.fingerprint_count) || 1) + 1;
+      const { error: updErr } = await supabase
+        .from("ops_alerts")
+        .update({
+          title: row.title,
+          description: row.description,
+          severity: row.severity,
+          metadata: row.metadata,
+          related_trip_id: row.related_trip_id,
+          related_entity_type: row.related_entity_type,
+          related_entity_id: row.related_entity_id,
+          fingerprint_count: nextCount,
+          last_detected_at: nowIso,
+          updated_at: nowIso,
+        })
+        .eq("id", existing.id);
+      if (!updErr) return true;
+      console.warn("[scheduled-jit] ops_alert update failed", {
+        fingerprint: input.fingerprint,
+        error: updErr.message,
+      });
+    }
+
     const { error: insertErr } = await supabase.from("ops_alerts").insert(row);
     if (!insertErr) return true;
-    console.warn("[scheduled-jit] ops_alert write failed", {
+    console.warn("[scheduled-jit] ops_alert insert failed", {
       fingerprint: input.fingerprint,
-      upsert: error.message,
-      insert: insertErr.message,
+      error: insertErr.message,
     });
     return false;
   } catch (err) {

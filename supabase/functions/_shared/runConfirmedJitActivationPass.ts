@@ -19,6 +19,7 @@ import {
   effectiveJitPlanningHorizonMinutes,
   isWithinJitPlanningHorizon,
   resolveScheduledJitActivationConfig,
+  buildJitEtaSourceAttribution,
   validateJitEtaMinutes,
   type ScheduledJitActivationConfig,
 } from "./scheduledJitActivationSSOT.ts";
@@ -308,6 +309,12 @@ export async function runConfirmedJitActivationPass(input: {
 
     let freshRouteEtaMinutes: number | null = null;
     let etaFailReason: string | null = null;
+    let roadEtaMinutes: number | null = null;
+    let roadSource: "route_cache" | "haversine_fallback" | "none" = "none";
+    let havEtaMinutes: number | null = null;
+    let originDriftMeters: number | null = null;
+    let routeAgeSeconds: number | null = null;
+    let etaFallbackReason: string | null = null;
 
     if (withinHorizon) {
       const eta = await resolveJitDriverToPickupEta({
@@ -317,27 +324,38 @@ export async function runConfirmedJitActivationPass(input: {
         pickupLng: Number(trip.pickup_longitude),
         freshness: presence.freshness,
       });
+      originDriftMeters = eta.originDriftMeters ?? null;
+      routeAgeSeconds = eta.routeAgeSeconds ?? null;
 
-      if (eta.ok) {
-        const hav = presence.freshness.fresh &&
-            presence.freshness.lat != null &&
-            presence.freshness.lng != null
-          ? estimateEtaMinutes(
-            presence.freshness.lat,
-            presence.freshness.lng,
-            trip.pickup_latitude,
-            trip.pickup_longitude,
-          )
-          : null;
+      havEtaMinutes = presence.freshness.fresh &&
+          presence.freshness.lat != null &&
+          presence.freshness.lng != null
+        ? estimateEtaMinutes(
+          presence.freshness.lat,
+          presence.freshness.lng,
+          trip.pickup_latitude,
+          trip.pickup_longitude,
+        )
+        : null;
+
+      if (eta.ok && eta.source === "route_cache") {
+        // Authoritative road ETA only — never promote haversine to route_fresh.
+        roadEtaMinutes = eta.etaMinutes;
+        roadSource = "route_cache";
         const validated = validateJitEtaMinutes({
           proposedEtaMinutes: eta.etaMinutes,
           previousEtaMinutes: Number.isFinite(lastKnownEta) ? lastKnownEta : null,
-          haversineEtaMinutes: hav,
+          haversineEtaMinutes: havEtaMinutes,
           consecutiveElevatedSamples: Number(trip.scheduled_jit_eta_spike_samples) || 0,
           config: jitConfig,
         });
-        freshRouteEtaMinutes = validated.acceptedEtaMinutes;
-        monitored++;
+        if (!validated.rejectedInvalid) {
+          freshRouteEtaMinutes = validated.acceptedEtaMinutes;
+          monitored++;
+        } else {
+          etaFailReason = "invalid_road_eta";
+          etaFallbackReason = "invalid_road_eta";
+        }
         if (validated.rejectedSpike) {
           await supabase
             .from("trips")
@@ -348,12 +366,22 @@ export async function runConfirmedJitActivationPass(input: {
             .eq("id", trip.id)
             .is("driver_id", null);
         }
+      } else if (eta.ok && eta.source === "haversine_fallback") {
+        // Fallback only — lastKnown / degraded tiers may use haversine; never route_fresh.
+        roadEtaMinutes = eta.etaMinutes;
+        roadSource = "haversine_fallback";
+        etaFallbackReason = "routing_failed_haversine";
+        etaFailReason = "routing_failed_haversine";
+        if (presence.freshness.fresh) routingFailedWithFresh = true;
+        monitored++;
       } else {
         if (presence.freshness.fresh) routingFailedWithFresh = true;
-        etaFailReason = eta.reason;
+        etaFailReason = eta.ok === false ? eta.reason : "routing_failed";
+        etaFallbackReason = etaFailReason;
       }
     } else {
       etaFailReason = "outside_horizon";
+      etaFallbackReason = "outside_horizon";
     }
 
     const recentRoute = withinHorizon
@@ -390,7 +418,23 @@ export async function runConfirmedJitActivationPass(input: {
 
     jitDeadlineMs = aware.deadlineMs;
     jitKind = aware.kind;
-    etaSource = `${aware.tier}:${aware.reason}`;
+    // Never label haversine as route_fresh (Bug #29).
+    const tierLabel =
+      aware.tier === "route_fresh" && roadSource !== "route_cache"
+        ? "last_known_conservative"
+        : aware.tier;
+    etaSource = buildJitEtaSourceAttribution({
+      tierReason: `${tierLabel}:${aware.reason}`,
+      roadEtaMinutes,
+      selectedEtaMinutes: aware.etaMinutes,
+      haversineEtaMinutes: havEtaMinutes,
+      roadSource,
+      gpsFresh: presence.freshness.fresh,
+      gpsAgeSeconds: presence.freshness.gpsAgeSeconds,
+      routeAgeSeconds,
+      originDriftMeters,
+      fallbackReason: etaFallbackReason,
+    });
     resolvedEtaMinutes = aware.etaMinutes;
 
     const shouldPersist =
@@ -669,12 +713,24 @@ export async function runConfirmedJitActivationPass(input: {
       eta_minutes: resolvedEtaMinutes,
       freshness_reason: presence.freshness.reason,
       gps_age_seconds: presence.freshness.gpsAgeSeconds,
+      presence_status: presence.presenceStatus,
       fixed_long_at: Number.isFinite(fixedDue.activationAtMs)
         ? new Date(fixedDue.activationAtMs).toISOString()
         : null,
       fixed_suppressed: true,
       execution_mode: executionMode,
     });
+    // Diagnostic retained for Phase-5 source lock — fixedFallbackDue is forced
+    // false above, so this path is unreachable in production JIT ticks.
+    if (decision.source === "fixed_fallback") {
+      console.log("SCHEDULED_JIT_FIXED_FALLBACK_SELECTED", {
+        trip_id: trip.id,
+        driver_id: confirmedDriverId,
+        kind: decision.kind,
+        freshness_reason: presence.freshness.reason,
+        presence_status: presence.presenceStatus,
+      });
+    }
 
     if (decision.action === "wait" || decision.action === "hold_skip") {
       // Overdue sticky/dynamic deadline still waiting = ops escalate (Bug #29).

@@ -31,6 +31,12 @@ import {
   rateLimitResponse,
 } from "../_shared/security.ts";
 import { haversineKm } from "../_shared/scheduledDispatchConfig.ts";
+import {
+  canAcknowledgeDeparture,
+  buildDepartureAckAcknowledgedFields,
+  resolveDepartureAckConfig,
+} from "../_shared/scheduledDepartureAckSSOT.ts";
+import { notifyCustomerTripLifecycle } from "../_shared/customerTripLifecycleNotify.ts";
 
 const RATE_LIMIT_CONFIG = { limit: 20, windowMs: 60_000, keyPrefix: "scheduled-checkin" };
 
@@ -217,11 +223,6 @@ Deno.serve(async (req) => {
 
     // Phase 5: Heading to Pickup = departure acknowledgement (not a second booking Accept).
     // Reject after ack deadline + grace so timeout rescue wins the race cleanly.
-    const {
-      canAcknowledgeDeparture,
-      buildDepartureAckAcknowledgedFields,
-      resolveDepartureAckConfig,
-    } = await import("../_shared/scheduledDepartureAckSSOT.ts");
     const { data: ackSettings } = await supabase
       .from("global_dispatch_settings")
       .select(
@@ -337,9 +338,6 @@ Deno.serve(async (req) => {
     if (trip.passenger_id) {
       try {
         const driverName = driverRow.first_name?.trim() ?? "Your driver";
-        const { notifyCustomerTripLifecycle } = await import(
-          "../_shared/customerTripLifecycleNotify.ts"
-        );
         await notifyCustomerTripLifecycle(supabase, {
           passengerId: trip.passenger_id,
           tripId: trip_id,

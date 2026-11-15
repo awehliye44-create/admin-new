@@ -41,6 +41,10 @@ import {
   exceedsFleetMaxPickupDistance,
 } from "../../../shared/fleetMaxPickupDistanceSSOT.ts";
 import {
+  computeScheduledDirectionalScoreBoost,
+  compareWithDirectionalBoost,
+} from "../_shared/scheduledDirectionalDispatchSSOT.ts";
+import {
   enrichOfferSnapshotDriverNet,
 } from "../_shared/driverOfferNetPreview.ts";
 import {
@@ -2379,10 +2383,6 @@ Deno.serve(async (req) => {
 
     // Phase 4: soft directional preference toward next confirmed scheduled pickup.
     // Ranking only — never hard-excludes other directions; no-commitment drivers unchanged.
-    const {
-      computeScheduledDirectionalScoreBoost,
-      compareWithDirectionalBoost,
-    } = await import("../_shared/scheduledDirectionalDispatchSSOT.ts");
     const nowMsRank = Date.now();
     const scheduledPickupByDriver = new Map<
       string,

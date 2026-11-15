@@ -172,3 +172,47 @@ Deno.test("Bug #29: buildScheduledJitOpsAlertRow is deploy-safe", async () => {
   assert(row.status === "open");
   assert(row.fingerprint === "scheduled_dispatch_http_500");
 });
+
+Deno.test("Bug #29: scheduled-checkin statically imports DepartureAck SSOT", async () => {
+  const src = stripComments(
+    await Deno.readTextFile(
+      join(REPO, "supabase/functions/scheduled-checkin/index.ts"),
+    ),
+  );
+  assert(src.includes('from "../_shared/scheduledDepartureAckSSOT.ts"'));
+  assert(
+    !/await\s+import\(\s*["']\.\.\/_shared\/scheduledDepartureAckSSOT\.ts["']\s*\)/
+      .test(src),
+  );
+});
+
+Deno.test("Bug #29: auto-dispatch statically imports directional SSOT", async () => {
+  const src = stripComments(
+    await Deno.readTextFile(
+      join(REPO, "supabase/functions/auto-dispatch/index.ts"),
+    ),
+  );
+  assert(src.includes('from "../_shared/scheduledDirectionalDispatchSSOT.ts"'));
+  assert(
+    !/await\s+import\(\s*["']\.\.\/_shared\/scheduledDirectionalDispatchSSOT\.ts["']\s*\)/
+      .test(src),
+  );
+});
+
+Deno.test("Bug #29: scheduled-dispatch keeps lateness + early-arrival static", async () => {
+  const src = stripComments(
+    await Deno.readTextFile(
+      join(REPO, "supabase/functions/scheduled-dispatch/index.ts"),
+    ),
+  );
+  assert(src.includes('from "../_shared/scheduledPostActivationLatenessSSOT.ts"'));
+  assert(src.includes('from "../_shared/scheduledEarlyArrivalUnlockSSOT.ts"'));
+  assert(
+    !/await\s+import\(\s*["']\.\.\/_shared\/scheduledPostActivationLatenessSSOT\.ts["']\s*\)/
+      .test(src),
+  );
+  assert(
+    !/await\s+import\(\s*["']\.\.\/_shared\/scheduledEarlyArrivalUnlockSSOT\.ts["']\s*\)/
+      .test(src),
+  );
+});

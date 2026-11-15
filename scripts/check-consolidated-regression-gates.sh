@@ -41,6 +41,7 @@ deno test --no-check --allow-read --allow-env \
   supabase/functions/_shared/scheduledJourneyComplianceSSOT.execution.test.ts \
   supabase/functions/_shared/scheduledJourneyComplianceLock.test.ts \
   supabase/functions/_shared/scheduledJitActivationEdgeBundleLock.test.ts \
+  supabase/functions/_shared/scheduledJitEtaAccuracyLock.test.ts \
   supabase/functions/_shared/scheduledPreActivationReleaseSSOT.test.ts \
   supabase/functions/_shared/scheduledPreActivationCancelCas.execution.test.ts \
   supabase/functions/_shared/scheduledRematchExclusionSSOT.test.ts \

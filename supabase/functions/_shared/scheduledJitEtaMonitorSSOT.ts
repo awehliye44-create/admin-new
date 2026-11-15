@@ -221,10 +221,30 @@ export async function loadRecentDriverToPickupRouteSample(
   };
 }
 
+/** Max metres between current GPS and cached route origin before forcing refresh. */
+export const JIT_ROUTE_ORIGIN_DRIFT_FORCE_REFRESH_METERS = 150;
+
+function haversineMetersSimple(
+  lat1: number,
+  lng1: number,
+  lat2: number,
+  lng2: number,
+): number {
+  const R = 6371000;
+  const dLat = ((lat2 - lat1) * Math.PI) / 180;
+  const dLng = ((lng2 - lng1) * Math.PI) / 180;
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos((lat1 * Math.PI) / 180) *
+      Math.cos((lat2 * Math.PI) / 180) *
+      Math.sin(dLng / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
 /**
  * Resolve driver→pickup ETA. Never treats stale location as current.
  * On routing failure with fresh coords, uses haversine estimate (safe fallback ETA).
- * Caller still may prefer fixed activation rules when this returns ok:false.
+ * Caller must NOT promote haversine_fallback to route_fresh (Bug #29).
  */
 export async function resolveJitDriverToPickupEta(input: {
   supabase: any;
@@ -233,18 +253,63 @@ export async function resolveJitDriverToPickupEta(input: {
   pickupLng: number;
   freshness: JitLocationFreshness;
   forceRefresh?: boolean;
-}): Promise<JitEtaResolution> {
+}): Promise<
+  JitEtaResolution & {
+    originDriftMeters?: number | null;
+    routeAgeSeconds?: number | null;
+    cacheForcedRefresh?: boolean;
+  }
+> {
   if (!input.freshness.fresh || input.freshness.lat == null || input.freshness.lng == null) {
     return {
       ok: false,
       reason: input.freshness.reason,
       lat: input.freshness.lat,
       lng: input.freshness.lng,
+      originDriftMeters: null,
+      routeAgeSeconds: null,
+      cacheForcedRefresh: false,
     };
   }
 
   const lat = input.freshness.lat;
   const lng = input.freshness.lng;
+
+  let forceRefresh = input.forceRefresh === true;
+  let originDriftMeters: number | null = null;
+  let routeAgeSeconds: number | null = null;
+
+  if (!forceRefresh) {
+    try {
+      const recent = await getRecentDriverToPickupRoute(input.supabase, input.tripId);
+      if (recent) {
+        const oLat = Number(recent.origin_lat);
+        const oLng = Number(recent.origin_lng);
+        if (Number.isFinite(oLat) && Number.isFinite(oLng)) {
+          originDriftMeters = haversineMetersSimple(lat, lng, oLat, oLng);
+          if (originDriftMeters > JIT_ROUTE_ORIGIN_DRIFT_FORCE_REFRESH_METERS) {
+            forceRefresh = true;
+          }
+        }
+        const cachedAtMs = Date.parse(String(recent.cached_at));
+        if (Number.isFinite(cachedAtMs)) {
+          routeAgeSeconds = Math.max(0, (Date.now() - cachedAtMs) / 1000);
+        }
+        // Wrong destination — never reuse.
+        const dLat = Number(recent.dest_lat);
+        const dLng = Number(recent.dest_lng);
+        if (
+          Number.isFinite(dLat) &&
+          Number.isFinite(dLng) &&
+          haversineMetersSimple(dLat, dLng, input.pickupLat, input.pickupLng) > 75
+        ) {
+          forceRefresh = true;
+        }
+      }
+    } catch {
+      /* best-effort drift probe */
+    }
+  }
 
   try {
     const route = await getRouteWithCache(
@@ -256,10 +321,35 @@ export async function resolveJitDriverToPickupEta(input: {
       input.pickupLat,
       input.pickupLng,
       "manual",
-      input.forceRefresh === true,
+      forceRefresh,
     );
-    const eta = Math.max(1, Math.ceil(Number(route.duration_min) || 0));
-    return { ok: true, etaMinutes: eta, source: "route_cache", lat, lng };
+    const duration = Number(route.duration_min);
+    if (!Number.isFinite(duration) || duration <= 0) {
+      return {
+        ok: false,
+        reason: "routing_failed",
+        lat,
+        lng,
+        originDriftMeters,
+        routeAgeSeconds,
+        cacheForcedRefresh: forceRefresh,
+      };
+    }
+    const eta = Math.max(1, Math.ceil(duration));
+    const cachedAtMs = Date.parse(String(route.cached_at));
+    if (Number.isFinite(cachedAtMs)) {
+      routeAgeSeconds = Math.max(0, (Date.now() - cachedAtMs) / 1000);
+    }
+    return {
+      ok: true,
+      etaMinutes: eta,
+      source: "route_cache",
+      lat,
+      lng,
+      originDriftMeters,
+      routeAgeSeconds,
+      cacheForcedRefresh: forceRefresh,
+    };
   } catch (err) {
     console.warn("[scheduledJitEta] routeCache failed — haversine fallback", {
       trip_id: input.tripId,
@@ -267,7 +357,15 @@ export async function resolveJitDriverToPickupEta(input: {
     });
     const fallback = estimateEtaMinutes(lat, lng, input.pickupLat, input.pickupLng);
     if (fallback == null) {
-      return { ok: false, reason: "routing_failed", lat, lng };
+      return {
+        ok: false,
+        reason: "routing_failed",
+        lat,
+        lng,
+        originDriftMeters,
+        routeAgeSeconds,
+        cacheForcedRefresh: forceRefresh,
+      };
     }
     return {
       ok: true,
@@ -275,6 +373,9 @@ export async function resolveJitDriverToPickupEta(input: {
       source: "haversine_fallback",
       lat,
       lng,
+      originDriftMeters,
+      routeAgeSeconds,
+      cacheForcedRefresh: forceRefresh,
     };
   }
 }

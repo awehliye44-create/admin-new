@@ -278,46 +278,72 @@ export function isWithinJitPlanningHorizon(input: {
 }
 
 /**
- * Validate ETA against prior sample + optional haversine floor.
- * Haversine is an *estimate*, not a guaranteed upper bound on road time.
- * Spikes require consecutive confirmation before sticky pull-earlier.
+ * Validate a proposed road/cache ETA against prior samples.
+ *
+ * Bug #29 (MK-261115-002): never replace a valid road ETA with haversine merely
+ * because proposed < 70% of haversine. Conservative haversine (20 km/h × 1.45)
+ * routinely exceeds motorway / dual-carriageway / rural road ETAs (15 vs 53).
+ * Haversine is fallback-only when routing is unavailable — not an override floor.
+ *
+ * Spikes (large jumps vs previous) still require consecutive confirmation before
+ * sticky pull-earlier.
  */
 export function validateJitEtaMinutes(input: {
   proposedEtaMinutes: number;
   previousEtaMinutes: number | null | undefined;
+  /** Informational only — never overrides a valid proposed road ETA. */
   haversineEtaMinutes: number | null | undefined;
   consecutiveElevatedSamples: number;
   config: Pick<
     ScheduledJitActivationConfig,
     "etaSpikeConfirmSamples" | "etaSpikeMaxRelativeJump"
   >;
+  /** Reject absurd durations (minutes). Default 24h. */
+  maxPlausibleEtaMinutes?: number;
 }): {
   acceptedEtaMinutes: number;
   consecutiveElevatedSamples: number;
   rejectedSpike: boolean;
+  /** True when proposed was discarded as non-finite / non-positive / absurd. */
+  rejectedInvalid: boolean;
+  /** Haversine compared but never applied as an override (Bug #29 lock). */
+  haversineOverrideApplied: false;
 } {
-  const proposed = Math.max(1, Math.ceil(input.proposedEtaMinutes));
+  const raw = Number(input.proposedEtaMinutes);
+  const maxPlausible = Math.max(
+    60,
+    Math.floor(input.maxPlausibleEtaMinutes ?? 24 * 60),
+  );
+  if (!Number.isFinite(raw) || raw <= 0 || raw > maxPlausible) {
+    const prev =
+      input.previousEtaMinutes != null && Number.isFinite(input.previousEtaMinutes)
+        ? Math.max(1, Math.ceil(Number(input.previousEtaMinutes)))
+        : null;
+    return {
+      acceptedEtaMinutes: prev ?? 1,
+      consecutiveElevatedSamples: 0,
+      rejectedSpike: false,
+      rejectedInvalid: true,
+      haversineOverrideApplied: false,
+    };
+  }
+
+  const candidate = Math.max(1, Math.ceil(raw));
   const prev =
     input.previousEtaMinutes != null && Number.isFinite(input.previousEtaMinutes)
       ? Math.max(1, Math.ceil(Number(input.previousEtaMinutes)))
       : null;
-  const hav =
-    input.haversineEtaMinutes != null && Number.isFinite(input.haversineEtaMinutes)
-      ? Math.max(1, Math.ceil(Number(input.haversineEtaMinutes)))
-      : null;
-
-  // Soft sanity: if routing ETA is far below conservative haversine, prefer haversine
-  // (haversine is estimate — not an upper bound — but under-routing is worse for JIT).
-  let candidate = proposed;
-  if (hav != null && proposed < hav * 0.7) {
-    candidate = hav;
-  }
+  // haversineEtaMinutes retained for callers / diagnostics — deliberately unused
+  // as an override (MK-261115-002).
+  void input.haversineEtaMinutes;
 
   if (prev == null) {
     return {
       acceptedEtaMinutes: candidate,
       consecutiveElevatedSamples: 0,
       rejectedSpike: false,
+      rejectedInvalid: false,
+      haversineOverrideApplied: false,
     };
   }
 
@@ -328,6 +354,8 @@ export function validateJitEtaMinutes(input: {
       acceptedEtaMinutes: candidate,
       consecutiveElevatedSamples: 0,
       rejectedSpike: false,
+      rejectedInvalid: false,
+      haversineOverrideApplied: false,
     };
   }
 
@@ -337,6 +365,8 @@ export function validateJitEtaMinutes(input: {
       acceptedEtaMinutes: candidate,
       consecutiveElevatedSamples: 0,
       rejectedSpike: false,
+      rejectedInvalid: false,
+      haversineOverrideApplied: false,
     };
   }
   // Hold previous ETA until spike confirms — avoids hours-early false arm from noise.
@@ -344,7 +374,41 @@ export function validateJitEtaMinutes(input: {
     acceptedEtaMinutes: prev,
     consecutiveElevatedSamples: elevated,
     rejectedSpike: true,
+    rejectedInvalid: false,
+    haversineOverrideApplied: false,
   };
+}
+
+/** Build investigation-grade JIT ETA source attribution (persisted string). */
+export function buildJitEtaSourceAttribution(input: {
+  tierReason: string;
+  roadEtaMinutes: number | null;
+  selectedEtaMinutes: number | null;
+  haversineEtaMinutes: number | null;
+  roadSource: "route_cache" | "haversine_fallback" | "none" | string;
+  gpsFresh: boolean;
+  gpsAgeSeconds: number | null;
+  routeAgeSeconds: number | null;
+  originDriftMeters: number | null;
+  fallbackReason: string | null;
+}): string {
+  const parts = [
+    input.tierReason,
+    `road_src=${input.roadSource}`,
+    `road=${input.roadEtaMinutes ?? "null"}`,
+    `selected=${input.selectedEtaMinutes ?? "null"}`,
+    `hav=${input.haversineEtaMinutes ?? "null"}`,
+    `gps=${input.gpsFresh ? "fresh" : "stale"}`,
+    `gps_age_s=${input.gpsAgeSeconds ?? "null"}`,
+    `route_age_s=${input.routeAgeSeconds ?? "null"}`,
+    `origin_drift_m=${
+      input.originDriftMeters != null
+        ? Math.round(input.originDriftMeters)
+        : "null"
+    }`,
+  ];
+  if (input.fallbackReason) parts.push(`fallback=${input.fallbackReason}`);
+  return parts.join("|");
 }
 
 /**
