@@ -123,7 +123,8 @@ Payment capture was **not** assumed blindly — tip-window trips already deferre
 
 | Repo | SHA | CI |
 | --- | --- | --- |
-| admin-new | `ceceb1f1107d28051f40e05f922eae33afef2354` | [success](https://github.com/awehliye44-create/admin-new/actions/runs/43713776513) |
+| admin-new (code) | `ceceb1f1107d28051f40e05f922eae33afef2354` | [success](https://github.com/awehliye44-create/admin-new/actions/runs/43713776513) |
+| admin-new (report tip) | `753d25f728f40a67b968498ac9a15894dab5d319` | docs follow-up |
 | onecab-customer-native | `b8018b3a595a82633e431e30602ea194f8a38e85` | [success](https://github.com/awehliye44-create/onecab-customer-native/actions/runs/43713778824) |
 | onecab-driver-native | `03a31b9583bd725526949078962add98c4be0a70` | [success](https://github.com/awehliye44-create/onecab-driver-native/actions/runs/43713781783) |
 
