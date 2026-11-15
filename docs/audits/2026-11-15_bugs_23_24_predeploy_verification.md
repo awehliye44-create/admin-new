@@ -10,7 +10,7 @@
 
 | Check | Result | Evidence |
 | --- | --- | --- |
-| Completion + `capture_requested` awaited before success | **PASS** | `stop-workflow` awaits trips update with `payment_status: "capture_requested"` then `scheduleEdgeBackground(finalize)` then `respondOk({ payment_capture_deferred })` |
+| Completion + `capture_requested` awaited before success | **PASS** | `stop-workflow` awaits trips update with `payment_status: "capture_requested"`; **fail-closed on stamp write error** (`CAPTURE_QUEUE_FAILED`); then `scheduleEdgeBackground(finalize)` then `respondOk({ payment_capture_deferred })` |
 | Sweeper covers isolate death / failed finalize / tip-window | **PASS** | `sweep-revolut-stale-holds` includes `capture_requested`; `capture-expired-tip-windows` includes `capture_requested` + `tip_window_status` open/processing; tip-window TEN queued via `scheduleEdgeBackground` |
 | No duplicate capture / settlement | **PASS** | Same `invokeFinalizeTripCapture` SSOT; mutex / capture_requested stamp; no second pipeline |
 | `INTERMEDIATE_STOPS_REMAIN` | **PASS** | Still enforced in `complete_trip` before completion write |

@@ -4427,7 +4427,7 @@ Deno.serve(async (req) => {
           if (!tipWindowDeferred) {
           // Bug #23: durable accept — stamp capture_requested + settlement, return to Rate,
           // then finalize Revolut capture in the background (same SSOT / sweeper recovery).
-          await supabase.from("trips").update({
+          const { error: captureRequestedErr } = await supabase.from("trips").update({
             ...tripSettlementDbColumns(settlement),
             tip_amount_pence: tipAmountPence,
             tip_pence: tipAmountPence,
@@ -4438,6 +4438,19 @@ Deno.serve(async (req) => {
             payment_hold_status: "capture_requested",
             updated_at: new Date().toISOString(),
           }).eq("id", trip_id);
+          if (captureRequestedErr) {
+            // Fail closed: never return Complete→Rate success without a durable queue stamp.
+            console.error("[stop-workflow] capture_requested stamp failed", {
+              trip_id,
+              error: captureRequestedErr.message,
+            });
+            return errorResponse(
+              "CAPTURE_QUEUE_FAILED",
+              "Unable to queue payment capture. Please try again.",
+              500,
+              captureRequestedErr,
+            );
+          }
 
           const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
           const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";

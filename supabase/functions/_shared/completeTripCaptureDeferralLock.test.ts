@@ -20,13 +20,18 @@ Deno.test("Bug #23 lock: complete_trip defers finalize capture off the response 
   assertStringIncludes(block, "payment_capture_deferred");
   assertStringIncludes(block, "complete_trip_finalize_capture");
   assertStringIncludes(block, "invokeFinalizeTripCapture");
+  // Soft GAP closed: stamp write error must fail closed before Rate success.
+  assertStringIncludes(block, "captureRequestedErr");
+  assertStringIncludes(block, "CAPTURE_QUEUE_FAILED");
 
   // Finalize runs only inside the background scheduler after capture_requested stamp.
   const stampAt = block.indexOf('payment_status: "capture_requested"');
+  const failClosedAt = block.indexOf("CAPTURE_QUEUE_FAILED");
   const scheduleLabelAt = block.indexOf("complete_trip_finalize_capture");
   const awaitFinalizeAt = block.indexOf("await invokeFinalizeTripCapture");
   assertEquals(stampAt >= 0, true);
-  assertEquals(scheduleLabelAt > stampAt, true);
+  assertEquals(failClosedAt > stampAt, true);
+  assertEquals(scheduleLabelAt > failClosedAt, true);
   assertEquals(awaitFinalizeAt > stampAt, true);
   const betweenStampAndAwait = block.slice(stampAt, awaitFinalizeAt);
   assertStringIncludes(betweenStampAndAwait, "scheduleEdgeBackground");
