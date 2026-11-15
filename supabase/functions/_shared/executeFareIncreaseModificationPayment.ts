@@ -13,9 +13,12 @@ import {
   upsertTripRoutePolyline,
 } from "./tripModificationApply.ts";
 import {
+  canPendingOverwriteModificationRequestStatus,
   classifyModificationPaymentFailure,
   decideFromPreauthInvokeResult,
+  gateFromTerminalAuthorisationStatus,
   isAlreadyAppliedModification,
+  TERMINAL_ADDITIONAL_AUTHORISATION_STATUSES,
   type ModificationPaymentGateDecision,
 } from "./tripModificationPaymentGateSSOT.ts";
 import { SERVICE_AREA_FINANCIAL_MODEL } from "./commissionWalletSSOT.ts";
@@ -53,6 +56,8 @@ export type FareIncreasePaymentResult = {
   claimCode?: string;
   authorisedTotalPence?: number;
   requiredPayablePence?: number;
+  /** Quoted original / previous fare (pence) — Customer dynamic copy. */
+  originalFarePence?: number;
   fareDeltaPence?: number;
   error?: string;
   errorCode?: string;
@@ -405,25 +410,36 @@ export async function executeFareIncreaseModificationPayment(
     });
   }
 
-  // Safety net: if auth row already recorded a definitive decline, never leave pending.
+  // Safety net: authoritative terminal PSA rows must never leave the gate pending
+  // (Bug #28 / MK-261115-014). Covers DECLINED, FAILED_TERMINAL, UNSUPPORTED —
+  // not HTTP status alone.
   if (gate.phase === "PAYMENT_PENDING") {
     const sessionId = trip.payment_session_id
       ? String(trip.payment_session_id)
       : null;
-    let declinedAuth: { id?: string; metadata?: Record<string, unknown> | null } | null = null;
-    if (sessionId) {
+    type AuthRow = {
+      id?: string;
+      status?: string | null;
+      metadata?: Record<string, unknown> | null;
+      provider_confirmed_total_pence?: number | null;
+    };
+    let terminalAuth: AuthRow | null = null;
+    const selectTerminal = async (paymentSessionId: string) => {
       const { data } = await supabase
         .from("payment_session_authorisations")
-        .select("id, metadata")
-        .eq("payment_session_id", sessionId)
+        .select("id, status, metadata, provider_confirmed_total_pence")
+        .eq("payment_session_id", paymentSessionId)
         .eq("requested_target_total_pence", newFarePence)
-        .eq("status", "ADDITIONAL_AUTHORISATION_DECLINED")
+        .in("status", [...TERMINAL_ADDITIONAL_AUTHORISATION_STATUSES])
         .order("created_at", { ascending: false })
         .limit(1)
         .maybeSingle();
-      declinedAuth = data ?? null;
+      return (data as AuthRow | null) ?? null;
+    };
+    if (sessionId) {
+      terminalAuth = await selectTerminal(sessionId);
     }
-    if (!declinedAuth && trip.id) {
+    if (!terminalAuth && trip.id) {
       const { data: sess } = await supabase
         .from("payment_sessions")
         .select("id")
@@ -433,31 +449,31 @@ export async function executeFareIncreaseModificationPayment(
         .limit(1)
         .maybeSingle();
       if (sess?.id) {
-        const { data } = await supabase
-          .from("payment_session_authorisations")
-          .select("id, metadata")
-          .eq("payment_session_id", String(sess.id))
-          .eq("requested_target_total_pence", newFarePence)
-          .eq("status", "ADDITIONAL_AUTHORISATION_DECLINED")
-          .order("created_at", { ascending: false })
-          .limit(1)
-          .maybeSingle();
-        declinedAuth = data ?? null;
+        terminalAuth = await selectTerminal(String(sess.id));
       }
     }
-    if (declinedAuth) {
-      const storedReason = declinedAuth.metadata?.provider_decline_reason;
+    if (terminalAuth) {
+      const storedReason = terminalAuth.metadata?.provider_decline_reason;
       if (typeof storedReason === "string" && storedReason.trim()) {
         providerDeclineReason = storedReason.trim();
       }
-      gate = {
-        phase: "PAYMENT_FAILED",
-        mayApply: false,
-        paymentStatus: "failed",
-        requestStatus: "payment_failed",
-        authorisedTotalPence: gate.authorisedTotalPence,
-        reason: "declined",
-      };
+      const storedError = terminalAuth.metadata?.provider_error_code
+        ?? terminalAuth.metadata?.error_classification
+        ?? terminalAuth.metadata?.provider_increment_state;
+      if (typeof storedError === "string" && storedError.trim() && !providerErrorCode) {
+        providerErrorCode = storedError.trim();
+      }
+      const fromRow = gateFromTerminalAuthorisationStatus({
+        status: terminalAuth.status,
+        authorisedTotalPence: Number(
+          terminalAuth.provider_confirmed_total_pence
+            ?? gate.authorisedTotalPence
+            ?? 0,
+        ),
+      });
+      if (fromRow) {
+        gate = fromRow;
+      }
     }
   }
 
@@ -577,6 +593,7 @@ export async function executeFareIncreaseModificationPayment(
       tripUnchanged: true,
       authorisedTotalPence: gate.authorisedTotalPence,
       requiredPayablePence: newFarePence,
+      originalFarePence: Number(changeRequest.original_fare_pence ?? 0) || undefined,
       fareDeltaPence: fareDelta,
       errorCode,
       declineReason: pending ? null : failure.bankDeclineReason,
@@ -631,16 +648,24 @@ export async function executeFareIncreaseModificationPayment(
     }
 
     if (code === "PAYMENT_NOT_CONFIRMED") {
-      await supabase
+      // Never let a stale pending claim overwrite an authoritative terminal TCR.
+      const { data: currentClaimRow } = await supabase
         .from("trip_change_requests")
-        .update({
-          status: "payment_pending",
-          payment_status: "pending",
-          rejection_reason: "payment_not_confirmed_at_claim",
-          updated_at: new Date().toISOString(),
-        })
+        .select("status")
         .eq("id", requestId)
-        .in("status", ["payment_required", "payment_pending", "payment_confirmed"]);
+        .maybeSingle();
+      if (canPendingOverwriteModificationRequestStatus(currentClaimRow?.status)) {
+        await supabase
+          .from("trip_change_requests")
+          .update({
+            status: "payment_pending",
+            payment_status: "pending",
+            rejection_reason: "payment_not_confirmed_at_claim",
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", requestId)
+          .in("status", ["payment_required", "payment_pending", "payment_confirmed"]);
+      }
 
       return {
         success: false,
@@ -651,6 +676,8 @@ export async function executeFareIncreaseModificationPayment(
         paymentProcessing: true,
         tripUnchanged: true,
         fareDeltaPence: fareDelta,
+        originalFarePence: Number(changeRequest.original_fare_pence ?? 0) || undefined,
+        requiredPayablePence: newFarePence,
         errorCode: "PAYMENT_AUTHORISATION_PENDING",
         error: "Payment is still processing. Your trip has not been changed.",
         httpStatus: 202,

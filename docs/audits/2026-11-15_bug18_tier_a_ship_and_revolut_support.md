@@ -135,6 +135,32 @@ Evidence trail timestamps (UTC):
 4. 09:30:10.025Z retrieve — `declined`, order still `processing`  
 5. 09:30:10.430Z retrieve — `declined`, order back to `authorised`, auth total **500**
 
+### E. Fresh Apple Pay incident — MK-261115-014 (Tier A live)
+
+Full investigation: [`2026-11-15_bug18_mk261115014_fresh_incident.md`](./2026-11-15_bug18_mk261115014_fresh_incident.md)
+
+| Field | Value |
+| --- | --- |
+| Revolut order ID | `6af9e5c7-ff57-a809-8d17-9a95c0056f5a` |
+| Method / brand | `apple_pay` / `visa` |
+| Original auth | **671p** @ 2026-11-15 17:03:15.077Z (**buffer 0**) |
+| Increment | submitted 17:04:22.109Z → target **898** (+**227**) |
+| HTTP | `post_http_ok: true` |
+| Trail | pending → pending → processing → **failed** (946 ms) |
+| Final evidence | `increment_state=failed`, `increment_reason=null`, `payment_decline_reason=null`, `order_state=authorised`, `provider_authorised_total_pence=671` |
+| Classification | `ADDITIONAL_AUTHORISATION_FAILED_TERMINAL` / `PROVIDER_INCREMENT_FAILED` |
+| After attempt | Hold **671p** intact; stop/fare **not** applied; session later released 671 on cancel |
+| Customer bank | Declined payments ONECAB LIMITED **£2.27** (~17:06) — exact delta; funds available |
+| Customer app | “Confirming updated fare” (TCR left `payment_pending` — Bug #28) |
+| Tier A | **Live** — method, brand, trail, delta/target persisted |
+
+Evidence trail timestamps (UTC):
+
+1. 17:04:22.452Z post_response — increment `pending`, order `authorised`, auth total 671  
+2. 17:04:22.503Z retrieve — `pending`, order `processing`  
+3. 17:04:22.913Z retrieve — `processing`  
+4. 17:04:23.316Z retrieve — **`failed`**, order back to `authorised`, auth total **671**
+
 ---
 
 ## 5. Draft Revolut Merchant Support message (for your review)
@@ -148,15 +174,18 @@ We are ONECAB (Merchant API version **2026-04-20**). We use **manual capture** +
 `POST /orders/{order_id}/increment-authorisation` with `{ "amount": <new total authorised, minor units> }`  
 (not the delta).
 
-On several live GBP orders the increment is **accepted by the API** (`2xx`, increment object created), moves `pending` → `processing` → **`declined`**, while the order returns to **`authorised`** at the **original** total. On retrieve, both `incremental_authorisations[].reason` and `payments[].decline_reason` are **`null`**, so we cannot map an issuer code for the customer or for our risk ops.
+On several live GBP orders the increment is **accepted by the API** (`2xx`, increment object created), moves `pending` → `processing` → **`declined` or `failed`**, while the order returns to **`authorised`** at the **original** total. On retrieve, both `incremental_authorisations[].reason` and `payments[].decline_reason` are **`null`**, so we cannot map an issuer code for the customer or for our risk ops.
+
+**Fresh evidence (15 Nov 2026):** on order `6af9e5c7-ff57-a809-8d17-9a95c0056f5a` (Apple Pay / Visa), Merchant retrieve reported `increment_state=failed` with null reasons in **~1s**, while the **cardholder’s bank app** listed a **Declined** payment from ONECAB LIMITED for exactly the increment delta (**£2.27 / 227p**), with sufficient funds available. That customer-side bank record is direct evidence the increase reached the banking system.
 
 ### Please advise
 
-1. Why can an increment be **declined by the issuer/network** while the **original** authorisation remains valid?  
-2. Why are issuer **decline reasons returned as null** on these retrieves / increment objects?  
+1. Why can an increment be **declined / failed by the issuer/network** while the **original** authorisation remains valid?  
+2. Why are issuer **decline/failure reasons returned as null** on these retrieves / increment objects?  
 3. Can you provide the **underlying issuer or scheme/network decline codes** for the order IDs below (from your logs)?  
-4. For a future product option: can the **cardholder authenticate an increased amount on the same existing order** (challenge / CIT) **without releasing** the original hold?  
-5. If that authenticated increase succeeds, can settlement still be **one final capture** of the final fare on that **same order**, with **one** Merchant transaction fee (not a second order)?
+4. For **MK-261115-014** specifically: why does Merchant show `failed` + null reason while the cardholder bank shows a **declined £2.27**? Please return the issuer/network code for that increment.  
+5. For a future product option: can the **cardholder authenticate an increased amount on the same existing order** (challenge / CIT) **without releasing** the original hold?  
+6. If that authenticated increase succeeds, can settlement still be **one final capture** of the final fare on that **same order**, with **one** Merchant transaction fee (not a second order)?
 
 ### Orders (full IDs)
 
@@ -166,8 +195,11 @@ On several live GBP orders the increment is **accepted by the API** (`2xx`, incr
 | Decline twin | MK-260916-041 | `6aab2203-c9d4-a982-8ffb-02a42ceea28e` | Apple Pay | 800 @ 2026-09-16T23:11:09Z | 1018 then 1140 | +218 / +340 | Declined (reason null) |
 | Tiny Δ | MK-260917-010 | `6aabc7c9-121a-a1b2-b7d2-e700a8998d91` | Card | 1214 @ 2026-09-17T11:00:13Z | 1257 @ 11:02:46Z | +43 | Declined (reason null); later captured 914 on original hold |
 | Best trail | MK-261108-001 | `6af03d79-157e-a88c-b718-37a3a2bfda20` | Card | 500 @ 2026-11-08T09:14:41Z | 1216 @ 09:30:08Z | +716 | Declined (reason null); order remained authorised at 500; captured 500 |
+| Fresh Apple Pay + bank Declined £2.27 | MK-261115-014 | `6af9e5c7-ff57-a809-8d17-9a95c0056f5a` | Apple Pay / Visa | 671 @ 2026-11-15T17:03:15Z (buffer 0) | 898 @ 17:04:22Z | +227 | Merchant `failed` (~0.95s), reasons null; order authorised @ 671; cardholder bank Declined £2.27 |
 
 For **MK-261108-001** we observed: HTTP OK on increment POST; states pending → processing → declined; final order `authorised` with authorised total **unchanged at 500**; `reason` / `decline_reason` null on retrieve.
+
+For **MK-261115-014** we observed: HTTP OK on increment POST; states pending → processing → **failed** in **946 ms**; final order `authorised` at **671**; Tier A telemetry captured `apple_pay` / `visa`; `reason` / `decline_reason` null; cardholder bank independently showed Declined **£2.27**.
 
 We are **not** asking you to reverse these historical outcomes. We need issuer/network codes and product guidance on same-order authenticated increases vs a second payment.
 

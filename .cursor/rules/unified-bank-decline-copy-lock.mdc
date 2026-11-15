@@ -15,13 +15,15 @@ alwaysApply: true
 - Message: `Your bank declined this payment. Please check your card, use another card, or choose another payment method.`
 - Buttons: `Choose another card` / `Cancel`
 
-### Trip modification
+### Trip modification (Bug #28)
 
-- Title: `Payment declined by your bank`
-- Message: `Your bank declined the payment for this trip change. Please check your card or contact your bank, then try the change again.`
-- Button: `OK` only
+- Title: `Payment declined`
+- Message: `Your bank declined the additional payment of £X.XX. Your original trip and fare of £X.XX remain unchanged.` (dynamic authoritative amounts; amount-less fallback omits the £ figures)
+- Button: `OK` only — returns to the original active trip (Bug #25)
 
 No card switch is offered mid-trip: a fare increase must increment the **same** Revolut order, and a second pre-authorisation/order is forbidden (see `revolut-incremental-auth-primary-lock.mdc`). Original destination/stops/fare stay unchanged.
+
+Technical / unknown terminal failures use **Payment unsuccessful** (never bank wording). Pending uses **Authorising additional payment**.
 
 ## What counts as a bank decline
 

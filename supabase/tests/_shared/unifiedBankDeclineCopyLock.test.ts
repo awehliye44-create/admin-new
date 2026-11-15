@@ -114,7 +114,7 @@ Deno.test("unified copy is exact and never blames ONECAB, wallets or Revolut", (
   );
   assertEquals(
     TRIP_CHANGE_BANK_DECLINED_CUSTOMER_MESSAGE,
-    "Your bank declined the payment for this trip change. Please check your card or contact your bank, then try the change again.",
+    "Your bank declined the additional payment. Your original trip and fare remain unchanged.",
   );
   for (const copy of [REVOLUT_CARD_DECLINED_CUSTOMER_MESSAGE, TRIP_CHANGE_BANK_DECLINED_CUSTOMER_MESSAGE]) {
     assertFalse(/onecab|apple pay|google pay|revolut/i.test(copy), copy);

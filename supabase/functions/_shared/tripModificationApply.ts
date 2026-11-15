@@ -9,6 +9,7 @@ import {
   normalizeTripUpdatedPayload,
 } from "./tripUpdatedBroadcast.ts";
 import { notifyDriverTripModified } from "./notifyDriverTripModified.ts";
+import { invokeErrorBodyHasPaymentStructure } from "./tripModificationPaymentGateSSOT.ts";
 
 export type FarePreviewSnapshot = {
   new_fare_pence: number;
@@ -298,6 +299,35 @@ export async function fetchTripAndBroadcastUpdated(
   };
 }
 
+/**
+ * Prefer structured Edge JSON on non-2xx invokes over the SDK's generic
+ * "Edge Function returned a non-2xx status code" throw.
+ * HTTP status alone is never treated as a terminal payment outcome here —
+ * callers must classify via decideFromPreauthInvokeResult / PSA safety net.
+ */
+export async function readFunctionsInvokeErrorBody(
+  error: unknown,
+): Promise<Record<string, unknown> | null> {
+  const context = (error as {
+    context?: {
+      json?: () => Promise<unknown>;
+      clone?: () => { json?: () => Promise<unknown> };
+    };
+  })?.context;
+  if (!context || typeof context.json !== "function") return null;
+  try {
+    const source = typeof context.clone === "function" ? context.clone() : context;
+    if (!source || typeof source.json !== "function") return null;
+    const parsed = await source.json();
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      return parsed as Record<string, unknown>;
+    }
+  } catch {
+    // ignore parse failures — caller falls through to throw / pending
+  }
+  return null;
+}
+
 /** Increment card preauth when modification increases gross fare (service-role safe). */
 export async function invokePreauthUpdateOnModification(
   supabase: SupabaseClient,
@@ -326,20 +356,22 @@ export async function invokePreauthUpdateOnModification(
   );
 
   if (error) {
-    const contextBody = (error as { context?: { json?: () => Promise<Record<string, unknown>> } })
-      ?.context;
-    if (contextBody && typeof contextBody.json === "function") {
-      try {
-        const parsed = await contextBody.json();
-        if (parsed?.requires_revolut_checkout === true) {
-          console.log("TRIP_MODIFICATION_PREAUTH_REVOLUT_CHECKOUT", { tripId, parsed });
-          return parsed;
-        }
-      } catch {
-        // fall through
-      }
+    const parsed = await readFunctionsInvokeErrorBody(error);
+    // Bug #28 / MK-261115-014: structured 409 PROVIDER_INCREMENT_FAILED (and
+    // decline / pending bodies) must reach decideFromPreauthInvokeResult — never
+    // throw away the body so the catch path invents reconciliation pending.
+    if (invokeErrorBodyHasPaymentStructure(parsed)) {
+      console.log("TRIP_MODIFICATION_PREAUTH_STRUCTURED_ERROR", {
+        tripId,
+        error_code: parsed?.error_code ?? null,
+        payment_coverage_status: parsed?.payment_coverage_status ?? null,
+      });
+      return parsed;
     }
-    console.error("TRIP_MODIFICATION_PREAUTH_FAILED", { tripId, error: error.message });
+    console.error("TRIP_MODIFICATION_PREAUTH_FAILED", {
+      tripId,
+      error: error instanceof Error ? error.message : String(error),
+    });
     throw error;
   }
 

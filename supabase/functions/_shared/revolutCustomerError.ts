@@ -31,8 +31,11 @@ export const REVOLUT_CARD_DECLINED_CUSTOMER_MESSAGE =
   "Your bank declined this payment. Please check your card, use another card, or choose another payment method.";
 
 /** Trip modification — no card switch mid-trip (same-order increment only). */
+/** Bug #28 — Customer fills dynamic £ amounts; this is the amount-less fallback. */
 export const TRIP_CHANGE_BANK_DECLINED_CUSTOMER_MESSAGE =
-  "Your bank declined the payment for this trip change. Please check your card or contact your bank, then try the change again.";
+  "Your bank declined the additional payment. Your original trip and fare remain unchanged.";
+
+export const TRIP_CHANGE_BANK_DECLINED_TITLE = "Payment declined";
 
 export const REVOLUT_PAYMENT_NOT_AUTHORISED_CUSTOMER_MESSAGE =
   "We couldn't authorise the payment. Please try again or use another payment method.";

@@ -420,6 +420,107 @@ export function isAlreadyAppliedModification(status: string | null | undefined):
   return s === "applied" || s === "approved";
 }
 
+/** True when an invoke error body carries payment classification fields (not HTTP alone). */
+export function invokeErrorBodyHasPaymentStructure(
+  body: Record<string, unknown> | null | undefined,
+): boolean {
+  if (!body) return false;
+  if (body.requires_revolut_checkout === true) return true;
+  if (typeof body.error_code === "string" && body.error_code.trim()) return true;
+  if (
+    typeof body.payment_coverage_status === "string"
+    && body.payment_coverage_status.trim()
+  ) {
+    return true;
+  }
+  if (typeof body.decline_reason === "string" && body.decline_reason.trim()) {
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Authoritative PSA statuses that must never leave a modification gate as
+ * PAYMENT_PENDING (Bug #28 / MK-261115-014).
+ * HTTP status alone is not listed — only provider-persisted authorisation rows.
+ */
+export const TERMINAL_ADDITIONAL_AUTHORISATION_STATUSES = [
+  "ADDITIONAL_AUTHORISATION_DECLINED",
+  "ADDITIONAL_AUTHORISATION_FAILED_TERMINAL",
+  "ADDITIONAL_AUTHORISATION_UNSUPPORTED",
+] as const;
+
+export type TerminalAdditionalAuthorisationStatus =
+  (typeof TERMINAL_ADDITIONAL_AUTHORISATION_STATUSES)[number];
+
+export function isTerminalAdditionalAuthorisationStatus(
+  status: string | null | undefined,
+): status is TerminalAdditionalAuthorisationStatus {
+  const s = String(status ?? "").toUpperCase();
+  return (TERMINAL_ADDITIONAL_AUTHORISATION_STATUSES as readonly string[]).includes(s);
+}
+
+/**
+ * Map a terminal PSA row onto the modification payment gate.
+ * FAILED_TERMINAL / UNSUPPORTED → technical `failed` (never invent bank decline).
+ * DECLINED → `declined` (bank wording only when issuer reason is classified later).
+ */
+export function gateFromTerminalAuthorisationStatus(args: {
+  status: string | null | undefined;
+  authorisedTotalPence: number;
+}): ModificationPaymentGateDecision | null {
+  const s = String(args.status ?? "").toUpperCase();
+  if (!isTerminalAdditionalAuthorisationStatus(s)) return null;
+  const authorisedTotalPence = Math.max(0, Math.round(Number(args.authorisedTotalPence) || 0));
+  if (s === "ADDITIONAL_AUTHORISATION_DECLINED") {
+    return {
+      phase: "PAYMENT_FAILED",
+      mayApply: false,
+      paymentStatus: "failed",
+      requestStatus: "payment_failed",
+      authorisedTotalPence,
+      reason: "declined",
+    };
+  }
+  return {
+    phase: "PAYMENT_FAILED",
+    mayApply: false,
+    paymentStatus: "failed",
+    requestStatus: "payment_failed",
+    authorisedTotalPence,
+    reason: "failed",
+  };
+}
+
+/**
+ * Stale/out-of-order protection: a pending outcome must never overwrite a newer
+ * authoritative terminal TCR payment state (failed / applied / expired).
+ */
+export function canPendingOverwriteModificationRequestStatus(
+  currentStatus: string | null | undefined,
+): boolean {
+  const s = String(currentStatus ?? "").toLowerCase();
+  if (!s) return true;
+  if (
+    s === "payment_failed"
+    || s === "expired"
+    || s === "applied"
+    || s === "approved"
+    || s === "declined"
+    || s === "rejected"
+    || s === "cancelled"
+    || s === "canceled"
+    || s === "superseded"
+  ) {
+    return false;
+  }
+  return (
+    s === "payment_required"
+    || s === "payment_pending"
+    || s === "payment_confirmed"
+  );
+}
+
 /**
  * Internal simulator for the £5.00→£8.11 class of cases without hard-coding
  * those amounts into production paths. Inputs are arbitrary pence.

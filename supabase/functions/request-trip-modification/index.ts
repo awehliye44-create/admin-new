@@ -580,6 +580,12 @@ serveWithEdgeTiming("request-trip-modification", corsHeaders, async (req) => {
             tripUnchanged: true,
             authorisedTotalPence: resume.authorisedTotalPence,
             requiredPayablePence: resume.requiredPayablePence,
+            originalFarePence: resume.originalFarePence
+              ?? Number((existingRequest as { original_fare_pence?: number }).original_fare_pence ?? 0)
+              || undefined,
+            fareDeltaPence: resume.fareDeltaPence
+              ?? Number((existingRequest as { fare_delta_pence?: number }).fare_delta_pence ?? 0)
+              || undefined,
             existingRequestId: resumed.id,
             existingStatus: resume.status,
             error: resume.error ?? "Payment confirmation failed",
@@ -1378,6 +1384,8 @@ serveWithEdgeTiming("request-trip-modification", corsHeaders, async (req) => {
           tripUnchanged: true,
           authorisedTotalPence: paymentResult.authorisedTotalPence,
           requiredPayablePence: paymentResult.requiredPayablePence,
+          originalFarePence: paymentResult.originalFarePence
+            ?? currentConfirmedCustomerTotalPence,
           fareDelta: fareDeltaPence / 100,
           fareDeltaPence,
           error: paymentResult.error ?? "Payment confirmation failed",
