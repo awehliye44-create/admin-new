@@ -104,4 +104,71 @@ Deno.test("Bug #29: JIT pass isolates per-trip failures", async () => {
   );
   assert(src.includes("per-trip failure isolated"));
   assert(src.includes("scheduled_jit_overdue_unactivated:"));
+  assert(src.includes("SCHEDULED_JIT_ARM_CAS_FAILED"));
+  assert(src.includes("scheduled_jit_arm_cas_failed:"));
+});
+
+Deno.test("Bug #29: exclusive rescue statically imports eligibility + journey gate", async () => {
+  const src = stripComments(
+    await Deno.readTextFile(
+      join(
+        REPO,
+        "supabase/functions/_shared/scheduledActivationExclusiveRescue.ts",
+      ),
+    ),
+  );
+  assert(src.includes('from "./rideOfferDriverEligibility.ts"'));
+  assert(
+    !/await\s+import\(\s*["']\.\/rideOfferDriverEligibility\.ts["']\s*\)/.test(
+      src,
+    ),
+  );
+  assert(src.includes('from "./scheduledJourneyComplianceGate.ts"'));
+});
+
+Deno.test("Bug #29: scheduled-dispatch top-level HTTP 500 ops alert", async () => {
+  const src = stripComments(
+    await Deno.readTextFile(
+      join(REPO, "supabase/functions/scheduled-dispatch/index.ts"),
+    ),
+  );
+  assert(src.includes("scheduled_dispatch_http_500"));
+  assert(src.includes("upsertScheduledJitOpsAlert"));
+});
+
+Deno.test("Bug #29: JIT ops alerts include NOT NULL category/severity/source", async () => {
+  const helper = stripComments(
+    await Deno.readTextFile(
+      join(REPO, "supabase/functions/_shared/scheduledJitOpsAlertSSOT.ts"),
+    ),
+  );
+  assert(helper.includes('category: input.category ?? "dispatch"'));
+  assert(helper.includes('severity: input.severity ?? "warning"'));
+  assert(helper.includes('source: "edge_function"'));
+
+  const pass = stripComments(
+    await Deno.readTextFile(
+      join(REPO, "supabase/functions/_shared/runConfirmedJitActivationPass.ts"),
+    ),
+  );
+  assert(pass.includes("upsertScheduledJitOpsAlert"));
+  // Incomplete raw upserts (missing category) must not remain in the JIT pass.
+  assert(!/from\("ops_alerts"\)\.upsert\(/.test(pass));
+});
+
+Deno.test("Bug #29: buildScheduledJitOpsAlertRow is deploy-safe", async () => {
+  const { buildScheduledJitOpsAlertRow } = await import(
+    "./scheduledJitOpsAlertSSOT.ts"
+  );
+  const row = buildScheduledJitOpsAlertRow({
+    fingerprint: "scheduled_dispatch_http_500",
+    title: "scheduled-dispatch HTTP 500",
+    severity: "critical",
+    metadata: { module_not_found: true },
+  });
+  assert(row.category === "dispatch");
+  assert(row.severity === "critical");
+  assert(row.source === "edge_function");
+  assert(row.status === "open");
+  assert(row.fingerprint === "scheduled_dispatch_http_500");
 });

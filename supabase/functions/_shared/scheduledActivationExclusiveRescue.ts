@@ -18,6 +18,7 @@ import {
 } from "./tripTerminalDispatch.ts";
 import { assertScheduledJourneyComplianceForDriverTrip } from "./scheduledJourneyComplianceGate.ts";
 import { isSoftPresenceIneligibilityForDepartureAck } from "./scheduledDepartureAckSSOT.ts";
+import { evaluateRideOfferDriverEligibility } from "./rideOfferDriverEligibility.ts";
 
 export type ExclusiveRescueResult =
   | { ok: true; rescued: true; tripId: string; reason: string }
@@ -280,7 +281,6 @@ export async function evaluateConfirmedDriverExclusiveEligibility(
     allowOfflineForDepartureAck?: boolean;
   },
 ): Promise<{ eligible: boolean; reason: string; isStacked: boolean }> {
-  const { evaluateRideOfferDriverEligibility } = await import("./rideOfferDriverEligibility.ts");
   const nowMs = args.nowMs ?? Date.now();
   const allowOnTrip = args.allowOnTrip !== false;
 

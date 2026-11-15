@@ -85,6 +85,7 @@ import {
   isScheduledEarlyArrivalDueForUnlock,
   unlockScheduledEarlyArrivalWaiting,
 } from "../_shared/scheduledEarlyArrivalUnlockSSOT.ts";
+import { upsertScheduledJitOpsAlert } from "../_shared/scheduledJitOpsAlertSSOT.ts";
 
 declare const EdgeRuntime:
   | { waitUntil?: (promise: Promise<unknown>) => void }
@@ -1194,17 +1195,13 @@ Deno.serve(async (req) => {
           minutesPastPickup: verdict.minutesPastPickup,
         });
         try {
-          await supabase.from("ops_alerts").upsert(
-            {
-              fingerprint: alert.fingerprint,
-              title: alert.title,
-              related_trip_id: alert.related_trip_id,
-              metadata: alert.metadata,
-              status: "open",
-              updated_at: now.toISOString(),
-            },
-            { onConflict: "fingerprint" },
-          );
+          await upsertScheduledJitOpsAlert(supabase, {
+            fingerprint: alert.fingerprint,
+            title: alert.title,
+            related_trip_id: alert.related_trip_id,
+            severity: "warning",
+            metadata: alert.metadata,
+          });
         } catch (opsErr) {
           console.warn("[scheduled-dispatch] lateness ops_alert failed", opsErr);
         }
@@ -1987,20 +1984,18 @@ Deno.serve(async (req) => {
       const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
       if (supabaseUrl && supabaseServiceKey) {
         const sb = createClient(supabaseUrl, supabaseServiceKey);
-        await sb.from("ops_alerts").upsert(
-          {
-            fingerprint: "scheduled_dispatch_http_500",
-            title: "scheduled-dispatch HTTP 500",
-            related_trip_id: null,
-            metadata: {
-              error: errorMessage.slice(0, 500),
-              module_not_found: /module not found/i.test(errorMessage),
-            },
-            status: "open",
-            updated_at: new Date().toISOString(),
+        await upsertScheduledJitOpsAlert(sb, {
+          fingerprint: "scheduled_dispatch_http_500",
+          title: "scheduled-dispatch HTTP 500",
+          related_trip_id: null,
+          severity: "critical",
+          description:
+            "scheduled-dispatch cron/handler returned HTTP 500. Repeated Module-not-found means the Edge bundle is incomplete.",
+          metadata: {
+            error: errorMessage.slice(0, 500),
+            module_not_found: /module not found/i.test(errorMessage),
           },
-          { onConflict: "fingerprint" },
-        );
+        });
       }
     } catch {
       /* best-effort */

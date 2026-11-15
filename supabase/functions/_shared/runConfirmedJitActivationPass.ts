@@ -67,6 +67,7 @@ import {
 } from "./scheduledActivationExclusiveSSOT.ts";
 import { isTripTerminalForDispatch, TERMINAL_TRIP_STATUS_POSTGREST_LIST } from "./tripTerminalDispatch.ts";
 import { estimateEtaMinutes } from "./scheduledDispatchConfig.ts";
+import { upsertScheduledJitOpsAlert } from "./scheduledJitOpsAlertSSOT.ts";
 
 export type JitPassTrip = {
   id: string;
@@ -453,23 +454,19 @@ export async function runConfirmedJitActivationPass(input: {
           nowIso: now.toISOString(),
           tier: aware.tier,
         });
-        await supabase.from("ops_alerts").upsert(
-          {
-            fingerprint: alert.fingerprint,
-            title: alert.title,
-            related_trip_id: alert.related_trip_id,
-            metadata: {
-              ...alert.metadata,
-              freshness_reason: presence.freshness.reason,
-              freshness_age_seconds: presence.freshness.ageSeconds,
-              gps_age_seconds: presence.freshness.gpsAgeSeconds,
-              presence_status: presence.presenceStatus,
-            },
-            status: "open",
-            updated_at: now.toISOString(),
+        await upsertScheduledJitOpsAlert(supabase, {
+          fingerprint: alert.fingerprint,
+          title: alert.title,
+          related_trip_id: alert.related_trip_id,
+          severity: "warning",
+          metadata: {
+            ...alert.metadata,
+            freshness_reason: presence.freshness.reason,
+            freshness_age_seconds: presence.freshness.ageSeconds,
+            gps_age_seconds: presence.freshness.gpsAgeSeconds,
+            presence_status: presence.presenceStatus,
           },
-          { onConflict: "fingerprint" },
-        );
+        });
       } catch (opsErr) {
         console.warn("[jit-activation] ops_alert upsert failed", opsErr);
       }
@@ -485,17 +482,13 @@ export async function runConfirmedJitActivationPass(input: {
           etaMinutes: resolvedEtaMinutes,
           tier: aware.tier,
         });
-        await supabase.from("ops_alerts").upsert(
-          {
-            fingerprint: lateAlert.fingerprint,
-            title: lateAlert.title,
-            related_trip_id: lateAlert.related_trip_id,
-            metadata: lateAlert.metadata,
-            status: "open",
-            updated_at: now.toISOString(),
-          },
-          { onConflict: "fingerprint" },
-        );
+        await upsertScheduledJitOpsAlert(supabase, {
+          fingerprint: lateAlert.fingerprint,
+          title: lateAlert.title,
+          related_trip_id: lateAlert.related_trip_id,
+          severity: "warning",
+          metadata: lateAlert.metadata,
+        });
       } catch (opsErr) {
         console.warn("[jit-activation] late-risk ops_alert upsert failed", opsErr);
       }
@@ -564,17 +557,13 @@ export async function runConfirmedJitActivationPass(input: {
             }),
         };
 
-        await supabase.from("ops_alerts").upsert(
-          {
-            fingerprint: ready.fingerprint,
-            title: ready.title,
-            related_trip_id: ready.related_trip_id,
-            metadata,
-            status: "open",
-            updated_at: now.toISOString(),
-          },
-          { onConflict: "fingerprint" },
-        );
+        await upsertScheduledJitOpsAlert(supabase, {
+          fingerprint: ready.fingerprint,
+          title: ready.title,
+          related_trip_id: ready.related_trip_id,
+          severity: "warning",
+          metadata,
+        });
 
         if (sendPush) {
           // Best-effort silent data wake — no sound / no Heading copy.
@@ -695,23 +684,21 @@ export async function runConfirmedJitActivationPass(input: {
         nowMs - decision.deadlineMs >= 3 * 60_000
       ) {
         try {
-          await supabase.from("ops_alerts").upsert(
-            {
-              fingerprint: `scheduled_jit_overdue_unactivated:${trip.id}`,
-              title: "Confirmed scheduled JIT overdue without activation",
-              related_trip_id: trip.id,
-              metadata: {
-                deadline_iso: new Date(decision.deadlineMs).toISOString(),
-                overdue_minutes: Math.round((nowMs - decision.deadlineMs) / 60_000),
-                reason: decision.kind,
-                confirmed_driver_id: confirmedDriverId,
-                scheduled_status: trip.scheduled_status,
-              },
-              status: "open",
-              updated_at: now.toISOString(),
+          await upsertScheduledJitOpsAlert(supabase, {
+            fingerprint: `scheduled_jit_overdue_unactivated:${trip.id}`,
+            title: "Confirmed scheduled JIT overdue without activation",
+            related_trip_id: trip.id,
+            severity: "critical",
+            description:
+              "Confirmed scheduled booking past sticky JIT deadline without arming. Investigate dispatch health.",
+            metadata: {
+              deadline_iso: new Date(decision.deadlineMs).toISOString(),
+              overdue_minutes: Math.round((nowMs - decision.deadlineMs) / 60_000),
+              reason: decision.kind,
+              confirmed_driver_id: confirmedDriverId,
+              scheduled_status: trip.scheduled_status,
             },
-            { onConflict: "fingerprint" },
-          );
+          });
         } catch {
           /* best-effort */
         }
@@ -725,22 +712,20 @@ export async function runConfirmedJitActivationPass(input: {
       nowMs - decision.deadlineMs >= 2 * 60_000
     ) {
       try {
-        await supabase.from("ops_alerts").upsert(
-          {
-            fingerprint: `scheduled_jit_overdue_unactivated:${trip.id}`,
-            title: "Confirmed scheduled JIT overdue — arming now",
-            related_trip_id: trip.id,
-            metadata: {
-              deadline_iso: new Date(decision.deadlineMs).toISOString(),
-              overdue_minutes: Math.round((nowMs - decision.deadlineMs) / 60_000),
-              decision_action: decision.action,
-              confirmed_driver_id: confirmedDriverId,
-            },
-            status: "open",
-            updated_at: now.toISOString(),
+        await upsertScheduledJitOpsAlert(supabase, {
+          fingerprint: `scheduled_jit_overdue_unactivated:${trip.id}`,
+          title: "Confirmed scheduled JIT overdue — arming now",
+          related_trip_id: trip.id,
+          severity: "critical",
+          description:
+            "Confirmed scheduled booking overdue; JIT pass is attempting departure-ack arm now.",
+          metadata: {
+            deadline_iso: new Date(decision.deadlineMs).toISOString(),
+            overdue_minutes: Math.round((nowMs - decision.deadlineMs) / 60_000),
+            decision_action: decision.action,
+            confirmed_driver_id: confirmedDriverId,
           },
-          { onConflict: "fingerprint" },
-        );
+        });
       } catch {
         /* best-effort */
       }
@@ -956,6 +941,33 @@ export async function runConfirmedJitActivationPass(input: {
         .select("id");
 
       if (armErr || !armedRows?.length) {
+        // Explicit block reason — never silent (Bug #29). Next cron retries.
+        console.error("SCHEDULED_JIT_ARM_CAS_FAILED", {
+          trip_id: trip.id,
+          offer_id: offerId,
+          driver_id: confirmedDriverId,
+          arm_error: armErr?.message ?? null,
+          armed_rows: armedRows?.length ?? 0,
+          scheduled_status: trip.scheduled_status,
+          trip_status: trip.status,
+        });
+        await upsertScheduledJitOpsAlert(supabase, {
+          fingerprint: `scheduled_jit_arm_cas_failed:${trip.id}`,
+          title: "Scheduled JIT arm CAS failed — offer cancelled",
+          related_trip_id: trip.id,
+          severity: "critical",
+          description:
+            "JIT arm CAS matched zero rows; exclusive offer cancelled. Next cron retries.",
+          metadata: {
+            offer_id: offerId,
+            confirmed_driver_id: confirmedDriverId,
+            arm_error: armErr?.message ?? "zero_rows",
+            scheduled_status: trip.scheduled_status,
+            trip_status: trip.status,
+            decision_action: decision.action,
+            deadline_iso: new Date(decision.deadlineMs).toISOString(),
+          },
+        });
         await supabase
           .from("ride_offers")
           .update({ status: "cancelled", updated_at: now.toISOString() })
@@ -1013,24 +1025,18 @@ export async function runConfirmedJitActivationPass(input: {
         trip_id: trip?.id ?? null,
         error: tripErr instanceof Error ? tripErr.message : String(tripErr),
       });
-      try {
-        await supabase.from("ops_alerts").upsert(
-          {
-            fingerprint: `scheduled_jit_trip_eval_failed:${String(trip?.id ?? "unknown")}`,
-            title: "Scheduled JIT trip evaluation failed",
-            related_trip_id: trip?.id ? String(trip.id) : null,
-            metadata: {
-              error: tripErr instanceof Error ? tripErr.message : String(tripErr),
-              confirmed_driver_id: trip?.confirmed_driver_id ?? null,
-            },
-            status: "open",
-            updated_at: now.toISOString(),
-          },
-          { onConflict: "fingerprint" },
-        );
-      } catch {
-        /* best-effort */
-      }
+      await upsertScheduledJitOpsAlert(supabase, {
+        fingerprint: `scheduled_jit_trip_eval_failed:${String(trip?.id ?? "unknown")}`,
+        title: "Scheduled JIT trip evaluation failed",
+        related_trip_id: trip?.id ? String(trip.id) : null,
+        severity: "critical",
+        description:
+          "Per-trip JIT evaluation threw; sweep continued for other confirmed bookings.",
+        metadata: {
+          error: tripErr instanceof Error ? tripErr.message : String(tripErr),
+          confirmed_driver_id: trip?.confirmed_driver_id ?? null,
+        },
+      });
     }
   }
 
