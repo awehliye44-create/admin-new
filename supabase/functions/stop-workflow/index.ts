@@ -4325,19 +4325,14 @@ Deno.serve(async (req) => {
           .eq("id", driver_id);
 
         // P0: Revolut card / Apple Pay / Google Pay — capture via existing finalize-trip-and-capture.
-        // Tip-eligible Customer App card trips: defer capture for TIP_WINDOW_MS, post TEN immediately.
-        // Other channels: capture immediately; TEN after provider-confirmed capture.
+        // Tip-eligible Customer App card trips: defer capture for TIP_WINDOW_MS; TEN posts in background.
+        // Other channels: stamp capture_requested, return Complete → Rate, finalize in background
+        // (Bug #23). Sweeper retries capture_requested if the isolate dies.
+        let paymentCaptureDeferred = false;
         if (needsProviderSettlement) {
           stages.mark('payment_capture_start');
-          let tipsEnabledForArea = false;
-          if (fareTrip.service_area_id) {
-            const { data: tipArea } = await supabase
-              .from("service_areas")
-              .select("tips_enabled")
-              .eq("id", fareTrip.service_area_id)
-              .maybeSingle();
-            tipsEnabledForArea = tipArea?.tips_enabled === true;
-          }
+          // Reuse tips_enabled from the completion tip-window stamp — avoid a second area read.
+          const tipsEnabledForArea = tipWindowOnComplete != null;
           const deferCaptureForTipWindow =
             Boolean(providerOrderId) &&
             tipsEnabledForArea &&
@@ -4352,6 +4347,32 @@ Deno.serve(async (req) => {
               paymentStatus: fareTrip.payment_status,
               captureAmountPence: fareTrip.capture_amount_pence,
             });
+
+          const queueTipWindowTen = (label: string) => {
+            const tenPence = Math.max(
+              0,
+              settlement.driver_net_pence + settlement.airport_charge_pence,
+            );
+            if (tenPence <= 0) return;
+            scheduleEdgeBackground(async () => {
+              try {
+                await postTripEarningNetCanonical(supabase, {
+                  driverId: driver_id,
+                  tripId: trip_id,
+                  driverNetPence: tenPence,
+                  tipPence: 0,
+                  currency: ledgerCurrency ?? "GBP",
+                  commissionPct: settlement.tier_percent_used,
+                  paymentId: providerOrderId,
+                });
+              } catch (tenErr) {
+                console.error(`[stop-workflow] ${label}`, {
+                  trip_id,
+                  error: tenErr instanceof Error ? tenErr.message : String(tenErr),
+                });
+              }
+            }, label);
+          };
 
           let tipWindowDeferred = false;
           if (deferCaptureForTipWindow) {
@@ -4382,28 +4403,8 @@ Deno.serve(async (req) => {
               });
             } else {
               tipWindowDeferred = true;
-              const tenPence = Math.max(
-                0,
-                settlement.driver_net_pence + settlement.airport_charge_pence,
-              );
-              if (tenPence > 0) {
-                try {
-                  await postTripEarningNetCanonical(supabase, {
-                    driverId: driver_id,
-                    tripId: trip_id,
-                    driverNetPence: tenPence,
-                    tipPence: 0,
-                    currency: ledgerCurrency ?? "GBP",
-                    commissionPct: settlement.tier_percent_used,
-                    paymentId: providerOrderId,
-                  });
-                } catch (tenErr) {
-                  console.error("[stop-workflow] deferred tip-window TEN post failed", {
-                    trip_id,
-                    error: tenErr instanceof Error ? tenErr.message : String(tenErr),
-                  });
-                }
-              }
+              paymentCaptureDeferred = true;
+              queueTipWindowTen("deferred tip-window TEN post failed");
 
               console.log("[PAYMENT_AUDIT]", JSON.stringify({
                 stage: "tip_window_capture_deferred",
@@ -4420,30 +4421,12 @@ Deno.serve(async (req) => {
             // Completion write already opened the window. Do not finalize — that
             // capture is refused while the window is open and would miss TEN.
             tipWindowDeferred = true;
-            const tenPence = Math.max(
-              0,
-              settlement.driver_net_pence + settlement.airport_charge_pence,
-            );
-            if (tenPence > 0) {
-              try {
-                await postTripEarningNetCanonical(supabase, {
-                  driverId: driver_id,
-                  tripId: trip_id,
-                  driverNetPence: tenPence,
-                  tipPence: 0,
-                  currency: ledgerCurrency ?? "GBP",
-                  commissionPct: settlement.tier_percent_used,
-                  paymentId: providerOrderId,
-                });
-              } catch (tenErr) {
-                console.error("[stop-workflow] deferred tip-window TEN post failed", {
-                  trip_id,
-                  error: tenErr instanceof Error ? tenErr.message : String(tenErr),
-                });
-              }
-            }
+            paymentCaptureDeferred = true;
+            queueTipWindowTen("deferred tip-window TEN post failed");
           }
           if (!tipWindowDeferred) {
+          // Bug #23: durable accept — stamp capture_requested + settlement, return to Rate,
+          // then finalize Revolut capture in the background (same SSOT / sweeper recovery).
           await supabase.from("trips").update({
             ...tripSettlementDbColumns(settlement),
             tip_amount_pence: tipAmountPence,
@@ -4451,129 +4434,132 @@ Deno.serve(async (req) => {
             final_fare_pence: finalFarePence,
             final_customer_fare_pence:
               nonNegInt(fareTrip.final_customer_fare_pence) || finalFarePence,
+            payment_status: "capture_requested",
+            payment_hold_status: "capture_requested",
             updated_at: new Date().toISOString(),
           }).eq("id", trip_id);
 
           const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
           const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
           console.log("[PAYMENT_AUDIT]", JSON.stringify({
-            stage: "auto_capture_trigger",
+            stage: "auto_capture_queued",
             trip_id,
             provider_order_id: providerOrderId,
             payment_session_id: fareTrip.payment_session_id ?? null,
             source: "stop-workflow:complete_trip",
             driver_net_pence: settlement.driver_net_pence,
           }));
-          let finalizeResult: { ok: boolean; error?: string; body?: Record<string, unknown> };
-          try {
-            finalizeResult = await invokeFinalizeTripCapture(
-              supabaseUrl,
-              serviceRoleKey,
-              trip_id,
-              0,
-            );
-          } catch (finalizeErr) {
-            finalizeResult = {
-              ok: false,
-              error: finalizeErr instanceof Error
-                ? finalizeErr.message
-                : String(finalizeErr),
-            };
-          }
-          if (!finalizeResult.ok) {
-            console.error("[stop-workflow] finalize-trip-and-capture failed:", finalizeResult.error);
-            const bodyStatus = String(
-              (finalizeResult.body as { status?: string } | undefined)?.status ?? "",
-            ).toLowerCase();
-            const bodyOkFlag = (finalizeResult.body as { success?: boolean } | undefined)?.success;
-            // Durable shortfall/recovery/incremental outcomes must NOT be clobbered to capture_failed.
-            const isDurableRecovery =
-              bodyStatus.includes("shortfall") ||
-              bodyStatus.includes("recovery") ||
-              bodyStatus.includes("partial_capture") ||
-              bodyStatus.includes("additional_authorisation") ||
-              bodyStatus.includes("incremental");
-
-            const { data: freshPay } = await supabase
-              .from("trips")
-              .select("payment_status, payment_hold_status")
-              .eq("id", trip_id)
-              .maybeSingle();
-            const freshStatus = String(freshPay?.payment_status ?? "").toLowerCase();
-            const freshHold = String(freshPay?.payment_hold_status ?? "").toLowerCase();
-            const alreadyShortfall =
-              freshStatus === "payment_shortfall" ||
-              freshHold.includes("shortfall") ||
-              freshHold.includes("recovery");
-
-            if (isDurableRecovery || alreadyShortfall || bodyOkFlag === true) {
-              const hold = isDurableRecovery
-                ? (bodyStatus.includes("additional_authorisation") || bodyStatus.includes("incremental")
-                  ? (bodyStatus.includes("fail")
-                    ? "incremental_authorisation_failed"
-                    : "incremental_authorisation_pending")
-                  : (bodyStatus || "payment_shortfall"))
-                : (freshHold || "payment_shortfall");
-              await supabase.from("trips").update({
-                payment_status: alreadyShortfall || bodyStatus.includes("shortfall") ||
-                    bodyStatus.includes("recovery") || bodyStatus.includes("partial_capture")
-                  ? "payment_shortfall"
-                  : (bodyStatus.includes("fail") ? "capture_failed" : "authorized"),
-                payment_hold_status: hold,
-                updated_at: new Date().toISOString(),
-              }).eq("id", trip_id);
-            } else {
-              await recordTripCaptureFailure(
-                supabase,
+          paymentCaptureDeferred = true;
+          scheduleEdgeBackground(async () => {
+            let finalizeResult: { ok: boolean; error?: string; body?: Record<string, unknown> };
+            try {
+              finalizeResult = await invokeFinalizeTripCapture(
+                supabaseUrl,
+                serviceRoleKey,
                 trip_id,
-                finalizeResult.error ?? "Auto capture failed",
-                providerOrderId,
+                0,
               );
-              // Durable settlement outcome — never leave authorized+draft after complete.
-              await supabase.from("trips").update({
-                payment_status: "capture_failed",
-                payment_hold_status: "capture_failed",
-                updated_at: new Date().toISOString(),
-              }).eq("id", trip_id);
-              if (hasStackedTrip) {
-                await handleQueuedTripAfterPaymentFailure(supabase, {
-                  currentTripId: trip_id,
-                  driverId: driver_id,
-                  paymentStatus: "capture_failed",
-                });
+            } catch (finalizeErr) {
+              finalizeResult = {
+                ok: false,
+                error: finalizeErr instanceof Error
+                  ? finalizeErr.message
+                  : String(finalizeErr),
+              };
+            }
+            if (!finalizeResult.ok) {
+              console.error("[stop-workflow] background finalize-trip-and-capture failed:", finalizeResult.error);
+              const bodyStatus = String(
+                (finalizeResult.body as { status?: string } | undefined)?.status ?? "",
+              ).toLowerCase();
+              const bodyOkFlag = (finalizeResult.body as { success?: boolean } | undefined)?.success;
+              const isDurableRecovery =
+                bodyStatus.includes("shortfall") ||
+                bodyStatus.includes("recovery") ||
+                bodyStatus.includes("partial_capture") ||
+                bodyStatus.includes("additional_authorisation") ||
+                bodyStatus.includes("incremental");
+
+              const { data: freshPay } = await supabase
+                .from("trips")
+                .select("payment_status, payment_hold_status")
+                .eq("id", trip_id)
+                .maybeSingle();
+              const freshStatus = String(freshPay?.payment_status ?? "").toLowerCase();
+              const freshHold = String(freshPay?.payment_hold_status ?? "").toLowerCase();
+              const alreadyShortfall =
+                freshStatus === "payment_shortfall" ||
+                freshHold.includes("shortfall") ||
+                freshHold.includes("recovery");
+
+              if (isDurableRecovery || alreadyShortfall || bodyOkFlag === true) {
+                const hold = isDurableRecovery
+                  ? (bodyStatus.includes("additional_authorisation") || bodyStatus.includes("incremental")
+                    ? (bodyStatus.includes("fail")
+                      ? "incremental_authorisation_failed"
+                      : "incremental_authorisation_pending")
+                    : (bodyStatus || "payment_shortfall"))
+                  : (freshHold || "payment_shortfall");
+                await supabase.from("trips").update({
+                  payment_status: alreadyShortfall || bodyStatus.includes("shortfall") ||
+                      bodyStatus.includes("recovery") || bodyStatus.includes("partial_capture")
+                    ? "payment_shortfall"
+                    : (bodyStatus.includes("fail") ? "capture_failed" : "authorized"),
+                  payment_hold_status: hold,
+                  updated_at: new Date().toISOString(),
+                }).eq("id", trip_id);
+              } else {
+                await recordTripCaptureFailure(
+                  supabase,
+                  trip_id,
+                  finalizeResult.error ?? "Auto capture failed",
+                  providerOrderId,
+                );
+                await supabase.from("trips").update({
+                  payment_status: "capture_failed",
+                  payment_hold_status: "capture_failed",
+                  updated_at: new Date().toISOString(),
+                }).eq("id", trip_id);
+                if (hasStackedTrip) {
+                  await handleQueuedTripAfterPaymentFailure(supabase, {
+                    currentTripId: trip_id,
+                    driverId: driver_id,
+                    paymentStatus: "capture_failed",
+                  });
+                }
+              }
+            } else {
+              console.log("[stop-workflow] background finalize-trip-and-capture invoked", finalizeResult.body);
+              const bodyStatus = String(
+                (finalizeResult.body as { status?: string } | undefined)?.status ?? "",
+              ).toLowerCase();
+              if (
+                bodyStatus.includes("shortfall") ||
+                bodyStatus.includes("recovery") ||
+                bodyStatus.includes("additional_authorisation") ||
+                bodyStatus.includes("incremental") ||
+                bodyStatus.includes("partial_capture")
+              ) {
+                const colsStatus = bodyStatus.includes("shortfall") ||
+                    bodyStatus.includes("recovery") ||
+                    bodyStatus.includes("partial_capture")
+                  ? "payment_shortfall"
+                  : bodyStatus.includes("fail")
+                  ? "capture_failed"
+                  : "authorized";
+                await supabase.from("trips").update({
+                  payment_status: colsStatus,
+                  payment_hold_status: bodyStatus.includes("additional_authorisation") ||
+                      bodyStatus.includes("incremental")
+                    ? (bodyStatus.includes("fail")
+                      ? "incremental_authorisation_failed"
+                      : "incremental_authorisation_pending")
+                    : bodyStatus,
+                  updated_at: new Date().toISOString(),
+                }).eq("id", trip_id);
               }
             }
-          } else {
-            console.log("[stop-workflow] finalize-trip-and-capture invoked", finalizeResult.body);
-            const bodyStatus = String(
-              (finalizeResult.body as { status?: string } | undefined)?.status ?? "",
-            ).toLowerCase();
-            if (
-              bodyStatus.includes("shortfall") ||
-              bodyStatus.includes("recovery") ||
-              bodyStatus.includes("additional_authorisation") ||
-              bodyStatus.includes("incremental") ||
-              bodyStatus.includes("partial_capture")
-            ) {
-              const colsStatus = bodyStatus.includes("shortfall") ||
-                  bodyStatus.includes("recovery") ||
-                  bodyStatus.includes("partial_capture")
-                ? "payment_shortfall"
-                : bodyStatus.includes("fail")
-                ? "capture_failed"
-                : "authorized";
-              await supabase.from("trips").update({
-                payment_status: colsStatus,
-                payment_hold_status: bodyStatus.includes("additional_authorisation") ||
-                    bodyStatus.includes("incremental")
-                  ? (bodyStatus.includes("fail")
-                    ? "incremental_authorisation_failed"
-                    : "incremental_authorisation_pending")
-                  : bodyStatus,
-                updated_at: new Date().toISOString(),
-              }).eq("id", trip_id);
-            }
-          }
+          }, "complete_trip_finalize_capture");
           }
         } else if (isCardPaymentMethodFlag && !needsProviderSettlement) {
           // Card trip without usable provider order/session — persist explicit failure.
@@ -4733,7 +4719,12 @@ Deno.serve(async (req) => {
         }, "complete_trip_p2");
         stages.mark('response_ready');
         completeTripStagesMs = stages.snapshot();
-        return await respondOk({ success: true, action: 'complete_trip' });
+        return await respondOk({
+          success: true,
+          action: 'complete_trip',
+          // Bug #23: client telemetry — capture/TEN ran (or will run) off the Rate path.
+          payment_capture_deferred: paymentCaptureDeferred,
+        });
       }
 
       default:
