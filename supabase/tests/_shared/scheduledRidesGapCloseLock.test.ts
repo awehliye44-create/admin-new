@@ -99,9 +99,18 @@ Deno.test("Return Job cancel_confirmed treats awaiting_activation as committed +
   assertStringIncludes(src, '.from("ride_offers")');
   // Assign Now HELD never had broadcast_at — Return Job reopens marketplace when
   // airport pricing allows (Phase 3: rematchBroadcastEnabled gate).
+  // Bug #22: marketplace reopen via shared SSOT (status=scheduled, not offered).
   assertStringIncludes(src, "rematchBroadcastEnabled");
-  assertStringIncludes(src, "scheduled_broadcast_at: rematchBroadcastEnabled ? broadcastAt : null");
+  assertStringIncludes(src, "buildScheduledMarketplaceRematchPatch");
   assertStringIncludes(src, "pre-window scheduled-dispatch kick failed");
+  const ssot = await Deno.readTextFile(
+    new URL(
+      "../../functions/_shared/scheduledPreActivationReleaseSSOT.ts",
+      import.meta.url,
+    ),
+  );
+  assertStringIncludes(ssot, "scheduled_broadcast_at: input.broadcastAtIso");
+  assertStringIncludes(ssot, 'status: "scheduled"');
   // Marketplace Accept must normalize to preconfirm (no live driver_id).
   assertStringIncludes(src, "accept preconfirm normalize");
   assertStringIncludes(src, "driver_id: null");
@@ -214,14 +223,15 @@ Deno.test("auto-dispatch blocks Admin HELD / preconfirm / activation even with f
   assert(heldIdx >= 0 && abortDefIdx > heldIdx, "HELD gate must run before abortDispatch def");
 });
 
-Deno.test("cancel_confirmed customer notify deep-links by check-in window", async () => {
+Deno.test("cancel_confirmed customer notify deep-links by urgent convert window (Bug #22)", async () => {
   const src = await Deno.readTextFile(
     new URL("../../functions/scheduled-ride-action/index.ts", import.meta.url),
   );
   assertStringIncludes(
     src,
-    'path: isCheckinOpen ? "/booking/finding-drivers" : "/account/rides"',
+    'path: isUrgentConvert ? "/booking/finding-drivers" : "/account/rides"',
   );
+  assertStringIncludes(src, "shouldUrgentConvertOnPreActivationRelease");
 });
 
 Deno.test("get-active-trip never treats HELD/preconfirm clocks as live", async () => {

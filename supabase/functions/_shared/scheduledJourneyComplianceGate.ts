@@ -14,9 +14,11 @@ import {
   type ScheduledJourneyComplianceResult,
 } from "./scheduledJourneyComplianceSSOT.ts";
 import {
-  buildMakeAvailableScheduledJobsPatch,
   buildBroadcastNowPatch,
 } from "./scheduledAdminReleaseSSOT.ts";
+import {
+  buildScheduledMarketplaceRematchPatch,
+} from "./scheduledPreActivationReleaseSSOT.ts";
 import { resolveScheduledDispatchConfig } from "./scheduledDispatchConfig.ts";
 import { maxBroadcastSequences } from "./dispatch-settings.ts";
 import { notifyCustomerTripLifecycle } from "./customerTripLifecycleNotify.ts";
@@ -306,36 +308,14 @@ export async function releaseConfirmedScheduledForCompliance(
       currentBroadcastEnabled: trip.broadcast_enabled,
     });
   } else {
-    patch = {
-      ...buildMakeAvailableScheduledJobsPatch({ nowIso }),
-      driver_id: null,
-      confirmed_driver_id: null,
-      cancelled_at: null,
-      cancelled_by: null,
-      cancellation_reason: null,
-      scheduled_status: rematchBroadcastEnabled ? "broadcasting" : "admin_held",
-      scheduled_broadcast_at: rematchBroadcastEnabled ? broadcastAt : null,
-      status: rematchBroadcastEnabled ? "offered" : "scheduled",
-      dispatch_status: "available",
-      broadcast_enabled: rematchBroadcastEnabled,
-      scheduled_hold_reason: rematchBroadcastEnabled
-        ? "publication_pending"
-        : "airport_pricing",
-      scheduled_driver_risk: false,
-      current_offer_driver_id: null,
-      current_offer_expires_at: null,
-      commitment_time: null,
-      scheduled_committed_at: null,
-      // Clear assignment-specific JIT / route / ETA
-      scheduled_jit_activate_at: null,
-      scheduled_jit_eta_minutes: null,
-      scheduled_jit_eta_observed_at: null,
-      scheduled_jit_distance_kind: null,
-      scheduled_jit_eta_source: null,
-      scheduled_jit_basis_scheduled_at: null,
-      scheduled_jit_eta_spike_samples: 0,
-      updated_at: nowIso,
-    };
+    // Bug #22 shared SSOT with cancel_confirmed — never stamp status=offered.
+    patch = buildScheduledMarketplaceRematchPatch({
+      nowIso,
+      broadcastAtIso: String(broadcastAt),
+      broadcastEnabled: rematchBroadcastEnabled,
+      cancellationReason: null,
+      cancellationNote: null,
+    });
   }
 
   const { data: updated, error: updErr } = await supabase

@@ -35,9 +35,15 @@ Deno.test("cancel_confirmed rematch: same trip, no terminal cancelled_at, declin
   const src = await readCancelAction();
   const block = src.slice(src.indexOf('ACTION: CANCEL CONFIRMED'));
   assertStringIncludes(block, 'rpc("decline_scheduled_ride"');
-  assertStringIncludes(block, "cancelled_at: null");
-  assertStringIncludes(block, "driver_id: null");
-  assertStringIncludes(block, "confirmed_driver_id: null");
+  // Bug #22: rematch patch SSOT clears cancelled_at (never terminal cancel stamp).
+  assertStringIncludes(block, "buildScheduledMarketplaceRematchPatch");
+  assertStringIncludes(block, "buildScheduledUrgentRematchPatch");
+  const ssot = await Deno.readTextFile(
+    new URL("./scheduledPreActivationReleaseSSOT.ts", import.meta.url),
+  );
+  assertStringIncludes(ssot, "cancelled_at: null");
+  assertStringIncludes(ssot, "driver_id: null");
+  assertStringIncludes(ssot, "confirmed_driver_id: null");
   // Phase 3: rematch preserves airport hold — never force broadcast_enabled: true.
   assertStringIncludes(block, "rematchBroadcastEnabled");
   assertStringIncludes(block, "airport pricing hold");

@@ -15,7 +15,6 @@ import {
   validationErrorResponse,
 } from "../_shared/security.ts";
 import {
-  buildScheduledUrgentConversionPatch,
   resolveScheduledDispatchConfig,
 } from "../_shared/scheduledDispatchConfig.ts";
 import { maxBroadcastSequences } from "../_shared/dispatch-settings.ts";
@@ -29,6 +28,11 @@ import {
 } from "../_shared/scheduledMarketplaceCommissionWalletGate.ts";
 import { broadcastScheduledMarketplaceChanged } from "../_shared/scheduledMarketplaceRealtimeBroadcastSSOT.ts";
 import { assertScheduledJourneyComplianceForDriverTrip } from "../_shared/scheduledJourneyComplianceGate.ts";
+import {
+  shouldUrgentConvertOnPreActivationRelease,
+  buildScheduledMarketplaceRematchPatch,
+  buildScheduledUrgentRematchPatch,
+} from "../_shared/scheduledPreActivationReleaseSSOT.ts";
 
 const RATE_LIMIT_CONFIG = {
   limit: 60,
@@ -827,19 +831,32 @@ Deno.serve(async (req) => {
         p_driver_id: driver_id,
       });
 
-      // Determine if check-in window is open
-      const scheduledAt = new Date(trip.scheduled_at).getTime();
-      const checkinOpenMs = scheduledAt - checkInWindowMinutes * 60_000;
+      // Bug #22: unclaimed scheduled→instant clock = urgentTrigger (NOT check-in).
+      // Check-in (~20m) is activation UI only; premature convert used the wrong clock.
+      const { data: globalCfgForCancel } = await supabase
+        .from("global_dispatch_settings")
+        .select(
+          "max_driver_find_time_minutes, max_dispatch_rounds, urgent_dispatch_trigger_minutes_before_pickup",
+        )
+        .eq("singleton", true)
+        .maybeSingle();
+      const cancelDispatchCfg = resolveScheduledDispatchConfig(
+        globalCfgForCancel ?? {},
+      );
       const nowMs = Date.now();
-      const isCheckinOpen = nowMs >= checkinOpenMs;
+      const scheduledAt = new Date(trip.scheduled_at).getTime();
       const minutesToPickup = (scheduledAt - nowMs) / 60_000;
+      const isUrgentConvert = shouldUrgentConvertOnPreActivationRelease({
+        scheduledAtIso: String(trip.scheduled_at),
+        nowMs,
+        urgentTriggerMinutesBeforePickup:
+          cancelDispatchCfg.urgentTriggerMinutesBeforePickup,
+      });
 
-      // §11/§12 dispatch_status: before commitment → 'available', after → 'urgent_rebroadcast'
       const wasCommitted =
         trip.scheduled_status === "scheduled_committed" ||
         trip.scheduled_status === "awaiting_activation_accept" ||
         trip.scheduled_status === "driver_assigned";
-      const cancelDispatchStatus = wasCommitted ? "urgent_rebroadcast" : "available";
 
       // Stamp broadcast_at when missing so marketplace / Step 2 can see the job
       // (Assign Now HELD never had broadcast_at — Return Job must reopen it).
@@ -852,9 +869,8 @@ Deno.serve(async (req) => {
       // Rematch — same trip id / fare. Do NOT stamp terminal cancelled_at while
       // the booking is still live for rematching (Customer must not see Cancelled).
       // Cancelling driver is excluded via decline_scheduled_ride above.
-      // Pre-window: scheduled_status=broadcasting (marketplace). Check-in open:
-      // keep broadcasting until conversion patch below flips to searching —
-      // never show Finding from this stamp alone.
+      // Pre-urgent: Make Available–shaped marketplace (status=scheduled) — never
+      // status=offered (Bug #22 Finding stamp). Urgent: shared convert SSOT.
       // Phase 3: never clear an airport pricing hold on rematch reopen.
       const { data: rematchGateTrip } = await supabase
         .from("trips")
@@ -863,31 +879,63 @@ Deno.serve(async (req) => {
         .maybeSingle();
       const rematchBroadcastEnabled =
         rematchGateTrip?.broadcast_enabled !== false;
-      const rematchHoldReason =
-        rematchGateTrip?.broadcast_enabled === false
-          ? "airport_pricing"
-          : "publication_pending";
-      const { error: updateError } = await supabase
-        .from("trips")
-        .update({
-          driver_id: null,
-          confirmed_driver_id: null,
-          cancelled_by: null,
+
+      let rematchPatch: Record<string, unknown>;
+      if (isUrgentConvert && rematchBroadcastEnabled) {
+        const maxFindDriverMinutes = cancelDispatchCfg.maxFindDriverMinutes;
+        const instantMaxSequences = maxBroadcastSequences(
+          { max_dispatch_rounds: globalCfgForCancel?.max_dispatch_rounds },
+          null,
+        );
+        const { data: priorConvertOffers } = await supabase
+          .from("ride_offers")
+          .select("broadcast_round")
+          .eq("trip_id", trip_id)
+          .order("broadcast_round", { ascending: false })
+          .limit(1);
+        const maxExistingBroadcastRound = Number(
+          priorConvertOffers?.[0]?.broadcast_round ?? 0,
+        );
+        rematchPatch = {
+          ...buildScheduledUrgentRematchPatch({
+            nowIso: releaseNowIso,
+            searchingExpiresAtIso: new Date(
+              nowMs + maxFindDriverMinutes * 60_000,
+            ).toISOString(),
+            maxExistingBroadcastRound: Number.isFinite(maxExistingBroadcastRound)
+              ? maxExistingBroadcastRound
+              : 0,
+            maxBroadcastSequences: instantMaxSequences,
+            currentBroadcastEnabled: rematchBroadcastEnabled,
+          }),
           cancellation_reason: cancellation_reason,
           cancellation_note: cancellation_note || null,
-          cancelled_at: null,
-          scheduled_status: rematchBroadcastEnabled ? "broadcasting" : "admin_held",
-          scheduled_broadcast_at: rematchBroadcastEnabled ? broadcastAt : null,
-          status: isCheckinOpen ? "pending" : (rematchBroadcastEnabled ? "offered" : "scheduled"),
-          dispatch_status: cancelDispatchStatus,  // §11/§12 SSOT
-          broadcast_enabled: rematchBroadcastEnabled,
-          scheduled_hold_reason: rematchHoldReason,
-          // Reset commitment columns if present
-          scheduled_driver_risk: false,
-          current_offer_driver_id: null,
-          current_offer_expires_at: null,
-          updated_at: releaseNowIso,
-        })
+        };
+      } else if (isUrgentConvert && !rematchBroadcastEnabled) {
+        console.warn(
+          "[scheduled-ride-action] cancel_confirmed: airport pricing hold — skip urgent convert",
+          { trip_id },
+        );
+        rematchPatch = buildScheduledMarketplaceRematchPatch({
+          nowIso: releaseNowIso,
+          broadcastAtIso: broadcastAt,
+          broadcastEnabled: false,
+          cancellationReason: cancellation_reason,
+          cancellationNote: cancellation_note || null,
+        });
+      } else {
+        rematchPatch = buildScheduledMarketplaceRematchPatch({
+          nowIso: releaseNowIso,
+          broadcastAtIso: broadcastAt,
+          broadcastEnabled: rematchBroadcastEnabled,
+          cancellationReason: cancellation_reason,
+          cancellationNote: cancellation_note || null,
+        });
+      }
+
+      const { error: updateError } = await supabase
+        .from("trips")
+        .update(rematchPatch)
         .eq("id", trip_id);
 
       if (updateError) {
@@ -911,7 +959,10 @@ Deno.serve(async (req) => {
         p_details: JSON.stringify({
           reason: cancellation_reason,
           note: cancellation_note || null,
-          checkin_was_open: isCheckinOpen,
+          urgent_convert: isUrgentConvert,
+          urgent_trigger_minutes:
+            cancelDispatchCfg.urgentTriggerMinutesBeforePickup,
+          checkin_window_minutes: checkInWindowMinutes,
         }),
       });
 
@@ -935,67 +986,25 @@ Deno.serve(async (req) => {
         }
       }
 
-      // If check-in window is open, convert to instant and trigger auto-dispatch immediately
-      if (isCheckinOpen) {
-        const { data: globalCfg } = await supabase
-          .from("global_dispatch_settings")
-          .select("max_driver_find_time_minutes, max_dispatch_rounds")
-          .eq("singleton", true)
-          .maybeSingle();
-        const maxFindDriverMinutes = resolveScheduledDispatchConfig(globalCfg ?? {}).maxFindDriverMinutes;
-        const instantMaxSequences = maxBroadcastSequences(
-          { max_dispatch_rounds: globalCfg?.max_dispatch_rounds },
-          null,
+      // Urgent unclaimed convert → auto-dispatch. Pre-urgent → marketplace sweep only.
+      if (isUrgentConvert && rematchBroadcastEnabled) {
+        try {
+          await fetch(`${supabaseUrl}/functions/v1/auto-dispatch`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${supabaseKey}`,
+            },
+            body: JSON.stringify({ trip_id, force_rebroadcast: true }),
+          });
+        } catch (e) {
+          console.error("[scheduled-ride-action] auto-dispatch trigger failed:", e);
+        }
+        console.log(
+          "[scheduled-ride-action] Urgent window: converted to instant ride, auto-dispatch triggered",
         );
-        const convertNow = new Date();
-        const { data: priorConvertOffers } = await supabase
-          .from("ride_offers")
-          .select("broadcast_round")
-          .eq("trip_id", trip_id)
-          .order("broadcast_round", { ascending: false })
-          .limit(1);
-        const maxExistingBroadcastRound = Number(
-          priorConvertOffers?.[0]?.broadcast_round ?? 0,
-        );
-          if (!rematchBroadcastEnabled) {
-            console.warn(
-              "[scheduled-ride-action] cancel_confirmed: airport pricing hold — skip urgent convert",
-              { trip_id },
-            );
-          } else {
-            await supabase
-              .from("trips")
-              .update(buildScheduledUrgentConversionPatch({
-              nowIso: convertNow.toISOString(),
-              searchingExpiresAtIso: new Date(
-                convertNow.getTime() + maxFindDriverMinutes * 60_000,
-              ).toISOString(),
-              maxExistingBroadcastRound: Number.isFinite(maxExistingBroadcastRound)
-                ? maxExistingBroadcastRound
-                : 0,
-              maxBroadcastSequences: instantMaxSequences,
-              broadcastEnabled: rematchBroadcastEnabled,
-            }))
-              .eq("id", trip_id);
-
-          // Trigger auto-dispatch immediately — don't wait for expire-offers sweep
-          try {
-            await fetch(`${supabaseUrl}/functions/v1/auto-dispatch`, {
-              method: "POST",
-              headers: {
-                "Content-Type": "application/json",
-                Authorization: `Bearer ${supabaseKey}`,
-              },
-              body: JSON.stringify({ trip_id, force_rebroadcast: true }),
-            });
-          } catch (e) {
-            console.error("[scheduled-ride-action] auto-dispatch trigger failed:", e);
-          }
-
-          console.log("[scheduled-ride-action] Check-in open: converted to instant ride, auto-dispatch triggered");
-          }
       } else if (rematchBroadcastEnabled) {
-        // Pre-window Return Job: reopen marketplace (broadcast_at stamped above).
+        // Pre-urgent Return Job: reopen marketplace (broadcast_at stamped above).
         // Nearby auto-dispatch stays off while dispatch_mode=scheduled — kick the
         // scheduled-dispatch sweep so Requested tab / STEP 2b escalation see it.
         try {
@@ -1022,7 +1031,7 @@ Deno.serve(async (req) => {
           .eq("id", trip_id)
           .single();
         if (tripForNotif?.passenger_id) {
-          const customerMsg = isCheckinOpen
+          const customerMsg = isUrgentConvert
             ? "We're finding you a replacement driver right now."
             : "We're looking for another driver for your scheduled trip.";
           await notifyCustomerTripLifecycle(supabase, {
@@ -1032,8 +1041,8 @@ Deno.serve(async (req) => {
             title: "Driver cancelled",
             body: customerMsg,
             notificationId: `driver_cancelled-scheduled-${trip_id}`,
-            // Pre-window rematch stays list-only; check-in open → Finding.
-            path: isCheckinOpen ? "/booking/finding-drivers" : "/account/rides",
+            // Pre-urgent rematch stays list-only; urgent convert → Finding.
+            path: isUrgentConvert ? "/booking/finding-drivers" : "/account/rides",
           });
         }
       } catch (notifErr) {
@@ -1044,7 +1053,7 @@ Deno.serve(async (req) => {
         await broadcastScheduledMarketplaceChanged(supabase, {
           tripId: trip_id,
           serviceAreaId: trip.service_area_id ?? null,
-          reason: isCheckinOpen ? "converted" : "cancelled",
+          reason: isUrgentConvert ? "converted" : "cancelled",
         });
       } catch (broadcastErr) {
         console.warn(
@@ -1057,7 +1066,7 @@ Deno.serve(async (req) => {
         success: true,
         trip_id: trip_id,
         message: "Scheduled job cancelled successfully",
-        converted_to_instant: isCheckinOpen,
+        converted_to_instant: Boolean(isUrgentConvert && rematchBroadcastEnabled),
       });
     }
 
