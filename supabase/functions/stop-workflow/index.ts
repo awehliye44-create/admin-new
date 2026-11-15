@@ -4118,7 +4118,9 @@ Deno.serve(async (req) => {
         }
 
         // P0: Close any open intermediate stop waiting before completion (multi-stop SSOT).
+        // Bug #23 latency: skip aggregate waiting re-read when no open stop waiting closed.
         stages.mark('waiting_finalize_start');
+        let closedOpenStopWaiting = false;
         for (const stopRow of stops ?? []) {
           if (
             stopRow.type === 'stop' &&
@@ -4129,19 +4131,30 @@ Deno.serve(async (req) => {
               driverLat: typeof driver_lat === 'number' ? driver_lat : undefined,
               driverLng: typeof driver_lng === 'number' ? driver_lng : undefined,
             });
+            closedOpenStopWaiting = true;
           }
         }
-        await updateTripTotalWaiting(supabase, trip_id);
+        if (closedOpenStopWaiting) {
+          await updateTripTotalWaiting(supabase, trip_id);
+        }
         stages.mark('waiting_finalize_end');
 
         stages.mark('fare_lookup_start');
-        const { data: tripBeforeComplete } = await supabase
-          .from("trips")
-          .select("*")
-          .eq("id", trip_id)
-          .single();
+        // Reuse the request trip row when waiting did not change; only re-select
+        // when stop-waiting finalize may have mutated fare columns.
+        let tripBeforeComplete: Record<string, unknown> = trip as Record<string, unknown>;
+        if (closedOpenStopWaiting) {
+          const { data: refreshedFareTrip } = await supabase
+            .from("trips")
+            .select("*")
+            .eq("id", trip_id)
+            .single();
+          if (refreshedFareTrip) {
+            tripBeforeComplete = refreshedFareTrip as Record<string, unknown>;
+          }
+        }
 
-        const resolvedFare = resolveTripFare((tripBeforeComplete ?? trip) as TripFareRow);
+        const resolvedFare = resolveTripFare(tripBeforeComplete as TripFareRow);
         const finalFarePence = resolvedFare.final_fare_pence;
         const finalFareMajor = finalFarePence / 100;
         const totalWaitingPence =
@@ -4156,7 +4169,7 @@ Deno.serve(async (req) => {
         // Stamp the tip window in the same write as status=completed. The invoice
         // trigger fires on that status change and re-reads the committed row; a
         // later stamp loses the race and can email before capture.
-        const tripForTipWindow = (tripBeforeComplete ?? trip) as Record<string, unknown>;
+        const tripForTipWindow = tripBeforeComplete;
         // Capture and expiry both require provider_order_id. A session-only trip
         // must not open a window they cannot close.
         let tipWindowOrderId = String(tripForTipWindow.provider_order_id ?? "").trim();
@@ -4250,7 +4263,15 @@ Deno.serve(async (req) => {
         }
 
         stages.mark('completion_writes_start');
-        const [, , commissionResult, driverRegionResult] = await Promise.all([
+        const finalCustomerFarePence =
+          nonNegInt(tripBeforeComplete.final_customer_fare_pence) || finalFarePence;
+        const [
+          ,
+          completionWriteResult,
+          commissionResult,
+          driverRegionResult,
+          queuedCountResult,
+        ] = await Promise.all([
           incompleteStopIds.length > 0
             ? supabase
                 .from("trip_stops")
@@ -4261,7 +4282,7 @@ Deno.serve(async (req) => {
                   updated_at: now,
                 })
                 .in("id", incompleteStopIds)
-            : Promise.resolve(),
+            : Promise.resolve({ data: null, error: null }),
           supabase
             .from("trips")
             .update({
@@ -4274,64 +4295,113 @@ Deno.serve(async (req) => {
               fare: finalFareMajor,
               estimated_fare: finalFareMajor,
               final_fare_pence: finalFarePence,
-              final_customer_fare_pence:
-                nonNegInt((tripBeforeComplete ?? trip).final_customer_fare_pence) || finalFarePence,
+              final_customer_fare_pence: finalCustomerFarePence,
               pickup_waiting_charge_pence: resolvedFare.arrival_waiting_charge_pence,
               stop_waiting_charge_pence: resolvedFare.stop_waiting_charge_pence,
               stop_charge_total_pence: resolvedFare.stop_waiting_charge_pence,
               total_waiting_charge_pence: totalWaitingPence,
               waiting_charge_pence: totalWaitingPence,
-              ...(tipWindowOrderId && !String((tripBeforeComplete ?? trip).provider_order_id ?? "").trim()
+              ...(tipWindowOrderId && !String(tripBeforeComplete.provider_order_id ?? "").trim()
                 ? { provider_order_id: tipWindowOrderId }
                 : {}),
               ...(tipWindowOnComplete ?? {}),
               updated_at: now,
             })
-            .eq("id", trip_id),
-          getDriverCommissionPct(supabase, driver_id, (tripBeforeComplete ?? trip).service_area_id),
+            .eq("id", trip_id)
+            .select("id, status, completed_at")
+            .maybeSingle(),
+          getDriverCommissionPct(supabase, driver_id, tripBeforeComplete.service_area_id as string | null),
           supabase
             .from('drivers')
             .select('region_id, total_trips, regions(currency_code)')
             .eq('id', driver_id)
             .single(),
+          // Queued stacked trips may exist even if stacked_trip_id link was cleared (max 2–3).
+          supabase
+            .from("trips")
+            .select("id", { count: "exact", head: true })
+            .eq("status", "queued")
+            .or(`driver_id.eq.${driver_id},confirmed_driver_id.eq.${driver_id}`),
         ]);
+        if (completionWriteResult?.error) {
+          console.error("[stop-workflow] complete_trip completion write failed", {
+            trip_id,
+            error: completionWriteResult.error.message,
+          });
+          return errorResponse(
+            "COMPLETION_WRITE_FAILED",
+            "Unable to complete this trip. Please try again.",
+            500,
+            completionWriteResult.error,
+          );
+        }
+        if (!completionWriteResult?.data) {
+          // Race: another writer may have completed/cancelled. Re-check for idempotent path.
+          const { data: racedTrip } = await supabase
+            .from("trips")
+            .select("status")
+            .eq("id", trip_id)
+            .maybeSingle();
+          if (String(racedTrip?.status ?? "").toLowerCase() === "completed") {
+            stages.mark('idempotent_race_completed');
+            completeTripStagesMs = stages.snapshot();
+            return await respondOk({
+              success: true,
+              idempotent: true,
+              message: "Trip already completed",
+              payment_capture_deferred: true,
+              trip: {
+                id: trip_id,
+                status: "completed",
+                dispatch_status: "completed",
+              },
+              stops: stops ?? [],
+            }, { skipSnapshotRefresh: true });
+          }
+          return errorResponse(
+            "COMPLETION_WRITE_FAILED",
+            "Unable to complete this trip. Please try again.",
+            500,
+          );
+        }
         stages.mark('completion_writes_end');
 
-        // Queued stacked trips may exist even if stacked_trip_id link was cleared (max 2–3).
-        const { count: remainingQueuedCount } = await supabase
-          .from("trips")
-          .select("id", { count: "exact", head: true })
-          .eq("status", "queued")
-          .or(`driver_id.eq.${driver_id},confirmed_driver_id.eq.${driver_id}`);
+        const remainingQueuedCount = queuedCountResult.count ?? 0;
         const hasStackedTrip =
-          trip.stacked_trip_id != null || (remainingQueuedCount ?? 0) > 0;
+          trip.stacked_trip_id != null || remainingQueuedCount > 0;
 
-        if (!hasStackedTrip) {
-          // No stacked trip — clear current_trip_id (fire-and-forget is fine here)
-          await supabase
-            .from("drivers")
-            .update({ current_trip_id: null, updated_at: now })
-            .eq("id", driver_id);
-        } else {
+        if (hasStackedTrip) {
           console.log(
             "[stop-workflow] Stacked queue present:",
             {
               stacked_trip_id: trip.stacked_trip_id,
-              remaining_queued: remainingQueuedCount ?? 0,
+              remaining_queued: remainingQueuedCount,
             },
             "- keeping current_trip_id for post-trip promotion",
           );
         }
 
         // ── PHASE 2: SSOT fare + payment (P0: card → finalize-trip-and-capture) ──
+        // Bug #23: do not re-select the full trip — compose from the pre-complete
+        // row + durable completion fields already written above.
         stages.mark('settlement_start');
-        const { data: tripAfterComplete } = await supabase
-          .from("trips")
-          .select("*")
-          .eq("id", trip_id)
-          .single();
-
-        const fareTrip = tripAfterComplete ?? trip;
+        const fareTrip = {
+          ...tripBeforeComplete,
+          status: 'completed',
+          dispatch_status: 'completed',
+          completed_at: now,
+          final_fare_pence: finalFarePence,
+          final_customer_fare_pence: finalCustomerFarePence,
+          pickup_waiting_charge_pence: resolvedFare.arrival_waiting_charge_pence,
+          stop_waiting_charge_pence: resolvedFare.stop_waiting_charge_pence,
+          stop_charge_total_pence: resolvedFare.stop_waiting_charge_pence,
+          total_waiting_charge_pence: totalWaitingPence,
+          waiting_charge_pence: totalWaitingPence,
+          ...(tipWindowOrderId && !String(tripBeforeComplete.provider_order_id ?? "").trim()
+            ? { provider_order_id: tipWindowOrderId }
+            : {}),
+          ...(tipWindowOnComplete ?? {}),
+        };
         const regionData = driverRegionResult?.data?.regions as { currency_code?: string } | null;
         const ledgerCurrency = regionData?.currency_code || null;
 
@@ -4775,31 +4845,22 @@ Deno.serve(async (req) => {
           await tripIncrementPromise;
         }
 
-        // Server-side stacked promotion — do not wait for driver post-trip rating UI.
-        // RPC falls back to stack_position when stacked_trip_id is null (Admin max 2–3).
+        // Bug #23: stacked promotion is atomic + idempotent (promote_stacked_trip RPC;
+        // payment-confirm path also retries). Run off the Rate response so Complete
+        // is not blocked ~400ms; Driver stays on Rate until hydrate / next offer.
         if (hasStackedTrip) {
-          stages.mark('stacked_promotion_start');
-          const promotion = await tryPromoteStackedTripAfterCompletion(
-            supabase,
-            driver_id,
-            trip_id,
-          );
-          stages.mark('stacked_promotion_end');
-          console.log("[stop-workflow] STACKED_TRIP_PROMOTION_AFTER_COMPLETE", {
-            completed_trip_id: trip_id,
-            stacked_trip_id: trip.stacked_trip_id,
-            remaining_queued: remainingQueuedCount ?? 0,
-            promoted: promotion.promoted,
-            detail: promotion.detail ?? null,
-          });
+          stages.mark('stacked_promotion_enqueue');
         }
 
         console.log("[stop-workflow] COMPLETE_TRIP success");
-        // Financial + status completion already durable. P2: customer notify + tap audit.
+        // Financial + status completion already durable. P2: notify, audit, clear
+        // current_trip_id (non-stacked), stacked promotion (stacked).
         stages.mark('notification_enqueue');
         const completePassengerId =
           typeof trip.passenger_id === "string" ? trip.passenger_id : null;
         const completeFinalStopIndex = finalStop.stop_index;
+        const stackedTripIdForPromote =
+          typeof trip.stacked_trip_id === "string" ? trip.stacked_trip_id : null;
         scheduleEdgeBackground(async () => {
           await writeTripAudit(supabase, {
             trip_id,
@@ -4812,7 +4873,49 @@ Deno.serve(async (req) => {
             tripId: trip_id,
             event: "trip_completed",
           });
+          if (!hasStackedTrip) {
+            const { error: clearCurrentErr } = await supabase
+              .from("drivers")
+              .update({ current_trip_id: null, updated_at: new Date().toISOString() })
+              .eq("id", driver_id);
+            if (clearCurrentErr) {
+              console.warn("[stop-workflow] clear current_trip_id after complete failed", {
+                trip_id,
+                error: clearCurrentErr.message,
+              });
+            }
+          } else {
+            const promotion = await tryPromoteStackedTripAfterCompletion(
+              supabase,
+              driver_id,
+              trip_id,
+            );
+            console.log("[stop-workflow] STACKED_TRIP_PROMOTION_AFTER_COMPLETE", {
+              completed_trip_id: trip_id,
+              stacked_trip_id: stackedTripIdForPromote,
+              remaining_queued: remainingQueuedCount,
+              promoted: promotion.promoted,
+              detail: promotion.detail ?? null,
+              source: "complete_trip_p2",
+            });
+          }
         }, "complete_trip_p2");
+
+        // Minimal authoritative completion envelope — skip full trip/stops re-select.
+        // In-memory stops already loaded; mark incomplete rows completed for the client.
+        const responseStops = (stops ?? []).map((s) => {
+          if (s.status === "completed" || s.status === "skipped") return s;
+          return {
+            ...s,
+            status: "completed" as StopStatus,
+            completed_at: now,
+            arrived_at: s.arrived_at ?? now,
+            updated_at: now,
+          };
+        });
+        const responsePaymentStatus = paymentCaptureDeferred
+          ? "capture_requested"
+          : String(fareTrip.payment_status ?? trip.payment_status ?? "");
         stages.mark('response_ready');
         completeTripStagesMs = stages.snapshot();
         return await respondOk({
@@ -4820,7 +4923,32 @@ Deno.serve(async (req) => {
           action: 'complete_trip',
           // Bug #23: client telemetry — capture/TEN ran (or will run) off the Rate path.
           payment_capture_deferred: paymentCaptureDeferred,
-        });
+          trip: {
+            id: trip_id,
+            status: "completed",
+            dispatch_status: "completed",
+            completed_at: now,
+            final_fare_pence: finalFarePence,
+            final_customer_fare_pence: finalCustomerFarePence,
+            pickup_waiting_charge_pence: resolvedFare.arrival_waiting_charge_pence,
+            stop_waiting_charge_pence: resolvedFare.stop_waiting_charge_pence,
+            total_waiting_charge_pence: totalWaitingPence,
+            payment_status: responsePaymentStatus,
+            payment_hold_status: paymentCaptureDeferred
+              ? "capture_requested"
+              : (fareTrip.payment_hold_status ?? null),
+            payment_method: fareTrip.payment_method ?? trip.payment_method ?? null,
+            financial_model: fareTrip.financial_model ?? trip.financial_model ?? null,
+            driver_id,
+            passenger_id: completePassengerId,
+            stacked_trip_id: stackedTripIdForPromote,
+            tip_window_expires_at:
+              tipWindowOnComplete?.tip_window_expires_at
+              ?? fareTrip.tip_window_expires_at
+              ?? null,
+          },
+          stops: responseStops,
+        }, { skipSnapshotRefresh: true });
       }
 
       default:
