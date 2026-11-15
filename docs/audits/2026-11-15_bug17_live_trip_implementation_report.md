@@ -197,3 +197,60 @@ Before any Play upload for the Live Trip native train:
 ## 9. Stop conditions
 
 No remaining genuine credential mismatch. Fanout safety gate was corrected (env false). Ready for your real-device acceptance after the next approved native build (Bug #21), still with remote delivery off until you approve enablement.
+
+---
+
+## 10. Ship appendix (2026-11-15 commit / push / CI / App Group)
+
+### Source SHAs (origin synced, clean trees)
+
+| Repo | Branch | SHA |
+|------|--------|-----|
+| `onecab-customer-native` | `master` | `4845b081d96a6523221ffa574768facb4577eafb` |
+| `admin-new` | `main` | `adaa9452122e9c9172ffcbb66855a364257a89f2` |
+
+Bug #28 remains immediate parent on Customer (`498e603`).
+
+### CI
+
+| Run | Result |
+|-----|--------|
+| Customer CI `43746253203` | **success** |
+| admin-new CI `43746256934` | **success** |
+| Deploy Admin Panel `43746256781` | **success** |
+
+### Kill switches (re-probed after push)
+
+- Env `CUSTOMER_LIVE_TRIP_ENABLED/ANDROID/IOS` = **false**
+- DB `customer_live_trip_settings.enabled` = **false**
+- Effective gates: global/android/ios **false**
+
+### Edge ↔ commit alignment
+
+Deployed `refresh-customer-live-trip-etas` responds with `mode=apns_probe` + `kill_switch` (post-commit markers). Publish/register include `selectLiveActivityPushToken` / sibling-token preservation in committed source; functions were deployed in the implementation pass before this commit.
+
+### Secrets in Git
+
+No credentials, `.p8`, keystores, or secret values in either commit (env secret *names* only in Edge code comments/reads).
+
+### App Group readiness (`group.com.onecab.customer.app`)
+
+| Check | Result |
+|-------|--------|
+| App Group exists in portal | **NO** (existing groups: `group.com.onecab.driver`, `group.com.onecab.app.driver`, `group.com.passenger.onecab` only) |
+| Assigned to `com.onecab.customer.app` | **NO** — App Groups capability unchecked |
+| Assigned to `com.onecab.customer.app.OneCabLiveTripWidget` | **NO** — App Groups capability unchecked |
+| Local Customer/Widget profiles contain App Group | **NO** (empty `application-groups`) |
+
+**Manual Apple Developer steps required before Bug #21 native build** (do **not** revoke distribution certs or APNs keys):
+
+1. Identifiers → **App Groups** → `+` → create `group.com.onecab.customer.app` (description e.g. “ONECAB Customer Live Trip”).
+2. Identifiers → App IDs → `com.onecab.customer.app` → enable **App Groups** → Configure → select `group.com.onecab.customer.app` → Save.
+3. Same for `com.onecab.customer.app.OneCabLiveTripWidget`.
+4. Profiles → regenerate / edit+download:
+   - `*[expo] com.onecab.customer.app AppStore …` (and Ad Hoc if used)
+   - `*[local] OneCabLiveTripWidget AppStore …`
+   - Development: `iOS Team Provisioning Profile: com.onecab.customer.app` (Xcode Automatic may refresh)
+5. Ignore already-**Invalid** legacy profiles; do not touch Driver profiles/certs/APNs keys.
+
+Until the App Group is created and profiles regenerated, local App Group photo cache will not share files with the widget; remote `AsyncImage` remains the fallback.
