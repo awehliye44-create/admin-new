@@ -134,6 +134,24 @@ Deno.test("Bug #22 lock: cancel_confirmed uses urgent SSOT + marketplace patch +
   );
 });
 
+Deno.test("Bug #22 lock: Edge CAS fallback declines only after CAS win", async () => {
+  const src = await Deno.readTextFile(
+    new URL("../scheduled-ride-action/index.ts", import.meta.url),
+  );
+  const fallback = src.slice(src.indexOf("if (!casViaSql)"));
+  const edgeOnly = fallback.slice(
+    0,
+    fallback.indexOf("if (!casReleased && casViaSql)"),
+  );
+  const casUpdateAt = edgeOnly.indexOf('.eq("confirmed_driver_id", driver_id)');
+  const declineAt = edgeOnly.indexOf('decline_scheduled_ride');
+  assertEquals(casUpdateAt >= 0, true);
+  assertEquals(declineAt >= 0, true);
+  // Decline must follow the CAS update so ACTIVATED races never exclude the live driver.
+  assertEquals(declineAt > casUpdateAt, true);
+  assertStringIncludes(edgeOnly, "CAS won — exclude cancelling driver");
+});
+
 Deno.test("Bug #22 lock: SQL driver-cancel CAS migration exists", async () => {
   const src = await Deno.readTextFile(
     new URL(

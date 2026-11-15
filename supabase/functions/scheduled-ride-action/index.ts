@@ -921,11 +921,8 @@ Deno.serve(async (req) => {
 
       if (!casViaSql) {
         // Edge CAS fallback (identical predicates) when SQL RPC not yet migrated.
-        await supabase.rpc("decline_scheduled_ride", {
-          p_trip_id: trip_id,
-          p_driver_id: driver_id,
-        });
-
+        // Order matches SQL: CAS update first, then decline — never decline an
+        // activated trip when JIT/activate won the race (Bug #22 hardening).
         let rematchPatch: Record<string, unknown>;
         if (isUrgentConvert && rematchBroadcastEnabled) {
           const maxFindDriverMinutes = cancelDispatchCfg.maxFindDriverMinutes;
@@ -1016,6 +1013,13 @@ Deno.serve(async (req) => {
             409,
           );
         }
+
+        // CAS won — exclude cancelling driver from reconfirming (same as SQL path).
+        await supabase.rpc("decline_scheduled_ride", {
+          p_trip_id: trip_id,
+          p_driver_id: driver_id,
+        });
+
         casReleased = true;
         casUrgent = Boolean(isUrgentConvert && rematchBroadcastEnabled);
 
