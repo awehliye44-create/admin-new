@@ -70,6 +70,21 @@ import {
 import {
   rescueExclusiveActivationToNearby,
 } from "../_shared/scheduledActivationExclusiveRescue.ts";
+import {
+  reconcileConfirmedScheduledJourneyCompliance,
+} from "../_shared/scheduledJourneyComplianceGate.ts";
+import {
+  shouldRescueAwaitingActivation,
+} from "../_shared/scheduledDepartureAckRescueGateSSOT.ts";
+import {
+  shouldSurfacePostActivationLateness,
+  buildPostActivationLatenessOpsAlert,
+  buildTrafficDelayNotificationId,
+} from "../_shared/scheduledPostActivationLatenessSSOT.ts";
+import {
+  isScheduledEarlyArrivalDueForUnlock,
+  unlockScheduledEarlyArrivalWaiting,
+} from "../_shared/scheduledEarlyArrivalUnlockSSOT.ts";
 
 declare const EdgeRuntime:
   | { waitUntil?: (promise: Promise<unknown>) => void }
@@ -1023,9 +1038,6 @@ Deno.serve(async (req) => {
         if (sqlReconcile && typeof sqlReconcile === "object") {
           console.log("SCHEDULED_JOURNEY_COMPLIANCE_RECONCILE", sqlReconcile);
         } else {
-          const { reconcileConfirmedScheduledJourneyCompliance } = await import(
-            "../_shared/scheduledJourneyComplianceGate.ts"
-          );
           const edgeReconcile = await reconcileConfirmedScheduledJourneyCompliance(
             supabase,
             {
@@ -1087,7 +1099,9 @@ Deno.serve(async (req) => {
       .not("confirmed_driver_id", "is", null)
       .is("driver_id", null)
       .lte("scheduled_at", lookAheadThreshold)
-      .gt("scheduled_at", new Date(nowMs - 30 * 60_000).toISOString());
+      // Keep overdue confirmed JIT in-window — never silently age out at pickup−30m.
+      // Bounded: 6h past scheduled_at covers late long-ETA recoveries without unbounded scan.
+      .gt("scheduled_at", new Date(nowMs - 6 * 60 * 60_000).toISOString());
 
     if (activationError) {
       console.error("[scheduled-dispatch] Error fetching trips for activation:", activationError);
@@ -1130,11 +1144,6 @@ Deno.serve(async (req) => {
     // Never auto-reassign. Ops alert + deduped traffic_delay only.
     // ============================================================
     {
-      const {
-        shouldSurfacePostActivationLateness,
-        buildPostActivationLatenessOpsAlert,
-        buildTrafficDelayNotificationId,
-      } = await import("../_shared/scheduledPostActivationLatenessSSOT.ts");
       const { data: enRouteLateRows } = await supabase
         .from("trips")
         .select(
@@ -1219,10 +1228,6 @@ Deno.serve(async (req) => {
     // No second Arrived press. Opens segment only if inside radius + fresh GPS.
     // ============================================================
     {
-      const {
-        isScheduledEarlyArrivalDueForUnlock,
-        unlockScheduledEarlyArrivalWaiting,
-      } = await import("../_shared/scheduledEarlyArrivalUnlockSSOT.ts");
       const { data: earlyArrivedRows } = await supabase
         .from("trips")
         .select(
@@ -1315,9 +1320,6 @@ Deno.serve(async (req) => {
       if (awaitingErr) {
         console.error("[scheduled-dispatch] awaiting activation query failed:", awaitingErr);
       } else {
-        const { shouldRescueAwaitingActivation } = await import(
-          "../_shared/scheduledDepartureAckRescueGateSSOT.ts"
-        );
         const { data: ackGds } = await supabase
           .from("global_dispatch_settings")
           .select("scheduled_departure_ack_grace_seconds")
@@ -1980,6 +1982,29 @@ Deno.serve(async (req) => {
   } catch (error: unknown) {
     const errorMessage = error instanceof Error ? error.message : "Internal server error";
     console.error("[scheduled-dispatch] Error:", error);
+    try {
+      const supabaseUrl = Deno.env.get("SUPABASE_URL");
+      const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+      if (supabaseUrl && supabaseServiceKey) {
+        const sb = createClient(supabaseUrl, supabaseServiceKey);
+        await sb.from("ops_alerts").upsert(
+          {
+            fingerprint: "scheduled_dispatch_http_500",
+            title: "scheduled-dispatch HTTP 500",
+            related_trip_id: null,
+            metadata: {
+              error: errorMessage.slice(0, 500),
+              module_not_found: /module not found/i.test(errorMessage),
+            },
+            status: "open",
+            updated_at: new Date().toISOString(),
+          },
+          { onConflict: "fingerprint" },
+        );
+      }
+    } catch {
+      /* best-effort */
+    }
     return errorResponse("INTERNAL_ERROR", errorMessage, 500);
   }
 });

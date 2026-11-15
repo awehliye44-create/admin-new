@@ -16,6 +16,10 @@ import {
   DeclineTripRequest 
 } from "../_shared/validation.ts";
 import { authenticateDriver } from "../_shared/driverAuth.ts";
+import {
+  rescueExclusiveActivationToNearby,
+  SCHEDULED_ACTIVATION_EXCLUSIVE_REASON,
+} from "../_shared/scheduledActivationExclusiveRescue.ts";
 
 // Rate limit: 50 requests per minute per IP
 const RATE_LIMIT_CONFIG = { limit: 50, windowMs: 60 * 1000 };
@@ -120,10 +124,6 @@ serve(async (req) => {
           .eq('singleton', true)
           .maybeSingle();
         const maxFind = Math.max(1, Number(gds?.max_driver_find_time_minutes ?? 6) || 6);
-        const {
-          rescueExclusiveActivationToNearby,
-          SCHEDULED_ACTIVATION_EXCLUSIVE_REASON,
-        } = await import('../_shared/scheduledActivationExclusiveRescue.ts');
         const ackPending =
           String(tripRow?.scheduled_ack_status ?? '').trim().toLowerCase() ===
           'pending';

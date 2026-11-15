@@ -48,6 +48,11 @@ import {
   runExpireOffersRebroadcastBatch,
 } from "../_shared/expireOffersRebroadcastRunner.ts";
 import { assertCronOrServiceRoleAuth } from "../_shared/cronEdgeAuth.ts";
+import { shouldRescueAwaitingActivation } from "../_shared/scheduledDepartureAckRescueGateSSOT.ts";
+import {
+  rescueExclusiveActivationToNearby,
+  SCHEDULED_ACTIVATION_EXCLUSIVE_REASON,
+} from "../_shared/scheduledActivationExclusiveRescue.ts";
 
 // Rate limit: 60 requests per minute (for cron jobs)
 const RATE_LIMIT_CONFIG = { limit: 60, windowMs: 60000, keyPrefix: 'expire-offers' };
@@ -612,13 +617,6 @@ Deno.serve(async (req) => {
         const graceSeconds = Math.max(
           0,
           Number(gds?.scheduled_departure_ack_grace_seconds ?? 10) || 10,
-        );
-        const {
-          rescueExclusiveActivationToNearby,
-          SCHEDULED_ACTIVATION_EXCLUSIVE_REASON,
-        } = await import("../_shared/scheduledActivationExclusiveRescue.ts");
-        const { shouldRescueAwaitingActivation } = await import(
-          "../_shared/scheduledDepartureAckRescueGateSSOT.ts"
         );
         const nowIso = new Date().toISOString();
         const nowMs = Date.parse(nowIso);

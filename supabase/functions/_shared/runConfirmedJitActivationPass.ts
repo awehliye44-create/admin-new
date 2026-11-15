@@ -240,6 +240,7 @@ export async function runConfirmedJitActivationPass(input: {
   let rescued = 0;
 
   for (const trip of trips) {
+    try {
     if (isTripTerminalForDispatch(trip as any)) continue;
     if (!trip.pickup_latitude || !trip.pickup_longitude) continue;
     const confirmedDriverId = String(trip.confirmed_driver_id ?? "").trim();
@@ -687,7 +688,62 @@ export async function runConfirmedJitActivationPass(input: {
     });
 
     if (decision.action === "wait" || decision.action === "hold_skip") {
+      // Overdue sticky/dynamic deadline still waiting = ops escalate (Bug #29).
+      if (
+        decision.action === "wait" &&
+        Number.isFinite(decision.deadlineMs) &&
+        nowMs - decision.deadlineMs >= 3 * 60_000
+      ) {
+        try {
+          await supabase.from("ops_alerts").upsert(
+            {
+              fingerprint: `scheduled_jit_overdue_unactivated:${trip.id}`,
+              title: "Confirmed scheduled JIT overdue without activation",
+              related_trip_id: trip.id,
+              metadata: {
+                deadline_iso: new Date(decision.deadlineMs).toISOString(),
+                overdue_minutes: Math.round((nowMs - decision.deadlineMs) / 60_000),
+                reason: decision.kind,
+                confirmed_driver_id: confirmedDriverId,
+                scheduled_status: trip.scheduled_status,
+              },
+              status: "open",
+              updated_at: now.toISOString(),
+            },
+            { onConflict: "fingerprint" },
+          );
+        } catch {
+          /* best-effort */
+        }
+      }
       continue;
+    }
+
+    // Due for arm — escalate if already 2+ minutes past authoritative deadline.
+    if (
+      Number.isFinite(decision.deadlineMs) &&
+      nowMs - decision.deadlineMs >= 2 * 60_000
+    ) {
+      try {
+        await supabase.from("ops_alerts").upsert(
+          {
+            fingerprint: `scheduled_jit_overdue_unactivated:${trip.id}`,
+            title: "Confirmed scheduled JIT overdue — arming now",
+            related_trip_id: trip.id,
+            metadata: {
+              deadline_iso: new Date(decision.deadlineMs).toISOString(),
+              overdue_minutes: Math.round((nowMs - decision.deadlineMs) / 60_000),
+              decision_action: decision.action,
+              confirmed_driver_id: confirmedDriverId,
+            },
+            status: "open",
+            updated_at: now.toISOString(),
+          },
+          { onConflict: "fingerprint" },
+        );
+      } catch {
+        /* best-effort */
+      }
     }
 
     // Only infeasible commitment (or explicit conflict) rescues — never premature
@@ -951,6 +1007,31 @@ export async function runConfirmedJitActivationPass(input: {
       trip_id: trip.id,
       action: (decision as { action?: string }).action,
     });
+    } catch (tripErr) {
+      // One trip must never abort the whole confirmed-JIT sweep (Bug #29).
+      console.error("[jit-activation] per-trip failure isolated", {
+        trip_id: trip?.id ?? null,
+        error: tripErr instanceof Error ? tripErr.message : String(tripErr),
+      });
+      try {
+        await supabase.from("ops_alerts").upsert(
+          {
+            fingerprint: `scheduled_jit_trip_eval_failed:${String(trip?.id ?? "unknown")}`,
+            title: "Scheduled JIT trip evaluation failed",
+            related_trip_id: trip?.id ? String(trip.id) : null,
+            metadata: {
+              error: tripErr instanceof Error ? tripErr.message : String(tripErr),
+              confirmed_driver_id: trip?.confirmed_driver_id ?? null,
+            },
+            status: "open",
+            updated_at: now.toISOString(),
+          },
+          { onConflict: "fingerprint" },
+        );
+      } catch {
+        /* best-effort */
+      }
+    }
   }
 
   return { activated, armed, monitored, rescued };

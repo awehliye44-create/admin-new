@@ -16,6 +16,8 @@ import {
   isTripTerminalForDispatch,
   TERMINAL_TRIP_STATUS_POSTGREST_LIST,
 } from "./tripTerminalDispatch.ts";
+import { assertScheduledJourneyComplianceForDriverTrip } from "./scheduledJourneyComplianceGate.ts";
+import { isSoftPresenceIneligibilityForDepartureAck } from "./scheduledDepartureAckSSOT.ts";
 
 export type ExclusiveRescueResult =
   | { ok: true; rescued: true; tripId: string; reason: string }
@@ -346,9 +348,7 @@ export async function evaluateConfirmedDriverExclusiveEligibility(
   if (!eligibility.eligible) {
     if (
       args.allowOfflineForDepartureAck &&
-      (await import("./scheduledDepartureAckSSOT.ts")).isSoftPresenceIneligibilityForDepartureAck(
-        eligibility.reason,
-      )
+      isSoftPresenceIneligibilityForDepartureAck(eligibility.reason)
     ) {
       // Soft presence failure — still arm acknowledgement.
     } else {
@@ -370,9 +370,6 @@ export async function evaluateConfirmedDriverExclusiveEligibility(
 
   // Journey-horizon compliance (Phase 4 exclusive / Phase 5 ack).
   {
-    const { assertScheduledJourneyComplianceForDriverTrip } = await import(
-      "./scheduledJourneyComplianceGate.ts"
-    );
     const journey = await assertScheduledJourneyComplianceForDriverTrip(supabase, {
       driverId: args.driverId,
       tripId: args.tripId,
