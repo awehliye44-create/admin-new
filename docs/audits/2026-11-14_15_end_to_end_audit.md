@@ -8,7 +8,7 @@
 
 | Surface | Repo | Release pin | Notes |
 | --- | --- | --- | --- |
-| Backend (Bug #22 + CAS) | `admin-new` | **`<NEW_SHA_AFTER_PUSH>`** (must include `8b3c5c54` + CAS hardening) | Tip after this commit |
+| Backend (Bug #22 + CAS) | `admin-new` | **`cd059353`** (includes `8b3c5c54` + CAS hardening) | Tip `cd059353` |
 | Customer Bug #22 | `onecab-customer-native` | **`f25365ba`** | Unchanged |
 | Driver multi-stop + marker | `onecab-driver-native` | **`9db6b5cc`** | Includes `b7c6e46`, `3a67fce`, `ea30ffa` |
 
@@ -94,7 +94,10 @@ Two streams exist. This report **preserves both**.
 
 ### CI
 
-Filled after push (mandatory remote CI).
+- Release pin: `cd059353` (ancestor chain includes `8b3c5c54`)
+- Remote CI: https://github.com/awehliye44-create/admin-new/actions/runs/43706701017 (**success** — Build · SSOT + PostgreSQL gates)
+- Customer pin CI (unchanged): https://github.com/awehliye44-create/onecab-customer-native/actions/runs/43704514348
+- Driver pin CI (unchanged): https://github.com/awehliye44-create/onecab-driver-native/actions/runs/43703679296
 
 ---
 
