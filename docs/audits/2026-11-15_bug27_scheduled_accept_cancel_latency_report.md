@@ -86,8 +86,8 @@ Dashboards:
 ```bash
 # Edge: redeploy scheduled-ride-action from commit before 535076b4 (prior v591 content)
 # Driver OTA → Bug #26 groups:
-eas update:rollback --branch production --group 61d3ce7a-…   # iOS Bug #26 (confirm ID in Expo)
-eas update:rollback --branch production --group 7ab5a638-…   # Android Bug #26
+eas update:rollback --branch production --group 61d3ce7a-78b3-4b77-9b6c-c35c7f041df5   # iOS
+eas update:rollback --branch production --group 7ab5a638-2286-4f7b-be7d-b606d052bf6d   # Android
 # Or dashboard rollback of groups 4b8a5134… / b99543bc…
 ```
 
