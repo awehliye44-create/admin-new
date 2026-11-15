@@ -33,6 +33,7 @@ import {
   buildScheduledMarketplaceRematchPatch,
   buildScheduledUrgentRematchPatch,
 } from "../_shared/scheduledPreActivationReleaseSSOT.ts";
+import { scheduleEdgeBackground } from "../_shared/scheduleEdgeBackground.ts";
 
 const RATE_LIMIT_CONFIG = {
   limit: 60,
@@ -433,8 +434,15 @@ Deno.serve(async (req) => {
     // ACTION: ACCEPT SCHEDULED RIDE
     // ============================================================
     if (action === "accept") {
+      const acceptStartedAt = Date.now();
+      const acceptStagesMs: Record<string, number> = {};
+      const markAcceptStage = (key: string, startedAt: number) => {
+        acceptStagesMs[key] = Math.max(0, Date.now() - startedAt);
+      };
+
       // Hard Rule #1: never preconfirm from Admin HELD / unreleased marketplace.
       {
+        const stageAt = Date.now();
         const { data: tripGuard } = await supabase
           .from("trips")
           .select("id, scheduled_status, scheduled_broadcast_at, driver_id, confirmed_driver_id")
@@ -464,10 +472,12 @@ Deno.serve(async (req) => {
         if (tripGuard?.driver_id || tripGuard?.confirmed_driver_id) {
           return errorResponse("TRIP_ALREADY_TAKEN", "This ride is no longer available", 409);
         }
+        markAcceptStage("marketplace_guard_ms", stageAt);
       }
 
       // Phase 4: refuse if this scheduled booking conflicts with other confirmed commitments.
       {
+        const stageAt = Date.now();
         const { data: cand } = await supabase
           .from("trips")
           .select(
@@ -505,11 +515,13 @@ Deno.serve(async (req) => {
             );
           }
         }
+        markAcceptStage("commitment_gate_ms", stageAt);
       }
 
       // Live Europe/London document eligibility + journey-horizon (same SSOT as
       // accept_scheduled_ride SQL). Edge check gives a clear error before the lock.
       {
+        const stageAt = Date.now();
         const journey = await assertScheduledJourneyComplianceForDriverTrip(supabase, {
           driverId: driver_id,
           tripId: trip_id!,
@@ -527,11 +539,13 @@ Deno.serve(async (req) => {
             403,
           );
         }
+        markAcceptStage("journey_compliance_ms", stageAt);
       }
 
       // Gap C: commission wallet gate (same RPC as instant dispatch / admin assign).
       // accept_scheduled_ride re-checks in SQL; this gives a clear error before the lock.
       {
+        const stageAt = Date.now();
         const walletGate = await checkScheduledCommissionWalletGate(supabase, driver_id, trip_id!);
         if (!walletGate.ok) {
           if (walletGate.reason === "wallet_gate_error") {
@@ -544,6 +558,7 @@ Deno.serve(async (req) => {
             409,
           );
         }
+        markAcceptStage("wallet_gate_ms", stageAt);
       }
 
       // Invoke as the authenticated driver so SECURITY DEFINER auth.uid() /
@@ -553,10 +568,12 @@ Deno.serve(async (req) => {
       const driverRpc = createClient(supabaseUrl, supabaseAnonKey, {
         global: { headers: { Authorization: authHeader } },
       });
+      const rpcStartedAt = Date.now();
       const { data, error } = await driverRpc.rpc("accept_scheduled_ride", {
         p_trip_id: trip_id,
         p_driver_id: driver_id,
       });
+      markAcceptStage("accept_rpc_ms", rpcStartedAt);
 
       if (error) {
         console.error("[scheduled-ride-action] RPC error:", error);
@@ -585,6 +602,7 @@ Deno.serve(async (req) => {
       // Hard Rule #4 / preconfirm: never leave live driver_id after marketplace Accept.
       // Activation NRO Accept (scheduled-checkin) is the only path that stamps driver_id.
       {
+        const stageAt = Date.now();
         const nowIso = new Date().toISOString();
         const { error: preconfirmErr } = await supabase
           .from("trips")
@@ -601,7 +619,13 @@ Deno.serve(async (req) => {
         if (preconfirmErr) {
           console.warn("[scheduled-ride-action] accept preconfirm normalize soft-fail:", preconfirmErr);
         }
+        markAcceptStage("preconfirm_ms", stageAt);
       }
+
+      acceptStagesMs.authoritative_commit_ms = Math.max(
+        0,
+        Date.now() - acceptStartedAt,
+      );
 
       console.log("SCHEDULED_JOB_ACCEPTED", {
         trip_id,
@@ -613,81 +637,84 @@ Deno.serve(async (req) => {
         confirmed_driver_id: driver_id,
       });
 
-      // Fetch trip + driver for notifications
-      const { data: tripRow } = await supabase
-        .from("trips")
-        .select("passenger_id, scheduled_at, pickup_address, trip_number, service_area_id")
-        .eq("id", trip_id)
-        .single();
-      const { data: driverRow } = await supabase
-        .from("drivers")
-        .select("first_name, last_name")
-        .eq("id", driver_id)
-        .single();
+      // Bug #27: return after authoritative accept + preconfirm. Notify /
+      // marketplace broadcast via waitUntil so Accept→Confirmed stays <2s.
+      scheduleEdgeBackground(async () => {
+        const { data: tripRow } = await supabase
+          .from("trips")
+          .select("passenger_id, scheduled_at, pickup_address, trip_number, service_area_id")
+          .eq("id", trip_id)
+          .single();
+        const { data: driverRow } = await supabase
+          .from("drivers")
+          .select("first_name, last_name")
+          .eq("id", driver_id)
+          .single();
 
-      // Other drivers: remove from Requested via live broadcast (no passenger PII).
-      try {
-        await broadcastScheduledMarketplaceChanged(supabase, {
-          tripId: trip_id,
-          serviceAreaId: tripRow?.service_area_id ?? null,
-          reason: "accepted",
-        });
-      } catch (broadcastErr) {
-        console.warn(
-          "[scheduled-ride-action] accept marketplace broadcast failed:",
-          broadcastErr,
-        );
-      }
-
-      // §18 — Notify customer: driver confirmed (lifecycle WAV, not mute send-customer-notification).
-      try {
-        if (tripRow?.passenger_id) {
-          const driverName = driverRow
-            ? `${driverRow.first_name ?? "Your driver"}`.trim()
-            : "Your driver";
-          await notifyCustomerTripLifecycle(supabase, {
-            passengerId: tripRow.passenger_id,
+        try {
+          await broadcastScheduledMarketplaceChanged(supabase, {
             tripId: trip_id,
-            event: "driver_assigned",
-            title: "Driver confirmed",
-            body: `${driverName} will pick you up for your scheduled ride.`,
-            notificationId: `driver_assigned-${trip_id}-scheduled_accept`,
-            // Pre-confirm stays on Rides→Scheduled — not live Assigned.
-            path: "/account/rides",
+            serviceAreaId: tripRow?.service_area_id ?? null,
+            reason: "accepted",
           });
+        } catch (broadcastErr) {
+          console.warn(
+            "[scheduled-ride-action] accept marketplace broadcast failed:",
+            broadcastErr,
+          );
         }
-      } catch (notifErr) {
-        console.warn("[scheduled-ride-action] accept: customer notification failed:", notifErr);
-      }
 
-      // §18 — Notify driver: job reserved / saved to Confirmed tab
-      try {
-        const pickupLabel = tripRow?.pickup_address ?? "your pickup location";
-        const pickupDate = tripRow?.scheduled_at
-          ? new Date(tripRow.scheduled_at).toLocaleString("en-GB", {
-              weekday: "short", day: "numeric", month: "short",
-              hour: "2-digit", minute: "2-digit",
-            })
-          : "your scheduled time";
-        await supabase.functions.invoke("send-driver-notification", {
-          body: {
-            driverId: driver_id,
-            type: "SCHEDULED_JOB_CONFIRMED",
-            title: "Scheduled job reserved",
-            body: `Job saved to your Confirmed tab. Pickup: ${pickupLabel} at ${pickupDate}.`,
-            data: {
-              trip_id,
-              type: "scheduled_job_confirmed",
-              pickup_address: pickupLabel,
-              scheduled_at: tripRow?.scheduled_at ?? "",
+        try {
+          if (tripRow?.passenger_id) {
+            const driverName = driverRow
+              ? `${driverRow.first_name ?? "Your driver"}`.trim()
+              : "Your driver";
+            await notifyCustomerTripLifecycle(supabase, {
+              passengerId: tripRow.passenger_id,
+              tripId: trip_id,
+              event: "driver_assigned",
+              title: "Driver confirmed",
+              body: `${driverName} will pick you up for your scheduled ride.`,
+              notificationId: `driver_assigned-${trip_id}-scheduled_accept`,
+              path: "/account/rides",
+            });
+          }
+        } catch (notifErr) {
+          console.warn("[scheduled-ride-action] accept: customer notification failed:", notifErr);
+        }
+
+        try {
+          const pickupLabel = tripRow?.pickup_address ?? "your pickup location";
+          const pickupDate = tripRow?.scheduled_at
+            ? new Date(tripRow.scheduled_at).toLocaleString("en-GB", {
+                weekday: "short", day: "numeric", month: "short",
+                hour: "2-digit", minute: "2-digit",
+              })
+            : "your scheduled time";
+          await supabase.functions.invoke("send-driver-notification", {
+            body: {
+              driverId: driver_id,
+              type: "SCHEDULED_JOB_CONFIRMED",
+              title: "Scheduled job reserved",
+              body: `Job saved to your Confirmed tab. Pickup: ${pickupLabel} at ${pickupDate}.`,
+              data: {
+                trip_id,
+                type: "scheduled_job_confirmed",
+                pickup_address: pickupLabel,
+                scheduled_at: tripRow?.scheduled_at ?? "",
+              },
             },
-          },
-        });
-      } catch (notifErr) {
-        console.warn("[scheduled-ride-action] accept: driver notification failed:", notifErr);
-      }
+          });
+        } catch (notifErr) {
+          console.warn("[scheduled-ride-action] accept: driver notification failed:", notifErr);
+        }
+      }, "scheduled_accept_post_commit");
 
-      return successResponse(data);
+      return successResponse({
+        ...(data && typeof data === "object" ? data : { success: true }),
+        post_commit: "background",
+        stages_ms: acceptStagesMs,
+      });
     }
 
     // ============================================================
@@ -796,11 +823,18 @@ Deno.serve(async (req) => {
     // ACTION: CANCEL CONFIRMED SCHEDULED RIDE (DRIVER)
     // ============================================================
     if (action === "cancel_confirmed") {
+      const cancelStartedAt = Date.now();
+      const cancelStagesMs: Record<string, number> = {};
+      const markCancelStage = (key: string, startedAt: number) => {
+        cancelStagesMs[key] = Math.max(0, Date.now() - startedAt);
+      };
+
       if (!cancellation_reason) {
         return validationErrorResponse({ cancellation_reason: "cancellation_reason is required" });
       }
 
       // Validate trip is confirmed, locked, and assigned to this driver
+      const validateAt = Date.now();
       const { data: trip, error: tripError } = await supabase
         .from("trips")
         .select("id, driver_id, confirmed_driver_id, status, scheduled_status, is_scheduled, scheduled_at, scheduled_broadcast_at, service_area_id")
@@ -824,8 +858,10 @@ Deno.serve(async (req) => {
       if (["in_progress", "en_route_to_pickup", "arrived"].includes(trip.status || "")) {
         return errorResponse("INVALID_STATE", "Cannot cancel after ride has started. Use normal trip cancellation.", 400);
       }
+      markCancelStage("validate_trip_ms", validateAt);
 
       // Bug #22: unclaimed scheduled→instant clock = urgentTrigger (NOT check-in).
+      const cfgAt = Date.now();
       const { data: globalCfgForCancel } = await supabase
         .from("global_dispatch_settings")
         .select(
@@ -836,6 +872,7 @@ Deno.serve(async (req) => {
       const cancelDispatchCfg = resolveScheduledDispatchConfig(
         globalCfgForCancel ?? {},
       );
+      markCancelStage("dispatch_cfg_ms", cfgAt);
       const nowMs = Date.now();
       const scheduledAt = new Date(trip.scheduled_at).getTime();
       const minutesToPickup = (scheduledAt - nowMs) / 60_000;
@@ -871,6 +908,7 @@ Deno.serve(async (req) => {
       let casReleased = false;
       let casUrgent = false;
       let casViaSql = false;
+      const casStartedAt = Date.now();
       {
         const { data: casRow, error: casErr } = await supabase.rpc(
           "release_scheduled_assignment_for_driver_cancel",
@@ -1051,103 +1089,108 @@ Deno.serve(async (req) => {
         casReleased = true;
       }
 
+      markCancelStage("cas_release_ms", casStartedAt);
+      cancelStagesMs.authoritative_commit_ms = Math.max(
+        0,
+        Date.now() - cancelStartedAt,
+      );
+
       const convertedToInstant = Boolean(casUrgent);
-
-      // §12 — Admin alert when committed driver cancels close to pickup
-      if (wasCommitted && minutesToPickup <= 15) {
-        try {
-          await supabase.functions.invoke("send-admin-notification", {
-            body: {
-              type: "SCHEDULED_COMMITTED_DRIVER_CANCELLED_CRITICAL",
-              title: "🚨 Committed driver cancelled — urgent",
-              body: `Driver cancelled a committed scheduled job with ${Math.round(minutesToPickup)} min to pickup. Trip ${trip_id}. Immediate rebroadcast triggered.`,
-              data: {
-                trip_id,
-                driver_id,
-                minutes_to_pickup: String(Math.round(minutesToPickup)),
-              },
-            },
-          });
-        } catch (adminErr) {
-          console.warn("[scheduled-ride-action] cancel_confirmed: admin alert failed:", adminErr);
-        }
-      }
-
-      // Urgent unclaimed convert → auto-dispatch. Pre-urgent → marketplace sweep only.
-      if (convertedToInstant) {
-        try {
-          await fetch(`${supabaseUrl}/functions/v1/auto-dispatch`, {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              Authorization: `Bearer ${supabaseKey}`,
-            },
-            body: JSON.stringify({ trip_id, force_rebroadcast: true }),
-          });
-        } catch (e) {
-          console.error("[scheduled-ride-action] auto-dispatch trigger failed:", e);
-        }
-        console.log(
-          "[scheduled-ride-action] Urgent window: converted to instant ride, auto-dispatch triggered",
-        );
-      } else if (rematchBroadcastEnabled) {
-        // Pre-urgent Return Job: reopen marketplace (broadcast_at stamped above).
-        // Nearby auto-dispatch stays off while dispatch_mode=scheduled — kick the
-        // scheduled-dispatch sweep so Requested tab / STEP 2b escalation see it.
-        try {
-          await fetch(`${supabaseUrl}/functions/v1/scheduled-dispatch`, {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              Authorization: `Bearer ${supabaseKey}`,
-            },
-            body: JSON.stringify({}),
-          });
-        } catch (e) {
-          console.error("[scheduled-ride-action] pre-window scheduled-dispatch kick failed:", e);
-        }
-      }
 
       console.log(`[scheduled-ride-action] Driver ${driver_id} cancelled confirmed job ${trip_id}. Reason: ${cancellation_reason}`);
 
-      // Notify customer: their confirmed driver has cancelled (lifecycle WAV, not trip_cancelled).
-      try {
-        const { data: tripForNotif } = await supabase
-          .from("trips")
-          .select("passenger_id, scheduled_at")
-          .eq("id", trip_id)
-          .single();
-        if (tripForNotif?.passenger_id) {
-          const customerMsg = convertedToInstant
-            ? "We're finding you a replacement driver right now."
-            : "We're looking for another driver for your scheduled trip.";
-          await notifyCustomerTripLifecycle(supabase, {
-            passengerId: tripForNotif.passenger_id,
-            tripId: trip_id,
-            event: "driver_cancelled",
-            title: "Driver cancelled",
-            body: customerMsg,
-            notificationId: `driver_cancelled-scheduled-${trip_id}`,
-            // Pre-urgent rematch stays list-only; urgent convert → Finding.
-            path: convertedToInstant ? "/booking/finding-drivers" : "/account/rides",
-          });
+      // Bug #27: CAS release + exclusion already durable. Kick dispatch /
+      // notify / marketplace via waitUntil so cancel UI is not blocked.
+      // Cron/sweep recover if background work is interrupted.
+      const serviceAreaIdForBroadcast = trip.service_area_id ?? null;
+      scheduleEdgeBackground(async () => {
+        if (wasCommitted && minutesToPickup <= 15) {
+          try {
+            await supabase.functions.invoke("send-admin-notification", {
+              body: {
+                type: "SCHEDULED_COMMITTED_DRIVER_CANCELLED_CRITICAL",
+                title: "🚨 Committed driver cancelled — urgent",
+                body: `Driver cancelled a committed scheduled job with ${Math.round(minutesToPickup)} min to pickup. Trip ${trip_id}. Immediate rebroadcast triggered.`,
+                data: {
+                  trip_id,
+                  driver_id,
+                  minutes_to_pickup: String(Math.round(minutesToPickup)),
+                },
+              },
+            });
+          } catch (adminErr) {
+            console.warn("[scheduled-ride-action] cancel_confirmed: admin alert failed:", adminErr);
+          }
         }
-      } catch (notifErr) {
-        console.warn("[scheduled-ride-action] cancel_confirmed: customer notification failed:", notifErr);
-      }
 
-      try {
-        await broadcastScheduledMarketplaceChanged(supabase, {
-          tripId: trip_id,
-          serviceAreaId: trip.service_area_id ?? null,
-          reason: convertedToInstant ? "converted" : "cancelled",
-        });
-      } catch (broadcastErr) {
-        console.warn(
-          "[scheduled-ride-action] cancel marketplace broadcast failed:",
-          broadcastErr,
-        );
-      }
+        if (convertedToInstant) {
+          try {
+            await fetch(`${supabaseUrl}/functions/v1/auto-dispatch`, {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                Authorization: `Bearer ${supabaseKey}`,
+              },
+              body: JSON.stringify({ trip_id, force_rebroadcast: true }),
+            });
+          } catch (e) {
+            console.error("[scheduled-ride-action] auto-dispatch trigger failed:", e);
+          }
+          console.log(
+            "[scheduled-ride-action] Urgent window: converted to instant ride, auto-dispatch triggered",
+          );
+        } else if (rematchBroadcastEnabled) {
+          try {
+            await fetch(`${supabaseUrl}/functions/v1/scheduled-dispatch`, {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                Authorization: `Bearer ${supabaseKey}`,
+              },
+              body: JSON.stringify({}),
+            });
+          } catch (e) {
+            console.error("[scheduled-ride-action] pre-window scheduled-dispatch kick failed:", e);
+          }
+        }
+
+        try {
+          const { data: tripForNotif } = await supabase
+            .from("trips")
+            .select("passenger_id, scheduled_at")
+            .eq("id", trip_id)
+            .single();
+          if (tripForNotif?.passenger_id) {
+            const customerMsg = convertedToInstant
+              ? "We're finding you a replacement driver right now."
+              : "We're looking for another driver for your scheduled trip.";
+            await notifyCustomerTripLifecycle(supabase, {
+              passengerId: tripForNotif.passenger_id,
+              tripId: trip_id,
+              event: "driver_cancelled",
+              title: "Driver cancelled",
+              body: customerMsg,
+              notificationId: `driver_cancelled-scheduled-${trip_id}`,
+              path: convertedToInstant ? "/booking/finding-drivers" : "/account/rides",
+            });
+          }
+        } catch (notifErr) {
+          console.warn("[scheduled-ride-action] cancel_confirmed: customer notification failed:", notifErr);
+        }
+
+        try {
+          await broadcastScheduledMarketplaceChanged(supabase, {
+            tripId: trip_id,
+            serviceAreaId: serviceAreaIdForBroadcast,
+            reason: convertedToInstant ? "converted" : "cancelled",
+          });
+        } catch (broadcastErr) {
+          console.warn(
+            "[scheduled-ride-action] cancel marketplace broadcast failed:",
+            broadcastErr,
+          );
+        }
+      }, "scheduled_cancel_post_cas");
 
       return successResponse({
         success: true,
@@ -1155,6 +1198,8 @@ Deno.serve(async (req) => {
         message: "Scheduled job cancelled successfully",
         converted_to_instant: convertedToInstant,
         cas: casViaSql ? "sql" : "edge_fallback",
+        post_commit: "background",
+        stages_ms: cancelStagesMs,
       });
     }
 
