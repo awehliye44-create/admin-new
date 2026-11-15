@@ -59,10 +59,13 @@ export interface RevolutOrder {
     };
     payment_method?: {
       type?: string;
+      /** Scheme / brand only — never persist last_four / tokens. */
+      brand?: string;
       card_brand?: string;
     };
   }>;
   incremental_authorisations?: Array<{
+    id?: string;
     amount?: number;
     /** New cumulative authorised total for this increment (not a delta). */
     new_amount?: number;
@@ -70,6 +73,9 @@ export interface RevolutOrder {
     state?: string;
     created_at?: string;
     reference?: string;
+    /** Issuer/network reason when state is declined or failed (often null). */
+    reason?: string;
+    decline_reason?: string;
   }>;
   /** Present when increment POST returns the increment object instead of a full order. */
   new_amount?: number;

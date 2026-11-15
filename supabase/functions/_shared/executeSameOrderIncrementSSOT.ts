@@ -126,7 +126,12 @@ async function hydrateOrderPayments(args: {
         amount: p.amount,
         authorised_amount: p.authorised_amount,
         payment_method: p.payment_method
-          ? { type: p.payment_method.type, card_brand: p.payment_method.card_brand }
+          ? {
+            type: p.payment_method.type,
+            card_brand: p.payment_method.card_brand ?? p.payment_method.brand,
+            brand: p.payment_method.brand ?? p.payment_method.card_brand,
+            // Never copy last_four / token / nested card PAN blocks.
+          }
           : undefined,
       })),
     };
@@ -150,10 +155,27 @@ function compactEvidence(evidence: RevolutIncrementProviderEvidence): Record<str
   return {
     source: evidence.evidence_source,
     at: evidence.captured_at,
+    request_started_at: evidence.request_started_at,
+    response_completed_at: evidence.response_completed_at,
+    provider_order_id: evidence.provider_order_id,
+    increment_request_reference: evidence.increment_request_reference,
     increment_state: evidence.increment_state,
     increment_reason: evidence.increment_reason,
+    increment_id: evidence.increment_id,
+    requested_increment_delta_pence: evidence.requested_increment_delta_pence,
+    requested_target_total_pence: evidence.requested_target_total_pence,
+    previous_authorised_total_pence: evidence.previous_authorised_total_pence,
+    payment_method_type: evidence.payment_method_type,
+    card_brand: evidence.card_brand,
     order_state: evidence.order_state,
+    authorisation_type: evidence.authorisation_type,
+    capture_mode: evidence.capture_mode,
     provider_authorised_total_pence: evidence.provider_authorised_total_pence,
+    original_authorisation_status_after_attempt:
+      evidence.original_authorisation_status_after_attempt,
+    processing_outcome: evidence.processing_outcome,
+    post_http_ok: evidence.post_http_ok,
+    post_http_status: evidence.post_http_status,
   };
 }
 
@@ -181,10 +203,29 @@ async function buildIncrementRowMetadata(args: {
     }
   }
   const evidence = args.evidence;
-  const outcome = evidence ? providerIncrementOutcome(evidence) : "unknown";
+  const outcome = evidence
+    ? (evidence.processing_outcome ?? providerIncrementOutcome(evidence))
+    : "unknown";
   return {
     ...existing,
     ...args.base,
+    provider_order_id: evidence?.provider_order_id ?? existing.provider_order_id ?? null,
+    increment_request_reference:
+      evidence?.increment_request_reference ?? existing.increment_request_reference ?? null,
+    payment_method_type:
+      evidence?.payment_method_type ?? existing.payment_method_type ?? null,
+    card_brand: evidence?.card_brand ?? existing.card_brand ?? null,
+    requested_increment_delta_pence:
+      evidence?.requested_increment_delta_pence ??
+      existing.requested_increment_delta_pence ??
+      null,
+    request_started_at: evidence?.request_started_at ?? existing.request_started_at ?? null,
+    response_completed_at:
+      evidence?.response_completed_at ?? existing.response_completed_at ?? null,
+    original_authorisation_status_after_attempt:
+      evidence?.original_authorisation_status_after_attempt ??
+      existing.original_authorisation_status_after_attempt ??
+      null,
     provider_increment_state: evidence?.increment_state ?? null,
     provider_increment_reason: evidence?.increment_reason ?? null,
     provider_increment_reason_field: evidence?.increment_reason_field ?? null,
@@ -693,6 +734,11 @@ export async function executeSameOrderIncrement(args: {
           targetTotalPence: plan.targetTotalPence,
           previousAuthorisedTotalPence: providerTotal,
           providerAuthorisedTotalPence: priorCoverage.authorisedTotalPence,
+          providerOrderId: orderId,
+          paymentMethodType:
+            eligibility.paymentMethodType ??
+            args.fallbackPaymentMethodType ??
+            null,
         });
         if (
           providerIncrementOutcome(priorEvidence) === "failed"
@@ -882,6 +928,7 @@ export async function executeSameOrderIncrement(args: {
       source: args.source,
     });
 
+    const requestStartedAtIso = new Date().toISOString();
     const started = Date.now();
     const result = await incrementRevolutOrderAuthorisation({
       environment: args.environment,
@@ -918,6 +965,12 @@ export async function executeSameOrderIncrement(args: {
           : null,
         postHttpStatus,
         postHttpOk,
+        requestStartedAtIso,
+        providerOrderId: orderId,
+        paymentMethodType:
+          eligibility.paymentMethodType ??
+          args.fallbackPaymentMethodType ??
+          null,
       });
     const evidenceTrail: RevolutIncrementProviderEvidence[] = [
       evidenceFor(result.order, "post_response"),
@@ -926,6 +979,7 @@ export async function executeSameOrderIncrement(args: {
       reason: incrementReason,
       source: args.source,
       requested_target_total_pence: plan.targetTotalPence,
+      payment_method_type: eligibility.paymentMethodType ?? null,
     };
 
     let coverage = classifyIncrementCoverage(result.order, plan.targetTotalPence);
