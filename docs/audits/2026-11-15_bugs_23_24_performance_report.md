@@ -121,7 +121,13 @@ Payment capture was **not** assumed blindly — tip-window trips already deferre
 
 ## CI / SHAs
 
-*(filled after commit/push)*
+| Repo | SHA | CI |
+| --- | --- | --- |
+| admin-new | `ceceb1f1107d28051f40e05f922eae33afef2354` | [success](https://github.com/awehliye44-create/admin-new/actions/runs/43713776513) |
+| onecab-customer-native | `b8018b3a595a82633e431e30602ea194f8a38e85` | [success](https://github.com/awehliye44-create/onecab-customer-native/actions/runs/43713778824) |
+| onecab-driver-native | `03a31b9583bd725526949078962add98c4be0a70` | [success](https://github.com/awehliye44-create/onecab-driver-native/actions/runs/43713781783) |
+
+Production pins (unchanged until deploy approval): Customer OTA `f25365ba`; Driver OTA `9db6b5cc`; migration head `20270225140000`; `stop-workflow` **v672** still live. No Edge / OTA / native / store deploy from this change set.
 
 ---
 
