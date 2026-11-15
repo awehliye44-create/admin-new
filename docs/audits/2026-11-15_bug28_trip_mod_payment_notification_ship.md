@@ -55,20 +55,25 @@ Covered: MK-261115-014 fixture (`PROVIDER_INCREMENT_FAILED`), structured 409, is
 
 ## Customer production OTA
 
-**Source SHA:** `eabd662972406f7e7e70d6996cc92cf84408e97f` (`onecab-customer-native` `master`)
+**Source SHA (latest one-popup fix):** `498e6033da457c6c295469586e4f92eff1ee922c`  
+**Prior copy ship:** `eabd662` (superseded by one-popup OTA below)
+
+### Latest OTA — one popup only (`498e603`)
 
 | Runtime | Platform | Update group | Update ID |
 | --- | --- | --- | --- |
-| `1.0.6(23)` | iOS | `c86a5727-8a49-4b89-9d38-66edce0d0ade` | `01a1e043-216e-77d2-8934-664fb58eb1d6` |
-| `1.0.6(46)` | Android | `dfb8c37c-c55b-44d5-802d-bf9126255372` | `01a1e043-216e-7cdb-ad74-72584e5553b8` |
-| `1.0.5(22)` | iOS | `d827771a-5c84-438c-84db-9e24d01fb534` | `01a1e044-539d-76cd-9372-ce2c5d6e5b61` |
-| `1.0.5(45)` | Android | `2d1bfd4e-a25f-446a-b3cb-e603d19d8fa6` | `01a1e044-539d-7a43-918b-3b0e5edfa21f` |
+| `1.0.6(23)` | iOS | `b088fda9-8579-464a-a1d6-96e69c83ebed` | `01a1e052-3712-7fe0-82fd-2f7b77768e5f` |
+| `1.0.6(46)` | Android | `2d2ef2c9-72f2-4ea2-983f-3bd9c5b74e76` | `01a1e052-3712-7b30-8662-e06626dacf51` |
+| `1.0.5(22)` | iOS | `a9f5d757-3c4a-4b42-949b-5a8ff1495124` | `01a1e053-6743-7d6a-9d78-d98c43defeba` |
+| `1.0.5(45)` | Android | `2e26ec25-0fe5-4eb1-8133-9bed608903e3` | `01a1e053-6743-78b6-92af-25761cfe76f3` |
 
 Dashboards:
-- https://expo.dev/accounts/awehliye44/projects/onecab-customer-native/updates/c86a5727-8a49-4b89-9d38-66edce0d0ade
-- https://expo.dev/accounts/awehliye44/projects/onecab-customer-native/updates/dfb8c37c-c55b-44d5-802d-bf9126255372
-- https://expo.dev/accounts/awehliye44/projects/onecab-customer-native/updates/d827771a-5c84-438c-84db-9e24d01fb534
-- https://expo.dev/accounts/awehliye44/projects/onecab-customer-native/updates/2d1bfd4e-a25f-446a-b3cb-e603d19d8fa6
+- https://expo.dev/accounts/awehliye44/projects/onecab-customer-native/updates/b088fda9-8579-464a-a1d6-96e69c83ebed
+- https://expo.dev/accounts/awehliye44/projects/onecab-customer-native/updates/2d2ef2c9-72f2-4ea2-983f-3bd9c5b74e76
+- https://expo.dev/accounts/awehliye44/projects/onecab-customer-native/updates/a9f5d757-3c4a-4b42-949b-5a8ff1495124
+- https://expo.dev/accounts/awehliye44/projects/onecab-customer-native/updates/2e26ec25-0fe5-4eb1-8133-9bed608903e3
+
+**Follow-up fix:** live Review **Payment unsuccessful** now acks/suppresses the durable **Change not applied** notice so only one popup appears.
 
 No Driver OTA. No native / store. Buffer remains disabled. Same-order increment / one capture / no supplementary payments preserved.
 
