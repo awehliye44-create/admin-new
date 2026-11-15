@@ -1,5 +1,8 @@
 # ONECAB final consolidated audit — 14–15 November 2026 (pre-approval)
 
+> **Production release executed 2026-11-15:** see `docs/audits/2026-11-15_consolidated_release_report.md`. Pins Customer `f25365ba` / Driver `9db6b5cc` / Edge `73c5e69c` / migration head `20270225140000`. Native/store still paused.
+
+
 **Production posture: ALL deploys PAUSED** (Edge, SQL apply, OTA, native builds, store uploads) until explicit approval.
 
 Bugs **#23** (Driver Complete → Rate passenger latency) and **#24** (Customer Rate trip → Home latency) are **out of scope** for this document — deferred to a separate pass.
