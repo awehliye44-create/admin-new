@@ -580,11 +580,11 @@ serveWithEdgeTiming("request-trip-modification", corsHeaders, async (req) => {
             tripUnchanged: true,
             authorisedTotalPence: resume.authorisedTotalPence,
             requiredPayablePence: resume.requiredPayablePence,
-            originalFarePence: resume.originalFarePence
-              ?? Number((existingRequest as { original_fare_pence?: number }).original_fare_pence ?? 0)
+            originalFarePence: (resume.originalFarePence
+              ?? Number((existingRequest as { original_fare_pence?: number }).original_fare_pence ?? 0))
               || undefined,
-            fareDeltaPence: resume.fareDeltaPence
-              ?? Number((existingRequest as { fare_delta_pence?: number }).fare_delta_pence ?? 0)
+            fareDeltaPence: (resume.fareDeltaPence
+              ?? Number((existingRequest as { fare_delta_pence?: number }).fare_delta_pence ?? 0))
               || undefined,
             existingRequestId: resumed.id,
             existingStatus: resume.status,
