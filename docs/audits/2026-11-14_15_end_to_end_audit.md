@@ -8,7 +8,7 @@
 
 | Surface | Repo | Release pin | Notes |
 | --- | --- | --- | --- |
-| Backend (Bug #22 + CAS) | `admin-new` | **`cd059353`** (+ tip docs / Edge fallback order harden) | Includes `8b3c5c54` + SQL CAS; tip may advance for docs/CAS harden only — **not Edge-deployed** |
+| Backend (Bug #22 + CAS) | `admin-new` | **`73c5e69c`** (includes `cd059353` + Edge decline-after-CAS) | SQL CAS + Edge fallback order harden — **not Edge-deployed** |
 | Customer Bug #22 + marker | `onecab-customer-native` | **`f25365ba`** | Includes `23e5e34` + `fc07fd3` (raw GPS overshoot + CI gate) |
 | Driver multi-stop + marker | `onecab-driver-native` | **`9db6b5cc`** | Includes `7a2d670`, `b7c6e466`, `3a67fce`, `ea30ffa` |
 
@@ -128,7 +128,7 @@ Two streams exist. This report **preserves both**.
 
 ### CI
 
-- Prior release pin CI: https://github.com/awehliye44-create/admin-new/actions/runs/43706701017 (**success** — Build · SSOT + PostgreSQL gates @ `cd059353`)
+- Prior CAS pin CI: https://github.com/awehliye44-create/admin-new/actions/runs/43706701017 (**success** — Build · SSOT + PostgreSQL gates @ `cd059353`); tip `73c5e69c` adds Edge decline-after-CAS (CI pending push)
 - Customer pin CI: https://github.com/awehliye44-create/onecab-customer-native/actions/runs/43704514348
 - Driver pin CI: https://github.com/awehliye44-create/onecab-driver-native/actions/runs/43703679296
 
