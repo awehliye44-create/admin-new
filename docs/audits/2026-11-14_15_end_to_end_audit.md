@@ -1,215 +1,214 @@
-# ONECAB final consolidated audit — 14–15 November 2026 (corrected)
+# ONECAB final consolidated audit — 14–15 November 2026 (pre-approval)
 
 **Production posture: ALL deploys PAUSED** (Edge, SQL apply, OTA, native builds, store uploads) until explicit approval.
 
+Bugs **#23** (Driver Complete → Rate passenger latency) and **#24** (Customer Rate trip → Home latency) are **out of scope** for this document — deferred to a separate pass.
+
 ---
 
-## Final release pins
+## Final release pins (preserve)
 
 | Surface | Repo | Release pin | Notes |
 | --- | --- | --- | --- |
-| Backend (Bug #22 + CAS) | `admin-new` | **`73c5e69c`** (includes `cd059353` + Edge decline-after-CAS) | SQL CAS + Edge fallback order harden — **not Edge-deployed** |
-| Customer Bug #22 + marker | `onecab-customer-native` | **`f25365ba`** | Includes `23e5e34` + `fc07fd3` (raw GPS overshoot + CI gate) |
-| Driver multi-stop + marker | `onecab-driver-native` | **`9db6b5cc`** | Includes `7a2d670`, `b7c6e466`, `3a67fce`, `ea30ffa` |
+| Backend tip | `admin-new` | **`a2018eb0`** | Docs tip; includes Edge content pin |
+| Backend Edge content | `admin-new` | **`73c5e69c`** | Bug #22 SQL CAS + Edge decline-after-CAS; deploy Edge from this (or tip) when approved |
+| Customer | `onecab-customer-native` | **`f25365ba`** | Bug #22 presentation + marker `23e5e34`/`fc07fd3` + scroll/type ancestors |
+| Driver | `onecab-driver-native` | **`9db6b5cc`** | Multi-stop `7a2d670` + post-Start `b7c6e466` + marker + silent GPS `3a67fce` |
 
-Ancestry verified locally:
+Ancestry (verified): `73c5e69c` ⊂ `a2018eb0`; `cd059353` / `8b3c5c54` / `972956f2` / `1f782c59` / `e0340606` / `578b75e2` ⊂ `a2018eb0`; Customer `23e5e34`+`fc07fd3` ⊂ `f25365ba`; Driver `7a2d670`+`b7c6e466`+`3a67fce` ⊂ `9db6b5cc`.
 
-- Customer: `23e5e34c` ⊂ `f25365ba`; `fc07fd3c` ⊂ `f25365ba`
-- Driver: `7a2d6709` ⊂ `9db6b5cc`; `b7c6e466` ⊂ `9db6b5cc`
-- Backend: `972956f2` ⊂ tip; `stop-workflow` **v672 LIVE** (separate from Bug #22 Edge deploy hold)
-
-Native Customer/Driver tips remain **DEPLOYMENT PENDING** — not SHIPPED (no production OTA publication evidence for these pins).
+**Do not label Customer/Driver pins SHIPPED** — no production OTA publication evidence for these tips.
 
 ---
 
-## Investigation confirmations (this pass)
+## 1. Bug #22 — full atomic CAS protection (transaction safety)
 
-| # | Check | Result |
+### Verdict
+
+| Layer | Atomic vs JIT activate / Phase-5 ack arm / compliance release / replacement confirm | Status |
 | --- | --- | --- |
-| 1 | Customer pin `f25365ba` includes marker fixes `23e5e34` + `fc07fd3` | **PASS** (ancestry) |
-| 2 | Driver pin `9db6b5cc` includes `7a2d670` + post-Start floor `b7c6e466` | **PASS** (ancestry) |
-| 3 | Live `stop-workflow` **v672** contains `INTERMEDIATE_STOPS_REMAIN` and rejects premature Complete before waiting/claim | **PASS** (v672 live @ prior management read; guard before finalize) |
-| 4 | Customer raw GPS overshoot fallback compatible with `CUSTOMER_LIVE_PAIR_FRAMING` | **PASS** (`routeEndOvershoot` + framing lock/execution tests) |
-| 5 | Relevant execution tests green | **PASS** (see Local execution evidence) |
+| **SQL RPC** `release_scheduled_assignment_for_driver_cancel` (`20270225140000`) | **YES — full** | `SELECT … FOR UPDATE` serializes the trip row with peer `FOR UPDATE` writers (compliance twin, accept/confirm, ack-timeout trip-first locks). Then CAS `confirmed_driver_id = expected AND driver_id IS NULL AND started_at IS NULL`. JIT/Phase-5 that stamps `driver_id` / live status → `ACTIVATED_PROTECTED`. Replacement confirm needs cleared `confirmed_driver_id` after cancel commit. Decline runs **inside** the locked transaction after activation guards. |
+| **Edge fallback** (RPC absent) | **NO — not full transaction safety** | Optimistic PostgREST CAS with identical predicates + decline **only after** CAS win (`73c5e69c`). Necessary hygiene; **does not** provide single-transaction `FOR UPDATE` serialization with compliance/JIT/Phase-5 SQL peers. |
+| **In-memory CAS tests** | Predicate mutual exclusion | cancel↔JIT, activate-wins, replacement-after-cancel, double-cancel, urgent fare intact, wrong driver — **PASS**; not a substitute for live SQL apply. |
 
----
+**Conclusion:** Voluntary cancel has **code-complete full atomic CAS** in migration `20270225140000` + Edge prefer-SQL path. **Production atomicity requires SQL apply** (then Edge `scheduled-ride-action` from `73c5e69c`). Until apply: **VERIFIED — DEPLOYMENT PENDING**. Decline-after-CAS alone does **not** prove complete transaction safety.
 
-## Issue numbering — cross-reference (do not renumber originals)
-
-Two streams exist. This report **preserves both**.
-
-### Stream A — Chronological Nov 13–15 workstream (prior audit #1–#22)
-
-| Prior # | Topic | Corrected status | Production evidence |
-| --- | --- | --- | --- |
-| 1 | Customer OTA safe-apply | **PUBLISHED** (earlier) | Prior channel updates (session) |
-| 2 | GPS freshness gate | **PUBLISHED** with location OTAs | With #3 |
-| 3 | MK-261113-011 return-to-pickup / marker / live GPS | **PUBLISHED** | Driver/Customer OTAs af1f083 / f59a560 lineage |
-| 4 | Go Online / Restoring soft-success | **PUBLISHED** | Driver OTA `8dea227` lineage |
-| 5 | Multi-platform OTA adoption | **PUBLISHED** | MATCH telemetry in-session |
-| 6–8 | Driver camera / TBT / typography | **PUBLISHED** | Android `01a1d9f0-1638…` / iOS `01a1d9f0-f8ac…` from `357053a` (~12:02–12:03Z 14 Nov); group Android `628dc687-…` / iOS `a57b0622-…` |
-| 9–10 | MK-261114-002 ghost NRO | **PUBLISHED** | Android `01a1da18-f333…` / iOS `01a1da19-9c7b…` from `1f5462d` (~12:47Z) |
-| 11 | Snapshot migration Option 1 HOLD | **RESOLVED → applied** (see Migration HOLD) | Corrected as `20270222250000_…` applied on prod; draft HOLD not still open |
-| 12–14 | Auto-arrival + shimmer | **PUBLISHED** | Android `01a1da90-a9c2…` / iOS `01a1da91-adcf…` from `fa871a26` |
-| 15 | Start Trip green | **PUBLISHED** | Android `01a1dac1-4856…` / iOS `01a1dac1-f4cc…` from `f0f7d84`. **Post-Start phase floor** (delayed `arrived_at_pickup` must not demote past Start) is a later harden on Driver `b7c6e466` ⊂ `9db6b5cc` — see #20 / MK-261114-006 point 1; that tip is **not** OTA-published. |
-| 16 | Customer typography (large) | **PUBLISHED** through `b0ba8e8` only | Android `01a1dc13-d78d…` group `2361c881-…` / iOS `01a1dc14-7909…` group `cd46e505-…` |
-| 17 | Customer live marker visibility | **VERIFIED — DEPLOYMENT PENDING** | `aea68cf` + raw GPS overshoot `23e5e34` + CI gate `fc07fd3` ⊂ `f25365ba`; **OTA paused** (not published) |
-| 18 | Customer typography rebalance / non-scroll | **VERIFIED — DEPLOYMENT PENDING** | Tip `c48df4d`+; **OTA paused** |
-| 19 | Journey-horizon compliance | **VERIFIED — DEPLOYMENT PENDING** | Code `1f782c59`/`e0340606`; migrations not confirmed applied in this pass |
-| 20 | MK-261114-006 multi-stop / post-Start floor | **VERIFIED — DEPLOYMENT PENDING** | Driver `7a2d670` + `b7c6e466` ⊂ `9db6b5cc`; backend guard **LIVE** via `stop-workflow` **v672**; Driver OTA **paused** |
-| 21 | Driver marker manoeuvre hardening | **VERIFIED — DEPLOYMENT PENDING** | `9db6b5cc`; CI `43703679296`; **OTA paused** |
-| 22 | Premature Finding after scheduled cancel | **VERIFIED — DEPLOYMENT PENDING** | Backend CAS pin + Customer `f25365ba`; SQL/Edge **not applied/redeployed** for Bug #22 |
-
-**Correction:** Prior report wrongly labelled #16–#18 (post-`b0ba8e8` tips) as SHIPPED. Only `b0ba8e8` typography OTA is published; marker/scroll/Bug #22 Customer tips remain **DEPLOYMENT PENDING**.
-
-### Stream B — Parallel / omitted inventory (must not be dropped)
-
-| ID | Item | Status | Evidence |
-| --- | --- | --- | --- |
-| B1 | JIT 5-minute arrival + pickup-aware fallback | **LIVE (backend)** | SSOT + Edge; first live with scheduled-dispatch v651 @ `4b437298` |
-| B2 | Backend `scheduled-dispatch` **v652** | **LIVE** | `@578b75e2` (user-approved 14 Nov) |
-| B3 | Driver silent GPS readiness `3a67fce` | **CI green; OTA PAUSED** | Ancestor of `9db6b5cc`; never published as standalone OTA |
-| B4 | Backend `send-driver-notification` **v600** | **LIVE** | `@578b75e2` silent JIT readiness |
-| B5 | Multi-stop `INTERMEDIATE_STOPS_REMAIN` `972956f2` | **LIVE** | `stop-workflow` **v672** (management API version read in-session); atomic 409 before waiting finalize / complete claim |
-| B6 | Driver multi-stop classification + post-Start floor | **CI; OTA PAUSED** | = Stream A #20 (`7a2d670` + `b7c6e466`) |
-| B7 | Revolut incremental auth failures (trip mod) | **OPEN / not closed in this audit** | Locks present; no closure SHA |
-| B8 | MK0006 Luton airport acceptance | **OPEN — deferred** | Explicitly kept separate all session |
-| B9 | Customer Live Trip APNs + background ETA | **PARTIAL** | Implementation advanced; store packaging incomplete |
-| B10 | Customer Android versionCode conflict | **PREP ADDRESSED** | Keep 1.0.6 / vc46 discipline vs Play vc45 |
-| B11 | Both native welcome screens | **Customer fixed; Driver PASS** | Customer welcome `e6b25ed` lineage |
-| B12 | Outstanding Google Play recommendations/errors | **OUTSTANDING** | Edge-to-edge / trader status / platform — not mid-train |
-
----
-
-## MK-261114-006 eight-point readiness (updated)
-
-| # | Verdict | Evidence |
-|---|---------|----------|
-| 1 | **PASS** (hardened) | `started_at` / local `pickedUpAtMs` win over stale pickup statuses; execution test *does not regress to at_pickup on delayed arrived_at_pickup after Start* (`b7c6e466` ⊂ `9db6b5cc`) |
-| 2 | **PASS** | `resolveStickyIntermediateStops` + hydrate prefer non-empty `trip_stops` |
-| 3 | **PASS** | `isOnFinalDropoffLeg` + gateway pre-check + `slideTripActionLock` |
-| 4 | **PASS (LIVE)** | `stop-workflow` `INTERMEDIATE_STOPS_REMAIN` 409 before claim — **v672 live** (`972956f2` lineage) |
-| 5 | **PASS** | Client flight lock + backend CAS / idempotent arrive |
-| 6 | **PASS** (refined) | Soft/cold hydrate → sticky apply; bare `stops:[]` soft-preserves; flattened pickup+dropoff clears only without via signal (`7a2d670`) |
-| 7 | **PASS** (refined) | Shared SSOT via `via_declarations` / `stops_integrity` (stale `total_stops` dropped); backend empty-stops skip-refresh + Complete guard |
-| 8 | **PASS** (refined) | Tips: Driver `7a2d670` ⊂ `9db6b5cc` (+ `b7c6e466`, `ea30ffa`); Backend live `stop-workflow` **v672** / `972956f2`. Driver OTA **not** SHIPPED |
-
----
-
-## Bug #22 — atomic cancellation (this correction)
-
-### What changed after `8b3c5c54`
-
-1. SQL RPC `release_scheduled_assignment_for_driver_cancel` — `FOR UPDATE` + CAS (`confirmed_driver_id`, `driver_id IS NULL`, `started_at IS NULL`).
-2. Returns `ACTIVATED_PROTECTED` when JIT/live won → Edge returns 409 ACTIVATED (use activated cancel path).
-3. Non-urgent rematch `status=scheduled` (never `offered`); urgent uses convert shape; fare/payment untouched.
-4. Edge `cancel_confirmed` prefers SQL CAS; Edge CAS fallback with identical predicates if RPC absent.
-5. Concurrent in-memory CAS execution tests + lock tests.
-6. **Additional harden (code, not deployed):** Edge fallback now declines the cancelling driver **only after** CAS update wins — matches SQL order; avoids excluding a driver when activate won the race.
-
-### Safeguards (post-CAS)
+### Safeguards (post-CAS code)
 
 | # | Safeguard | Verdict |
 | --- | --- | --- |
-| 1 | Cancelling driver excluded | PASS (SQL `decline_scheduled_ride`; Edge only after CAS win) |
+| 1 | Cancelling driver excluded | PASS (SQL in-txn decline; Edge after CAS win) |
 | 2 | Other driver can confirm Requested | PASS |
 | 3 | Customer `SCHEDULED_LIST` until convert/activation | PASS (`f25365ba`) |
 | 4 | Same trip / fare / payment | PASS |
 | 5 | No instant waves before urgent deadline | PASS |
 | 6 | Shared SSOT with compliance | PASS |
-| 7 | SQL + Edge lifecycle twin | PASS (Edge decline-after-CAS aligned) |
-| 8 | Concurrent JIT / Phase-5 / compliance / cancel / replace | **PASS** (SQL CAS + execution tests); production still needs SQL apply + Edge deploy |
-
-### Local execution evidence
-
-- Customer framing/marker: `routeEndOvershoot` + `liveDriverMarkerVisibility` + `customerMapPinFraming` — **29 PASS**
-- Driver MK-261114-006: `mk261114006` + `multiStopLeg` — **13 PASS**; `stopWorkflowClient` — **50 PASS**
-- Bug #22 Deno: `scheduledPreActivationCancelCas` + Release SSOT + Rematch Exclusion — **21 PASS** (incl. Edge decline-after-CAS lock)
-
-### CI
-
-- Prior CAS pin CI: https://github.com/awehliye44-create/admin-new/actions/runs/43706701017 (**success** — Build · SSOT + PostgreSQL gates @ `cd059353`); tip `73c5e69c` adds Edge decline-after-CAS (CI pending push)
-- Customer pin CI: https://github.com/awehliye44-create/onecab-customer-native/actions/runs/43704514348
-- Driver pin CI: https://github.com/awehliye44-create/onecab-driver-native/actions/runs/43703679296
+| 7 | SQL + Edge lifecycle twin | PASS |
+| 8 | Concurrent JIT / Phase-5 / compliance / cancel / replace | **PASS in code** (SQL FOR UPDATE + CAS); **production pending SQL apply** |
 
 ---
 
-## Migration HOLD (exact)
+## 2. Backend pin completeness (`a2018eb0` / `73c5e69c`)
 
-| Field | Value |
-| --- | --- |
-| Original HOLD draft | `_draft_review_only/20261114130000_driver_active_trip_snapshot_priority.sql` |
-| Why held | Snapshot allowlist could surface unactivated scheduled rows with `status=accepted` |
-| Corrected file | `20270222250000_driver_active_trip_snapshot_priority.sql` |
-| Outcome | **Approved and applied on production** after Option 1 correction — **not still held** |
-| Conflict with `20270224120000` / `20270225120000` / `20270225140000`? | **No** — snapshot priority ≠ compliance/rematch/CAS |
+Every approved backend fix for this train is an ancestor of tip **`a2018eb0`** and of Edge content **`73c5e69c`**:
 
-**Do not re-apply the draft HOLD file.** Pending scheduled migrations remain separate and unapplied until approved.
-
----
-
-## Required migrations (pending approval)
-
-1. `20270224120000_scheduled_journey_compliance_future_eligibility.sql` (if not live)
-2. `20270225120000_bug22_scheduled_preactivation_release_status.sql` (compliance status=scheduled)
-3. **`20270225140000_bug22_driver_cancel_preactivation_cas.sql`** (voluntary cancel CAS — required for true `FOR UPDATE` atomicity)
-
----
-
-## Required Edge functions
-
-| Function / module | Why |
-| --- | --- |
-| `scheduled-ride-action` | cancel_confirmed CAS + rematch SSOT + decline-after-CAS Edge fallback (**deploy pending approval**) |
-| `_shared/scheduledPreActivationReleaseSSOT` | marketplace/urgent patches |
-| `_shared/scheduledJourneyComplianceGate` | compliance rematch twin |
-| Related compliance callers on tip | journey-horizon release |
-| **`stop-workflow`** | **Already LIVE v672** — `INTERMEDIATE_STOPS_REMAIN`; do **not** redeploy without approval |
-| Already LIVE (do not regress) | `scheduled-dispatch` **v652**, `send-driver-notification` **v600** |
-
----
-
-## OTA targets (paused)
-
-| App | SHA | Purpose |
+| Fix | SHA | In pin? |
 | --- | --- | --- |
-| Customer | **`f25365ba`** | Bug #22 presentation + marker overshoot (`23e5e34`/`fc07fd3`) + paused scroll ancestors |
-| Driver | **`9db6b5cc`** | Multi-stop sticky (`7a2d670`) + post-Start floor (`b7c6e466`) + marker motion + silent GPS readiness |
+| Silent JIT readiness push allow-list / cooldown | `578b75e2` | YES |
+| `stop-workflow` empty-stops + `INTERMEDIATE_STOPS_REMAIN` | `972956f2` | YES (live **v672**) |
+| Journey-horizon compliance eligibility | `1f782c59` | YES |
+| Compliance migration soft-skip | `e0340606` | YES |
+| Bug #22 rematch / Finding stamp | `8b3c5c54` | YES |
+| Bug #22 SQL CAS migration + Edge prefer-SQL | `cd059353` | YES |
+| Edge decline-after-CAS | `73c5e69c` | YES |
+| Audit pin docs | `a2018eb0` | tip |
 
-Native: no rebuild required for these JS OTAs. Store uploads remain paused. Welcome/Play/versionCode items are **external / prep** blockers for store trains, not this OTA window.
-
-**Do not label these OTAs SHIPPED** until production channel publication evidence exists.
+Already LIVE (do not redeploy without approval): `scheduled-dispatch` **v652**, `send-driver-notification` **v600**, `stop-workflow` **v672**.
 
 ---
 
-## Remaining blockers
+## 3. Original Stream A — final 22-item status table
 
-1. Explicit production approval (SQL → Edge `scheduled-ride-action` → OTAs).  
+Numbering = chronological Nov 13–15 stream (do not renumber). **PUBLISHED** only where OTA update-group / channel evidence was recorded in-session.
+
+| # | Issue | Status | Evidence / pin |
+| --- | --- | --- | --- |
+| 1 | Customer OTA safe-apply / gated reload | **PUBLISHED** | Prior channel updates; Android MATCH; iOS controlled path |
+| 2 | GPS freshness gate (no invented `Date.now()` on cached GPS) | **PUBLISHED** | Shipped with location OTAs (#3) |
+| 3 | MK-261113-011 return-to-pickup / marker freeze / Customer live GPS | **PUBLISHED** | Driver/Customer OTAs `af1f083` / `f59a560` lineage |
+| 4 | Driver network / Restoring / Go Online soft-success | **PUBLISHED** | Driver OTA `8dea227` lineage |
+| 5 | Multi-platform production OTA adoption | **PUBLISHED** | Android/iOS MATCH telemetry in-session |
+| 6 | Driver active-trip camera clearance (~70dp) | **PUBLISHED** | Android `01a1d9f0-1638…` / iOS `01a1d9f0-f8ac…` from `357053a` (~12:02–12:03Z 14 Nov); groups `628dc687-…` / `a57b0622-…` |
+| 7 | Driver ONECAB manoeuvre / TBT banner | **PUBLISHED** | With #6 |
+| 8 | Driver active-trip typography / a11y | **PUBLISHED** | With #6 |
+| 9 | MK-261114-002 scheduled ghost NRO | **PUBLISHED** | Android `01a1da18-f333…` / iOS `01a1da19-9c7b…` from `1f5462d` (~12:47Z) |
+| 10 | Scheduled activation / offer paint isolation | **PUBLISHED** | With #9 |
+| 11 | Snapshot migration Option 1 HOLD | **RESOLVED → applied** | `20270222250000_…` applied on prod (draft HOLD must not re-apply) |
+| 12 | Driver auto-arrival @ 75 m | **PUBLISHED** | Android `01a1da90-a9c2…` / iOS `01a1da91-adcf…` from `fa871a26` |
+| 13 | Auto-arrival GPS accuracy / stability review | **PUBLISHED** | With #12 |
+| 14 | Pending shimmer dead `phase === 'assigned'` removal | **PUBLISHED** | With #12 |
+| 15 | Start Trip button green after arrival | **PUBLISHED** | Android `01a1dac1-4856…` / iOS `01a1dac1-f4cc…` from `f0f7d84`. Post-Start demotion floor is #20 (`b7c6e466`) — **not** in this published OTA. |
+| 16 | Customer active-trip card typography (large) | **PUBLISHED** through **`b0ba8e8` only** | Android `01a1dc13-d78d…` group `2361c881-…` / iOS `01a1dc14-7909…` group `cd46e505-…`. Includes touch-lock / taller layout at `b0ba8e8`. |
+| 17 | Customer live driver marker visibility / overshoot | **VERIFIED — DEPLOYMENT PENDING** | `aea68cf` + raw GPS `23e5e34` + CI `fc07fd3` ⊂ `f25365ba`; compatible with `CUSTOMER_LIVE_PAIR_FRAMING`; **OTA paused** |
+| 18 | Customer card scroll-only-on-overflow + typography rebalance | **VERIFIED — DEPLOYMENT PENDING** | `babb8f2f` + `c48df4d8` ⊂ `f25365ba`; **OTA paused** |
+| 19 | Journey-horizon future compliance eligibility + auto assignment release | **VERIFIED — DEPLOYMENT PENDING** | `1f782c59`/`e0340606` ⊂ `73c5e69c`; migration `20270224120000_…` **not confirmed applied** |
+| 20 | MK-261114-006 multi-stop sticky / post-Start floor | **VERIFIED — DEPLOYMENT PENDING (Driver OTA)** | Driver `7a2d670`+`b7c6e466` ⊂ `9db6b5cc`; backend Complete guard **LIVE** (`stop-workflow` **v672**) |
+| 21 | Driver active-trip car marker / manoeuvre hardening | **VERIFIED — DEPLOYMENT PENDING** | `9db6b5cc`; CI `43703679296`; **OTA paused** |
+| 22 | Premature Finding after pre-JIT scheduled cancel | **VERIFIED — DEPLOYMENT PENDING** | Backend `73c5e69c` + Customer `f25365ba`; SQL CAS **unapplied**; Edge **not redeployed** |
+
+**PUBLISHED reconciliation:** Prior drafts wrongly labelled #17–#18 (and post-`b0ba8e8` Customer tips) as SHIPPED. Only update-groups listed above count as published. Tips `f25365ba` / `9db6b5cc` remain **DEPLOYMENT PENDING**.
+
+---
+
+## 4. Parallel inventory confirmations (user checklist topics)
+
+These are **not** Stream A renumbers; mapped so nothing is dropped.
+
+| User topic | Maps to | Status |
+| --- | --- | --- |
+| JIT timing + silent GPS readiness | Stream B1–B3 / backend `578b75e2` + Driver `3a67fce` | Backend **LIVE** (`scheduled-dispatch` v652, `send-driver-notification` v600). Driver silent GPS **⊂ `9db6b5cc`**, **OTA paused** (never standalone published). |
+| Future scheduled compliance + automatic assignment release | Stream A #19 + Bug #22 compliance twin | Code on `73c5e69c`; migrations `20270224120000` / `20270225120000` **pending apply**. |
+| Customer typography / scrolling / marker / touch·recenter | Stream A #16–#18 (+ `b0ba8e8` touch) | #16+touch **PUBLISHED** @ `b0ba8e8`. Marker (#17) + scroll/rebalance (#18) **DEPLOYMENT PENDING** on `f25365ba`. Recenter/gesture policy preserved in marker locks. |
+| Live Trip APNs + background ETA | Stream B9 | **PARTIAL** — implementation advanced; store packaging incomplete |
+| Incremental Revolut authorisation failures | Stream B7 | **OPEN** — locks present; no closure SHA this train |
+| MK0006 Luton airport acceptance | Stream B8 | **OPEN — deferred** (kept separate all session) |
+| Customer Android versionCode conflict | Stream B10 | **PREP ADDRESSED** — keep 1.0.6 / vc46 vs Play vc45 |
+| Native welcome + Google Play recommendations | Stream B11–B12 | Welcome: Customer fixed (`e6b25ed` lineage), Driver PASS. Play recommendations **OUTSTANDING** (edge-to-edge / trader / platform) |
+
+### MK-261114-006 eight-point (Driver #20) — preserved
+
+| # | Verdict | Notes |
+|---|---------|-------|
+| 1 | PASS | Post-Start floor `b7c6e466` |
+| 2–5 | PASS | Sticky / final-leg / Complete guard / flight lock |
+| 6 | PASS | Soft/cold sticky; bare `[]` soft-preserve (`7a2d670`) |
+| 7 | PASS | `via_declarations` / `stops_integrity` SSOT (no stale `total_stops`) |
+| 8 | PASS | Tips `7a2d670` ⊂ `9db6b5cc`; backend **v672** LIVE — Driver OTA not SHIPPED |
+
+---
+
+## 5. Exact remaining blockers
+
+1. Explicit production approval (SQL → Edge → OTAs).  
 2. Confirm whether `20270224120000` already live before apply.  
-3. ~~Deploy `stop-workflow`~~ — **done (v672 LIVE)**; no further stop-workflow deploy without approval.  
-4. Stream B open items: Revolut trip-mod (#B7), MK0006 (#B8), Live Trip packaging (#B9), Play recommendations (#B12).  
-5. No device/paid/historical mutations in this verification.
+3. Apply Bug #22 SQL CAS (`20270225140000`) — required for **full** cancel atomicity.  
+4. Deploy Edge `scheduled-ride-action` (+ compliance shared modules) from **`73c5e69c`** (or tip `a2018eb0`).  
+5. Customer OTA `f25365ba`; Driver OTA `9db6b5cc`.  
+6. Open parallel: Revolut trip-mod (B7), MK0006 (B8), Live Trip packaging (B9), Play recommendations (B12).  
+7. Do **not** start Bug #23 / #24 in this window.  
+8. No device/paid/historical mutations in verification.
 
 ---
 
-## Rollback
+## 6. Required migrations (pending approval)
+
+1. `20270224120000_scheduled_journey_compliance_future_eligibility.sql` (if not live)  
+2. `20270225120000_bug22_scheduled_preactivation_release_status.sql`  
+3. **`20270225140000_bug22_driver_cancel_preactivation_cas.sql`** ← full cancel `FOR UPDATE` CAS  
+
+HOLD draft `_draft_review_only/20261114130000_…` — **do not apply**. Snapshot priority `20270222250000` already applied.
+
+---
+
+## 7. Required Edge deployments (pending approval)
+
+| Function / module | Action |
+| --- | --- |
+| `scheduled-ride-action` | **Deploy** from `73c5e69c` (cancel CAS + decline-after-win) |
+| `_shared/scheduledPreActivationReleaseSSOT` | Bundled with above |
+| `_shared/scheduledJourneyComplianceGate` | Bundled / callers on tip |
+| `stop-workflow` | **Already LIVE v672** — do not redeploy without approval |
+| `scheduled-dispatch` | **Already LIVE v652** |
+| `send-driver-notification` | **Already LIVE v600** |
+
+---
+
+## 8. OTA targets (paused)
+
+| App | SHA | Includes | Status |
+| --- | --- | --- | --- |
+| Customer | **`f25365ba`** | Bug #22 presentation; marker `23e5e34`/`fc07fd3`; scroll/type `babb8f2f`/`c48df4d8`; touch via `b0ba8e8` ancestor | **PAUSED** |
+| Driver | **`9db6b5cc`** | Multi-stop `7a2d670`; post-Start `b7c6e466`; marker motion; silent GPS `3a67fce` | **PAUSED** |
+
+Native rebuilds / store uploads: **paused**. JS-only OTAs sufficient for these pins.
+
+---
+
+## 9. CI evidence
+
+| Repo | Pin | Run |
+| --- | --- | --- |
+| admin-new | `cd059353` (CAS) | https://github.com/awehliye44-create/admin-new/actions/runs/43706701017 (**success**) |
+| admin-new | tip `a2018eb0` | https://github.com/awehliye44-create/admin-new/actions/runs/43708166638 (**success**) — tip includes `73c5e69c` content |
+| customer | `f25365ba` | https://github.com/awehliye44-create/onecab-customer-native/actions/runs/43704514348 |
+| driver | `9db6b5cc` | https://github.com/awehliye44-create/onecab-driver-native/actions/runs/43703679296 |
+
+Local reuse: Customer framing/marker 29 PASS; Driver mk261114006+multiStop 13 + stopWorkflowClient 50; Bug #22 Deno 21 PASS.
+
+---
+
+## 10. Final deployment order (paused)
+
+1. SQL: `20270224120000` (if needed) → `20270225120000` → **`20270225140000`**  
+2. Edge: `scheduled-ride-action` (+ compliance shared) from **`73c5e69c`** — **not** `stop-workflow`  
+3. Customer OTA **`f25365ba`**  
+4. Driver OTA **`9db6b5cc`**  
+5. Smoke: pre-urgent cancel → Requested + Customer Scheduled list; activate-wins → ACTIVATED 409; cancelling driver excluded  
+
+---
+
+## 11. Rollback
 
 | Layer | Action |
 | --- | --- |
 | Customer OTA | Prior channel update (pre-`f25365ba`) |
 | Driver OTA | Prior channel update (pre-`9db6b5cc`) |
-| Edge | Prior `scheduled-ride-action` / compliance; `stop-workflow` only if a newer version were approved |
-| SQL CAS | `DROP FUNCTION release_scheduled_assignment_for_driver_cancel…` (rollback file) |
-| SQL rematch stamp | Restore compliance function body from `20270224120000` |
+| Edge | Prior `scheduled-ride-action` / compliance revision |
+| SQL CAS | Drop/restore `release_scheduled_assignment_for_driver_cancel` per rollback file |
+| SQL rematch stamp | Restore compliance body from `20270224120000` |
+| SQL #19 | `rollback/rollback_20270224120000_…` only if compliance must be withdrawn |
+| `stop-workflow` | Only if a newer version were approved (v672 is current live) |
 
 ---
 
-## Final deployment order (paused)
-
-1. SQL `20270224120000` (if needed) → `20270225120000` → **`20270225140000`**  
-2. Edge from **backend tip**: `scheduled-ride-action` + compliance modules (**not** `stop-workflow` — already v672)  
-3. Customer OTA **`f25365ba`**  
-4. Driver OTA **`9db6b5cc`**  
-5. Post-deploy: voluntary pre-urgent cancel → Requested + Customer Scheduled list; activate-wins → ACTIVATED 409; cancelling driver excluded  
-
-**Do not deploy until explicitly approved.** OTA, native builds, and store uploads remain paused.
+**Sign-off:** Original 22-item audit reconciled. Bug #22 full atomic CAS is **code-complete** pending SQL apply. Production deploys / OTA / native / store remain **PAUSED**. Bugs #23–#24 not started.
