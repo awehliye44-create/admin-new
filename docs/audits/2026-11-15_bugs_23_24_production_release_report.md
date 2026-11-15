@@ -78,7 +78,7 @@ OTA safe-apply protection preserved (no force offline / no active-trip interrupt
 | Tip durable accept + `scheduleEdgeBackground` | **PASS** |
 | `INTERMEDIATE_STOPS_REMAIN` | **PASS** |
 | Driver OTA skipped | **PASS** |
-| Bug #25 untouched | **PASS** (no commits / no scope) |
+| Bug #25 (separate) | **FIXED in Customer tip** (OTA paused) — see `2026-11-15_bug25_trip_mod_payment_decline_recovery.md` |
 | Device timing targets achieved | **Not claimed** |
 
 ### Compatibility
