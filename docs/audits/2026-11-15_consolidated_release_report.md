@@ -107,7 +107,7 @@ Preserved in pin: multi-stop sticky / post-Start floor / auto-arrival / road-awa
 - Driver `1.0.7(*)` store binaries not yet in field; this OTA targets live `1.0.6` installs.
 - **Deferred:** Revolut incremental auth policy changes; MK0006 Luton; Live Trip packaging (fanout off); Play recommendations.
 - **Bugs #23/#24:** SHIPPED separately (`stop-workflow` v673, tip Edge v92, Customer OTA `194a3a5`) — see `2026-11-15_bugs_23_24_production_release_report.md`.
-- **Bug #25:** Customer fix committed (draft discard + return Assigned on payment-decline OK); **OTA paused** until approved — see `2026-11-15_bug25_trip_mod_payment_decline_recovery.md`.
+- **Bug #25:** **SHIPPED** Customer OTA `6af35fc` (iOS `1.0.6(23)` / Android `1.0.6(46)`) — see `2026-11-15_bug25_production_ota_release_report.md`.
 - Native / store uploads: still paused.
 
 ---

@@ -6,7 +6,8 @@
 **Audit docs commit:** `05499d1f529229d3e0ae2bba177c4c81409e6b92`  
 **Customer CI:** https://github.com/awehliye44-create/onecab-customer-native/actions/runs/43719472725 — **success**  
 **Admin CI:** https://github.com/awehliye44-create/admin-new/actions/runs/43719474707 — **success**  
-**Production deploy:** **PAUSED** (OTA / Edge / native / store) until approved.
+**Production OTA:** **SHIPPED** — see `2026-11-15_bug25_production_ota_release_report.md`  
+(iOS group `b46db1d5…` / Android group `5b79533e…`). Edge / Driver / native / store unchanged.
 
 ## Exact root cause
 
@@ -67,12 +68,12 @@ Backend payment-first SSOT (`MODIFICATION_REQUESTED → PAYMENT_PENDING → PROV
 Lock + execution + unified bank-decline + related flash/stop-removal locks: **PASS** (local jest).  
 Device/simulator / paid bookings: **not run** (per brief).
 
-## Deployment scope (when approved)
+## Deployment scope
 
-- Customer production OTA only (JS).
-- No Edge / migration / Driver OTA / native rebuild required for Bug #25.
+- Customer production OTA **published** from `6af35fc` (see production OTA report).
+- No Edge / migration / Driver OTA / native rebuild.
 
 ## Rollback
 
-- Customer OTA rollback to prior production group (`194a3a5` baseline before this fix).
+- Customer OTA → prior `194a3a5` groups `a706001e…` (iOS) / `808a2212…` (Android).
 - No backend rollback needed.
