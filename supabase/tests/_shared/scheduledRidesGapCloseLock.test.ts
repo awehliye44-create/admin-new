@@ -229,9 +229,10 @@ Deno.test("cancel_confirmed customer notify deep-links by urgent convert window 
   );
   assertStringIncludes(
     src,
-    'path: isUrgentConvert ? "/booking/finding-drivers" : "/account/rides"',
+    'path: convertedToInstant ? "/booking/finding-drivers" : "/account/rides"',
   );
   assertStringIncludes(src, "shouldUrgentConvertOnPreActivationRelease");
+  assertStringIncludes(src, "release_scheduled_assignment_for_driver_cancel");
 });
 
 Deno.test("get-active-trip never treats HELD/preconfirm clocks as live", async () => {

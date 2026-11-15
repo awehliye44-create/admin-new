@@ -123,11 +123,13 @@ CREATE OR REPLACE FUNCTION try_cancel_confirmed(p_id uuid, p_driver uuid) RETURN
 DECLARE n int;
 BEGIN
   PERFORM pg_advisory_xact_lock(hashtext(p_id::text));
+  -- Bug #22: marketplace rematch uses status=scheduled (never offered).
   UPDATE trips SET confirmed_driver_id=NULL, scheduled_status='broadcasting',
-    status='offered',
+    status='scheduled',
     excluded_driver_ids = array_append(excluded_driver_ids, p_driver)
-  WHERE id=p_id AND driver_id IS NULL
-    AND scheduled_status IN ('driver_assigned','scheduled','awaiting_activation_accept');
+  WHERE id=p_id AND driver_id IS NULL AND started_at IS NULL
+    AND confirmed_driver_id=p_driver
+    AND scheduled_status IN ('driver_assigned','scheduled','awaiting_activation_accept','scheduled_committed');
   GET DIAGNOSTICS n = ROW_COUNT;
   IF n=1 THEN RETURN 'CANCELLED'; END IF;
   RETURN 'CAS_MISS';

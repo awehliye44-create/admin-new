@@ -107,7 +107,7 @@ Deno.test("Bug #22: resolvePreActivationReleaseKind marketplace vs urgent", () =
   );
 });
 
-Deno.test("Bug #22 lock: cancel_confirmed uses urgent SSOT + marketplace patch", async () => {
+Deno.test("Bug #22 lock: cancel_confirmed uses urgent SSOT + marketplace patch + SQL CAS", async () => {
   const src = await Deno.readTextFile(
     new URL("../scheduled-ride-action/index.ts", import.meta.url),
   );
@@ -116,6 +116,11 @@ Deno.test("Bug #22 lock: cancel_confirmed uses urgent SSOT + marketplace patch",
   assertStringIncludes(block, "buildScheduledMarketplaceRematchPatch");
   assertStringIncludes(block, "buildScheduledUrgentRematchPatch");
   assertStringIncludes(block, "isUrgentConvert");
+  assertStringIncludes(block, "release_scheduled_assignment_for_driver_cancel");
+  assertStringIncludes(block, "ACTIVATED_PROTECTED");
+  assertStringIncludes(block, '.eq("confirmed_driver_id", driver_id)');
+  assertStringIncludes(block, '.is("driver_id", null)');
+  assertStringIncludes(block, '.is("started_at", null)');
   // Must not convert on check-in window alone.
   assertEquals(block.includes("isCheckinOpen"), false);
   assertEquals(block.includes('status: isCheckinOpen ? "pending"'), false);
@@ -125,8 +130,22 @@ Deno.test("Bug #22 lock: cancel_confirmed uses urgent SSOT + marketplace patch",
   );
   assertStringIncludes(
     block,
-    'path: isUrgentConvert ? "/booking/finding-drivers" : "/account/rides"',
+    'path: convertedToInstant ? "/booking/finding-drivers" : "/account/rides"',
   );
+});
+
+Deno.test("Bug #22 lock: SQL driver-cancel CAS migration exists", async () => {
+  const src = await Deno.readTextFile(
+    new URL(
+      "../../migrations/20270225140000_bug22_driver_cancel_preactivation_cas.sql",
+      import.meta.url,
+    ),
+  );
+  assertStringIncludes(src, "release_scheduled_assignment_for_driver_cancel");
+  assertStringIncludes(src, "FOR UPDATE");
+  assertStringIncludes(src, "ACTIVATED_PROTECTED");
+  assertStringIncludes(src, "status = 'scheduled'");
+  assertEquals(src.includes("THEN 'offered'"), false);
 });
 
 Deno.test("Bug #22 lock: compliance Edge mirror uses marketplace SSOT", async () => {

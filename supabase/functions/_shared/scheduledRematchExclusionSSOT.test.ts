@@ -34,7 +34,10 @@ Deno.test("airport earnings example: journey 4250 + airport 500 = total 4750", (
 Deno.test("cancel_confirmed rematch: same trip, no terminal cancelled_at, decline exclusion", async () => {
   const src = await readCancelAction();
   const block = src.slice(src.indexOf('ACTION: CANCEL CONFIRMED'));
-  assertStringIncludes(block, 'rpc("decline_scheduled_ride"');
+  // SQL CAS RPC declines inside release_scheduled_assignment_for_driver_cancel;
+  // Edge fallback still calls decline_scheduled_ride directly.
+  assertStringIncludes(block, "release_scheduled_assignment_for_driver_cancel");
+  assertStringIncludes(block, "decline_scheduled_ride");
   // Bug #22: rematch patch SSOT clears cancelled_at (never terminal cancel stamp).
   assertStringIncludes(block, "buildScheduledMarketplaceRematchPatch");
   assertStringIncludes(block, "buildScheduledUrgentRematchPatch");
@@ -46,11 +49,17 @@ Deno.test("cancel_confirmed rematch: same trip, no terminal cancelled_at, declin
   assertStringIncludes(ssot, "confirmed_driver_id: null");
   // Phase 3: rematch preserves airport hold — never force broadcast_enabled: true.
   assertStringIncludes(block, "rematchBroadcastEnabled");
-  assertStringIncludes(block, "airport pricing hold");
   assertEquals(block.includes("cancelled_at: releaseNowIso"), false);
   // In-progress / no-show stay terminal (cannot rematch).
   assertStringIncludes(block, "Cannot cancel after ride has started");
   assertStringIncludes(src, '["cancelled", "completed"]');
+  const sql = await Deno.readTextFile(
+    new URL(
+      "../../migrations/20270225140000_bug22_driver_cancel_preactivation_cas.sql",
+      import.meta.url,
+    ),
+  );
+  assertStringIncludes(sql, "decline_scheduled_ride");
 });
 
 Deno.test("conversion / Admin Broadcast / exclusive rescue preserve airport hold", () => {

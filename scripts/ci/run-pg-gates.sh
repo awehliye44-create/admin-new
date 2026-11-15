@@ -57,7 +57,8 @@ hard_missing_fn="$(psql "$DB_URL" -X -q -At -c "
     'public.process_ride_offer_ack_timeouts()',
     'public.offer_driver_net_split_for_trip(public.trips,integer,integer,integer,numeric,numeric)',
     'public.offer_global_offer_promotion_pence(public.trips)',
-    'public.driver_cancel_before_start_rematch(uuid,uuid,text,text,jsonb)']) x where to_regprocedure(x) is null")"
+    'public.driver_cancel_before_start_rematch(uuid,uuid,text,text,jsonb)',
+    'public.release_scheduled_assignment_for_driver_cancel(uuid,uuid,text,text,boolean)']) x where to_regprocedure(x) is null")"
 [ -z "$hard_missing" ] || { echo "ERROR: schema missing tables: $hard_missing" >&2; exit 1; }
 [ -z "$hard_missing_fn" ] || { echo "ERROR: schema missing RPCs: $hard_missing_fn" >&2; exit 1; }
 echo "preflight OK"
