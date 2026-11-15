@@ -92,14 +92,15 @@ Isolated delayed-finance execution tests pass (250ms finance after UI ready). **
 
 ---
 
-## SHAs (code)
+## SHAs / CI
 
-| Repo | SHA | Role |
+| Repo | SHA | Role / CI |
 | --- | --- | --- |
-| admin-new | `d1978629` | Preserve — CAPTURE_QUEUE_FAILED fail-closed |
-| admin-new | *(this tip)* | Idempotent capture recover + #24B locks/report |
-| Customer | `b3f2f3f` + tip durable-accept tests | #24A/B/C |
-| Driver | `03a31b9` | Test-only |
+| admin-new | `d1978629` | **Preserve** — CAPTURE_QUEUE_FAILED fail-closed |
+| admin-new | `20a9d2ea` | Idempotent capture recover + final report — [CI success](https://github.com/awehliye44-create/admin-new/actions/runs/43717544383) |
+| Customer | `b3f2f3f` | Durable tip accept before Home |
+| Customer | `194a3a5` | #24B kill/offline/auth execution tests — [CI success](https://github.com/awehliye44-create/onecab-customer-native/actions/runs/43717546687) |
+| Driver | `03a31b9` | Test-only — no OTA |
 
 ---
 
