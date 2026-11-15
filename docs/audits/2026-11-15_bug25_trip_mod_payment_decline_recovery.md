@@ -3,6 +3,9 @@
 **Date:** 2026-11-15  
 **Scope:** Customer-only (backend already isolates rejected modifications).  
 **Customer commit:** `6af35fcee885789bd8f4c90a57354dbcf90565b7`  
+**Audit docs commit:** `05499d1f529229d3e0ae2bba177c4c81409e6b92`  
+**Customer CI:** https://github.com/awehliye44-create/onecab-customer-native/actions/runs/43719472725 — **success**  
+**Admin CI:** https://github.com/awehliye44-create/admin-new/actions/runs/43719474707 — **success**  
 **Production deploy:** **PAUSED** (OTA / Edge / native / store) until approved.
 
 ## Exact root cause
