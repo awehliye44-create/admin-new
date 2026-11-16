@@ -1,6 +1,7 @@
 import { assertEquals } from "https://deno.land/std@0.224.0/assert/mod.ts";
 import {
   classifyGooglePaySubmitFailure,
+  classifyMisleadingRevolutPostcodeEmpty,
   readRevolutApiThrow,
 } from "./googlePaySubmitOutcome.ts";
 import {
@@ -41,6 +42,29 @@ Deno.test("classifyGooglePaySubmitFailure maps Revolut 4xx to definitive validat
   assertEquals(out.category, "validation");
   assertEquals(out.ambiguous, false);
   assertEquals(out.revolut_error_code, "validation");
+});
+
+Deno.test("misleading Revolut postcode-empty with Wallet postcode is token rejection", () => {
+  const out = classifyMisleadingRevolutPostcodeEmpty({
+    billingPostcodePresent: true,
+    revolutMessage: "postcode is empty",
+    revolutErrorCode: "validation",
+    revolutHttpStatus: 400,
+  });
+  assertEquals(out?.code, "GOOGLE_PAY_TOKEN_REJECTED");
+  assertEquals(out?.category, "token_rejected");
+  assertEquals(out?.ambiguous, false);
+  assertEquals(/Wallet|billing address/i.test(String(out?.message ?? "")), false);
+});
+
+Deno.test("misleading Revolut postcode-empty without Wallet postcode stays null", () => {
+  assertEquals(
+    classifyMisleadingRevolutPostcodeEmpty({
+      billingPostcodePresent: false,
+      revolutMessage: "postcode is empty",
+    }),
+    null,
+  );
 });
 
 Deno.test("classifyGooglePaySubmitFailure keeps 502 ambiguous without order evidence", () => {

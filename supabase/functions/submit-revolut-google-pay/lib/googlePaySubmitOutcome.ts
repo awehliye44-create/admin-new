@@ -21,6 +21,7 @@ type PaymentLike = { state?: string | null; decline_reason?: string | null } | n
 export type GooglePayFailureCategory =
   | "validation"
   | "billing_incomplete"
+  | "token_rejected"
   | "issuer_decline"
   | "authentication_required"
   | "provider_rejected"
@@ -36,6 +37,7 @@ export type GooglePaySubmitFailure = {
     | "PAYMENT_NOT_AUTHORISED"
     | "GOOGLE_PAY_SUBMIT_FAILED"
     | "GOOGLE_PAY_BILLING_INCOMPLETE"
+    | "GOOGLE_PAY_TOKEN_REJECTED"
     | "PAYMENT_AUTHENTICATION_REQUIRED"
     | "PAYMENT_RATE_LIMITED";
   message: string;
@@ -48,6 +50,40 @@ export type GooglePaySubmitFailure = {
   revolut_message: string | null;
   payment_stage: string;
 };
+
+/**
+ * Revolut Merchant often returns validation/"postcode is empty" for an invalid
+ * Google Pay token even when Wallet billing postcode was present and sent.
+ * Live probe (2026-11-16): fake token + MK4 4PY still yields that exact message.
+ * When our billing contract already has postcode, treat as token rejection —
+ * never tell the customer to edit their Wallet address.
+ */
+export function classifyMisleadingRevolutPostcodeEmpty(args: {
+  billingPostcodePresent: boolean;
+  revolutMessage: string | null | undefined;
+  revolutErrorCode?: string | null;
+  revolutHttpStatus?: number | null;
+  paymentStage?: string;
+}): GooglePaySubmitFailure | null {
+  const message = String(args.revolutMessage ?? "");
+  if (!args.billingPostcodePresent) return null;
+  if (!/postcode is empty/i.test(message)) return null;
+  return {
+    status: typeof args.revolutHttpStatus === "number" && args.revolutHttpStatus > 0
+      ? args.revolutHttpStatus
+      : 400,
+    code: "GOOGLE_PAY_TOKEN_REJECTED",
+    message:
+      "Google Pay could not authorise this payment. Try again, or choose another payment method.",
+    decline_reason: null,
+    bank_declined: false,
+    category: "token_rejected",
+    ambiguous: false,
+    revolut_error_code: String(args.revolutErrorCode ?? "").trim() || "validation",
+    revolut_message: message.trim() || "postcode is empty",
+    payment_stage: String(args.paymentStage ?? "pay_for_order").trim() || "pay_for_order",
+  };
+}
 
 export function isFailedPaymentState(state: string | null | undefined): boolean {
   return FAILED_PAYMENT_STATES.has(String(state ?? "").trim().toUpperCase());

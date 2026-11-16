@@ -37,6 +37,7 @@ import {
 void GOOGLE_PAY_EDGE_DEPLOY_FINGERPRINT;
 import {
   classifyGooglePaySubmitFailure,
+  classifyMisleadingRevolutPostcodeEmpty,
   isFailedPaymentState,
   latestFailedPaymentDeclineReason,
   readRevolutApiThrow,
@@ -379,26 +380,17 @@ serve(async (req) => {
       } catch {
         declineReason = null;
       }
-      // Revolut often returns "postcode is empty" for invalid tokens even when
-      // Wallet billing postcode was present — treat as billing/token recovery.
-      const postcodeParadox =
-        billingContract.field_presence.postcode === true &&
-        /postcode is empty/i.test(String(revolutThrow.message ?? ""));
-      const failure = postcodeParadox
-        ? {
-          status: 400,
-          code: "GOOGLE_PAY_BILLING_INCOMPLETE" as const,
-          message:
-            "Google Pay billing address was rejected. Update the card address in Google Wallet, or choose another payment method.",
-          decline_reason: null,
-          bank_declined: false,
-          category: "billing_incomplete" as const,
-          ambiguous: false,
-          revolut_error_code: revolutThrow.revolut_error_code,
-          revolut_message: revolutThrow.message,
-          payment_stage: "pay_for_order",
-        }
-        : classifyGooglePaySubmitFailure({
+      // Revolut returns "postcode is empty" for invalid tokens even when Wallet
+      // billing postcode was present — do not blame Wallet address (Bug #37).
+      const misleadingPostcode = classifyMisleadingRevolutPostcodeEmpty({
+        billingPostcodePresent: billingContract.field_presence.postcode === true,
+        revolutMessage: revolutThrow.message,
+        revolutErrorCode: revolutThrow.revolut_error_code,
+        revolutHttpStatus: revolutThrow.status,
+        paymentStage: "pay_for_order",
+      });
+      const failure = misleadingPostcode ??
+        classifyGooglePaySubmitFailure({
           declineReason,
           providerRejected: false,
           revolutHttpStatus: revolutThrow.status,
@@ -420,7 +412,8 @@ serve(async (req) => {
           category: failure.category,
           payment_stage: failure.payment_stage,
           field_presence: billingContract.field_presence,
-          postcode_paradox: postcodeParadox,
+          postcode_paradox: Boolean(misleadingPostcode),
+          revolut_postcode_empty_means_token_rejected: Boolean(misleadingPostcode),
           ...tokenShape,
           ...postcodeShape,
           correlation_id: correlationId,

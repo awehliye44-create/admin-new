@@ -307,14 +307,25 @@ export function inspectGooglePayTokenShape(token: string): {
   token_len: number;
   token_is_json_object: boolean;
   token_looks_truncated: boolean;
+  token_protocol_version: string | null;
+  token_top_level_keys: string[];
 } {
   const trimmed = String(token ?? "").trim();
   let token_is_json_object = false;
+  let token_protocol_version: string | null = null;
+  let token_top_level_keys: string[] = [];
   if (trimmed.startsWith("{") && trimmed.endsWith("}")) {
     try {
       const parsed = JSON.parse(trimmed) as unknown;
       token_is_json_object =
         Boolean(parsed) && typeof parsed === "object" && !Array.isArray(parsed);
+      if (token_is_json_object) {
+        const obj = parsed as Record<string, unknown>;
+        token_top_level_keys = Object.keys(obj).sort();
+        const protocol = obj.protocolVersion;
+        token_protocol_version =
+          typeof protocol === "string" && protocol.trim() ? protocol.trim() : null;
+      }
     } catch {
       token_is_json_object = false;
     }
@@ -324,6 +335,8 @@ export function inspectGooglePayTokenShape(token: string): {
     token_len: trimmed.length,
     token_is_json_object,
     token_looks_truncated: trimmed.length > 0 && trimmed.length < 80,
+    token_protocol_version,
+    token_top_level_keys,
   };
 }
 
