@@ -148,10 +148,32 @@ Deno.test("Bug #29: sticky earlier deadline preserved (no auto-postpone)", () =>
     currentScheduledAtMs: pickup,
   });
   assertEquals(sticky.deadlineMs, stickyEarlier);
-  assert(
-    sticky.reason === "unchanged" || sticky.reason === "keep_earlier",
-    sticky.reason,
-  );
+  // reconcileStickyJitDeadline reasons: initial | pulled_earlier | unchanged | basis_reset
+  assertEquals(sticky.reason, "unchanged");
+});
+
+Deno.test("Bug #29 MK-261116-005 sticky: ETA 30 must not postpone a 19:38 stamp", () => {
+  // Production stamp stayed 19:38 (≈ ETA 42 long-buffer formula) while a fresh
+  // Google 30-min route would compute 19:50. Sticky must keep the earlier time.
+  const pickup = Date.parse("2026-11-16T20:30:00.000Z");
+  const sticky1938 = Date.parse("2026-11-16T19:38:00.000Z");
+  const fresh30 = computeJitDepartureDeadlineMs({
+    scheduledAtMs: pickup,
+    driverToPickupEtaMinutes: 30,
+    config: SCHEDULED_JIT_ACTIVATION_DEFAULTS,
+  });
+  assertEquals(fresh30.deadlineMs, Date.parse("2026-11-16T19:50:00.000Z"));
+  assert(fresh30.deadlineMs > sticky1938);
+
+  const sticky = reconcileStickyJitDeadline({
+    previousDeadlineMs: sticky1938,
+    candidateDeadlineMs: fresh30.deadlineMs,
+    oscillationToleranceMinutes:
+      SCHEDULED_JIT_ACTIVATION_DEFAULTS.oscillationToleranceMinutes,
+    currentScheduledAtMs: pickup,
+  });
+  assertEquals(sticky.deadlineMs, sticky1938);
+  assertEquals(sticky.reason, "unchanged");
 });
 
 Deno.test("Bug #29: due activation + 45s ack mode still arms", () => {

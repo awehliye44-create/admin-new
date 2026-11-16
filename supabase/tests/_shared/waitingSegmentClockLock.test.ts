@@ -1,7 +1,10 @@
 /**
  * Waiting geofence segment clock — acceptance cases A–K.
  */
-import { assertEquals } from "https://deno.land/std@0.224.0/assert/mod.ts";
+import {
+  assert,
+  assertEquals,
+} from "https://deno.land/std@0.224.0/assert/mod.ts";
 import {
   chargeableSecondsFromCounted,
   computePickupChargeFromCountedSeconds,
@@ -370,4 +373,59 @@ Deno.test("lock: buildPickupWaitingSnapshot no-show uses counted when provided",
   });
   assertEquals(eligible.no_show_eligible, true);
   assertEquals(eligible.no_show_remaining_seconds, 0);
+});
+
+Deno.test("lock: scheduled early arrival freezes no-show until scheduled_at (Bug #38 floor)", async () => {
+  const { buildPickupWaitingSnapshot, buildAdminWaitingConfigSnapshot } = await import(
+    "../../functions/_shared/waitingAdminConfig.ts"
+  );
+  const config = buildAdminWaitingConfigSnapshot(
+    {
+      free_waiting_minutes: 3,
+      no_show_wait_time_minutes: 4,
+      pickup_paid_waiting_enabled: true,
+      waiting_per_minute_pence: 24,
+    },
+    {
+      pickup_waiting_grace_period_seconds: 180,
+      pickup_paid_waiting_enabled: true,
+      pickup_paid_waiting_rate_pence_per_minute: 24,
+      stop_waiting_charge_interval_seconds: 15,
+    },
+    null,
+  );
+  const arrived = "2026-11-16T20:20:00.000Z";
+  const scheduled = "2026-11-16T20:30:00.000Z";
+  // Even with absurd counted seconds, no-show must stay frozen before scheduled_at.
+  const early = buildPickupWaitingSnapshot({
+    driverArrivedAt: arrived,
+    waitingStatus: "free_waiting",
+    config,
+    nowMs: Date.parse("2026-11-16T20:25:00.000Z"),
+    countedInRadiusSeconds: 9_999,
+    scheduledAtIso: scheduled,
+    isScheduledOrigin: true,
+  });
+  assertEquals(early.pickup_waiting_state, "awaiting_scheduled_pickup");
+  assertEquals(early.no_show_eligible, false);
+  assertEquals(early.no_show_eligible_at, null);
+  assertEquals(early.pickup_waiting_elapsed_seconds, 0);
+  assertEquals(early.no_show_remaining_seconds, config.no_show_waiting_seconds);
+
+  // After scheduled_at, counted clock may unlock no-show normally.
+  const after = buildPickupWaitingSnapshot({
+    driverArrivedAt: arrived,
+    waitingStatus: "free_waiting",
+    config,
+    nowMs: Date.parse("2026-11-16T20:35:00.000Z"),
+    countedInRadiusSeconds: config.no_show_waiting_seconds,
+    scheduledAtIso: scheduled,
+    isScheduledOrigin: true,
+  });
+  assert(
+    after.pickup_waiting_state === "free_waiting" ||
+      after.pickup_waiting_state === "paid_waiting",
+    after.pickup_waiting_state,
+  );
+  assertEquals(after.no_show_eligible, true);
 });
