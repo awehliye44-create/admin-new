@@ -117,6 +117,7 @@ interface ScheduledTrip {
   dispatch_mode: string;
   scheduled_broadcast_at: string | null;
   scheduled_convert_at: string | null;
+  broadcast_started_at?: string | null;
   confirm_deadline_at: string | null;
   confirmed_driver_id: string | null;
   driver_id: string | null;
@@ -1121,7 +1122,7 @@ Deno.serve(async (req) => {
         supabaseServiceKey,
         releaseAndRebroadcast: async (args) => {
           await releaseAndRebroadcast(supabase, {
-            trip: args.trip as ScheduledTrip,
+            trip: args.trip as unknown as ScheduledTrip,
             reason: args.reason,
             now: args.now,
             nowMs: args.nowMs,
@@ -1364,7 +1365,7 @@ Deno.serve(async (req) => {
             reason: rescueReason,
           });
           await releaseAndRebroadcast(supabase, {
-            trip: trip as ScheduledTrip,
+            trip: trip as unknown as ScheduledTrip,
             reason: rescueReason,
             now,
             nowMs,
@@ -1629,7 +1630,7 @@ Deno.serve(async (req) => {
         offersByTrip.set(offer.trip_id, list);
       }
 
-      for (const trip of ridesToConvert as ScheduledTrip[]) {
+      for (const trip of ridesToConvert as unknown as ScheduledTrip[]) {
         if (isTripTerminalForDispatch(trip)) continue;
 
         const tripOffers = offersByTrip.get(trip.id) ?? [];
@@ -1814,7 +1815,7 @@ Deno.serve(async (req) => {
     }
 
     const expireById = new Map<string, ScheduledTrip>();
-    for (const row of [...(expireConverted ?? []), ...(expirePastPickup ?? [])] as ScheduledTrip[]) {
+    for (const row of [...(expireConverted ?? []), ...(expirePastPickup ?? [])] as unknown as ScheduledTrip[]) {
       if (row?.id) expireById.set(row.id, row);
     }
     const expireCandidates = [...expireById.values()];
