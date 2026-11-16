@@ -5,6 +5,11 @@
 
 ALTER TABLE public.customer_live_activity_tokens
   DROP CONSTRAINT IF EXISTS customer_live_activity_tokens_customer_user_id_device_id_trip_id_key;
+ALTER TABLE public.customer_live_activity_tokens
+  DROP CONSTRAINT IF EXISTS customer_live_activity_tokens_customer_user_id_device_id_tr_key;
+
+DROP INDEX IF EXISTS public.customer_live_activity_tokens_customer_user_id_device_id_trip_id_key;
+DROP INDEX IF EXISTS public.customer_live_activity_tokens_customer_user_id_device_id_tr_key;
 
 CREATE UNIQUE INDEX IF NOT EXISTS customer_live_activity_tokens_device_uidx
   ON public.customer_live_activity_tokens (customer_user_id, device_id);
