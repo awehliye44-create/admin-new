@@ -297,6 +297,10 @@ Deno.test("lock: tick-pickup uses syncWaitingGeofenceClock + counted seconds", a
   assertEquals(src.includes("noShowFieldsFromCounted"), true);
   assertEquals(src.includes("no_show_remaining_seconds"), true);
   assertEquals(src.includes("buildPickupWaitingSnapshot"), true);
+  // Bug #38: explicit pause reason + physical inside for Driver copy.
+  assertEquals(src.includes("waiting_pause_reason"), true);
+  assertEquals(src.includes("waiting_inside_radius"), true);
+  assertEquals(src.includes("physicallyInside"), true);
 });
 
 Deno.test("lock: pickup-no-show uses countedInRadiusSeconds", async () => {

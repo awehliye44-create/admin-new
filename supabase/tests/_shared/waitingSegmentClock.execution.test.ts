@@ -171,6 +171,8 @@ Deno.test("A1 freeze condition A: initial pickup before scheduled_at never opens
   assertEquals(r.awaitingScheduledPickup, true);
   assertEquals(r.status, "paused");
   assertEquals(r.inside, false);
+  assertEquals(r.physicallyInside, true);
+  assertEquals(r.pauseReason, "before_scheduled_pickup");
   assertEquals(r.countedSeconds, 0);
   assertEquals(r.skipReason, "before_scheduled_pickup");
   assertEquals(sb.db.trip_waiting_segments.length, 0);

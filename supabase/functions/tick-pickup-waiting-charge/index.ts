@@ -262,6 +262,10 @@ Deno.serve(async (req) => {
       trip.waiting_geofence_status ?? "paused";
     let countedSeconds = Number(trip.pickup_waiting_counted_seconds ?? 0);
     let waitingEvidenceComplete = true;
+    let waitingPauseReason: string | null = null;
+    let waitingInsideRadius: boolean | null = null;
+    const scheduledAtIso =
+      (trip as { scheduled_at?: string | null }).scheduled_at ?? null;
 
     if (trip.pickup_latitude != null && trip.pickup_longitude != null) {
       const { eligibleFromMsForPickupTrip } = await import(
@@ -292,6 +296,8 @@ Deno.serve(async (req) => {
       });
       geofenceStatus = clock.status;
       countedSeconds = clock.countedSeconds;
+      waitingPauseReason = clock.pauseReason;
+      waitingInsideRadius = clock.physicallyInside;
       console.log("PICKUP_WAITING_GEOFENCE_TICK", {
         trip_id,
         status: clock.status,
@@ -300,6 +306,9 @@ Deno.serve(async (req) => {
         used_source: clock.usedSource,
         trusted_overrides_body: clock.trustedOverridesBody,
         distance_meters: clock.distanceMeters,
+        pause_reason: clock.pauseReason,
+        physically_inside: clock.physicallyInside,
+        awaiting_scheduled_pickup: clock.awaitingScheduledPickup,
       });
       waitingEvidenceComplete = clock.evidenceComplete;
     }
@@ -310,11 +319,18 @@ Deno.serve(async (req) => {
       geofenceStatus,
       config,
       nowMs,
-      scheduledAtIso: (trip as { scheduled_at?: string | null }).scheduled_at ?? null,
+      scheduledAtIso,
       isScheduledOrigin:
         (trip as { is_scheduled?: boolean | null }).is_scheduled === true ||
-        Boolean((trip as { scheduled_at?: string | null }).scheduled_at),
+        Boolean(scheduledAtIso),
     });
+    const pauseFields = {
+      waiting_pause_reason: waitingPauseReason ??
+        (noShowFields.early_arrival ? "before_scheduled_pickup" : null),
+      waiting_inside_radius: waitingInsideRadius,
+      skip_reason: waitingPauseReason,
+      scheduled_at: scheduledAtIso,
+    };
 
     if (!waitingEvidenceComplete) {
       return successResponse({
@@ -327,6 +343,7 @@ Deno.serve(async (req) => {
         waiting_geofence_status: geofenceStatus,
         admin_waiting_config_snapshot: config,
         ...noShowFields,
+        ...pauseFields,
         ...liveFareFields(trip as Record<string, unknown>),
       });
     }
@@ -354,6 +371,7 @@ Deno.serve(async (req) => {
         waiting_geofence_status: geofenceStatus,
         admin_waiting_config_snapshot: config,
         ...noShowFields,
+        ...pauseFields,
         ...liveFareFields(trip as Record<string, unknown>, 0),
       });
     }
@@ -372,6 +390,7 @@ Deno.serve(async (req) => {
         waiting_geofence_status: geofenceStatus,
         admin_waiting_config_snapshot: config,
         ...noShowFields,
+        ...pauseFields,
         ...liveFareFields(trip as Record<string, unknown>),
       });
     }
@@ -414,6 +433,7 @@ Deno.serve(async (req) => {
         waiting_geofence_status: geofenceStatus,
         admin_waiting_config_snapshot: config,
         ...noShowFields,
+        ...pauseFields,
         ...liveFareFields(trip as Record<string, unknown>, charged.charge_pence),
       });
     }
@@ -457,6 +477,7 @@ Deno.serve(async (req) => {
       waiting_geofence_status: geofenceStatus,
       admin_waiting_config_snapshot: config,
       ...noShowFields,
+        ...pauseFields,
       ...liveFareFields(trip as Record<string, unknown>, charged.charge_pence),
     });
   } catch (err) {

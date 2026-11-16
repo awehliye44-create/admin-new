@@ -656,6 +656,21 @@ export async function syncWaitingGeofenceClock(
   skipReason: string | null;
   /** True when inside radius but before scheduled eligible floor. */
   awaitingScheduledPickup: boolean;
+  /**
+   * Physical geofence verdict (ignores scheduled floor). Driver pause copy uses
+   * this so early-in-radius never collapses into outside-radius / Drive closer.
+   */
+  physicallyInside: boolean;
+  /**
+   * Explicit UI pause reason: before_scheduled_pickup (in radius, early) vs
+   * outside_radius (left geofence). Money freeze may still apply via
+   * awaitingScheduledPickup when early + outside.
+   */
+  pauseReason:
+    | "before_scheduled_pickup"
+    | "outside_radius"
+    | "no_trusted_location"
+    | null;
 }> {
   const nowIso = input.nowIso ?? new Date().toISOString();
   const nowMs = Date.parse(nowIso);
@@ -812,6 +827,15 @@ export async function syncWaitingGeofenceClock(
   }
   await supabase.from("trips").update(tripPatch).eq("id", input.tripId);
 
+  const pauseReason: "before_scheduled_pickup" | "outside_radius" | "no_trusted_location" | null =
+    openedFresh || (verdict.inside && !beforeScheduledEligible)
+      ? null
+      : beforeScheduledEligible && verdict.inside
+        ? "before_scheduled_pickup"
+        : verdict.usedSource === "no_trusted_location"
+          ? "no_trusted_location"
+          : "outside_radius";
+
   return {
     status,
     countedSeconds,
@@ -824,6 +848,8 @@ export async function syncWaitingGeofenceClock(
     segmentId,
     skipReason: openedFresh ? null : skipReason,
     awaitingScheduledPickup: beforeScheduledEligible,
+    physicallyInside: verdict.inside,
+    pauseReason,
   };
 }
 
