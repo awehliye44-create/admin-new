@@ -101,27 +101,37 @@ serve(async (req) => {
       );
     }
 
+    // Bug #35: always attach region timezone when the pickup resolved a region.
+    // Scheduled booking (and any client needing IANA TZ) must not depend on
+    // live driver availability — unavailable used to omit region/settings.
+    const regionPayload = result.region
+      ? {
+          region: result.region,
+          settings: {
+            currency_code: result.region.currency_code,
+            distance_unit: result.region.distance_unit,
+            timezone: result.region.timezone,
+          },
+          service_area_ids: result.service_area_ids ?? [],
+        }
+      : {
+          service_area_ids: result.service_area_ids ?? [],
+        };
+
     if (result.availability_state !== "available" || result.drivers.length === 0) {
       return successResponse({
         drivers: [],
         availability_state: "unavailable",
         message: result.message || RIDE_NOW_NO_DRIVERS_MESSAGE,
         subtext: result.subtext || RIDE_NOW_NO_DRIVERS_SUBTEXT,
+        ...regionPayload,
       });
     }
 
     return successResponse({
       drivers: result.drivers,
       availability_state: "available",
-      service_area_ids: result.service_area_ids ?? [],
-      region: result.region,
-      settings: result.region
-        ? {
-            currency_code: result.region.currency_code,
-            distance_unit: result.region.distance_unit,
-            timezone: result.region.timezone,
-          }
-        : undefined,
+      ...regionPayload,
     });
 
   } catch (error) {

@@ -98,6 +98,9 @@ Deno.test("find-drivers remains the availability SSOT (no corporate-only calcula
   assertEquals(ssot.includes('.eq("documents_approved", true)'), true);
   assertEquals(findDrivers.includes('availability_state: "unavailable"'), true);
   assertEquals(findDrivers.includes('availability_state: "available"'), true);
+  // Bug #35: unavailable responses must still attach region timezone.
+  assertEquals(findDrivers.includes("...regionPayload"), true);
+  assertEquals(findDrivers.includes("timezone: result.region.timezone"), true);
 
   let foundCorporateCalculator = false;
   for await (const entry of Deno.readDir(new URL("../", import.meta.url))) {
