@@ -30161,8 +30161,17 @@ export type Database = {
       }
     }
     Functions: {
+      _admin_page_bind_value: {
+        Args: { p_assign: boolean; p_ref: string; p_type: string; p_val: Json }
+        Returns: string
+      }
       _admin_page_build_or_groups: {
-        Args: { p_allowed_cols: string[]; p_or_groups: Json; p_table: string }
+        Args: {
+          p_allowed_cols: string[]
+          p_or_groups: Json
+          p_path: string[]
+          p_table: string
+        }
         Returns: string
       }
       _admin_page_build_where: {
@@ -30170,6 +30179,10 @@ export type Database = {
         Returns: string
       }
       _admin_page_col_expr: {
+        Args: { p_col: string; p_table: string }
+        Returns: string
+      }
+      _admin_page_col_type: {
         Args: { p_col: string; p_table: string }
         Returns: string
       }
@@ -30182,19 +30195,24 @@ export type Database = {
         Args: { p_op: string; p_table: string }
         Returns: string[]
       }
-      _admin_page_patch_value: {
-        Args: { p_col: string; p_table: string; p_val: Json }
-        Returns: string
-      }
       _admin_page_pred_group: {
-        Args: { p_allowed_cols: string[]; p_filters: Json; p_table: string }
+        Args: {
+          p_allowed_cols: string[]
+          p_filters: Json
+          p_path: string[]
+          p_table: string
+        }
         Returns: string
       }
       _admin_page_pred_one: {
-        Args: { p_allowed_cols: string[]; p_filter: Json; p_table: string }
+        Args: {
+          p_allowed_cols: string[]
+          p_filter: Json
+          p_path: string[]
+          p_table: string
+        }
         Returns: string
       }
-      _admin_page_quote_json_scalar: { Args: { p_val: Json }; Returns: string }
       _admin_page_table_allowed: {
         Args: { p_page_slug: string; p_table: string }
         Returns: boolean
