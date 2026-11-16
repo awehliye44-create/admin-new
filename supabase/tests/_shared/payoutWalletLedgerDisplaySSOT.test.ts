@@ -25,7 +25,7 @@ import {
   resolvePayoutAccountComposition,
 } from "../../functions/_shared/payoutAccountCompositionSSOT.ts";
 import { computeFrDriverReconciliation } from "../../functions/_shared/frDriverReconciliationSSOT.ts";
-import { shouldShowDriverFinancialReviewRepair } from "../../functions/_shared/driverFinancialReviewRepairSSOT.ts";
+import { shouldShowDriverFinancialReviewRepair } from "../../functions/admin-driver-financial-repair/lib/driverFinancialReviewRepairSSOT.ts";
 
 const read = (rel: string) => Deno.readTextFileSync(new URL(rel, import.meta.url));
 
@@ -373,7 +373,7 @@ Deno.test("Review & repair: an empty period alone does not open it; genuine UNKN
 });
 
 Deno.test("Payout Ledger accounts read the reservation formula, the gate and deletion", () => {
-  const src = read("../../functions/_shared/adminPayoutLedgerAccountsOverviewSSOT.ts");
+  const src = read("../../functions/admin-payout-ledger/lib/adminPayoutLedgerAccountsOverviewSSOT.ts");
   assertStringIncludes(src, "fetchDriverWalletEligibilityBalancesRpc");
   assertStringIncludes(src, '"driver_effective_payout_allowed"');
   assertStringIncludes(src, "deleted_at");

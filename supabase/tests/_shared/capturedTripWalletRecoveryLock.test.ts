@@ -4,7 +4,7 @@
  * no duplicate on repeat, DRIVER_COLLECTED blocked, dry-run mode.
  */
 import { assertEquals } from "https://deno.land/std@0.192.0/testing/asserts.ts";
-import { recoverCapturedTripWallet } from "../../functions/_shared/capturedTripWalletRecovery.ts";
+import { recoverCapturedTripWallet } from "../../functions/admin-recover-captured-trip-wallet/lib/capturedTripWalletRecovery.ts";
 
 const ALLOWED_TRIPS = ["trip-007-uuid", "trip-008-uuid", "trip-009-uuid"] as const;
 

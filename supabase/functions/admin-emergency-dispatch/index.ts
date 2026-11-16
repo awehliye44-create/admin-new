@@ -10,7 +10,7 @@ import {
   isManualEmergencyDispatchOnly,
 } from "../_shared/dispatchOrchestrator.ts";
 import { recordDispatchWaveSnapshot } from "../_shared/recordDispatchWaveSnapshot.ts";
-import { authorizeAdminEmergencyDispatch } from "../_shared/adminEmergencyDispatchAuth.ts";
+import { authorizeAdminEmergencyDispatch } from "./lib/adminEmergencyDispatchAuth.ts";
 
 Deno.serve(async (req) => {
   // handleCORSPreflight always returns 204 — only use it for OPTIONS.

@@ -64,15 +64,15 @@ Deno.test("safety net never moves money or touches driver earnings", () => {
 
 Deno.test("trip-row recompute paths exclude recovered debt", () => {
   for (const p of [
-    "functions/_shared/capturedTripWalletRecovery.ts",
-    "functions/_shared/historicalSettlementCorrectionPlan.ts",
+    "functions/admin-recover-captured-trip-wallet/lib/capturedTripWalletRecovery.ts",
+    "tests/_shared/support/historicalSettlementCorrectionPlan.ts",
     "functions/financial-ssot-monitor/index.ts",
   ]) {
     const src = read(p);
     assert(src.includes("loadRecoveredDebtFareComponents("), `${p} loads components`);
     assert(src.includes("withRecoveredDebtFareComponent("), `${p} applies components`);
   }
-  const repair = read("functions/_shared/driverFinancialReviewRepairSSOT.ts");
+  const repair = read("functions/admin-driver-financial-repair/lib/driverFinancialReviewRepairSSOT.ts");
   assert(repair.includes("recoveredDebtTripFareComponentPence(evidence)"));
   assert(read("functions/admin-driver-financial-repair/index.ts").includes("receivable_component_pence"));
 });

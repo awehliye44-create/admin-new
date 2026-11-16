@@ -11,7 +11,7 @@ import {
 import {
   resolveBackfillSearchingExpiresAtIso,
   shouldExpireConvertedScheduledNoDriver,
-} from "../../functions/_shared/scheduledNoDriverExpirySSOT.ts";
+} from "../../functions/scheduled-dispatch/lib/scheduledNoDriverExpirySSOT.ts";
 
 Deno.test("past pickup + null searching_expires_at → expire (no Overdue linger)", () => {
   const decision = shouldExpireConvertedScheduledNoDriver({

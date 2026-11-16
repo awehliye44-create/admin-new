@@ -13,7 +13,7 @@ import {
   buildDriverPayoutWithdrawalQuote,
   isCompatibleDriverWithdrawExecutorQuote,
   toDriverWithdrawExecutorQuotePayload,
-} from "../../functions/_shared/driverPayoutWithdrawalQuoteSSOT.ts";
+} from "../../functions/driver-withdraw/lib/driverPayoutWithdrawalQuoteSSOT.ts";
 import type { DriverPayoutEligibilityResult } from "../../functions/_shared/driverPayoutEligibilitySSOT.ts";
 import { PAYOUT_ELIGIBILITY_STATUS } from "../../functions/_shared/driverPayoutEligibilitySSOT.ts";
 

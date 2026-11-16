@@ -6,7 +6,7 @@
  *   deno test --no-check shared/durableSettlementOutcomeSSOT.deno.test.ts
  */
 import { assertEquals } from "https://deno.land/std@0.224.0/assert/mod.ts";
-import { durableSettlementColumns } from "../../functions/_shared/durableSettlementOutcomeSSOT.ts";
+import { durableSettlementColumns } from "../../functions/finalize-trip-and-capture/lib/durableSettlementOutcomeSSOT.ts";
 import {
   isTipWindowOpen,
   needsServerTipWindowFareCapture,
@@ -121,7 +121,7 @@ Deno.test("LOCK: early tip_window_closed_at while expires_at future is closed (n
 
 Deno.test("LOCK: source files refuse false capture / tip seal", async () => {
   const durable = await Deno.readTextFile(
-    new URL("../../functions/_shared/durableSettlementOutcomeSSOT.ts", import.meta.url),
+    new URL("../../functions/finalize-trip-and-capture/lib/durableSettlementOutcomeSSOT.ts", import.meta.url),
   );
   assertEquals(durable.includes("must NOT invent captured"), true);
 

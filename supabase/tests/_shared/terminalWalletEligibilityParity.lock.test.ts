@@ -12,7 +12,7 @@
  */
 import { assertEquals, assertStringIncludes } from "jsr:@std/assert@1";
 import { fetchDriverPayoutEligibility } from "../../functions/_shared/fetchDriverPayoutEligibility.ts";
-import { buildDriverPayoutWithdrawalQuote } from "../../functions/_shared/driverPayoutWithdrawalQuoteSSOT.ts";
+import { buildDriverPayoutWithdrawalQuote } from "../../functions/driver-withdraw/lib/driverPayoutWithdrawalQuoteSSOT.ts";
 import { planPayoutItemFromEligibleEntries } from "../../functions/_shared/payoutLedgerHandoffSSOT.ts";
 import { resolveTerminalOutcomeKind } from "../../functions/_shared/terminalOutcomeKindSSOT.ts";
 import { createFakeDb, type FakeRow } from "./waitingSsotFakeDb.ts";

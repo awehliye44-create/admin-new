@@ -29,7 +29,7 @@ import {
 import {
   parseMerchantVaultAddCardGateMode,
   resolveMerchantVaultAddCardAllowed,
-} from "../../functions/_shared/merchantVaultAddCardGate.ts";
+} from "../../functions/setup-revolut-card/lib/merchantVaultAddCardGate.ts";
 
 /** Reconcile paths never create provider orders — constant for every simulation. */
 const CREATE_ORDER_COUNT = 0 as const;
@@ -473,7 +473,7 @@ Deno.test("S16–S19 Add card / saved selection: setup-revolut-card + gate defau
     new URL("../../functions/setup-revolut-card/index.ts", import.meta.url),
   );
   const gateSrc = Deno.readTextFileSync(
-    new URL("../../functions/_shared/merchantVaultAddCardGate.ts", import.meta.url),
+    new URL("../../functions/setup-revolut-card/lib/merchantVaultAddCardGate.ts", import.meta.url),
   );
   const listSrc = Deno.readTextFileSync(
     new URL("../../functions/list-revolut-saved-cards/index.ts", import.meta.url),

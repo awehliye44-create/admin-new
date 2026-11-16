@@ -40,7 +40,7 @@ import {
   DRIVER_FINANCIAL_REPAIR_ACTION,
   DRIVER_FINANCIAL_REPAIR_BLOCK,
   type DriverFinancialRepairEvidence,
-} from "../../functions/_shared/driverFinancialReviewRepairSSOT.ts";
+} from "../../functions/admin-driver-financial-repair/lib/driverFinancialReviewRepairSSOT.ts";
 
 const DRIVER = "drv-terminal-beneficiary";
 const OTHER_DRIVER = "drv-other";
@@ -579,7 +579,7 @@ Deno.test("reconciliation snapshot: previous_driver_id rows are scoped to canoni
 Deno.test("restamp: every terminal posting path stamps the trip before posting the credit", () => {
   for (const rel of [
     "_shared/terminalFeeSettlementResumptionSSOT.ts",
-    "_shared/noShowSettlement.ts",
+    "pickup-no-show/lib/noShowSettlement.ts",
     "_shared/canonicalTypedWalletPostingSSOT.ts",
   ]) {
     const src = readFn(rel);

@@ -16,7 +16,7 @@ import {
 const ROOT = resolve(__dirname, '../../..');
 const HANDLER = resolve(
   ROOT,
-  'supabase/functions/_shared/updateDriverPayoutDestinationHandler.ts',
+  'supabase/functions/update-driver-payout-destination/lib/updateDriverPayoutDestinationHandler.ts',
 );
 
 describe('phase A8B28F Stage B2 provider linkage contract', () => {

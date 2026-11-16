@@ -10,7 +10,7 @@ import {
   type GateError,
   type GateResult,
 } from "../_shared/adminPaymentGate.ts";
-import { listAdminPaymentSessions } from "../_shared/adminPaymentSessionsListSSOT.ts";
+import { listAdminPaymentSessions } from "./lib/adminPaymentSessionsListSSOT.ts";
 import { FINANCIAL_MODEL, resolveServiceAreaFinancialScope } from "../_shared/financialModelScopeGate.ts";
 
 export const AdminPaymentSessionsInputSchema = z.object({
@@ -116,7 +116,7 @@ export const defaultAdminPaymentSessionsDeps: AdminPaymentSessionsHandlerDeps = 
   inspectProviderOrder: async ({ supabase, orderId }) => {
     const { retrieveRevolutOrder } = await import("../_shared/revolutOrders.ts");
     const { resolveRevolutMerchantContext } = await import("../_shared/revolutMerchantContext.ts");
-    const { sanitiseRevolutOrder } = await import("../_shared/sanitisedProviderSnapshot.ts");
+    const { sanitiseRevolutOrder } = await import("./lib/sanitisedProviderSnapshot.ts");
     const merchant = await resolveRevolutMerchantContext(supabase, "live");
     const order = await retrieveRevolutOrder(
       merchant.environment,

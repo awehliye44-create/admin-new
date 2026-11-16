@@ -3,4 +3,4 @@
  * Re-exported here for frontend/test imports.
  */
 
-export * from "../supabase/functions/_shared/walletTransactionTitles.ts";
+export * from "../supabase/functions/driver-wallet-transactions/lib/walletTransactionTitles.ts";

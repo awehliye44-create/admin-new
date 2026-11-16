@@ -19,10 +19,10 @@ Deno.test("companyBalanceResolveSSOT exports Slice10 gate used by admin-payout-l
 
 Deno.test("admin-payout-ledger entry imports Slice10 gate (no missing export)", async () => {
   const overview = await Deno.readTextFile(
-    new URL("../../functions/_shared/adminPayoutLedgerOverviewSSOT.ts", import.meta.url),
+    new URL("../../functions/admin-payout-ledger/lib/adminPayoutLedgerOverviewSSOT.ts", import.meta.url),
   );
   const list = await Deno.readTextFile(
-    new URL("../../functions/_shared/adminPayoutLedgerListSSOT.ts", import.meta.url),
+    new URL("../../functions/admin-payout-ledger/lib/adminPayoutLedgerListSSOT.ts", import.meta.url),
   );
   assertStringIncludes(overview, "resolveLiveCompanyBalanceWithSlice10Gate");
   assertStringIncludes(list, "resolveLiveCompanyBalanceWithSlice10Gate");

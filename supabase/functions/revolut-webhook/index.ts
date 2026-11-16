@@ -35,7 +35,7 @@ import {
   normalizeLifecycleProviderState,
 } from "../_shared/paymentSessionLifecycleStateSSOT.ts";
 import { applyPaymentSessionWebhookLifecycleUpdate } from "../_shared/applyPaymentSessionWebhookLifecycleUpdate.ts";
-import { cancelTripForLostPaymentAuthorisation } from "../_shared/lostPaymentAuthorisationTripSSOT.ts";
+import { cancelTripForLostPaymentAuthorisation } from "./lib/lostPaymentAuthorisationTripSSOT.ts";
 import { resolvePaymentSessionCaptureAdvanceExtras } from "../_shared/paymentSessionCaptureTimestampSSOT.ts";
 import { transitionPaymentSession } from "../_shared/paymentSessionTransitionFacade.ts";
 import { persistProviderFeeAndMaybeResumeTerminalSettlement } from "../_shared/terminalFeeSettlementResumptionSSOT.ts";

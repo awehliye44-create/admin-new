@@ -7,7 +7,7 @@ import { createClient } from "npm:@supabase/supabase-js@2.57.2";
 import {
   confirmCommissionWalletTopupCredit,
   markCommissionWalletTopupTerminal,
-} from "../_shared/commissionWalletTopupConfirm.ts";
+} from "./lib/commissionWalletTopupConfirm.ts";
 import {
   WAAFI_SANDBOX_PROVIDER,
   WAAFI_SANDBOX_SIGNATURE_HEADER,

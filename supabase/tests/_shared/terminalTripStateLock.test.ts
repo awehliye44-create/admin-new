@@ -70,7 +70,7 @@ Deno.test("record-financial-outcome checks driver entitlement before posting", (
 Deno.test("dispatch writers never reopen a completed or terminal trip", () => {
   const minimum: Record<string, number> = {
     "supabase/functions/auto-dispatch/index.ts": 3,
-    "supabase/functions/_shared/scheduleDispatchConversionSweep.ts": 3,
+    "supabase/functions/schedule-dispatch/lib/scheduleDispatchConversionSweep.ts": 3,
     "supabase/functions/scheduled-dispatch/index.ts": 8,
     "supabase/functions/decline-offer/index.ts": 1,
   };

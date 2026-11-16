@@ -161,7 +161,7 @@ Deno.test("caller audit: backend owns increment; completion gates unresolved", a
   assertEquals(apply.includes("Quoted payable missing for fare-increasing"), false);
 
   const adminCapture = await Deno.readTextFile(
-    new URL("../../functions/_shared/adminCaptureTripPaymentSSOT.ts", import.meta.url),
+    new URL("../../functions/admin-capture-trip-payment/lib/adminCaptureTripPaymentSSOT.ts", import.meta.url),
   );
   assertStringIncludes(adminCapture, "assertPlatformCollectedCompletionPaymentGate");
 

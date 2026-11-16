@@ -26,7 +26,7 @@ import {
 import {
   runConfirmedJitActivationPass,
   resolveJitConfigFromSettingsRow,
-} from "../_shared/runConfirmedJitActivationPass.ts";
+} from "./lib/runConfirmedJitActivationPass.ts";
 import { SCHEDULED_JIT_ACTIVATION_DEFAULTS } from "../_shared/scheduledJitActivationSSOT.ts";
 import {
   buildBroadcastNowPatch,
@@ -36,7 +36,7 @@ import {
 import {
   resolveBackfillSearchingExpiresAtIso,
   shouldExpireConvertedScheduledNoDriver,
-} from "../_shared/scheduledNoDriverExpirySSOT.ts";
+} from "./lib/scheduledNoDriverExpirySSOT.ts";
 import {
   blockedTerminalTripLogPayload,
   isTripTerminalForDispatch,
@@ -80,12 +80,12 @@ import {
   shouldSurfacePostActivationLateness,
   buildPostActivationLatenessOpsAlert,
   buildTrafficDelayNotificationId,
-} from "../_shared/scheduledPostActivationLatenessSSOT.ts";
+} from "./lib/scheduledPostActivationLatenessSSOT.ts";
 import {
   isScheduledEarlyArrivalDueForUnlock,
   unlockScheduledEarlyArrivalWaiting,
-} from "../_shared/scheduledEarlyArrivalUnlockSSOT.ts";
-import { upsertScheduledJitOpsAlert } from "../_shared/scheduledJitOpsAlertSSOT.ts";
+} from "./lib/scheduledEarlyArrivalUnlockSSOT.ts";
+import { upsertScheduledJitOpsAlert } from "./lib/scheduledJitOpsAlertSSOT.ts";
 
 declare const EdgeRuntime:
   | { waitUntil?: (promise: Promise<unknown>) => void }

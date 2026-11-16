@@ -23,7 +23,7 @@ import {
   UNKNOWN_FINANCIAL_RULE_IS_NOT_ZERO,
   WALLET_CORRECTION_APPEND_CERTIFIED,
   type DriverFinancialRepairEvidence,
-} from "../../functions/_shared/driverFinancialReviewRepairSSOT.ts";
+} from "../../functions/admin-driver-financial-repair/lib/driverFinancialReviewRepairSSOT.ts";
 
 const REPO_ROOT = fromFileUrl(new URL("../../..", import.meta.url));
 
@@ -233,7 +233,7 @@ Deno.test("stale preview fails", () => {
 
 Deno.test("1–10 source certification locks (preview zero writes, real recompute, lock fail-closed)", async () => {
   const edge = await read("supabase/functions/admin-driver-financial-repair/index.ts");
-  const ssot = await read("supabase/functions/_shared/driverFinancialReviewRepairSSOT.ts");
+  const ssot = await read("supabase/functions/admin-driver-financial-repair/lib/driverFinancialReviewRepairSSOT.ts");
   const migration = await read(
     "supabase/migrations/20261129120000_driver_financial_review_repair.sql",
   );

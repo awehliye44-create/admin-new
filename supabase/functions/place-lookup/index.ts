@@ -19,7 +19,7 @@ import {
   choosePinnedPoi,
   looksLikeStreetAddressName,
   normalizeV6StreetAddress,
-} from "../_shared/pinnedPoiSelection.ts";
+} from "./lib/pinnedPoiSelection.ts";
 import { requireSignedInOrService } from "../_shared/callerGate.ts";
 
 /**

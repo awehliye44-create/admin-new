@@ -27,7 +27,7 @@ import {
   buildFrCustomerOutstandingOverview,
   FR_CUSTOMER_OUTSTANDING_CLASS,
   mk012Mk017BackfillPreviewPence,
-} from "../supabase/functions/_shared/frCustomerOutstandingSSOT.ts";
+} from "../supabase/functions/admin-finance-reconciliation/lib/frCustomerOutstandingSSOT.ts";
 
 const MK012 = {
   trip_id: "2799bb97-cabf-47e1-a570-fe225e6b06b1",

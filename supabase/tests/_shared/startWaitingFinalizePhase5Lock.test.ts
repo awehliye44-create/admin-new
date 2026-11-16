@@ -29,7 +29,7 @@ const ingestPath = new URL(
   import.meta.url,
 );
 const lifecyclePerfPath = new URL(
-  "../../functions/_shared/stopWorkflowLifecyclePerf.ts",
+  "../../functions/stop-workflow/lib/stopWorkflowLifecyclePerf.ts",
   import.meta.url,
 );
 

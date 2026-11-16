@@ -2,7 +2,7 @@ import { assertEquals } from "https://deno.land/std@0.224.0/assert/mod.ts";
 import {
   evaluateFinancialOutcomeEntitlement,
   resolveEntitledTerminalDriverId,
-} from "../../functions/_shared/financialOutcomeEntitlementGuardSSOT.ts";
+} from "../../functions/record-financial-outcome/lib/financialOutcomeEntitlementGuardSSOT.ts";
 
 const D1 = "d1";
 const D2 = "d2";

@@ -24,7 +24,7 @@ import {
   resolveCampaignAudience,
   resolveCustomerUserIdsForAudience,
   resolveDriverIdsForAudience,
-} from "../_shared/campaignHeadsUpAudience.ts";
+} from "./lib/campaignHeadsUpAudience.ts";
 import {
   buildCampaignHeadsUpFcmData,
   CAMPAIGN_ANDROID_CHANNEL_ID,
@@ -39,7 +39,7 @@ import {
   campaignDeliveryDedupeKey,
   normalizeCampaignPushPlatform,
   readCampaignFcmServiceAccountJson,
-} from "../_shared/campaignHeadsUpPayload.ts";
+} from "./lib/campaignHeadsUpPayload.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",

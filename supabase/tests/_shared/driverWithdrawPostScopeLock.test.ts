@@ -12,7 +12,7 @@ import {
   rejectClientServiceAreaOverride,
   resolveAuthoritativeWithdrawServiceArea,
   safeDriverWithdrawInternalErrorBody,
-} from "../../functions/_shared/driverWithdrawPostScopeSSOT.ts";
+} from "../../functions/driver-withdraw/lib/driverWithdrawPostScopeSSOT.ts";
 
 const EDGE = new URL("../../functions/driver-withdraw/index.ts", import.meta.url);
 const MK_SA = "cb58f1bd-8b6f-45b9-ad31-b3140309892c";

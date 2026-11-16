@@ -8,7 +8,7 @@ import { assertEquals, assert } from "https://deno.land/std@0.192.0/testing/asse
 import type { GateResult } from "../_shared/adminPaymentGate.ts";
 import {
   APPROVED_CAPTURED_TRIP_WALLET_RECOVERY_TRIP_IDS,
-} from "../_shared/capturedTripWalletRecovery.ts";
+} from "./lib/capturedTripWalletRecovery.ts";
 import {
   classifyRecoverAuthorization,
   EXECUTE_CONFIRMATION,

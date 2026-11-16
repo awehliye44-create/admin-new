@@ -4,7 +4,7 @@ import {
   expireOffersSweepSeesLiveNegotiation,
   NEGOTIATION_TIMEOUT_OWNER,
   waitingCustomerExpiryAction,
-} from "../../functions/_shared/negotiationTimeoutOwner.ts";
+} from "../../functions/expire-offers/lib/negotiationTimeoutOwner.ts";
 import { negotiationDeadlineIso } from "../../functions/_shared/negotiation-deadline.ts";
 
 const nowIso = "2026-08-25T19:00:00.000Z";

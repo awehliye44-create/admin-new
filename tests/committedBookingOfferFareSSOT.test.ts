@@ -16,7 +16,7 @@ import {
 } from "../supabase/functions/_shared/committedBookingOfferFareSSOT.ts";
 import { enrichOfferSnapshotDriverNet } from "../supabase/functions/_shared/driverOfferNetPreview.ts";
 import { resolveNegotiationBaseFarePence } from "../supabase/functions/_shared/negotiationBaseFare.ts";
-import { tripFareFieldsForOfferSnapshot } from "../supabase/functions/_shared/tripFareSnapshot.ts";
+import { tripFareFieldsForOfferSnapshot } from "../supabase/functions/auto-dispatch/lib/tripFareSnapshot.ts";
 import {
   resolveActivationGrossPenceForPreview,
   resolveExclusiveActivationDriverNetPence,
@@ -499,7 +499,7 @@ describe("wiring locks (source)", () => {
     expect(src).toContain("resolveCommittedOfferGross");
   });
   it("tripFareSnapshot overlays committed payable", () => {
-    const src = read("supabase/functions/_shared/tripFareSnapshot.ts");
+    const src = read("supabase/functions/auto-dispatch/lib/tripFareSnapshot.ts");
     expect(src).toContain("overlayCommittedPayableOnFareFields");
   });
   it("scheduled activation gross delegates to the committed SSOT", () => {

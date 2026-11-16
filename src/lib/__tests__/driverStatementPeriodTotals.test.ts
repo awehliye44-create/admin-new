@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildDriverStatementPeriodTotals } from '../../../supabase/functions/_shared/driverStatementPeriodTotals.ts';
+import { buildDriverStatementPeriodTotals } from '../../../supabase/functions/admin-finance-reconciliation/lib/driverStatementPeriodTotals.ts';
 
 describe('buildDriverStatementPeriodTotals', () => {
   it('includes PENALTY and DEDUCTION in penalties_pence', () => {

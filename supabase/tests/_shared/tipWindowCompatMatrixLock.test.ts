@@ -14,7 +14,7 @@ import {
   TIP_NOT_COLLECTED_CUSTOMER_MESSAGE,
 } from "../../functions/_shared/tipWindowConstants.ts";
 import { classifyTipWindowCaptureOutcome } from "../../functions/_shared/tipWindowTriggerMutexSSOT.ts";
-import { durableSettlementColumns } from "../../functions/_shared/durableSettlementOutcomeSSOT.ts";
+import { durableSettlementColumns } from "../../functions/finalize-trip-and-capture/lib/durableSettlementOutcomeSSOT.ts";
 
 const BANK_COPY =
   "Your bank declined the tip. Your fare has not been taken yet. You can try again, continue without a tip, or skip.";

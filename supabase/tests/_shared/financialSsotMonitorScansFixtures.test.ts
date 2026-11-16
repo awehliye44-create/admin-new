@@ -22,7 +22,7 @@ import {
   type MonitorMismatchRow,
   type MonitorOfferRow,
   type MonitorTripRow,
-} from "../../functions/_shared/financialSsotMonitorScans.ts";
+} from "../../functions/financial-ssot-monitor/lib/financialSsotMonitorScans.ts";
 
 const STAGES = new Set([
   "offer_vs_committed",

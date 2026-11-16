@@ -8,7 +8,7 @@ import {
   isLostPropertyCronAction,
   timingSafeEqualString,
   INTERNAL_LOST_PROPERTY_CRON_TOKEN_HEADER,
-} from "../../functions/_shared/lostPropertyCronAuth.ts";
+} from "../../functions/lost-property/lib/lostPropertyCronAuth.ts";
 
 const SYN = "a".repeat(32) + "-lost-property-cron-synthetic";
 
@@ -126,7 +126,7 @@ Deno.test("valid dedicated internal token permits cron auth", () => {
 
 Deno.test("source lock: helper has no secret literals and scopes cron actions", () => {
   const src = Deno.readTextFileSync(
-    new URL("../../functions/_shared/lostPropertyCronAuth.ts", import.meta.url),
+    new URL("../../functions/lost-property/lib/lostPropertyCronAuth.ts", import.meta.url),
   );
   assertEquals(src.includes("cleanup_photos"), true);
   assertEquals(src.includes("expire_chats"), true);

@@ -1,5 +1,5 @@
 import { createClient } from "npm:@supabase/supabase-js@2.57.2";
-import { buildDriverPayoutSettingsPayload } from "../_shared/buildDriverPayoutSettingsPayload.ts";
+import { buildDriverPayoutSettingsPayload } from "./lib/buildDriverPayoutSettingsPayload.ts";
 import { resolveAuthenticatedDriver } from "../_shared/resolveAuthenticatedDriver.ts";
 
 const corsHeaders = {

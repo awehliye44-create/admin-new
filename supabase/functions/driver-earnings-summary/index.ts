@@ -10,7 +10,7 @@ import {
   isTodayEarningsEligibleRow,
   todayEarningsAmountPence,
   todayEarningsAttributionInstant,
-} from "../_shared/todayEarningsSsot.ts";
+} from "./lib/todayEarningsSsot.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',

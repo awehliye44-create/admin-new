@@ -3,4 +3,4 @@
  * Re-exported here for frontend/test imports.
  */
 
-export * from "../supabase/functions/_shared/driverSignupLocationSSOT.ts";
+export * from "../supabase/functions/driver-signup-location-options/lib/driverSignupLocationSSOT.ts";

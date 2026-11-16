@@ -14,7 +14,7 @@ import {
 import {
   buildMinimalAcceptedTripSeed,
   deriveAcceptOfferEdgeDurations,
-} from "../../functions/_shared/acceptOfferPerf.ts";
+} from "../../functions/accept-offer/lib/acceptOfferPerf.ts";
 
 const acceptOfferPath = new URL(
   "../../functions/accept-offer/index.ts",
@@ -25,7 +25,7 @@ const ingestPath = new URL(
   import.meta.url,
 );
 const perfHelperPath = new URL(
-  "../../functions/_shared/acceptOfferPerf.ts",
+  "../../functions/accept-offer/lib/acceptOfferPerf.ts",
   import.meta.url,
 );
 

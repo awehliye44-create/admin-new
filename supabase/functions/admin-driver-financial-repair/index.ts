@@ -34,12 +34,12 @@ import {
   formatWalletCorrectionResultCopy,
   validateDriverFinancialRepairReason,
   type DriverFinancialRepairEvidence,
-} from "../_shared/driverFinancialReviewRepairSSOT.ts";
+} from "./lib/driverFinancialReviewRepairSSOT.ts";
 import {
   CERTIFICATION_NON_PAYABLE_AUDIT_EVENT,
   buildCertificationNonPayableIdempotencyKey,
   type CertificationTripEvidence,
-} from "../_shared/certificationNonPayableRepairSSOT.ts";
+} from "./lib/certificationNonPayableRepairSSOT.ts";
 import { isCanonicalTerminalFinancialOutcome } from "../_shared/frDriverExpectedEntitlementSSOT.ts";
 import { resolveTerminalEntitledDriverId } from "../_shared/terminalOutcomeKindSSOT.ts";
 

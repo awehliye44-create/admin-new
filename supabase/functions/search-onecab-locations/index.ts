@@ -26,7 +26,7 @@ import {
   normalizeCountryCode,
   type OnecabLocationResult,
   rankLocationSearchResults,
-} from "../_shared/onecabLocationSearchSSOT.ts";
+} from "./lib/onecabLocationSearchSSOT.ts";
 
 const PLACES_TEXT_SEARCH = "https://places.googleapis.com/v1/places:searchText";
 const PLACES_AUTOCOMPLETE = "https://places.googleapis.com/v1/places:autocomplete";

@@ -16,7 +16,7 @@ import {
   CERTIFICATION_NON_PAYABLE_OUTCOME,
   evaluateCertificationNonPayableGuards,
   mk011CertificationFixture,
-} from "../../functions/_shared/certificationNonPayableRepairSSOT.ts";
+} from "../../functions/admin-driver-financial-repair/lib/certificationNonPayableRepairSSOT.ts";
 import {
   buildDriverFinancialRepairPreview,
   DRIVER_FINANCIAL_REPAIR_ACTION,
@@ -26,7 +26,7 @@ import {
   DRIVER_FINANCIAL_REPAIR_UI_STATUS,
   resolveDriverFinancialRepairUiStatus,
   type DriverFinancialRepairEvidence,
-} from "../../functions/_shared/driverFinancialReviewRepairSSOT.ts";
+} from "../../functions/admin-driver-financial-repair/lib/driverFinancialReviewRepairSSOT.ts";
 import { resolveFrDriverExpectedEntitlement } from "../../functions/_shared/frDriverExpectedEntitlementSSOT.ts";
 
 const REPO_ROOT = fromFileUrl(new URL("../../..", import.meta.url));
@@ -559,7 +559,7 @@ Deno.test("APPEND_WALLET_CORRECTION remains blocked after cert lock bypass", asy
     (edge.match(/assertWalletCorrectionApplyCertified/g) ?? []).length >= 2,
     true,
   );
-  const ssot = await read("supabase/functions/_shared/driverFinancialReviewRepairSSOT.ts");
+  const ssot = await read("supabase/functions/admin-driver-financial-repair/lib/driverFinancialReviewRepairSSOT.ts");
   assert(ssot.includes("WALLET_CORRECTION_NOT_CERTIFIED") || ssot.includes("assertWalletCorrectionApplyCertified"));
 });
 

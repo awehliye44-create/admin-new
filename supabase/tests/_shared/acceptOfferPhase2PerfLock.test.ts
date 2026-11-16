@@ -7,7 +7,7 @@ import {
   assertEquals,
   assertStringIncludes,
 } from "https://deno.land/std@0.224.0/assert/mod.ts";
-import { deriveAcceptOfferEdgeDurations } from "../../functions/_shared/acceptOfferPerf.ts";
+import { deriveAcceptOfferEdgeDurations } from "../../functions/accept-offer/lib/acceptOfferPerf.ts";
 
 const acceptOfferPath = new URL(
   "../../functions/accept-offer/index.ts",

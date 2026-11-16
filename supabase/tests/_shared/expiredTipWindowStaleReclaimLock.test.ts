@@ -24,7 +24,7 @@ import {
   decideExpiredStaleReclaimAfterGet,
   runExpiredCrashAfterCaptureRecovery,
   TIP_WINDOW_STALE_CLAIM_MS,
-} from "../../functions/_shared/expiredTipWindowStaleReclaimSSOT.ts";
+} from "../../functions/capture-expired-tip-windows/lib/expiredTipWindowStaleReclaimSSOT.ts";
 
 const ORDER = "6ab282ce-test-order";
 const FARE = 500;

@@ -3,7 +3,7 @@ import {
   buildDriverWalletPeriodSummary,
   buildDriverWalletSummaryResponse,
   isLedgerRowInPeriod,
-} from "../../functions/_shared/driverWalletPeriodWidgetsSSOT.ts";
+} from "../../functions/admin-driver-wallet-ssot/lib/driverWalletPeriodWidgetsSSOT.ts";
 
 Deno.test("period filter timezone-agnostic ISO bounds", () => {
   assertEquals(

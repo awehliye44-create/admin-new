@@ -256,7 +256,7 @@ describe('Review & repair UX draft — history, FR deep-link, wallet correction 
     expect(edge).not.toMatch(/payout_operational_paused:\s*false/);
     expect(edge).toContain('REPAIR_PREVIEW_STALE');
     expect(edge).toContain('idempotent: true');
-    const ssot = read('supabase/functions/_shared/driverFinancialReviewRepairSSOT.ts');
+    const ssot = read('supabase/functions/admin-driver-financial-repair/lib/driverFinancialReviewRepairSSOT.ts');
     expect(ssot).toContain('PROVIDER_UNKNOWN');
     expect(ssot).toContain('PAYOUT_IN_FLIGHT');
     expect(ssot).toContain('assertRepairPreviewStillFresh');

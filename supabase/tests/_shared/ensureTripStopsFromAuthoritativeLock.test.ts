@@ -12,7 +12,7 @@ import {
   needsTripStopsReconstruction,
   parseAuthoritativeViaStops,
   tripStopsSequenceFingerprint,
-} from "../../functions/_shared/ensureTripStopsFromAuthoritative.ts";
+} from "../../functions/stop-workflow/lib/ensureTripStopsFromAuthoritative.ts";
 
 const TRIP_ID = "11111111-1111-1111-1111-111111111111";
 
@@ -152,7 +152,7 @@ Deno.test("stop-workflow uses ensure RPC + authoritative helper; no pickup+dropo
     new URL("../../functions/stop-workflow/index.ts", import.meta.url),
   );
   assertEquals(
-    src.includes('from "../_shared/ensureTripStopsFromAuthoritative.ts"'),
+    src.includes('from "./lib/ensureTripStopsFromAuthoritative.ts"'),
     true,
   );
   assertEquals(src.includes("ensure_trip_stops_for_assignment"), true);

@@ -20,7 +20,7 @@ import {
   type MonitorMismatchRow,
   type MonitorOfferRow,
   type MonitorTripRow,
-} from "../_shared/financialSsotMonitorScans.ts";
+} from "./lib/financialSsotMonitorScans.ts";
 
 /**
  * Invariant scans added on top of the fare scans (same table, same onConflict).

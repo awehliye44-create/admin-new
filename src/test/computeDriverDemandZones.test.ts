@@ -4,7 +4,7 @@ import {
   evaluateComputedZonesForServiceArea,
   filterOpenTripsForDemand,
   type TripForDemand,
-} from '../../supabase/functions/_shared/computeDriverDemandZones';
+} from '../../supabase/functions/compute-driver-demand-zones/lib/computeDriverDemandZones';
 import { DEMAND_ZONE_SETTINGS_DEFAULTS } from '../../shared/demandZoneSurgeSSOT';
 
 const SA = 'sa-mk';

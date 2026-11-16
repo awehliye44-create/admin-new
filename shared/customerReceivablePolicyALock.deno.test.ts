@@ -11,7 +11,7 @@ import {
 import {
   classifyTripCustomerOutstanding,
   FR_CUSTOMER_OUTSTANDING_CLASS,
-} from "../supabase/functions/_shared/frCustomerOutstandingSSOT.ts";
+} from "../supabase/functions/admin-finance-reconciliation/lib/frCustomerOutstandingSSOT.ts";
 
 /** Proven MK-012 money graph. */
 const MK012 = {

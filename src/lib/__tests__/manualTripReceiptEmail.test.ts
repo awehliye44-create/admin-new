@@ -121,11 +121,11 @@ describe('manual trip receipt email', () => {
     const trigger = read('supabase/functions/_shared/tripInvoiceTrigger.ts');
     const process = read('supabase/functions/trip-invoice-process/index.ts');
     const invoice = read('supabase/functions/_shared/tripInvoice.ts');
-    const service = read('supabase/functions/_shared/tripInvoiceService.ts');
+    const service = read('supabase/functions/customer-trip-invoice/lib/tripInvoiceService.ts');
     const sql = read('supabase/migrations/20261109630000_manual_trip_receipt_email.sql');
     const sweep = read('supabase/functions/sweep-pending-trip-invoices/index.ts');
     const endpoint = read('supabase/functions/send-trip-receipt/index.ts');
-    const sender = read('supabase/functions/_shared/manualTripReceiptSend.ts');
+    const sender = read('supabase/functions/send-trip-receipt/lib/manualTripReceiptSend.ts');
 
     expect(trigger).toContain('generate_only');
     expect(trigger).not.toContain('"auto"');

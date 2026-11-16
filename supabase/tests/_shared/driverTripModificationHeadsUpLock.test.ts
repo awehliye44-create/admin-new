@@ -66,7 +66,7 @@ Deno.test("C/H: send-driver-notification preserves trip_modified client type + H
 
 Deno.test("D/E: no-token and FCM outcome instrumentation stay best-effort", async () => {
   const instr = await Deno.readTextFile(
-    new URL("../../functions/_shared/fcmPushDeliveryInstrumentation.ts", import.meta.url),
+    new URL("../../functions/send-driver-notification/lib/fcmPushDeliveryInstrumentation.ts", import.meta.url),
   );
   assertEquals(instr.includes("recordBookingDeliveryPhaseBestEffort"), true);
   assertEquals(instr.includes("Never throws"), true);
@@ -105,7 +105,7 @@ Deno.test("metrics enqueue scoped to trip_modified only (not all trip pushes)", 
   assertEquals(send.includes("must NOT write change_request_id into offer_id"), true);
   assertEquals(send.includes("changeRequestId: isTripModified ? tripModifiedChangeRequestId : null"), true);
   const instr = await Deno.readTextFile(
-    new URL("../../functions/_shared/fcmPushDeliveryInstrumentation.ts", import.meta.url),
+    new URL("../../functions/send-driver-notification/lib/fcmPushDeliveryInstrumentation.ts", import.meta.url),
   );
   assertEquals(instr.includes("Never map trip_change_requests.id / change_request_id"), true);
 });

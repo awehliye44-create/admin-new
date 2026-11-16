@@ -6,7 +6,7 @@ import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 const SOURCE = readFileSync(
-  resolve(__dirname, '../../../supabase/functions/_shared/adminPaymentSessionsListSSOT.ts'),
+  resolve(__dirname, '../../../supabase/functions/admin-payment-sessions/lib/adminPaymentSessionsListSSOT.ts'),
   'utf8',
 );
 

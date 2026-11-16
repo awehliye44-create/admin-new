@@ -13,7 +13,7 @@ const CANONICAL =
 const ROLLBACK =
   "supabase/migrations/rollback/rollback_20261109100000_phase_a7c2c_has_role_self_bind.sql";
 const VERIFY = "supabase/tests/phase_a7c2c_has_role_self_bind_verify.sql";
-const EDGE_AUTH = "supabase/functions/_shared/adminEmergencyDispatchAuth.ts";
+const EDGE_AUTH = "supabase/functions/admin-emergency-dispatch/lib/adminEmergencyDispatchAuth.ts";
 const EDGE_INDEX = "supabase/functions/admin-emergency-dispatch/index.ts";
 
 function read(rel: string): string {

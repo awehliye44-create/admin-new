@@ -73,7 +73,7 @@ Deno.test("legacy trip earning paths delegate to canonicalTypedWalletPostingSSOT
     "../../functions/record-financial-outcome/index.ts",
     "../../functions/repair-commissions/index.ts",
     "../../functions/stop-workflow/index.ts",
-    "../../functions/_shared/noShowSettlement.ts",
+    "../../functions/pickup-no-show/lib/noShowSettlement.ts",
   ];
   for (const rel of paths) {
     const src = await Deno.readTextFile(new URL(rel, import.meta.url));
@@ -118,6 +118,6 @@ Deno.test("canonicalTypedWalletPostingSSOT owns TRIP_EARNING_NET posting entry",
 });
 
 Deno.test("financeOwnershipLock tests still pass paths unchanged", async () => {
-  const src = await Deno.readTextFile(new URL("../../functions/_shared/financeOwnershipLock.test.ts", import.meta.url));
+  const src = await Deno.readTextFile(new URL("./financeOwnershipLock.test.ts", import.meta.url));
   assertStringIncludes(src, "creditCapturedCardTripLedger");
 });

@@ -1,5 +1,5 @@
 import { createClient } from "npm:@supabase/supabase-js@2.57.2";
-import { validateDriverSignupAddressInput } from "../_shared/driverSignupAddressValidation.ts";
+import { validateDriverSignupAddressInput } from "./lib/driverSignupAddressValidation.ts";
 import {
   onboardingErrorMessage,
   validateOnboardingSignup,

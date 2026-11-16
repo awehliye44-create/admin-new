@@ -3,4 +3,4 @@
  * Re-exported here for frontend/test imports.
  */
 
-export * from "../supabase/functions/_shared/companyTransferCreatePrecheckSSOT.ts";
+export * from "../supabase/functions/admin-company-outgoing-transfer/lib/companyTransferCreatePrecheckSSOT.ts";

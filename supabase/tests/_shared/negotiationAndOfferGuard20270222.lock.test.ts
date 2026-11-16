@@ -16,7 +16,7 @@ import {
   isFinancialOfferInvariantError,
   isStaleTripRebroadcastCandidateV2,
   tripPatchAfterTransientOfferCreateFailure,
-} from "../../functions/_shared/dispatchWaveCommitResumeSSOT.ts";
+} from "../../functions/auto-dispatch/lib/dispatchWaveCommitResumeSSOT.ts";
 
 const read = (rel: string) => Deno.readTextFile(new URL(rel, import.meta.url));
 const stripSqlComments = (sql: string) => sql.replace(/--.*$/gm, "");

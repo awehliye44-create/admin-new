@@ -14,13 +14,13 @@ import {
   normaliseIban,
   normaliseUkBankDigits,
   toCompanyPayeePublicDto,
-} from "../_shared/companyPayeeSSOT.ts";
-import { encryptCompanyPayeeSecret, decryptCompanyPayeeSecret } from "../_shared/companyPayeeEncryptionSSOT.ts";
+} from "./lib/companyPayeeSSOT.ts";
+import { encryptCompanyPayeeSecret, decryptCompanyPayeeSecret } from "./lib/companyPayeeEncryptionSSOT.ts";
 import {
   buildAutomaticPeriodPayableDraft,
   computeCompanyPayeeNextRun,
   evaluateAutomaticCompanyPaymentGates,
-} from "../_shared/companyPayeeScheduleSSOT.ts";
+} from "./lib/companyPayeeScheduleSSOT.ts";
 import { createRevolutCounterparty } from "../_shared/revolutApi.ts";
 import { resolveLiveCompanyBalanceWithSlice10Gate } from "../_shared/companyBalanceResolveSSOT.ts";
 import {
@@ -41,7 +41,7 @@ import {
   normalizeAccountHolderName,
   pickRecipientAccountIdFromCreate,
   type RevolutCounterpartyLike,
-} from "../_shared/companyPayeeRevolutLinkSSOT.ts";
+} from "./lib/companyPayeeRevolutLinkSSOT.ts";
 
 const ListPayees = z.object({
   action: z.literal("list_payees"),

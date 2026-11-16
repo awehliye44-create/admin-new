@@ -2,7 +2,7 @@ import { assertEquals } from "https://deno.land/std@0.208.0/assert/mod.ts";
 import {
   FINANCE_RECONCILIATION_TRIP_TERMINAL_OR,
   resolveFinanceReconciliationAuditLimit,
-} from "../../functions/_shared/financeReconciliationTripQuery.ts";
+} from "../../functions/admin-finance-reconciliation/lib/financeReconciliationTripQuery.ts";
 
 Deno.test("terminal filter matches Trip History SSOT (+ cancelled for financial evidence)", () => {
   assertEquals(

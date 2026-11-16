@@ -16,7 +16,7 @@ import {
   DEFAULT_PAYOUT_CLEARING_DELAY_HOURS,
   isPayoutClearedForPlatformCollected,
 } from '@shared/driverPayoutEligibilitySSOT';
-import { specResolveEconomicDate } from '@shared/economicEarnedAtResolverSpec';
+import { specResolveEconomicDate } from '../../../supabase/tests/_shared/support/economicEarnedAtResolverSpec';
 
 const LONDON_17_AUG_START = '2026-08-16T23:00:00.000Z';
 const LONDON_17_AUG_END = '2026-08-17T23:00:00.000Z';

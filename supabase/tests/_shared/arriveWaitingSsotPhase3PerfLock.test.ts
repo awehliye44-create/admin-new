@@ -24,7 +24,7 @@ const migrationPath = new URL(
   import.meta.url,
 );
 const perfPath = new URL(
-  "../../functions/_shared/stopWorkflowLifecyclePerf.ts",
+  "../../functions/stop-workflow/lib/stopWorkflowLifecyclePerf.ts",
   import.meta.url,
 );
 const segmentPath = new URL(

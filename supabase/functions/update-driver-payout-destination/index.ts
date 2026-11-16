@@ -1,5 +1,5 @@
 import { createClient } from "npm:@supabase/supabase-js@2.57.2";
-import { handleUpdateDriverPayoutDestination } from "../_shared/updateDriverPayoutDestinationHandler.ts";
+import { handleUpdateDriverPayoutDestination } from "./lib/updateDriverPayoutDestinationHandler.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",

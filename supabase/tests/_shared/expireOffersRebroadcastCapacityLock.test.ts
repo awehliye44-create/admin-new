@@ -10,20 +10,20 @@ import {
   assertEquals,
   assertRejects,
 } from "https://deno.land/std@0.224.0/assert/mod.ts";
-import { mapWithConcurrency } from "../../functions/_shared/mapWithConcurrency.ts";
+import { mapWithConcurrency } from "../../functions/expire-offers/lib/mapWithConcurrency.ts";
 import {
   AUTO_DISPATCH_PER_TRIP_RATE_LIMIT,
   AUTO_DISPATCH_SERVICE_GLOBAL_RATE_LIMIT,
   AUTO_DISPATCH_SERVICE_GLOBAL_RL_ID,
   autoDispatchTripRateLimitId,
-} from "../../functions/_shared/autoDispatchRateLimitSSOT.ts";
+} from "../../functions/auto-dispatch/lib/autoDispatchRateLimitSSOT.ts";
 import {
   EXPIRE_OFFERS_REBROADCAST_CONCURRENCY_DEFAULT,
   EXPIRE_OFFERS_REBROADCAST_CONCURRENCY_MAX,
   rebroadcastSourceForTrigger,
   resolveExpireOffersRebroadcastConcurrency,
   runExpireOffersRebroadcastBatch,
-} from "../../functions/_shared/expireOffersRebroadcastRunner.ts";
+} from "../../functions/expire-offers/lib/expireOffersRebroadcastRunner.ts";
 
 Deno.test("mapWithConcurrency preserves order and respects the concurrency ceiling", async () => {
   let inFlight = 0;

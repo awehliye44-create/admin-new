@@ -3,7 +3,7 @@ import {
   resolveTripHistoryCustomerPayablePence,
   resolveTripHistoryPaymentLayers,
   sumDisplayCapturedFromSessions,
-} from "../../functions/_shared/tripHistoryPaymentLayersSSOT.ts";
+} from "../../functions/admin-get-trip-payment-state/lib/tripHistoryPaymentLayersSSOT.ts";
 
 Deno.test("layers: Payment Sessions capture wins for completed Revolut trip", () => {
   const layers = resolveTripHistoryPaymentLayers({

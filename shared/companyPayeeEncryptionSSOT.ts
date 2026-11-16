@@ -3,4 +3,4 @@
  * Re-exported here for frontend/test imports.
  */
 
-export * from "../supabase/functions/_shared/companyPayeeEncryptionSSOT.ts";
+export * from "../supabase/functions/admin-company-payees/lib/companyPayeeEncryptionSSOT.ts";

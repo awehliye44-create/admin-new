@@ -33,7 +33,7 @@ import type { ProviderEnvironment } from "../_shared/paymentProviders/types.ts";
 import {
   readMerchantVaultAddCardGateFromEnv,
   resolveMerchantVaultAddCardAllowed,
-} from "../_shared/merchantVaultAddCardGate.ts";
+} from "./lib/merchantVaultAddCardGate.ts";
 import {
   countUsableSavedRevolutCards,
   createRevolutSaveCardSetupOrder,

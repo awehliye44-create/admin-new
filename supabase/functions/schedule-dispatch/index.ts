@@ -10,7 +10,7 @@ import {
   rateLimitResponse,
 } from "../_shared/security.ts";
 import { assertPaymentGate, PaymentGateError } from "../_shared/paymentGate.ts";
-import { runScheduleDispatchConversionSweep } from "../_shared/scheduleDispatchConversionSweep.ts";
+import { runScheduleDispatchConversionSweep } from "./lib/scheduleDispatchConversionSweep.ts";
 
 const RATE_LIMIT_CONFIG = {
   limit: 30,

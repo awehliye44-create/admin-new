@@ -1,5 +1,5 @@
 import { createClient } from "npm:@supabase/supabase-js@2.57.2";
-import { resolveConfirmRevolutMaxWaitMs } from "../_shared/confirmRevolutPaymentWaitSSOT.ts";
+import { resolveConfirmRevolutMaxWaitMs } from "./lib/confirmRevolutPaymentWaitSSOT.ts";
 import { resolveRevolutMerchantContext } from "../_shared/revolutMerchantContext.ts";
 import { finalizeRevolutTokenCapture } from "../_shared/revolutSavedCardWalletLink.ts";
 import {

@@ -8,7 +8,7 @@ import {
   type OnboardingAppType,
   type OnboardingLoginIntent,
 } from "../_shared/onboardingLoginGuard.ts";
-import { getVerificationState } from "../_shared/verificationState.ts";
+import { getVerificationState } from "./lib/verificationState.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",

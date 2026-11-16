@@ -12,7 +12,7 @@ Deno.test("driver-earnings-summary: todayEarningsSsot + eligibility, no money wr
   const src = await Deno.readTextFile(
     new URL("../../functions/driver-earnings-summary/index.ts", import.meta.url),
   );
-  assertStringIncludes(src, 'from "../_shared/todayEarningsSsot.ts"');
+  assertStringIncludes(src, 'from "./lib/todayEarningsSsot.ts"');
   assertStringIncludes(src, "todayEarningsAttributionInstant");
   assertStringIncludes(src, "isTodayEarningsEligibleRow");
   assertStringIncludes(src, "londonCivilDateKey");

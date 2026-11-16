@@ -19,7 +19,7 @@ import {
   TERMINAL_TRIP_STAMP_FAILED_EVENT,
 } from "../../functions/_shared/terminalOutcomeEntitlementSSOT.ts";
 import { postTerminalOutcomeSettlement } from "../../functions/_shared/canonicalTypedWalletPostingSSOT.ts";
-import { settleNoShowFee } from "../../functions/_shared/noShowSettlement.ts";
+import { settleNoShowFee } from "../../functions/pickup-no-show/lib/noShowSettlement.ts";
 import { createFakeDb, type FakeRow } from "./waitingSsotFakeDb.ts";
 
 const TRIP = "trip-014";

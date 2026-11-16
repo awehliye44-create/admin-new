@@ -40,7 +40,7 @@ import {
   notifyCustomerAssignedWithRetry,
   scheduleAcceptOfferBackground,
   type AcceptPostCanonicalOutcome,
-} from "../_shared/acceptOfferPerf.ts";
+} from "./lib/acceptOfferPerf.ts";
 import { opsLog } from "../_shared/opsLog.ts";
 import { notifyCustomerTripLifecycle } from "../_shared/customerTripLifecycleNotify.ts";
 import { driverMayAcceptAdditionalWork } from "../_shared/scheduledCommitmentOfferGateSSOT.ts";

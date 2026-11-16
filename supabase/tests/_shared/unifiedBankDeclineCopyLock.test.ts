@@ -29,7 +29,7 @@ import {
 import {
   classifyGooglePaySubmitFailure,
   latestFailedPaymentDeclineReason,
-} from "../../functions/_shared/googlePaySubmitOutcome.ts";
+} from "../../functions/submit-revolut-google-pay/lib/googlePaySubmitOutcome.ts";
 import {
   classifyModificationPaymentFailure,
   decideFromPreauthInvokeResult,

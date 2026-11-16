@@ -13,7 +13,7 @@ const ROLLBACK =
   'supabase/migrations/rollback/rollback_20261109400000_phase_a8b26_lost_property_admin_unread_count_authz_lock.sql';
 const VERIFY = 'supabase/tests/phase_a8b26_lost_property_admin_unread_count_authz_verify.sql';
 const EDGE = 'supabase/functions/lost-property/index.ts';
-const HELPERS = 'supabase/functions/_shared/lostPropertyHelpers.ts';
+const HELPERS = 'supabase/functions/lost-property/lib/lostPropertyHelpers.ts';
 const HOOK = 'src/hooks/useLostProperty.ts';
 const SIDEBAR = 'src/components/layout/AdminSidebar.tsx';
 

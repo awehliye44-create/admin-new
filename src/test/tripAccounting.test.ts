@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   buildTripAccounting,
   validateTripAccounting,
-} from '../../supabase/functions/_shared/tripAccounting';
+} from '../../supabase/tests/_shared/support/tripAccounting';
 
 describe('Trip accounting invariants', () => {
   it('keeps driver_net_pence exclusive of tips', () => {

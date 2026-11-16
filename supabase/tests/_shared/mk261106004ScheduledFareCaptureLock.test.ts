@@ -135,7 +135,7 @@ Deno.test("mirror: COMPLETED webhook must not stamp capture while scheduled", ()
 
 Deno.test("source lock: completion/admin capture call shared fare gate before provider", async () => {
   const completion = await read("_shared/revolutCompletionCapture.ts");
-  const admin = await read("_shared/adminCaptureTripPaymentSSOT.ts");
+  const admin = await read("admin-capture-trip-payment/lib/adminCaptureTripPaymentSSOT.ts");
   assertStringIncludes(completion, "assertFareCaptureAllowedAtProvider");
   assertStringIncludes(completion, 'captureKind: "fare"');
   assertStringIncludes(admin, "assertFareCaptureAllowedAtProvider");
@@ -173,7 +173,7 @@ Deno.test("source lock: scheduled-dispatch / convert never request capture", asy
   let convert = "";
   try {
     convert = await Deno.readTextFile(
-      new URL("../../functions/_shared/scheduleDispatchConversionSweep.ts", import.meta.url),
+      new URL("../../functions/schedule-dispatch/lib/scheduleDispatchConversionSweep.ts", import.meta.url),
     );
   } catch {
     convert = "";
@@ -247,7 +247,7 @@ Deno.test("channel lock: every fare-collect path reaches shared gate before prov
 
   // Shared modules: only fare/fee call sites may invoke provider capture, and both are gated.
   const completion = await read("_shared/revolutCompletionCapture.ts");
-  const adminSsot = await read("_shared/adminCaptureTripPaymentSSOT.ts");
+  const adminSsot = await read("admin-capture-trip-payment/lib/adminCaptureTripPaymentSSOT.ts");
   const release = await read("_shared/revolutPreauthReleaseSSOT.ts");
   const dispose = await read("_shared/terminalTripPaymentDisposition.ts");
   for (const [name, src] of [

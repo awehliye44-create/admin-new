@@ -22,7 +22,7 @@ describe('admin-new location search min-query SSOT', () => {
 
   it('Edge uses LOCATION_SEARCH_MIN_QUERY_LENGTH (not stale rollout 3)', () => {
     const edge = readSrc('supabase/functions/search-onecab-locations/index.ts');
-    const shared = readSrc('supabase/functions/_shared/onecabLocationSearchSSOT.ts');
+    const shared = readSrc('supabase/functions/search-onecab-locations/lib/onecabLocationSearchSSOT.ts');
     expect(shared).toMatch(/LOCATION_SEARCH_MIN_QUERY_LENGTH\s*=\s*2/);
     expect(edge).toContain('LOCATION_SEARCH_MIN_QUERY_LENGTH');
     expect(edge).toContain('reason: "query_too_short"');

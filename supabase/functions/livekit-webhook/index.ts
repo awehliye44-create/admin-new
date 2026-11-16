@@ -11,7 +11,7 @@ import {
 } from "../_shared/voipCallLogs.ts";
 import { findVoipCallByRoomName, capDurationSeconds } from "../_shared/tripCallSession.ts";
 import { mapLiveKitWebhookEventType } from "../_shared/tripCallStatus.ts";
-import { shouldFinalizeVoipOnLastParticipantLeft } from "../_shared/voipLastParticipantLeftSSOT.ts";
+import { shouldFinalizeVoipOnLastParticipantLeft } from "./lib/voipLastParticipantLeftSSOT.ts";
 
 function json(status: number, body: Record<string, unknown>): Response {
   return new Response(JSON.stringify(body), {

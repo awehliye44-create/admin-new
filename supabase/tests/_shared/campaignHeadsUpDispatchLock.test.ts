@@ -20,7 +20,7 @@ import {
   nextRepeatScheduledAt,
   campaignDeliveryDedupeKey,
   normalizeCampaignPushPlatform,
-} from "../../functions/_shared/campaignHeadsUpPayload.ts";
+} from "../../functions/send-campaign-heads-up/lib/campaignHeadsUpPayload.ts";
 
 const REPO_ROOT = fromFileUrl(new URL("../../..", import.meta.url));
 
@@ -129,8 +129,8 @@ Deno.test("scheduled / repeat due helpers", () => {
 
 Deno.test("send-campaign-heads-up lock", async () => {
   const src = await read("supabase/functions/send-campaign-heads-up/index.ts");
-  const payload = await read("supabase/functions/_shared/campaignHeadsUpPayload.ts");
-  const audience = await read("supabase/functions/_shared/campaignHeadsUpAudience.ts");
+  const payload = await read("supabase/functions/send-campaign-heads-up/lib/campaignHeadsUpPayload.ts");
+  const audience = await read("supabase/functions/send-campaign-heads-up/lib/campaignHeadsUpAudience.ts");
   const cron = await read(
     "supabase/migrations/20261027120000_campaign_heads_up_due_sweep_cron.sql",
   );

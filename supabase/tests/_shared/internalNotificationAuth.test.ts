@@ -19,7 +19,7 @@ import {
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
 const SDN = "supabase/functions/send-driver-notification/index.ts";
-const HELPER = "supabase/functions/_shared/internalNotificationAuth.ts";
+const HELPER = "supabase/functions/send-driver-notification/lib/internalNotificationAuth.ts";
 
 const SYN_SR = "test-service-role-key-aaaaaaaaaaaaaaaaaaaaaaaa";
 const SYN_INTERNAL = "test-internal-notification-token-bbbbbbbbbbbbbbbb";
@@ -265,7 +265,7 @@ Deno.test("send-driver-notification auth order: rate-limit memory, auth, POST, t
   const src = read(SDN);
   const helper = read(HELPER);
 
-  assert(src.includes('from "../_shared/internalNotificationAuth.ts"'));
+  assert(src.includes('from "./lib/internalNotificationAuth.ts"'));
   assert(src.includes("authorizeInternalNotificationRequest"));
   assert(src.includes("methodNotAllowedResponse"));
 

@@ -7,11 +7,11 @@ import {
   successResponse,
   errorResponse,
 } from "../_shared/security.ts";
-import { requireDemandZoneRecomputeAuth } from "../_shared/demandZoneRecomputeAuth.ts";
+import { requireDemandZoneRecomputeAuth } from "./lib/demandZoneRecomputeAuth.ts";
 import {
   evaluateComputedZonesForServiceArea,
   type TripForDemand,
-} from "../_shared/computeDriverDemandZones.ts";
+} from "./lib/computeDriverDemandZones.ts";
 import { OPEN_TRIP_DEMAND_STATUSES, type DemandLevel } from "../_shared/demandZoneSurgeSSOT.ts";
 
 const RATE_LIMIT_CONFIG = {

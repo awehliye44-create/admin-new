@@ -16,8 +16,8 @@ import {
   onTripCompleted,
   pickRaceWinner,
   resolveCaptureTrigger,
-} from "../../functions/_shared/tipWindowCaptureStateMachineSSOT.ts";
-import { durableSettlementColumns } from "../../functions/_shared/durableSettlementOutcomeSSOT.ts";
+} from "../../../shared/tipWindowCaptureStateMachineSSOT.ts";
+import { durableSettlementColumns } from "../../functions/finalize-trip-and-capture/lib/durableSettlementOutcomeSSOT.ts";
 import { tipWindowCloseAllowedAfterFinalize } from "../../functions/_shared/tripPaymentFinalised.ts";
 
 const T0 = Date.parse("2026-09-22T13:35:29.543Z");

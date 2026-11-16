@@ -3,4 +3,4 @@
  * Re-exported here for frontend/test imports.
  */
 
-export * from "../supabase/functions/_shared/payoutLedgerOverviewSSOT.ts";
+export * from "../supabase/functions/admin-payout-ledger/lib/payoutLedgerOverviewSSOT.ts";

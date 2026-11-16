@@ -19,7 +19,7 @@ describe('storagePublicBucketListingLock', () => {
     const sql = read(CANONICAL);
     const rb = read(ROLLBACK);
     const outbound = read('supabase/functions/_shared/whatsappOutbound.ts');
-    const resolver = read('supabase/functions/_shared/alertSoundResolver.ts');
+    const resolver = read('supabase/functions/send-trip-notification/lib/alertSoundResolver.ts');
     const admin = read('src/hooks/useAlertSounds.ts');
 
     expect(sql).toMatch(/DROP POLICY "Anyone can read alert sounds" ON storage\.objects/i);

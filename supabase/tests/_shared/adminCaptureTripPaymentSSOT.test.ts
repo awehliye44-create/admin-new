@@ -5,11 +5,11 @@
  *   deno test --allow-read --no-check supabase/functions/_shared/adminCaptureTripPaymentSSOT.test.ts
  */
 import { assertEquals, assertStrictEquals } from "https://deno.land/std@0.224.0/assert/mod.ts";
-import { executeAdminCaptureTripPayment } from "../../functions/_shared/adminCaptureTripPaymentSSOT.ts";
+import { executeAdminCaptureTripPayment } from "../../functions/admin-capture-trip-payment/lib/adminCaptureTripPaymentSSOT.ts";
 import { PAYMENT_SESSION_GATE_STATUS, PAYMENT_SESSION_PURPOSE_RIDE_BOOKING } from "../../functions/_shared/paymentSessionCaptureGateSSOT.ts";
 import { postingBalanced, postingWalletMismatch } from "../../functions/_shared/postCaptureSettlementResult.ts";
 import { FINANCIAL_MODEL_VIOLATION, SERVICE_AREA_FINANCIAL_MODEL } from "../../functions/_shared/commissionWalletSSOT.ts";
-import { ADMIN_CAPTURE_PRECONDITION } from "../../functions/_shared/adminCaptureTripPaymentPreconditions.ts";
+import { ADMIN_CAPTURE_PRECONDITION } from "../../functions/admin-capture-trip-payment/lib/adminCaptureTripPaymentPreconditions.ts";
 
 const BASE_TRIP: Record<string, unknown> = {
   id: "trip-1",
@@ -370,7 +370,7 @@ Deno.test("L: unresolved fare-increase gate blocks admin capture before provider
 });
 
 Deno.test("ordering: fresh capture uses persistConfirmedProviderCapture only", async () => {
-  const src = await Deno.readTextFile(new URL("../../functions/_shared/adminCaptureTripPaymentSSOT.ts", import.meta.url));
+  const src = await Deno.readTextFile(new URL("../../functions/admin-capture-trip-payment/lib/adminCaptureTripPaymentSSOT.ts", import.meta.url));
   assertStrictEquals(/import\s*\{[^}]*markPaymentSessionCaptured/.test(src), false);
   assertStrictEquals(src.includes("persistConfirmedProviderCapture"), true);
   const persistIdx = src.indexOf("await persistConfirmedCapture");

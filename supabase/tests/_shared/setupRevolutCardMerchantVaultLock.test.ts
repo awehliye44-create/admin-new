@@ -9,7 +9,7 @@
 import {
   resolveSavedCardChargeInitiator,
   mustPresentAcsWhenRevolutRequires,
-} from "../../functions/_shared/revolutSavedCardMitMandate.draft.ts";
+} from "../../../shared/revolutSavedCardMitMandate.draft.ts";
 
 async function readFn(rel: string): Promise<string> {
   return await Deno.readTextFile(new URL(rel, import.meta.url));
@@ -109,7 +109,7 @@ Deno.test("7: Add Card setup has no trip", async () => {
 
 Deno.test("11: genuine MIT helper stays draft-only / unwired from Book", async () => {
   const PREAUTH_SRC = await readFn("../../functions/_shared/revolutPreauth.ts");
-  const DRAFT_SRC = await readFn("../../functions/_shared/revolutSavedCardMitMandate.draft.ts");
+  const DRAFT_SRC = await readFn("../../../shared/revolutSavedCardMitMandate.draft.ts");
   if (/from\s+["'].*revolutSavedCardMitMandate/.test(PREAUTH_SRC) || PREAUTH_SRC.includes("resolveSavedCardChargeInitiator")) {
     throw new Error("MIT draft must not be imported by revolutPreauth");
   }
@@ -324,7 +324,7 @@ Deno.test("12: no PAN/CVV in Book saved-card or setup Edge payloads", async () =
 
 Deno.test("fail-closed Add Card gate: default off + JWT allowlist (not client customer id)", async () => {
   const SETUP_SRC = await readFn("../../functions/setup-revolut-card/index.ts");
-  const GATE_SRC = await readFn("../../functions/_shared/merchantVaultAddCardGate.ts");
+  const GATE_SRC = await readFn("../../functions/setup-revolut-card/lib/merchantVaultAddCardGate.ts");
   if (!SETUP_SRC.includes("FEATURE_OFF")) {
     throw new Error("setup-revolut-card must return FEATURE_OFF when gated");
   }

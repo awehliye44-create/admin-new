@@ -11,7 +11,7 @@ import {
 import { evaluateFrSettlementCaptureIdentity } from "../../functions/_shared/frConsumeOnlySSOT.ts";
 import {
   FINANCE_RECONCILIATION_TRIP_FINANCIAL_MODEL,
-} from "../../functions/_shared/financeReconciliationTripQuery.ts";
+} from "../../functions/admin-finance-reconciliation/lib/financeReconciliationTripQuery.ts";
 import { SERVICE_AREA_FINANCIAL_MODEL } from "../../functions/_shared/commissionWalletSSOT.ts";
 
 // Live settlement stamps from production

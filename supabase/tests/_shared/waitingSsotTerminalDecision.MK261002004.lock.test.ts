@@ -21,7 +21,7 @@ import {
   resolveCanonicalWaitingSeconds,
   WAITING_EVIDENCE_UNAVAILABLE,
 } from "../../functions/_shared/waitingSegmentClock.ts";
-import { evaluateCanMarkNoShow } from "../../functions/_shared/tripNoShowRules.ts";
+import { evaluateCanMarkNoShow } from "../../functions/pickup-no-show/lib/tripNoShowRules.ts";
 import { postTerminalEntitlementFromSettlement } from "../../functions/_shared/terminalOutcomeEntitlementSSOT.ts";
 import {
   createFakeDb,

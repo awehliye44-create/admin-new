@@ -10,7 +10,7 @@ import {
   formatSettlementWarning,
   getSettlementWarningSeverity,
   isInformationalSettlementWarning,
-} from "../_shared/settlementWarnings.ts";
+} from "./lib/settlementWarnings.ts";
 import {
   retrieveRevolutOrder,
   getRevolutMerchantConfig,
@@ -21,7 +21,7 @@ import {
 } from "../_shared/tripPaymentProviderSSOT.ts";
 import { readSavedCardAttemptFromSessionMetadata } from "../_shared/tripHistoryShortfallRecaptureSSOT.ts";
 import { resolveCustomerPayablePenceForAudit } from "../_shared/extraPaymentRecoverySSOT.ts";
-import { resolveTripHistoryPaymentLayers } from "../_shared/tripHistoryPaymentLayersSSOT.ts";
+import { resolveTripHistoryPaymentLayers } from "./lib/tripHistoryPaymentLayersSSOT.ts";
 import {
   resolveCurrentOutstandingFromReceivables,
 } from "../_shared/frCardReconciliationIdentitySSOT.ts";

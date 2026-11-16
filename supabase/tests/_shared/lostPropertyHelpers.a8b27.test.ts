@@ -9,7 +9,7 @@ import {
   LOST_PROPERTY_PAGE_SLUG,
   authenticateCaller,
   requireAdmin,
-} from "../../functions/_shared/lostPropertyHelpers.ts";
+} from "../../functions/lost-property/lib/lostPropertyHelpers.ts";
 
 Deno.test("evaluateStaffHasPageAccess: active staff with page allowed", () => {
   assertEquals(

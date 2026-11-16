@@ -11,7 +11,7 @@ import {
   buildDriverPayoutWithdrawalQuote,
   DRIVER_WITHDRAW_QUOTE_VERSION,
   toDriverWithdrawExecutorQuotePayload,
-} from "../_shared/driverPayoutWithdrawalQuoteSSOT.ts";
+} from "./lib/driverPayoutWithdrawalQuoteSSOT.ts";
 import { planPayoutItemFromEligibleEntries } from "../_shared/payoutLedgerHandoffSSOT.ts";
 import {
   assertPayoutItemLedgerLineage,
@@ -47,7 +47,7 @@ import {
   safeDriverWithdrawInternalErrorBody,
   type DriverWithdrawDiag,
   type DriverWithdrawPostStage,
-} from "../_shared/driverWithdrawPostScopeSSOT.ts";
+} from "./lib/driverWithdrawPostScopeSSOT.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",

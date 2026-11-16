@@ -2,7 +2,7 @@ import { assertEquals } from "jsr:@std/assert@1";
 import {
   mapPaymentSessionToDriverCreditContext,
   pickPrimaryPaymentSessionForTrip,
-} from "../../functions/_shared/driverCreditPaymentSessionContextSSOT.ts";
+} from "../../functions/admin-payout-ledger/lib/driverCreditPaymentSessionContextSSOT.ts";
 
 Deno.test("pickPrimaryPaymentSessionForTrip prefers highest capture", () => {
   const picked = pickPrimaryPaymentSessionForTrip([

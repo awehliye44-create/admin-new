@@ -81,7 +81,7 @@ Deno.test("fresh capture persists Payment Sessions before wallet posting", async
 
 Deno.test("admin capture delegates wallet posting to applyCanonicalSettlementAfterCapture", async () => {
   const src = await Deno.readTextFile(
-    new URL("../../functions/_shared/adminCaptureTripPaymentSSOT.ts", import.meta.url),
+    new URL("../../functions/admin-capture-trip-payment/lib/adminCaptureTripPaymentSSOT.ts", import.meta.url),
   );
   assertEquals(src.includes("applyCanonicalSettlementAfterCapture"), true);
   assertEquals(src.includes("creditCapturedCardTripLedger"), false);

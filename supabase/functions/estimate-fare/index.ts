@@ -1,6 +1,6 @@
 import { createClient } from "npm:@supabase/supabase-js@2.57.2";
 import { getDirections } from "../_shared/googleMaps.ts";
-import { resolvePricingZone } from "../_shared/zoneRoutePricing.ts";
+import { resolvePricingZone } from "./lib/zoneRoutePricing.ts";
 
 /**
  * Website / legacy single-fare quote envelope.

@@ -111,7 +111,7 @@ Deno.test("payout ledger allocation lineage lock", async () => {
     "supabase/functions/_shared/payoutAllocationEligibilitySSOT.ts",
   );
   const lifecycle = await read(
-    "supabase/functions/_shared/settlementLifecycleSSOT.ts",
+    "supabase/functions/admin-reconcile-historical-payout-allocation/lib/settlementLifecycleSSOT.ts",
   );
   const reserve = await read(
     "supabase/functions/admin-reserve-driver-payout-batch/index.ts",

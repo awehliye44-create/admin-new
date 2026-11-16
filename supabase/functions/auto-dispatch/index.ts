@@ -17,7 +17,7 @@ import {
   AUTO_DISPATCH_SERVICE_GLOBAL_RATE_LIMIT,
   AUTO_DISPATCH_SERVICE_GLOBAL_RL_ID,
   autoDispatchTripRateLimitId,
-} from "../_shared/autoDispatchRateLimitSSOT.ts";
+} from "./lib/autoDispatchRateLimitSSOT.ts";
 import {
   attachDriverCategoryPriority,
   bookingDispatchWaveRadiiMeters,
@@ -43,7 +43,7 @@ import {
 import {
   computeScheduledDirectionalScoreBoost,
   compareWithDirectionalBoost,
-} from "../_shared/scheduledDirectionalDispatchSSOT.ts";
+} from "./lib/scheduledDirectionalDispatchSSOT.ts";
 import {
   enrichOfferSnapshotDriverNet,
 } from "../_shared/driverOfferNetPreview.ts";
@@ -91,7 +91,7 @@ import {
   stackedOfferNegotiationLockFields,
 } from "../_shared/presetNegotiationEligibility.ts";
 import { resolveNegotiationBaseFarePence } from "../_shared/negotiationBaseFare.ts";
-import { tripFareFieldsForOfferSnapshot } from "../_shared/tripFareSnapshot.ts";
+import { tripFareFieldsForOfferSnapshot } from "./lib/tripFareSnapshot.ts";
 import {
   planCommittedFareDriftRestamp,
   resolveCommittedOfferGross,
@@ -103,12 +103,12 @@ import {
   resolveCustomerSearchDeadlineMs,
   shouldExpireTripAfterWavesExhausted,
   WAVE3_NO_ELIGIBLE_LOG_TOKEN,
-} from "../_shared/dispatchSearchWindow.ts";
+} from "./lib/dispatchSearchWindow.ts";
 import {
   maxBroadcastRoundFromOfferRows,
   resolveConversionBroadcastRoundAnchor,
   resolveUniqueDispatchBroadcastRound,
-} from "../_shared/dispatchBroadcastRoundAllocation.ts";
+} from "./lib/dispatchBroadcastRoundAllocation.ts";
 import {
   isRideOfferBroadcastRoundUniqueViolation,
   OFFER_CREATE_UNIQUE_COLLISION_REASON,
@@ -118,7 +118,7 @@ import {
   isCommitDispatchWaveVersionMismatch,
   isFinancialOfferInvariantError,
   tripPatchAfterTransientOfferCreateFailure,
-} from "../_shared/dispatchWaveCommitResumeSSOT.ts";
+} from "./lib/dispatchWaveCommitResumeSSOT.ts";
 import { isScheduledInstantConversionPending } from "../_shared/scheduledHandoverHoldLock.ts";
 import { expireTripWhenSearchExhaustedAndNotifyCustomer } from "../_shared/customerTripLifecycleNotify.ts";
 import {
@@ -142,14 +142,14 @@ import {
 } from "../_shared/stackedRideConfig.ts";
 import {
   evaluateStackedProximityRadiusGate,
-} from "../_shared/stackedRideMatching.ts";
+} from "./lib/stackedRideMatching.ts";
 import { evaluateDriverNewWorkInvitationEligibility } from "../_shared/newWorkInvitationEligibilitySSOT.ts";
 import {
   loadActiveTripDriverIds,
   resolveDriverActiveTripId,
 } from "../_shared/activeDriverTripGuard.ts";
 import { STACKED_RIDE_STATES } from "../_shared/stackedRideState.ts";
-import { resolvePassengerOfferRating } from "../_shared/passengerOfferRating.ts";
+import { resolvePassengerOfferRating } from "./lib/passengerOfferRating.ts";
 
 declare const EdgeRuntime:
   | { waitUntil?: (promise: Promise<unknown>) => void }

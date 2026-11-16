@@ -15,7 +15,7 @@ import {
   maxBroadcastRoundFromOfferRows,
   resolveConversionBroadcastRoundAnchor,
   resolveUniqueDispatchBroadcastRound,
-} from "../../functions/_shared/dispatchBroadcastRoundAllocation.ts";
+} from "../../functions/auto-dispatch/lib/dispatchBroadcastRoundAllocation.ts";
 import { buildScheduledUrgentConversionPatch } from "../../functions/_shared/scheduledDispatchConfig.ts";
 import {
   DISPATCH_STATUS_OFFER_CREATE_BLOCKED,
@@ -28,7 +28,7 @@ import {
   isCommitDispatchWaveVersionMismatch,
   shouldBlockDispatchResumeForTripStatus,
   tripPatchAfterTransientOfferCreateFailure,
-} from "../../functions/_shared/dispatchWaveCommitResumeSSOT.ts";
+} from "../../functions/auto-dispatch/lib/dispatchWaveCommitResumeSSOT.ts";
 
 const DRIVER_A = "c40dd8a6-f422-40bc-9534-bae7be88b93e";
 const DRIVER_B = "56136f5f-1a3a-4a14-bb23-439b3951415a";

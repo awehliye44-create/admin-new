@@ -10,7 +10,7 @@ import {
   PENDING_PAYOUT_ITEM_STATUSES,
   resolveRegionPayoutProvider,
 } from "../_shared/manualProviderPayoutSSOT.ts";
-import { isPayoutVerificationMode } from "../_shared/payoutExecutionGate.ts";
+import { isPayoutVerificationMode } from "./lib/payoutExecutionGate.ts";
 import {
   assertPayoutItemLedgerLineage,
   PAYOUT_LINEAGE_MISSING,

@@ -22,9 +22,9 @@ import {
   normalizeRecoveryEmail,
   parseRecoveryApp,
   passwordRecoverySafeResponse,
-} from "../_shared/passwordRecoverySSOT.ts";
-import { ensureCorporateAuthUserForRecovery } from "../_shared/corporatePasswordRecoveryProvision.ts";
-import { buildPasswordResetEmail } from "../_shared/passwordResetEmail.ts";
+} from "./lib/passwordRecoverySSOT.ts";
+import { ensureCorporateAuthUserForRecovery } from "./lib/corporatePasswordRecoveryProvision.ts";
+import { buildPasswordResetEmail } from "./lib/passwordResetEmail.ts";
 import { sendResendEmail } from "../_shared/resendMail.ts";
 import {
   checkRateLimit,

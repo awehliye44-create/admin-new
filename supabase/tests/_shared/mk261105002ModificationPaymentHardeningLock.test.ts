@@ -38,7 +38,7 @@ const incrSrc = await Deno.readTextFile(
   `${ROOT}functions/_shared/executeSameOrderIncrementSSOT.ts`,
 );
 const lostSrc = await Deno.readTextFile(
-  `${ROOT}functions/_shared/lostPaymentAuthorisationTripSSOT.ts`,
+  `${ROOT}functions/revolut-webhook/lib/lostPaymentAuthorisationTripSSOT.ts`,
 );
 
 Deno.test("revised payable covers decrease / zero / increase", () => {

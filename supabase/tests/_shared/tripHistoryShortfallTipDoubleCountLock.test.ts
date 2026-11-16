@@ -10,7 +10,7 @@ import {
   FARE_FIELD_CONTRACT,
   resolveAuthoritativeCustomerPayable,
 } from "../../functions/_shared/customerShortfallEvidenceSSOT.ts";
-import { buildTripHistoryPaymentEvidenceReadModel } from "../../functions/_shared/tripHistoryPaymentEvidenceReadModel.ts";
+import { buildTripHistoryPaymentEvidenceReadModel } from "../../../shared/tripHistoryPaymentEvidenceReadModel.ts";
 import { rejectClientChargeAmountFields } from "../../functions/_shared/tripHistoryShortfallRecaptureSSOT.ts";
 import { FINANCIAL_MODEL } from "../../functions/_shared/financialModelScopeGate.ts";
 

@@ -9,7 +9,7 @@ import {
 import { buildTripCommunicationConfigForTrip } from "../_shared/tripCommunicationConfigBuilder.ts";
 import { loadTripCommunicationRuntimeContext } from "../_shared/serviceAreaCommunicationLookup.ts";
 import { isCallableTripStatus } from "../_shared/callMaskingConfig.ts";
-import { resolveTripCommunicationActor } from "../_shared/tripCommunicationActor.ts";
+import { resolveTripCommunicationActor } from "./lib/tripCommunicationActor.ts";
 import { findActiveVoipCallLog } from "../_shared/voipCallLogs.ts";
 
 interface ConfigRequest {
