@@ -579,7 +579,7 @@ Deno.test("reconciliation snapshot: previous_driver_id rows are scoped to canoni
 Deno.test("restamp: every terminal posting path stamps the trip before posting the credit", () => {
   for (const rel of [
     "_shared/terminalFeeSettlementResumptionSSOT.ts",
-    "_shared/noShowSettlement.ts",
+    "pickup-no-show/lib/noShowSettlement.ts",
     "_shared/canonicalTypedWalletPostingSSOT.ts",
   ]) {
     const src = readFn(rel);

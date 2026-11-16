@@ -34,7 +34,7 @@ SETUP_SQL="$HERE/scheduled_rematch_waiting_concurrency_isolated.setup.sql"
 VERIFY_SQL="$HERE/scheduled_rematch_waiting_concurrency_isolated.sql"
 WORK="$(mktemp -d)"
 EDGE="$REPO/supabase/functions/driver-cancel-before-pickup/index.ts"
-SSOT="$REPO/supabase/functions/_shared/scheduledDriverCancelRematchSSOT.ts"
+SSOT="$REPO/supabase/functions/driver-cancel-before-pickup/lib/scheduledDriverCancelRematchSSOT.ts"
 CANCEL_SSOT="$REPO/supabase/functions/_shared/driverCancelRematch.ts"
 
 case "$DB_URL" in

@@ -94,7 +94,7 @@ Deno.test("booking confirm defers token capture off Finding critical path", () =
 });
 
 Deno.test("booking post-commit save capture uses setup poll", () => {
-  const src = Deno.readTextFileSync(`${ROOT}/_shared/bookingPostCommit.ts`);
+  const src = Deno.readTextFileSync(`${ROOT}/create-trip-after-payment/lib/bookingPostCommit.ts`);
   assertEquals(src.includes("finalizeRevolutTokenCapture"), true);
   assertEquals(src.includes('pollProfile: "setup"'), true);
   assertEquals(src.includes('pollProfile: "booking"'), false);

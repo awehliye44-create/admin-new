@@ -128,7 +128,7 @@ Deno.test("I: DRIVER_COLLECTED cannot use Admin provider capture", async () => {
 
 Deno.test("J: ownership locks — admin capture uses canonical modules, no direct wallet insert", async () => {
   const adminSrc = await Deno.readTextFile(`${ROOT}admin-capture-trip-payment/index.ts`);
-  const ssotSrc = await Deno.readTextFile(`${ROOT}_shared/adminCaptureTripPaymentSSOT.ts`);
+  const ssotSrc = await Deno.readTextFile(`${ROOT}admin-capture-trip-payment/lib/adminCaptureTripPaymentSSOT.ts`);
 
   assertStringIncludes(adminSrc, "executeAdminCaptureTripPayment");
   assertEquals(adminSrc.includes("captureRevolutOrder"), false);
