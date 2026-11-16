@@ -98,7 +98,13 @@ import { tripHistoryStatusLabel, pickPrimaryPaymentSession } from '../../shared/
 import { tripHistoryOutcomeBadge } from '@/lib/tripHistoryOutcomeBadge';
 import { useTripLocationEvidence } from '@/hooks/useTripLocationEvidence';
 import { TripLocationEvidencePanel } from '@/components/trips/TripLocationEvidencePanel';
-import { EVIDENCE_ACTION_META, PASSENGER_MARKER_COLOR, type TripLocationEvidence } from '@/lib/tripLocationEvidence';
+import {
+  EVIDENCE_ACTION_META,
+  PASSENGER_MARKER_COLOR,
+  legacyCompletionLocation,
+  type LegacyCompletionLocation,
+  type TripLocationEvidence,
+} from '@/lib/tripLocationEvidence';
 
 function getTripMapCenter(trip: CompletedTrip): [number, number] {
   const lng = trip.pickup_longitude ?? trip.dropoff_longitude ?? -0.7594;
