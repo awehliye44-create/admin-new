@@ -44,11 +44,17 @@ Deno.test("Gap B: migration ports commitment feasibility into SQL and patches bo
 });
 
 Deno.test("Gap B: SQL math mirrors Edge feasibility constants", async () => {
+  // Original gap-closure migration introduced the SQL port; ETA speed bands
+  // live in the MK-261116-009 follow-up migration (flat 20 km/h was defective).
   const sql = await read(MIGRATION);
+  const etaSql = await read(
+    "supabase/migrations/20261116193000_commitment_eta_distance_banded_speed.sql",
+  );
   const ts = await read("supabase/functions/_shared/scheduledDispatchConfig.ts");
-  assertStringIncludes(ts, "distKm * 1.45");
-  assertStringIncludes(ts, "avgSpeedKmh = 20");
-  assertStringIncludes(sql, "v_km * 1.45 / 20.0");
+  assertStringIncludes(ts, "COMMITMENT_ETA_ROAD_FACTOR = 1.45");
+  assertStringIncludes(ts, "commitmentEtaAverageSpeedKmh");
+  assertStringIncludes(etaSql, "v_km * 1.45 / v_speed");
+  assertStringIncludes(etaSql, "v_speed := 45");
   assertStringIncludes(sql, "GREATEST(3,");
   assertStringIncludes(sql, "interval '15 minutes'");
   // Edge precheck remains (SQL is a backstop, not a replacement).

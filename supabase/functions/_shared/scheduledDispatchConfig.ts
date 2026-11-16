@@ -485,10 +485,29 @@ export function haversineKm(
 }
 
 /**
+ * Conservative average speed for haversine commitment ETA (km/h).
+ * Flat 20 km/h made inter-town legs absurdly slow (MK-261116-009: ~21 km
+ * Westcroft→Aylesbury ≈ 91 min) and blocked feasible accepts ~1h before a
+ * confirmed scheduled pickup. Keep urban crawl slow; allow corridor speeds
+ * for longer haversine distances. Prefer routed ETA when available.
+ */
+export function commitmentEtaAverageSpeedKmh(distKm: number): number {
+  const d = Math.max(0, Number(distKm) || 0);
+  if (d < 5) return 20; // dense urban crawl
+  if (d < 15) return 32; // city / suburban
+  if (d < 40) return 45; // inter-town corridor (A-road)
+  return 55; // longer intercity
+}
+
+/** Road-distance factor applied to haversine km (mirrors SQL gate). */
+export const COMMITMENT_ETA_ROAD_FACTOR = 1.45;
+
+/**
  * Estimate driving ETA in minutes using haversine distance.
  * Haversine is an *estimate*, not a guaranteed upper bound on road travel time
- * (traffic / roads can exceed it). Conservative road factor + slow city speed
- * reduce underestimation for JIT fallback only — prefer routed ETA when available.
+ * (traffic / roads can exceed it). Conservative road factor + distance-banded
+ * speed reduce underestimation for JIT / commitment gates without treating
+ * every leg as 20 km/h urban crawl. Prefer routed ETA when available.
  * Returns null if coordinates are missing or degenerate.
  */
 export function estimateEtaMinutes(
@@ -502,8 +521,8 @@ export function estimateEtaMinutes(
     pickupLat == null || pickupLng == null
   ) return null;
   const distKm = haversineKm(driverLat, driverLng, pickupLat, pickupLng);
-  const roadKm = distKm * 1.45; // conservative road-factor (was 1.3)
-  const avgSpeedKmh = 20; // slower than typical city average — do not underestimate
+  const roadKm = distKm * COMMITMENT_ETA_ROAD_FACTOR;
+  const avgSpeedKmh = commitmentEtaAverageSpeedKmh(distKm);
   return Math.max(3, Math.ceil((roadKm / avgSpeedKmh) * 60));
 }
 
