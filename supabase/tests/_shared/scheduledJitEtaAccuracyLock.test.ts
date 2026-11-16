@@ -54,9 +54,10 @@ Deno.test("Bug #29 MK-261115-002 replay: Google 15 / haversine 53 → selected 1
 });
 
 Deno.test("Bug #29: valid motorway-class road ETA below haversine is kept", () => {
-  // 40 km chord → haversine ~174 min; motorway road ETA 45 min.
+  // ~40 km N-S chord. After MK-261116-009 distance-banded speeds, haversine is
+  // ~64 min (not the old flat-20km/h ~174). Motorway road ETA 45 must still win.
   const hav = estimateEtaMinutes(52.0, -0.8, 52.36, -0.8);
-  assert(hav != null && hav > 100);
+  assert(hav != null && hav > 45 && hav < 100);
   const validated = validateJitEtaMinutes({
     proposedEtaMinutes: 45,
     previousEtaMinutes: 48,
