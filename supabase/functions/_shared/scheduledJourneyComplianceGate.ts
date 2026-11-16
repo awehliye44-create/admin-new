@@ -4,7 +4,7 @@
  * release_scheduled_assignment_for_compliance (migration).
  */
 
-import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
+import type { AnySupabaseClient } from "./supabaseClientTypes.ts";
 import { evaluateDriverDocumentState } from "./driverDocumentEligibility.ts";
 import {
   evaluateScheduledJourneyCompliance,
@@ -24,7 +24,7 @@ import { maxBroadcastSequences } from "./dispatch-settings.ts";
 import { notifyCustomerTripLifecycle } from "./customerTripLifecycleNotify.ts";
 import { broadcastScheduledMarketplaceChanged } from "./scheduledMarketplaceRealtimeBroadcastSSOT.ts";
 
-type AnySupabase = SupabaseClient<any, "public", any>;
+type AnySupabase = AnySupabaseClient;
 
 export { SCHEDULED_COMPLIANCE_RELEASE_DRIVER_MESSAGE };
 
@@ -127,18 +127,25 @@ export async function assertScheduledJourneyComplianceForDriverTrip(
       .eq("is_active", true)
     : { data: [] as unknown[] };
 
-  const typeIds = (rules ?? [])
-    .map((r: { doc_type_id?: string }) => r.doc_type_id)
+  type RuleRow = {
+    doc_type_id?: string;
+    mandatory?: boolean;
+    expiry_required?: boolean;
+    display_in_driver_app?: boolean;
+  };
+  const ruleRows = (rules ?? []) as RuleRow[];
+  const typeIds = ruleRows
+    .map((r) => r.doc_type_id)
     .filter(Boolean) as string[];
   const { data: types } = typeIds.length
     ? await supabase.from("document_types").select("id, slug").in("id", typeIds)
     : { data: [] as { id: string; slug: string }[] };
   const slugById = new Map((types ?? []).map((t) => [t.id, t.slug]));
-  const requiredRules = (rules ?? [])
-    .filter((r: { mandatory?: boolean; display_in_driver_app?: boolean }) =>
+  const requiredRules = ruleRows
+    .filter((r) =>
       r.mandatory !== false && r.display_in_driver_app !== false
     )
-    .map((r: { doc_type_id?: string; expiry_required?: boolean; mandatory?: boolean }) => ({
+    .map((r) => ({
       slug: String(slugById.get(String(r.doc_type_id)) ?? ""),
       expiry_required: r.expiry_required !== false,
       mandatory: r.mandatory !== false,
@@ -270,11 +277,14 @@ export async function releaseConfirmedScheduledForCompliance(
     return { ok: true, released: false, urgent, error: "DRIVER_MISMATCH" };
   }
 
-  await supabase.rpc("decline_scheduled_ride", {
+  const { error: declineErr } = await supabase.rpc("decline_scheduled_ride", {
     p_trip_id: input.tripId,
     p_driver_id: input.driverId,
     p_reason: "compliance_ineligible",
-  }).catch(() => null);
+  });
+  if (declineErr) {
+    console.warn("[scheduledJourneyComplianceGate] decline_scheduled_ride failed:", declineErr.message);
+  }
 
   const broadcastAt =
     trip.scheduled_broadcast_at && String(trip.scheduled_broadcast_at).trim()

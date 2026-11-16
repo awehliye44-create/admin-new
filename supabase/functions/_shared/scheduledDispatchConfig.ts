@@ -330,8 +330,7 @@ export function resolveConversionBroadcastEnabled(input: {
 }): boolean {
   const current = input.currentBroadcastEnabled;
   if (current === false) return false;
-  if (input.forceOpen === true) return true;
-  return current !== false;
+  return true;
 }
 
 /** Patch that flips a no-accept scheduled job onto the instant nearby-card path. */
