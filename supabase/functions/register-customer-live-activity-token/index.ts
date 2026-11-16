@@ -78,18 +78,31 @@ Deno.serve(async (req) => {
     const admin = createClient(SUPABASE_URL, SERVICE);
 
     // Ownership: device must match authoritative active device for this user.
+    // customer_active_devices stores installation id in `device_id` only —
+    // do not select non-existent columns (PostgREST fails the whole lookup;
+    // MK-261116-013 left customer_live_activity_tokens empty fleet-wide).
     const { data: activeDevice, error: deviceErr } = await admin
       .from("customer_active_devices")
-      .select("device_id, server_device_id")
+      .select("device_id")
       .eq("user_id", user.id)
       .maybeSingle();
     if (deviceErr) {
-      console.error("[register-customer-live-activity-token] device lookup", deviceErr);
+      console.error("[register-customer-live-activity-token] device lookup", {
+        message: deviceErr.message,
+        code: deviceErr.code,
+      });
       return errorResponse("DEVICE_LOOKUP_FAILED", "Device lookup failed", 500);
     }
-    const authoritative =
-      String(activeDevice?.device_id ?? activeDevice?.server_device_id ?? "").trim();
+    const authoritative = String(activeDevice?.device_id ?? "").trim();
     if (!authoritative || authoritative !== deviceId) {
+      console.warn(
+        "[register-customer-live-activity-token] device not authoritative",
+        JSON.stringify({
+          device_id_suffix: deviceId.slice(-8),
+          has_active_row: Boolean(authoritative),
+          active_suffix: authoritative ? authoritative.slice(-8) : null,
+        }),
+      );
       return errorResponse(
         "DEVICE_NOT_AUTHORITATIVE",
         "Live Activity token requires the authoritative active device",

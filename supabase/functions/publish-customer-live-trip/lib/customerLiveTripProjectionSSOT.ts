@@ -142,13 +142,14 @@ function copyForStage(stage: string): {
       return {
         status_title: "Finding a new driver",
         status_description: "Searching for a nearby driver",
-        progress_step_index: 0,
+        // -1 = no progress milestones reached (must not light "Driver assigned").
+        progress_step_index: -1,
       };
     case "finding_driver":
       return {
         status_title: "Finding your driver",
         status_description: "Searching for a nearby driver",
-        progress_step_index: 0,
+        progress_step_index: -1,
       };
     case "driver_assigned":
       return {

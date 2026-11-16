@@ -164,6 +164,40 @@ Deno.test("scheduled pre-activation projection is ineligible", () => {
   assertEquals(row.assigned_driver_id, null);
 });
 
+Deno.test("finding must not highlight Driver assigned progress (MK-261116-013)", () => {
+  const finding = buildCustomerLiveTripProjection({
+    trip: {
+      id: "t1",
+      status: "searching",
+    },
+    customerUserId: "u1",
+    nowMs: 4_500,
+  })!;
+  assertEquals(finding.lifecycle_stage, "finding_driver");
+  assertEquals(finding.status_title, "Finding your driver");
+  assertEquals(finding.progress_step_index, -1);
+  assertEquals(finding.content_state.progressStepIndex, -1);
+
+  const assigned = buildCustomerLiveTripProjection({
+    trip: {
+      id: "t1",
+      status: "accepted",
+      confirmed_driver_id: DRIVER_A,
+      driver: {
+        id: DRIVER_A,
+        first_name: "Alex",
+        vehicle: { license_plate: "AB12 CDE" },
+      },
+    },
+    customerUserId: "u1",
+    previous: finding,
+    nowMs: 4_600,
+  })!;
+  assertEquals(assigned.lifecycle_stage, "driver_assigned");
+  assertEquals(assigned.status_title, "Driver assigned");
+  assertEquals(assigned.progress_step_index, 0);
+});
+
 Deno.test("heading_to_pickup title is On the way (not stuck on Driver assigned)", () => {
   const row = buildCustomerLiveTripProjection({
     trip: {

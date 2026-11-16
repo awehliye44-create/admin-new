@@ -306,7 +306,15 @@ Deno.serve(async (req) => {
         delivery.apns_skipped_no_token = true;
         console.warn(
           "[publish-customer-live-trip] apns skipped — no customer_live_activity_tokens",
-          { trip_id: tripId, event },
+          JSON.stringify({
+            trip_id: tripId,
+            event,
+            presentation_version: projection.presentation_version,
+            lifecycle_stage: projection.lifecycle_stage,
+            has_driver_name: Boolean(projection.driver_first_name),
+            has_vehicle_reg: Boolean(projection.vehicle_registration),
+            // MK-261116-013: empty tokens = register Edge was failing device lookup.
+          }),
         );
       }
       for (const row of tokenRows) {

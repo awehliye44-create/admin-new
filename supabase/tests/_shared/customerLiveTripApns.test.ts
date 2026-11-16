@@ -73,6 +73,19 @@ Deno.test("publish edge fans out APNs + FCM without blocking mutations", async (
   assertStringIncludes(src, "Do not fail trip producers hard");
 });
 
+Deno.test("register ActivityKit token never selects missing server_device_id (MK-261116-013)", async () => {
+  const src = await Deno.readTextFile(
+    new URL(
+      "../../functions/register-customer-live-activity-token/index.ts",
+      import.meta.url,
+    ),
+  );
+  assertStringIncludes(src, '.from("customer_active_devices")');
+  assertStringIncludes(src, '.select("device_id")');
+  assertEquals(src.includes("server_device_id"), false);
+  assertStringIncludes(src, 'onConflict: "customer_user_id,device_id"');
+});
+
 Deno.test("ETA refresh exposes safe APNs probe without enabling fanout", async () => {
   const src = await Deno.readTextFile(
     new URL("../../functions/refresh-customer-live-trip-etas/index.ts", import.meta.url),
