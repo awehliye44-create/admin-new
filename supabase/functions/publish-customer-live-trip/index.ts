@@ -15,6 +15,7 @@ import {
 } from "../_shared/security.ts";
 import { requireSignedInOrService } from "../_shared/callerGate.ts";
 import { buildCustomerLiveTripProjection } from "./lib/customerLiveTripProjectionSSOT.ts";
+import { hydrateLiveTripAssignmentIdentity } from "./lib/hydrateLiveTripAssignmentIdentity.ts";
 import {
   liveActivityApnsConfigured,
   selectLiveActivityPushToken,
@@ -117,9 +118,15 @@ Deno.serve(async (req) => {
       ? await peekTripRouteCacheLeg(admin, tripId, hintLeg)
       : null;
 
+    // MK-261116-011/012: trips.* alone never carries name/vehicle/photos.
+    const hydratedTrip = await hydrateLiveTripAssignmentIdentity(
+      admin,
+      trip as Record<string, unknown>,
+    );
+
     // Second peek after projection stage is known (below) if stage implies other leg.
     let projection = buildCustomerLiveTripProjection({
-      trip: trip as Record<string, unknown>,
+      trip: hydratedTrip,
       customerUserId,
       customerId,
       previous: previous as Record<string, unknown> | null,
@@ -134,7 +141,7 @@ Deno.serve(async (req) => {
     if (stageLeg && stageLeg !== hintLeg) {
       const stageCache = await peekTripRouteCacheLeg(admin, tripId, stageLeg);
       projection = buildCustomerLiveTripProjection({
-        trip: trip as Record<string, unknown>,
+        trip: hydratedTrip,
         customerUserId,
         customerId,
         previous: previous as Record<string, unknown> | null,
@@ -178,6 +185,13 @@ Deno.serve(async (req) => {
       previous?.eta_minutes === projection.eta_minutes &&
       previous?.lifecycle_stage === projection.lifecycle_stage &&
       previous?.assignment_generation === projection.assignment_generation;
+    // Identity / title deltas must never be coalesced away (MK-261116-011).
+    const identityUnchanged =
+      previous?.driver_first_name === projection.driver_first_name &&
+      previous?.vehicle_registration === projection.vehicle_registration &&
+      previous?.vehicle_make === projection.vehicle_make &&
+      previous?.driver_photo_url === projection.driver_photo_url &&
+      previous?.status_title === projection.status_title;
     const isPriority =
       priority === "lifecycle" ||
       priority === "assignment" ||
@@ -191,6 +205,7 @@ Deno.serve(async (req) => {
       Number.isFinite(lastPublishedMs) &&
       Date.now() - lastPublishedMs < coalesceMs &&
       etaUnchanged &&
+      identityUnchanged &&
       !isPriority;
 
     // Feature OFF: still persist + fanout end for previously live activities.
@@ -286,7 +301,15 @@ Deno.serve(async (req) => {
         ? Math.floor(Date.parse(projection.stale_at) / 1000)
         : nowSec + 8 * 60;
 
-      for (const row of tokens ?? []) {
+      const tokenRows = tokens ?? [];
+      if (tokenRows.length === 0) {
+        delivery.apns_skipped_no_token = true;
+        console.warn(
+          "[publish-customer-live-trip] apns skipped — no customer_live_activity_tokens",
+          { trip_id: tripId, event },
+        );
+      }
+      for (const row of tokenRows) {
         const activityToken = String(row.push_token ?? "").trim();
         const pushToStartToken = String(row.push_to_start_token ?? "").trim();
         const token = selectLiveActivityPushToken({
@@ -373,7 +396,36 @@ Deno.serve(async (req) => {
               },
             });
             delivery.fcm_ok = send.ok;
+            if (!send.ok) {
+              delivery.fcm_error_code = send.errorCode;
+              delivery.fcm_http_status = send.httpStatus;
+              console.warn(
+                "[publish-customer-live-trip] fcm rejected",
+                JSON.stringify({
+                  trip_id: tripId,
+                  event,
+                  error_code: send.errorCode,
+                  http_status: send.httpStatus,
+                  presentation_version: projection.presentation_version,
+                }),
+              );
+            } else {
+              console.log(
+                "[publish-customer-live-trip] fcm accepted",
+                JSON.stringify({
+                  trip_id: tripId,
+                  event,
+                  presentation_version: projection.presentation_version,
+                  has_driver_name: Boolean(projection.driver_first_name),
+                  has_vehicle_reg: Boolean(projection.vehicle_registration),
+                }),
+              );
+            }
           }
+        } else if (!authToken?.token) {
+          delivery.fcm_skipped_no_token = true;
+        } else if (authToken.platform === "ios") {
+          delivery.fcm_skipped_ios_device = true;
         }
       } catch (err) {
         console.warn(

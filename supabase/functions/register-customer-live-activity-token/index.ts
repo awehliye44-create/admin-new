@@ -159,12 +159,22 @@ Deno.serve(async (req) => {
 
     const { error: upsertErr } = await admin
       .from("customer_live_activity_tokens")
-      .upsert(row, { onConflict: "customer_user_id,device_id,trip_id" });
+      .upsert(row, { onConflict: "customer_user_id,device_id" });
     if (upsertErr) {
       console.error("[register-customer-live-activity-token] upsert", upsertErr);
       return errorResponse("UPSERT_FAILED", upsertErr.message, 500);
     }
 
+    console.log(
+      "[register-customer-live-activity-token] registered",
+      JSON.stringify({
+        device_id_suffix: deviceId.slice(-8),
+        has_activity_token: Boolean(resolvedPushToken),
+        has_push_to_start: Boolean(resolvedPushToStart),
+        trip_id: tripIdRaw || null,
+        apns_environment: apnsEnvironment,
+      }),
+    );
     return successResponse({ ok: true, registered: true });
   } catch (err) {
     console.error("[register-customer-live-activity-token] exception", err);

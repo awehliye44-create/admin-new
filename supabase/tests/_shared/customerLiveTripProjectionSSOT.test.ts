@@ -163,3 +163,48 @@ Deno.test("scheduled pre-activation projection is ineligible", () => {
   assertEquals(row.eligible, false);
   assertEquals(row.assigned_driver_id, null);
 });
+
+Deno.test("heading_to_pickup title is On the way (not stuck on Driver assigned)", () => {
+  const row = buildCustomerLiveTripProjection({
+    trip: {
+      id: "t1",
+      status: "en_route_to_pickup",
+      confirmed_driver_id: DRIVER_A,
+      driver: {
+        id: DRIVER_A,
+        first_name: "Alex",
+        rating: 4.9,
+        rating_count: 12,
+        vehicle: {
+          make: "Toyota",
+          model: "Prius",
+          colour: "Black",
+          license_plate: "AB12 CDE",
+        },
+      },
+    },
+    customerUserId: "u1",
+    nowMs: 5_000,
+  })!;
+  assertEquals(row.lifecycle_stage, "heading_to_pickup");
+  assertEquals(row.status_title, "On the way");
+  assertEquals(row.driver_first_name, "Alex");
+  assertEquals(row.vehicle_registration, "AB12 CDE");
+  assertEquals(row.content_state.statusTitle, "On the way");
+});
+
+Deno.test("publish hydrates identity — bare trips row alone cannot fill name/vehicle", () => {
+  // Documents the MK-261116-011 defect class: without nested driver, identity is null.
+  const bare = buildCustomerLiveTripProjection({
+    trip: {
+      id: "t1",
+      status: "en_route_to_pickup",
+      confirmed_driver_id: DRIVER_A,
+    },
+    customerUserId: "u1",
+    nowMs: 6_000,
+  })!;
+  assertEquals(bare.assigned_driver_id, DRIVER_A);
+  assertEquals(bare.driver_first_name, null);
+  assertEquals(bare.vehicle_make, null);
+});

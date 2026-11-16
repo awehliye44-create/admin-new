@@ -158,19 +158,19 @@ function copyForStage(stage: string): {
       };
     case "heading_to_pickup":
       return {
-        status_title: "Driver assigned",
+        status_title: "On the way",
         status_description: "Heading to your pickup",
         progress_step_index: 0,
       };
     case "at_pickup":
       return {
-        status_title: "At pickup",
-        status_description: "Driver has arrived",
+        status_title: "Arrived",
+        status_description: "Driver has arrived at pickup",
         progress_step_index: 1,
       };
     case "trip_started":
       return {
-        status_title: "Trip started",
+        status_title: "Trip in progress",
         status_description: "On the way to your destination",
         progress_step_index: 2,
       };
