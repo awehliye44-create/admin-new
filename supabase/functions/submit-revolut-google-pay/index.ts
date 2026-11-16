@@ -5,7 +5,8 @@
  * Does NOT treat submission as authorised — revolut-webhook / confirm-revolut-payment
  * remain authoritative for authorised_hold.
  *
- * Never logs the raw Google Pay token.
+ * Never logs the raw Google Pay token / PAN / full billing address.
+ * Bug #37 — structured Revolut errors, billing contract, no placeholder postcodes.
  */
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "npm:@supabase/supabase-js@2.57.2";
@@ -21,14 +22,19 @@ import {
 import {
   payRevolutOrderWithGooglePay,
   retrieveRevolutOrder,
-  type GooglePayBillingAddress,
 } from "../_shared/revolutOrders.ts";
 import { resolveRevolutMerchantContext } from "../_shared/revolutMerchantContext.ts";
+import { resolveGooglePayBillingContract } from "./lib/googlePayBillingContract.ts";
+import {
+  googlePayFailureFingerprint,
+  upsertGooglePayOpsAlert,
+} from "./lib/googlePayOpsAlertSSOT.ts";
 import {
   classifyGooglePaySubmitFailure,
   isFailedPaymentState,
   latestFailedPaymentDeclineReason,
   readRevolutApiThrow,
+  type GooglePaySubmitFailure,
 } from "./lib/googlePaySubmitOutcome.ts";
 
 const RATE_LIMIT_CONFIG = { limit: 15, windowMs: 60 * 1000 };
@@ -41,42 +47,34 @@ async function sha256Hex(value: string): Promise<string> {
     .join("");
 }
 
-function mapBillingAddress(raw: unknown): GooglePayBillingAddress | null {
-  if (!raw || typeof raw !== "object") return null;
-  const b = raw as Record<string, unknown>;
-  const street1 =
-    (typeof b.street_line_1 === "string" && b.street_line_1) ||
-    (typeof b.address1 === "string" && b.address1) ||
-    undefined;
-  const street2 =
-    (typeof b.street_line_2 === "string" && b.street_line_2) ||
-    (typeof b.address2 === "string" && b.address2) ||
-    undefined;
-  const city =
-    (typeof b.city === "string" && b.city) ||
-    (typeof b.locality === "string" && b.locality) ||
-    undefined;
-  const region =
-    (typeof b.region === "string" && b.region) ||
-    (typeof b.administrativeArea === "string" && b.administrativeArea) ||
-    undefined;
-  const postcode =
-    (typeof b.postcode === "string" && b.postcode) ||
-    (typeof b.postalCode === "string" && b.postalCode) ||
-    undefined;
-  const country =
-    (typeof b.country_code === "string" && b.country_code) ||
-    (typeof b.countryCode === "string" && b.countryCode) ||
-    undefined;
-  if (!street1 && !city && !postcode && !country) return null;
-  return {
-    street_line_1: street1,
-    street_line_2: street2,
-    city,
-    region,
-    postcode,
-    country_code: country,
-  };
+async function markSessionDefinitiveFailure(
+  // deno-lint-ignore no-explicit-any
+  supabase: any,
+  ps: { id: string; metadata: Record<string, unknown> },
+  failure: GooglePaySubmitFailure,
+): Promise<void> {
+  if (failure.ambiguous) return;
+  try {
+    await supabase
+      .from("payment_sessions")
+      .update({
+        status: "failed",
+        provider_state: "FAILED",
+        metadata: {
+          ...ps.metadata,
+          google_pay_failure_code: failure.code,
+          google_pay_failure_category: failure.category,
+          google_pay_failure_at: new Date().toISOString(),
+          mutation_source: "submit_revolut_google_pay",
+        },
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", ps.id)
+      .is("trip_id", null)
+      .in("status", ["pending_payment", "processing", "failed"]);
+  } catch {
+    // Best-effort — never block the customer error response.
+  }
 }
 
 serve(async (req) => {
@@ -85,6 +83,7 @@ serve(async (req) => {
   const clientIP = getClientIP(req);
   const rl = checkRateLimit(clientIP, RATE_LIMIT_CONFIG);
   if (!rl.allowed) return rateLimitResponse(rl);
+  const correlationId = req.headers.get("x-request-id")?.trim() || crypto.randomUUID();
 
   try {
     const auth = req.headers.get("Authorization");
@@ -192,34 +191,78 @@ serve(async (req) => {
       });
     }
 
-    // Same vault-first merchant as order creation and confirm/reconcile of this order.
     const { secretKey, environment } = await resolveRevolutMerchantContext(supabase, "live");
 
-    const billingAddress = mapBillingAddress(body.billing_address);
-    const billingPostcode = String(billingAddress?.postcode ?? "").trim();
-    // Revolut rejects empty postcode; never call Pay-for-order without one
-    // (Bug #37 — opaque pay_failed + sticky Checking payment).
-    if (!billingPostcode) {
+    const billingContract = resolveGooglePayBillingContract(
+      body.billing_address && typeof body.billing_address === "object"
+        ? (body.billing_address as Record<string, unknown>)
+        : null,
+    );
+    if (!billingContract.ok) {
+      const failure: GooglePaySubmitFailure = {
+        status: 400,
+        code: "GOOGLE_PAY_BILLING_INCOMPLETE",
+        message:
+          "Google Pay billing address is incomplete. Choose another payment method or update the card address in Google Wallet.",
+        decline_reason: null,
+        bank_declined: false,
+        category: "billing_incomplete",
+        ambiguous: false,
+        revolut_error_code: billingContract.code,
+        revolut_message: billingContract.code,
+        payment_stage: "billing_contract",
+      };
       await logAuditEvent(supabase, "GOOGLE_PAY_SUBMIT_FAILED", {
         details: {
           payment_session_id: ps.id,
           provider_order_id: providerOrderId,
           token_sha256: tokenHash,
-          message: "billing_postcode_missing",
+          message: billingContract.code,
           revolut_http_status: 400,
+          revolut_error_code: billingContract.code,
           decline_reason: null,
-          customer_code: "GOOGLE_PAY_BILLING_INCOMPLETE",
+          customer_code: failure.code,
+          category: failure.category,
+          payment_stage: failure.payment_stage,
+          field_presence: billingContract.field_presence,
+          missing_fields: billingContract.missing_fields,
+          correlation_id: correlationId,
+          ambiguous: false,
         },
         ipAddress: clientIP,
         userAgent: req.headers.get("user-agent") || "unknown",
       });
+      await markSessionDefinitiveFailure(supabase, { id: ps.id, metadata: meta }, failure);
+      await upsertGooglePayOpsAlert(supabase, {
+        fingerprint: googlePayFailureFingerprint({
+          customer_code: failure.code,
+          revolut_error_code: billingContract.code,
+        }),
+        title: "Google Pay billing incomplete",
+        description:
+          "Wallet did not supply a usable billing postcode. Submit blocked before Revolut Pay-for-order.",
+        severity: "warning",
+        related_payment_session_id: ps.id,
+        metadata: {
+          category: failure.category,
+          field_presence: billingContract.field_presence,
+          correlation_id: correlationId,
+        },
+      });
       return errorResponse(
-        "Google Pay billing address is incomplete. Choose another payment method or update the card address in Google Wallet.",
-        400,
-        { missing_fields: ["billing_address.postcode"] },
-        "GOOGLE_PAY_BILLING_INCOMPLETE",
+        failure.message,
+        failure.status,
+        {
+          missing_fields: billingContract.missing_fields,
+          field_presence: billingContract.field_presence,
+          category: failure.category,
+          correlation_id: correlationId,
+        },
+        failure.code,
       );
     }
+
+    const billingAddress = billingContract.billing;
 
     // Soft-check order still payable
     try {
@@ -239,7 +282,7 @@ serve(async (req) => {
         return errorResponse(
           "Order is no longer payable",
           409,
-          { provider_state: existing.state },
+          { provider_state: existing.state, correlation_id: correlationId },
           "ORDER_NOT_PAYABLE",
         );
       }
@@ -258,13 +301,18 @@ serve(async (req) => {
         billingAddress,
       });
     } catch (err) {
-      // revolutMerchantRequest throws a plain object — never Error.
       const revolutThrow = readRevolutApiThrow(err);
-      // Read-only GET of the same order for Revolut's decline_reason. Never re-submits.
       let declineReason: string | null = null;
+      let authRequired = false;
       try {
         const after = await retrieveRevolutOrder(environment, secretKey, providerOrderId);
         declineReason = latestFailedPaymentDeclineReason(after.payments);
+        const payments = Array.isArray(after.payments) ? after.payments : [];
+        authRequired = payments.some((p) => {
+          const challenge = (p as { authentication_challenge?: unknown })
+            ?.authentication_challenge;
+          return Boolean(challenge);
+        });
       } catch {
         declineReason = null;
       }
@@ -272,6 +320,10 @@ serve(async (req) => {
         declineReason,
         providerRejected: false,
         revolutHttpStatus: revolutThrow.status,
+        revolutMessage: revolutThrow.message,
+        revolutErrorCode: revolutThrow.revolut_error_code,
+        paymentStage: "pay_for_order",
+        authenticationRequired: authRequired,
       });
       await logAuditEvent(supabase, "GOOGLE_PAY_SUBMIT_FAILED", {
         details: {
@@ -280,11 +332,34 @@ serve(async (req) => {
           token_sha256: tokenHash,
           message: revolutThrow.message,
           revolut_http_status: revolutThrow.status,
+          revolut_error_code: revolutThrow.revolut_error_code,
           decline_reason: failure.decline_reason,
           customer_code: failure.code,
+          category: failure.category,
+          payment_stage: failure.payment_stage,
+          field_presence: billingContract.field_presence,
+          correlation_id: correlationId,
+          ambiguous: failure.ambiguous,
         },
         ipAddress: clientIP,
         userAgent: req.headers.get("user-agent") || "unknown",
+      });
+      await markSessionDefinitiveFailure(supabase, { id: ps.id, metadata: meta }, failure);
+      await upsertGooglePayOpsAlert(supabase, {
+        fingerprint: googlePayFailureFingerprint({
+          customer_code: failure.code,
+          revolut_error_code: revolutThrow.revolut_error_code,
+        }),
+        title: `Google Pay submit ${failure.category}`,
+        description: `Sanitised provider message: ${revolutThrow.message}`.slice(0, 280),
+        severity: failure.ambiguous ? "warning" : "critical",
+        related_payment_session_id: ps.id,
+        metadata: {
+          category: failure.category,
+          revolut_http_status: revolutThrow.status,
+          correlation_id: correlationId,
+          ambiguous: failure.ambiguous,
+        },
       });
       return errorResponse(
         failure.message,
@@ -294,6 +369,10 @@ serve(async (req) => {
           bank_declined: failure.bank_declined,
           revolut_message: revolutThrow.message,
           revolut_http_status: revolutThrow.status,
+          revolut_error_code: revolutThrow.revolut_error_code,
+          category: failure.category,
+          ambiguous: failure.ambiguous,
+          correlation_id: correlationId,
         },
         failure.code,
       );
@@ -308,6 +387,7 @@ serve(async (req) => {
           google_pay_submitted: true,
           google_pay_token_sha256: tokenHash,
           google_pay_submitted_at: new Date().toISOString(),
+          google_pay_billing_field_presence: billingContract.field_presence,
         },
         updated_at: new Date().toISOString(),
       })
@@ -319,6 +399,9 @@ serve(async (req) => {
         provider_order_id: providerOrderId,
         token_sha256: tokenHash,
         provider_state: revolutResult.state ?? null,
+        field_presence: billingContract.field_presence,
+        correlation_id: correlationId,
+        payment_stage: "pay_for_order",
       },
       ipAddress: clientIP,
       userAgent: req.headers.get("user-agent") || "unknown",
@@ -328,7 +411,10 @@ serve(async (req) => {
       const failure = classifyGooglePaySubmitFailure({
         declineReason: revolutResult.decline_reason ?? null,
         providerRejected: true,
+        revolutMessage: revolutResult.decline_reason ?? null,
+        paymentStage: "provider_payment_state",
       });
+      await markSessionDefinitiveFailure(supabase, { id: ps.id, metadata: meta }, failure);
       return errorResponse(
         failure.message,
         failure.status,
@@ -336,6 +422,8 @@ serve(async (req) => {
           decline_reason: failure.decline_reason,
           bank_declined: failure.bank_declined,
           provider_state: revolutResult.state ?? null,
+          category: failure.category,
+          correlation_id: correlationId,
         },
         failure.code,
       );
@@ -348,9 +436,10 @@ serve(async (req) => {
       payment_session_id: ps.id,
       status: ps.status,
       provider_state: revolutResult.state ?? null,
+      correlation_id: correlationId,
     });
   } catch (err) {
     console.error("[submit-revolut-google-pay]", err instanceof Error ? err.message : err);
-    return errorResponse("Internal error", 500, undefined, "INTERNAL");
+    return errorResponse("Internal error", 500, { correlation_id: correlationId }, "INTERNAL");
   }
 });
