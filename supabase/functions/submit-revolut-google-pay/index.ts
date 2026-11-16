@@ -195,6 +195,32 @@ serve(async (req) => {
     // Same vault-first merchant as order creation and confirm/reconcile of this order.
     const { secretKey, environment } = await resolveRevolutMerchantContext(supabase, "live");
 
+    const billingAddress = mapBillingAddress(body.billing_address);
+    const billingPostcode = String(billingAddress?.postcode ?? "").trim();
+    // Revolut rejects empty postcode; never call Pay-for-order without one
+    // (Bug #37 — opaque pay_failed + sticky Checking payment).
+    if (!billingPostcode) {
+      await logAuditEvent(supabase, "GOOGLE_PAY_SUBMIT_FAILED", {
+        details: {
+          payment_session_id: ps.id,
+          provider_order_id: providerOrderId,
+          token_sha256: tokenHash,
+          message: "billing_postcode_missing",
+          revolut_http_status: 400,
+          decline_reason: null,
+          customer_code: "GOOGLE_PAY_BILLING_INCOMPLETE",
+        },
+        ipAddress: clientIP,
+        userAgent: req.headers.get("user-agent") || "unknown",
+      });
+      return errorResponse(
+        "Google Pay billing address is incomplete. Choose another payment method or update the card address in Google Wallet.",
+        400,
+        { missing_fields: ["billing_address.postcode"] },
+        "GOOGLE_PAY_BILLING_INCOMPLETE",
+      );
+    }
+
     // Soft-check order still payable
     try {
       const existing = await retrieveRevolutOrder(environment, secretKey, providerOrderId);
@@ -229,7 +255,7 @@ serve(async (req) => {
         orderId: providerOrderId,
         googlePayToken,
         cardholderName,
-        billingAddress: mapBillingAddress(body.billing_address),
+        billingAddress,
       });
     } catch (err) {
       // revolutMerchantRequest throws a plain object — never Error.

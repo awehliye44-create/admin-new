@@ -308,7 +308,16 @@ export async function payRevolutOrderWithGooglePay(
 ): Promise<RevolutOrderPayment> {
   const billing = p.billingAddress ?? {};
   const country = (billing.country_code ?? "GB").trim().toUpperCase() || "GB";
-  const postcode = (billing.postcode ?? "").trim() || "000000";
+  const postcode = (billing.postcode ?? "").trim();
+  // Revolut Merchant Pay-for-order rejects empty / placeholder postcodes
+  // ("postcode is empty"). Never invent "000000" — fail closed upstream.
+  if (!postcode) {
+    throw {
+      message: "postcode is empty",
+      status: 400,
+      body: { code: "validation", message: "postcode is empty" },
+    } satisfies RevolutApiError;
+  }
   const cardholder =
     (typeof p.cardholderName === "string" && p.cardholderName.trim()) ||
     "Cardholder";

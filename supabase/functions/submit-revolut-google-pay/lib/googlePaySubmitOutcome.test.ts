@@ -34,3 +34,14 @@ Deno.test("classifyGooglePaySubmitFailure keeps 502 for unknown transport failur
   assertEquals(out.status, 502);
   assertEquals(out.code, "GOOGLE_PAY_SUBMIT_FAILED");
 });
+
+Deno.test("classifyGooglePaySubmitFailure maps issuer decline reasons to bank copy", () => {
+  const out = classifyGooglePaySubmitFailure({
+    declineReason: "insufficient_funds",
+    providerRejected: true,
+    revolutHttpStatus: null,
+  });
+  assertEquals(out.status, 402);
+  assertEquals(out.code, "PAYMENT_DECLINED_BY_BANK");
+  assertEquals(out.bank_declined, true);
+});
