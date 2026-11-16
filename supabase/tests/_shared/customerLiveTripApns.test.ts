@@ -51,13 +51,30 @@ Deno.test("selectLiveActivityPushToken prefers push-to-start for start events", 
     }),
     "pts-only",
   );
+  // MK-261116-015: mirrored PTS must not be used for update/end.
   assertEquals(
     selectLiveActivityPushToken({
-      event: "end",
+      event: "update",
       pushToken: "pts-only",
       pushToStartToken: "pts-only",
     }),
-    "pts-only",
+    null,
+  );
+  assertEquals(
+    selectLiveActivityPushToken({
+      event: "end",
+      pushToken: "",
+      pushToStartToken: "pts-only",
+    }),
+    null,
+  );
+  assertEquals(
+    selectLiveActivityPushToken({
+      event: "update",
+      pushToken: "",
+      pushToStartToken: "pts-only",
+    }),
+    null,
   );
 });
 

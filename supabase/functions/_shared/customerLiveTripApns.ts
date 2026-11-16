@@ -26,7 +26,13 @@ function customerBundleId(): string {
   return customerLiveActivityBundleId();
 }
 
-/** Prefer push-to-start for remote start; activity token for update/end. */
+/**
+ * Prefer push-to-start for remote start; activity-specific token for update/end.
+ *
+ * MK-261116-015: register mirrored PTS into push_token when the activity token
+ * was missing. Sending `event=update` to a push-to-start token does not update
+ * an existing Live Activity — treat identical tokens as PTS-only.
+ */
 export function selectLiveActivityPushToken(args: {
   event: LiveActivityApnsEvent;
   pushToken?: string | null;
@@ -34,13 +40,15 @@ export function selectLiveActivityPushToken(args: {
 }): string | null {
   const activity = String(args.pushToken ?? "").trim();
   const pushToStart = String(args.pushToStartToken ?? "").trim();
-  // Legacy register aliased PTS into push_token when activity token was absent.
-  const activityDistinct =
-    activity && pushToStart && activity === pushToStart ? "" : activity;
+  const ptsOnly = Boolean(
+    pushToStart && (!activity || activity === pushToStart),
+  );
+  const activityDistinct = ptsOnly ? "" : activity;
   if (args.event === "start") {
-    return pushToStart || activityDistinct || activity || null;
+    return pushToStart || activityDistinct || null;
   }
-  return activityDistinct || activity || pushToStart || null;
+  // update / end require a real activity token — never fall back to PTS.
+  return activityDistinct || null;
 }
 
 /**

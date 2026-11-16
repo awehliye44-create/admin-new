@@ -153,15 +153,14 @@ Deno.serve(async (req) => {
       });
     }
 
+    // Never mirror push-to-start into push_token (MK-261116-015). Column is
+    // NOT NULL — store "" when only PTS exists so publish can detect PTS-only.
     const row: Record<string, unknown> = {
       customer_user_id: user.id,
       device_id: deviceId,
       trip_id: tripIdRaw || null,
       activity_id: activityId || null,
-      // Keep columns distinct: activity update token vs push-to-start.
-      // When only PTS exists, store it in push_to_start_token and mirror into
-      // push_token for NOT NULL / legacy readers — publish selects by event.
-      push_token: resolvedPushToken || resolvedPushToStart,
+      push_token: resolvedPushToken || "",
       push_to_start_token: resolvedPushToStart || null,
       platform: "ios",
       bundle_id: bundleId,

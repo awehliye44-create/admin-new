@@ -325,7 +325,18 @@ Deno.serve(async (req) => {
           pushToken: activityToken,
           pushToStartToken,
         });
-        if (!token) continue;
+        if (!token) {
+          delivery.apns_skipped_pts_only = Boolean(
+            pushToStartToken && (!activityToken || activityToken === pushToStartToken),
+          );
+          if (delivery.apns_skipped_pts_only) {
+            console.warn(
+              "[publish-customer-live-trip] apns skipped — push-to-start only (no activity token)",
+              JSON.stringify({ trip_id: tripId, event }),
+            );
+          }
+          continue;
+        }
         delivery.apns_attempted = true;
         const env = String(row.apns_environment ?? "").trim().toLowerCase();
         const apnsHost =
