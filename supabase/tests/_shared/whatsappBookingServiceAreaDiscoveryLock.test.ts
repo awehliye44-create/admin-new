@@ -25,7 +25,7 @@ import {
   shouldSendOutOfAreaNotice,
   WHATSAPP_OUT_OF_AREA_NOTICE_TEXT,
   withOutOfAreaNoticeSent,
-} from "../../functions/_shared/whatsappOutOfAreaNotice.ts";
+} from "../../functions/whatsapp-booking-out-of-area-notify/lib/whatsappOutOfAreaNotice.ts";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, "../..");

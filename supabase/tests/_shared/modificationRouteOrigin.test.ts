@@ -7,7 +7,7 @@ import { assertEquals } from "https://deno.land/std@0.224.0/assert/mod.ts";
 import {
   MODIFICATION_ORIGIN_GPS_MAX_AGE_SECONDS,
   resolveModificationRouteOrigin,
-} from "../../functions/_shared/modificationRouteOrigin.ts";
+} from "../../functions/request-trip-modification/lib/modificationRouteOrigin.ts";
 
 const NOW = Date.parse("2026-08-16T17:05:08.000Z");
 const isoAgo = (seconds: number) => new Date(NOW - seconds * 1000).toISOString();

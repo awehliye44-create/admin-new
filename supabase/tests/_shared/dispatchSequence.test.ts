@@ -16,7 +16,7 @@ import {
   waveIndexFromSequence,
   waveOfferExpirySeconds,
 } from "../../functions/_shared/dispatch-settings.ts";
-import { resolveDispatchBroadcastRound } from "../../functions/_shared/dispatchSearchWindow.ts";
+import { resolveDispatchBroadcastRound } from "../../functions/auto-dispatch/lib/dispatchSearchWindow.ts";
 
 Deno.test("waveIndexFromSequence cycles every 3", () => {
   assertEquals(waveIndexFromSequence(1), 1);

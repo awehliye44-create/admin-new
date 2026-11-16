@@ -4,7 +4,7 @@ import {
   isHelpAudience,
   type HelpArticleRow,
   type HelpCategoryRow,
-} from "../_shared/helpCentreSSOT.ts";
+} from "./lib/helpCentreSSOT.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",

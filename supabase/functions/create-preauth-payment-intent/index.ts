@@ -56,7 +56,7 @@ import {
   shouldSkipPlatformPreauthForCommissionWallet,
   type ServiceAreaCommissionWalletConfig,
 } from "../_shared/commissionWalletSSOT.ts";
-import { quoteFareServerSide } from "../_shared/serverFareQuote.ts";
+import { quoteFareServerSide } from "./lib/serverFareQuote.ts";
 import { resolvePreauthBuffer } from "../_shared/preauthBufferResolverSSOT.ts";
 
 const corsHeaders = {

@@ -24,7 +24,7 @@ import {
   computeCaptureAmount,
   computeFinalFarePence,
 } from "../supabase/functions/_shared/tripFareSSOT.ts";
-import { tripFareFieldsForOfferSnapshot } from "../supabase/functions/_shared/tripFareSnapshot.ts";
+import { tripFareFieldsForOfferSnapshot } from "../supabase/functions/auto-dispatch/lib/tripFareSnapshot.ts";
 
 const ssotPath = join(
   dirname(fileURLToPath(import.meta.url)),
@@ -229,7 +229,7 @@ describe("airport charge fare split", () => {
 
   it("does not dispatch an airport quote when booking enrich persist fails", () => {
     const src = readFileSync(
-      join(dirname(fileURLToPath(import.meta.url)), "../supabase/functions/_shared/bookingPostCommit.ts"),
+      join(dirname(fileURLToPath(import.meta.url)), "../supabase/functions/create-trip-after-payment/lib/bookingPostCommit.ts"),
       "utf8",
     );
     const gate = src.indexOf("if (!enrich.allowDispatch)");

@@ -1,5 +1,5 @@
 import { assertEquals } from "https://deno.land/std@0.224.0/assert/mod.ts";
-import { shouldUseUrgentFallbackTrigger } from "../../functions/_shared/scheduledRidesPolicy.ts";
+import { shouldUseUrgentFallbackTrigger } from "../../functions/schedule-dispatch/lib/scheduledRidesPolicy.ts";
 
 Deno.test("edge urgent fallback gate mirrors SSOT", () => {
   assertEquals(shouldUseUrgentFallbackTrigger({ confirmedDriverId: null }), true);

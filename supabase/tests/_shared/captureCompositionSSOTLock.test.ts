@@ -104,7 +104,7 @@ Deno.test("4. declined tip → no fare capture (orchestration + completion)", as
   assertEquals(p.tip_component_pence, 0);
   assertEquals(p.provider_capture_target_pence, 536);
   const orch = await Deno.readTextFile(
-    new URL("../../functions/_shared/tipWindowCaptureOrchestrationSSOT.ts", import.meta.url),
+    new URL("./support/tipWindowCaptureOrchestrationSSOT.ts", import.meta.url),
   );
   assertStringIncludes(orch, "tip_authorisation_declined");
   const completion = await Deno.readTextFile(

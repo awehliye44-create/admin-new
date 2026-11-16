@@ -5,11 +5,11 @@ import {
   completeTripCashDecision,
   decideStopWorkflowCaller,
   tripVisibleToDriver,
-} from "../_shared/stopWorkflowSecurity.ts";
+} from "./lib/stopWorkflowSecurity.ts";
 import {
   buildAuthoritativeTripStopRows,
   needsTripStopsReconstruction,
-} from "../_shared/ensureTripStopsFromAuthoritative.ts";
+} from "./lib/ensureTripStopsFromAuthoritative.ts";
 import { getDriverCommissionPct } from "../_shared/commission.ts";
 import { resolveTripFare, type TripFareRow } from "../_shared/tripFareSSOT.ts";
 import {
@@ -57,12 +57,12 @@ import {
 import {
   executeDriverQueuedStackedCancel,
   executeDriverTerminalCancel,
-} from "../_shared/driverTripCancel.ts";
+} from "./lib/driverTripCancel.ts";
 import {
   mapStopWorkflowActionToLifecycleAction,
   validateTripActionTransition,
   type TripStopRecord,
-} from "../_shared/tripLifecycle.ts";
+} from "./lib/tripLifecycle.ts";
 import {
   logRequestDuration,
   startRequestTimer,
@@ -87,7 +87,7 @@ import {
   isCardPaymentMethod,
   recordTripCaptureFailure,
   requiresProviderSettlement,
-} from "../_shared/digitalPaymentCapture.ts";
+} from "./lib/digitalPaymentCapture.ts";
 import { tripProviderOrderId } from "../_shared/tripPaymentProviderSSOT.ts";
 import { notifyCustomerTripLifecycle } from "../_shared/customerTripLifecycleNotify.ts";
 import { finalizeRideAssignmentSideEffects } from "../_shared/rideAssignmentFinalize.ts";
@@ -97,7 +97,7 @@ import {
   createStopWorkflowLifecyclePerfClock,
   normalizeLifecyclePerfId,
   type StopWorkflowLifecyclePerfClock,
-} from "../_shared/stopWorkflowLifecyclePerf.ts";
+} from "./lib/stopWorkflowLifecyclePerf.ts";
 
 const RATE_LIMIT_CONFIG = {
   limit: 60,

@@ -6,7 +6,7 @@ import {
   validationErrorResponse,
   isValidUUID,
 } from "../_shared/security.ts";
-import { handleTripInvoiceAction } from "../_shared/tripInvoiceService.ts";
+import { handleTripInvoiceAction } from "./lib/tripInvoiceService.ts";
 import { isTripReadyForInvoice } from "../_shared/tripInvoiceData.ts";
 
 interface CustomerTripInvoiceRequest {

@@ -3,4 +3,4 @@
  * Re-exported here for frontend/test imports.
  */
 
-export * from "../supabase/functions/_shared/sanitisedProviderSnapshot.ts";
+export * from "../supabase/functions/admin-payment-sessions/lib/sanitisedProviderSnapshot.ts";

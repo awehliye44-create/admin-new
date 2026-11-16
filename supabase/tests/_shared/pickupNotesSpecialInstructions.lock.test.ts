@@ -98,7 +98,7 @@ Deno.test("finalize_paid_booking still reads draft special_instructions", async 
 
 Deno.test("ride CTAP insert applies special_instructions (not delivery-only)", async () => {
   const ssot = await Deno.readTextFile(
-    join(REPO_ROOT, "supabase/functions/_shared/bookingSSOT.ts"),
+    join(REPO_ROOT, "supabase/functions/create-trip-after-payment/lib/bookingSSOT.ts"),
   );
   // Must set special_instructions before the delivery-only branch returns.
   const applyIdx = ssot.indexOf("export function applyBookingTypeFieldsToTrip");

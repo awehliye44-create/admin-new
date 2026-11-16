@@ -1,7 +1,7 @@
 import { createClient } from "npm:@supabase/supabase-js@2.57.2";
 import { resolveCustomerPreauthBasePence } from "../_shared/customerDisplayFare.ts";
 import { loadCustomerNegotiationView } from "../_shared/customerNegotiationView.ts";
-import { buildServiceAreaConfigPayload } from "../_shared/serviceAreaConfigSSOT.ts";
+import { buildServiceAreaConfigPayload } from "./lib/serviceAreaConfigSSOT.ts";
 import { buildTripCommunicationConfigForTrip } from "../_shared/tripCommunicationConfigBuilder.ts";
 import { computeLiveTripFarePreview } from "../_shared/liveTripFareSSOT.ts";
 import { getCurrencySymbol } from "../_shared/currency.ts";

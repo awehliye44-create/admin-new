@@ -21,7 +21,7 @@ import {
   runTripCompletionTipWindowOpen,
   type CaptureInvokeFn,
   type MutexDeps,
-} from "../../functions/_shared/tipWindowCaptureOrchestrationSSOT.ts";
+} from "./support/tipWindowCaptureOrchestrationSSOT.ts";
 import { tipWindowCloseAllowedAfterFinalize } from "../../functions/_shared/tripPaymentFinalised.ts";
 
 type MemTrip = {

@@ -10,7 +10,7 @@ import {
   invokeAutoDispatchWithServiceRole,
   redactSecrets,
   serviceRoleInvokeHeaders,
-} from "../../functions/_shared/invokeAutoDispatchServiceRole.ts";
+} from "../../functions/expire-offers/lib/invokeAutoDispatchServiceRole.ts";
 
 const SERVICE_ROLE = "test-service-role-key-not-for-production";
 const ANON_FALLBACK = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.anon-fallback-must-never-be-sent";

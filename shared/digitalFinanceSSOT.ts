@@ -3,4 +3,4 @@
  * Re-exported here for frontend/test imports.
  */
 
-export * from "../supabase/functions/_shared/digitalFinanceSSOT.ts";
+export * from "../supabase/functions/create-trip-after-payment/lib/digitalFinanceSSOT.ts";

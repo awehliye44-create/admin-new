@@ -4,8 +4,8 @@
  * Run: deno test --allow-read supabase/functions/_shared/foldTripModificationFare.test.ts
  */
 import { assertEquals } from "https://deno.land/std@0.224.0/assert/mod.ts";
-import { foldTripModificationFare } from "../../functions/_shared/foldTripModificationFare.ts";
-import { computeModificationFareDelta } from "../../functions/_shared/tripModificationFareDelta.ts";
+import { foldTripModificationFare } from "./support/foldTripModificationFare.ts";
+import { computeModificationFareDelta } from "../../functions/request-trip-modification/lib/tripModificationFareDelta.ts";
 
 Deno.test("A. farther route: +300 increases committed fare by 300", () => {
   const folded = foldTripModificationFare({

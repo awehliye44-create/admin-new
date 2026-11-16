@@ -17,7 +17,7 @@ import { requireAuthenticatedUser } from "../_shared/edgeAuth.ts";
 import {
   authoriseLateCancellationCaller,
   type LateCancelCaller,
-} from "../_shared/lateCancellationCallerAuthSSOT.ts";
+} from "./lib/lateCancellationCallerAuthSSOT.ts";
 import {
   buildCancelledScheduledStatePatch,
   TERMINAL_TRIP_STATUS_POSTGREST_LIST,

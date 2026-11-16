@@ -8,7 +8,7 @@ import {
   assertEquals,
   assertStringIncludes,
 } from "https://deno.land/std@0.224.0/assert/mod.ts";
-import { resolveTrustedCaptureTipPence } from "../../functions/_shared/resolveTrustedCaptureTipPence.ts";
+import { resolveTrustedCaptureTipPence } from "../../functions/finalize-trip-and-capture/lib/resolveTrustedCaptureTipPence.ts";
 
 async function readRel(rel: string): Promise<string> {
   return await Deno.readTextFile(new URL(rel, import.meta.url));

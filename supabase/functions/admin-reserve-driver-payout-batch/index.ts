@@ -27,7 +27,7 @@ import {
   isRevolutPaymentTransportEnabled,
   reservationIdempotencyKey,
   sumReservationAmounts,
-} from "../_shared/driverPayoutReservationSSOT.ts";
+} from "./lib/driverPayoutReservationSSOT.ts";
 import { requireFinanceExecutionAuth } from "../_shared/adminPaymentGate.ts";
 
 const corsHeaders = {

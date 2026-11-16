@@ -1,7 +1,7 @@
 import { assertEquals } from "https://deno.land/std@0.224.0/assert/mod.ts";
 import {
   isPayoutVerificationMode,
-} from "../../functions/_shared/payoutExecutionGate.ts";
+} from "../../functions/admin-mark-manual-payout-paid/lib/payoutExecutionGate.ts";
 
 Deno.test("isPayoutVerificationMode accepts dry_run", () => {
   assertEquals(isPayoutVerificationMode({ dry_run: true }), true);

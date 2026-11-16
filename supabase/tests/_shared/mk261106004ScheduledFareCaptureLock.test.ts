@@ -173,7 +173,7 @@ Deno.test("source lock: scheduled-dispatch / convert never request capture", asy
   let convert = "";
   try {
     convert = await Deno.readTextFile(
-      new URL("../../functions/_shared/scheduleDispatchConversionSweep.ts", import.meta.url),
+      new URL("../../functions/schedule-dispatch/lib/scheduleDispatchConversionSweep.ts", import.meta.url),
     );
   } catch {
     convert = "";

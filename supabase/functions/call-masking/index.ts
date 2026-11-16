@@ -20,7 +20,7 @@ import {
   finalizeCallLog,
   logCallEvent,
   mapMsg91ReportToDisconnectReason,
-} from "../_shared/callMaskingLogs.ts";
+} from "./lib/callMaskingLogs.ts";
 import { opsLog } from "../_shared/opsLog.ts";
 import {
   normalizePhoneE164Digits,
@@ -28,7 +28,7 @@ import {
   pickInboundMaskingSession,
   resolveCallRoute,
   toE164,
-} from "../_shared/callMaskingPhones.ts";
+} from "./lib/callMaskingPhones.ts";
 import {
   assertCallMaskingAllowed,
   DEFAULT_MAX_CALL_DURATION_SECONDS,

@@ -1,5 +1,5 @@
 import { assertEquals } from 'https://deno.land/std@0.224.0/assert/mod.ts';
-import { shouldFinalizeVoipOnLastParticipantLeft } from '../../functions/_shared/voipLastParticipantLeftSSOT.ts';
+import { shouldFinalizeVoipOnLastParticipantLeft } from '../../functions/livekit-webhook/lib/voipLastParticipantLeftSSOT.ts';
 
 Deno.test('solo ringing/connecting leave must not finalize (self hang-up lock)', () => {
   assertEquals(

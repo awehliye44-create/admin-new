@@ -9,7 +9,7 @@ import { corsHeaders, jsonResponse, requireFinanceExecutionAuth } from "../_shar
 import {
   resolveTripPaymentOutcome,
   TRIP_PAYMENT_OUTCOME,
-} from "../_shared/resolveTripPaymentOutcomeSSOT.ts";
+} from "./lib/resolveTripPaymentOutcomeSSOT.ts";
 import { resolveRevolutMerchantContext } from "../_shared/revolutMerchantContext.ts";
 import { retrieveRevolutOrder } from "../_shared/revolutOrders.ts";
 import { releaseHoldOnTripTerminal } from "../_shared/holdReleaseSSOT.ts";

@@ -1,5 +1,5 @@
 import { assertEquals } from "https://deno.land/std@0.224.0/assert/mod.ts";
-import { buildHistoricalSettlementCorrectionPlan } from "../../functions/_shared/historicalSettlementCorrectionPlan.ts";
+import { buildHistoricalSettlementCorrectionPlan } from "./support/historicalSettlementCorrectionPlan.ts";
 
 function mockSupabase(tripData: Record<string, unknown> | null) {
   return {

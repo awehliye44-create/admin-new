@@ -29,12 +29,12 @@ import {
 import { getLondonDayBounds, normalizeFinancePeriodParam } from "../_shared/financeLondonDay.ts";
 import { FINANCIAL_MODEL, resolveServiceAreaFinancialScope } from "../_shared/financialModelScopeGate.ts";
 import { resolvePlatformCollectedDriverIds } from "../_shared/platformCollectedDriverScope.ts";
-import { fetchRegionPlatformKpis } from "../_shared/platformReconciliationKpis.ts";
-import { buildDriverStatementPeriodTotals } from "../_shared/driverStatementPeriodTotals.ts";
+import { fetchRegionPlatformKpis } from "./lib/platformReconciliationKpis.ts";
+import { buildDriverStatementPeriodTotals } from "./lib/driverStatementPeriodTotals.ts";
 import {
   buildCurrencyGroupsFromTrips,
   resolveFinanceCurrencyScope,
-} from "../_shared/financeCurrencySSOT.ts";
+} from "./lib/financeCurrencySSOT.ts";
 import { resolveAllServiceAreaGatewayStatuses } from "../_shared/paymentGatewayStatus.ts";
 import {
   fetchProviderPlatformBalance,
@@ -55,7 +55,7 @@ import {
 import {
   buildFrCustomerOutstandingOverview,
   FR_CUSTOMER_OUTSTANDING_CLASS,
-} from "../_shared/frCustomerOutstandingSSOT.ts";
+} from "./lib/frCustomerOutstandingSSOT.ts";
 import type { OpenReceivableRow } from "../_shared/customerReceivableSSOT.ts";
 import {
   buildCustomerReceivablePosition,
@@ -65,7 +65,7 @@ import {
   type ReceivablePositionExceptionRow,
   type ReceivablePositionReceivableRow,
   type ReceivablePositionShortfallSessionRow,
-} from "../_shared/customerReceivablePositionSSOT.ts";
+} from "./lib/customerReceivablePositionSSOT.ts";
 import { isDriverCreditExceptionHealth } from "../_shared/driverCreditMonitoringSSOT.ts";
 import { excludeTripFromPlatformCollectedFinance } from "../_shared/commissionWalletSSOT.ts";
 import {
@@ -74,7 +74,7 @@ import {
   FINANCE_RECONCILIATION_TRIP_TERMINAL_OR,
   resolveFinanceReconciliationAuditLimit,
   tripQualifiesForFinanceReconciliationAudit,
-} from "../_shared/financeReconciliationTripQuery.ts";
+} from "./lib/financeReconciliationTripQuery.ts";
 
 const PAYMENT_SESSION_MONEY_SELECT =
   "id, trip_id, purpose, status, payment_method, captured_amount_pence, authorised_amount_pence, total_authorised_amount_pence, released_amount_pence, refunded_amount_pence, provider_processing_fee_pence, fee_status, provider_state, provider_state_verified_at, release_evidence_status, release_evidence_source, release_verified_at, metadata, trip_fare_component_pence, tip_component_pence, receivable_component_pence, buffer_pence, provider_capture_target_pence";

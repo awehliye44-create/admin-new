@@ -30,7 +30,7 @@ import {
   isAccidentOrBreakdownCancelReason,
   normalizeDriverCancelReason,
   shouldConvertScheduledOriginOnDriverCancel,
-} from "../_shared/scheduledDriverCancelRematchSSOT.ts";
+} from "./lib/scheduledDriverCancelRematchSSOT.ts";
 import {
   handleCORSPreflight,
   successResponse,

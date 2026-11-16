@@ -1,10 +1,10 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { z } from "https://esm.sh/zod@3.23.8";
 import { corsHeaders, jsonResponse, requireAdminOrStaff, requirePageAccess, type GateError } from "../_shared/adminPaymentGate.ts";
-import { listAdminPayoutLedger } from "../_shared/adminPayoutLedgerListSSOT.ts";
-import { buildPayoutLedgerAccountsOverview } from "../_shared/adminPayoutLedgerAccountsOverviewSSOT.ts";
-import { buildPayoutLedgerOverview } from "../_shared/adminPayoutLedgerOverviewSSOT.ts";
-import { PAYOUT_LEDGER_ERROR } from "../_shared/payoutLedgerOverviewSSOT.ts";
+import { listAdminPayoutLedger } from "./lib/adminPayoutLedgerListSSOT.ts";
+import { buildPayoutLedgerAccountsOverview } from "./lib/adminPayoutLedgerAccountsOverviewSSOT.ts";
+import { buildPayoutLedgerOverview } from "./lib/adminPayoutLedgerOverviewSSOT.ts";
+import { PAYOUT_LEDGER_ERROR } from "./lib/payoutLedgerOverviewSSOT.ts";
 import { FINANCIAL_MODEL, resolveServiceAreaFinancialScope } from "../_shared/financialModelScopeGate.ts";
 
 function livePayoutFlag(): boolean {

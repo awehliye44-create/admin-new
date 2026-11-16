@@ -8,7 +8,7 @@ import { assertStrictEquals } from "https://deno.land/std@0.224.0/assert/mod.ts"
 import {
   validateAdminCaptureTripPreconditions,
   ADMIN_CAPTURE_PRECONDITION,
-} from "../../functions/_shared/adminCaptureTripPaymentPreconditions.ts";
+} from "../../functions/admin-capture-trip-payment/lib/adminCaptureTripPaymentPreconditions.ts";
 import { FINANCIAL_MODEL_VIOLATION, SERVICE_AREA_FINANCIAL_MODEL } from "../../functions/_shared/commissionWalletSSOT.ts";
 
 const TRIP = {

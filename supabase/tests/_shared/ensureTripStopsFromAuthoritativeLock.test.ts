@@ -12,7 +12,7 @@ import {
   needsTripStopsReconstruction,
   parseAuthoritativeViaStops,
   tripStopsSequenceFingerprint,
-} from "../../functions/_shared/ensureTripStopsFromAuthoritative.ts";
+} from "../../functions/stop-workflow/lib/ensureTripStopsFromAuthoritative.ts";
 
 const TRIP_ID = "11111111-1111-1111-1111-111111111111";
 

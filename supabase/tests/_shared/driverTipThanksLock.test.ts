@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 import {
   evaluateDriverTipThanks,
   isTipCaptureConfirmed,
-} from "../../functions/_shared/driverTipThanksSSOT.ts";
+} from "../../functions/send-tip-thanks/lib/driverTipThanksSSOT.ts";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "../..");
 

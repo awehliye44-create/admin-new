@@ -119,7 +119,7 @@ Deno.test("source lock: JIT runner arms exclusive/departure-ack without SCHEDULE
 
   const runner = await Deno.readTextFile(
     new URL(
-      "../../functions/_shared/runConfirmedJitActivationPass.ts",
+      "../../functions/scheduled-dispatch/lib/runConfirmedJitActivationPass.ts",
       import.meta.url,
     ),
   );

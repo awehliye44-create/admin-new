@@ -13,7 +13,7 @@ const RETIRED_FUNCTIONS = [
 
 const functionsRoot = new URL("../../functions/", import.meta.url);
 const panelPath = new URL("../../../src/components/finance/PayoutLedgerCompanyTransfersPanel.tsx", import.meta.url);
-const ledgerSsotPath = new URL("../../functions/_shared/adminPayoutLedgerSSOT.ts", import.meta.url);
+const ledgerSsotPath = new URL("../../functions/admin-payout-ledger/lib/adminPayoutLedgerSSOT.ts", import.meta.url);
 const relayClientPath = new URL("../../functions/_shared/revolutBusinessRelayClient.ts", import.meta.url);
 
 function exists(url: URL): boolean {

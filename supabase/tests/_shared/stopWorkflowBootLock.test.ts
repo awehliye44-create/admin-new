@@ -24,18 +24,18 @@ Deno.test("stop-workflow statically imports capture helpers used on complete_tri
     new URL("../../functions/stop-workflow/index.ts", import.meta.url),
   );
   const capture = await Deno.readTextFile(
-    new URL("../../functions/_shared/digitalPaymentCapture.ts", import.meta.url),
+    new URL("../../functions/stop-workflow/lib/digitalPaymentCapture.ts", import.meta.url),
   );
   const provider = await Deno.readTextFile(
     new URL("../../functions/_shared/tripPaymentProviderSSOT.ts", import.meta.url),
   );
-  assertEquals(src.includes('from "../../functions/_shared/digitalPaymentCapture.ts"'), true);
+  assertEquals(src.includes('from "../../functions/stop-workflow/lib/digitalPaymentCapture.ts"'), true);
   assertEquals(src.includes('from "../../functions/_shared/tripPaymentProviderSSOT.ts"'), true);
   assertEquals(src.includes("requiresProviderSettlement"), true);
   assertEquals(src.includes("isCardPaymentMethod"), true);
   assertEquals(src.includes("recordTripCaptureFailure"), true);
   assertEquals(src.includes("tripProviderOrderId"), true);
-  assertEquals(src.includes('await import("../../functions/_shared/digitalPaymentCapture.ts")'), false);
+  assertEquals(src.includes('await import("../../functions/stop-workflow/lib/digitalPaymentCapture.ts")'), false);
   assertEquals(src.includes('await import("../../functions/_shared/tripPaymentProviderSSOT.ts")'), false);
   assertEquals(capture.includes("export function requiresProviderSettlement"), true);
   assertEquals(capture.includes("export function isCardPaymentMethod"), true);
@@ -88,7 +88,7 @@ Deno.test("complete_trip card path delegates wallet posting to finalize-trip-and
   assertEquals(src.includes("/functions/v1/finalize-trip-and-capture"), false);
   assertEquals(invoke.includes("/functions/v1/finalize-trip-and-capture"), true);
   assertEquals(src.includes('from "../../functions/_shared/applyCanonicalSettlementAfterCapture.ts"'), false);
-  assertEquals(src.includes('from "../../functions/_shared/capturedTripWalletRecovery.ts"'), false);
+  assertEquals(src.includes('from "../../functions/admin-recover-captured-trip-wallet/lib/capturedTripWalletRecovery.ts"'), false);
   assertEquals(src.includes("provider_fee_amount"), false);
   const dbStart = settlement.indexOf("export function tripSettlementDbColumns");
   const dbEnd = settlement.indexOf("export function mergeFareSnapshotSettlementJson", dbStart);

@@ -14,7 +14,7 @@ import {
   errorResponse,
 } from "../_shared/security.ts";
 import { requireSignedInOrService } from "../_shared/callerGate.ts";
-import { buildCustomerLiveTripProjection } from "../_shared/customerLiveTripProjectionSSOT.ts";
+import { buildCustomerLiveTripProjection } from "./lib/customerLiveTripProjectionSSOT.ts";
 import {
   liveActivityApnsConfigured,
   selectLiveActivityPushToken,
@@ -31,7 +31,7 @@ import { resolveCustomerLiveTripPlatformGates } from "../_shared/customerLiveTri
 import {
   peekTripRouteCacheLeg,
   resolveLiveTripEtaLeg,
-} from "../_shared/customerLiveTripEtaSSOT.ts";
+} from "./lib/customerLiveTripEtaSSOT.ts";
 
 const RATE = { limit: 400, windowMs: 60_000, keyPrefix: "pub-live-trip" };
 

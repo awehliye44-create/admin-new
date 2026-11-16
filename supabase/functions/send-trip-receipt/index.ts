@@ -16,7 +16,7 @@ import {
   successResponse,
   validationErrorResponse,
 } from "../_shared/security.ts";
-import { sendManualTripReceipt } from "../_shared/manualTripReceiptSend.ts";
+import { sendManualTripReceipt } from "./lib/manualTripReceiptSend.ts";
 import { normalizeReceiptEmail } from "../_shared/manualTripReceiptSSOT.ts";
 
 Deno.serve(async (req) => {

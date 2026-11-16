@@ -7,7 +7,7 @@ import {
   resolveManualInterventionRequired,
   resolveOperationalReadiness,
 } from '../adminScheduledRideMonitoring';
-import { SCHEDULED_RIDES_EDGE_ACTION_PERMISSION } from '../../../supabase/functions/_shared/scheduledRidesActionPermissionsSSOT';
+import { SCHEDULED_RIDES_EDGE_ACTION_PERMISSION } from '../../../supabase/functions/admin-scheduled-ride-action/lib/scheduledRidesActionPermissionsSSOT';
 
 describe('adminScheduledRideMonitoring — Phase 6', () => {
   it('formats remaining ack countdown from deadline', () => {

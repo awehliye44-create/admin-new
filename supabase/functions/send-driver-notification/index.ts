@@ -14,7 +14,7 @@ import {
 import {
   authorizeInternalNotificationRequest,
   methodNotAllowedResponse,
-} from "../_shared/internalNotificationAuth.ts";
+} from "./lib/internalNotificationAuth.ts";
 import { buildRideOfferClientPushData } from "../_shared/rideOfferClientPushData.ts";
 import { RIDE_OFFER_IOS_ALERT_SOUND } from "../_shared/rideOfferPushCopy.ts";
 import {
@@ -34,7 +34,7 @@ import {
   resolveBookingIdFromPushData,
   resolveOfferIdFromPushData,
   type FcmAttemptResult,
-} from "../_shared/fcmPushDeliveryInstrumentation.ts";
+} from "./lib/fcmPushDeliveryInstrumentation.ts";
 
 interface NotificationPayload {
   driverId: string;

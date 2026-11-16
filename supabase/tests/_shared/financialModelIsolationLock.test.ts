@@ -24,7 +24,7 @@ Deno.test("financial model isolation lock", async () => {
   const deduction = await read(
     "supabase/functions/_shared/commissionWalletDeduction.ts",
   );
-  const booking = await read("supabase/functions/_shared/bookingSSOT.ts");
+  const booking = await read("supabase/functions/create-trip-after-payment/lib/bookingSSOT.ts");
   const ctap = await read("supabase/functions/create-trip-after-payment/index.ts");
   const recapture = await read(
     "supabase/functions/admin-recapture-trip-shortfall/index.ts",
@@ -35,7 +35,7 @@ Deno.test("financial model isolation lock", async () => {
   const preauth = await read(
     "supabase/functions/create-preauth-payment-intent/index.ts",
   );
-  const noShow = await read("supabase/functions/_shared/noShowSettlement.ts");
+  const noShow = await read("supabase/functions/pickup-no-show/lib/noShowSettlement.ts");
   const refund = await read("supabase/functions/_shared/applyProviderRefund.ts");
   const ledger = await read("supabase/functions/_shared/onecabFinanceLedger.ts");
   const chargeFee = await read("supabase/functions/charge-lifecycle-fee/index.ts");

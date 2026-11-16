@@ -64,7 +64,7 @@ import {
   splitPassengerName,
   whatsAppWaIdToE164,
   type ServiceAreaDigitalPaymentFlags,
-} from "../_shared/whatsappGuestBookingSSOT.ts";
+} from "./lib/whatsappGuestBookingSSOT.ts";
 import { assertPickupCoveredByResolveServiceArea } from "../_shared/whatsappPickupCoverageSSOT.ts";
 import { validatePhoneForCountry, isValidE164Phone } from "../_shared/phoneValidation.ts";
 import { assertRideNowVehicleAvailableOrError } from "../_shared/findDriversAvailabilitySSOT.ts";

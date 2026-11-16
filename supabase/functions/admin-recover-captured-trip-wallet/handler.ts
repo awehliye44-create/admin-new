@@ -10,7 +10,7 @@ import {
   APPROVED_CAPTURED_TRIP_WALLET_RECOVERY_TRIP_IDS,
   RECOVERY_AUDIT_REASON,
   recoverCapturedTripWallet,
-} from "../_shared/capturedTripWalletRecovery.ts";
+} from "./lib/capturedTripWalletRecovery.ts";
 import {
   authenticateRecoverBearer,
   extractBearerToken,

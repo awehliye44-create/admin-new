@@ -4,7 +4,7 @@ import { resolveCurrencyFromTrip } from "../_shared/regionCurrency.ts";
 import { assertServiceRole } from "../_shared/internalAuth.ts";
 import { tripBlocksDriverWalletLedgerPosting } from "../_shared/commissionWalletDeduction.ts";
 import { postTerminalOutcomeSettlement } from "../_shared/canonicalTypedWalletPostingSSOT.ts";
-import { evaluateFinancialOutcomeEntitlement } from "../_shared/financialOutcomeEntitlementGuardSSOT.ts";
+import { evaluateFinancialOutcomeEntitlement } from "./lib/financialOutcomeEntitlementGuardSSOT.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',

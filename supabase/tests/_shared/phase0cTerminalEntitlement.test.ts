@@ -115,7 +115,7 @@ Deno.test("8. Commission remains zero for terminal fee", () => {
 });
 
 Deno.test("noShowSettlement routes through terminal entitlement SSOT", async () => {
-  const src = await Deno.readTextFile(new URL("../../functions/_shared/noShowSettlement.ts", import.meta.url));
+  const src = await Deno.readTextFile(new URL("../../functions/pickup-no-show/lib/noShowSettlement.ts", import.meta.url));
   assertEquals(src.includes("postNoShowDriverCompensation"), false);
   assertEquals(src.includes("postTerminalEntitlementFromSettlement"), true);
   assertEquals(src.includes("from(\"driver_wallet_ledger\").insert"), false);

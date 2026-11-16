@@ -6,7 +6,7 @@ import type { AnySupabaseClient } from "../_shared/supabaseClientTypes.ts";
  */
 import { createClient } from "npm:@supabase/supabase-js@2.57.2";
 import { fetchDriverWalletPayoutSnapshot } from "../_shared/fetchDriverWalletPayoutSnapshot.ts";
-import { fetchDriverWalletSummary } from "../_shared/fetchDriverWalletSummary.ts";
+import { fetchDriverWalletSummary } from "./lib/fetchDriverWalletSummary.ts";
 import { FINANCIAL_MODEL, resolveServiceAreaFinancialScope } from "../_shared/financialModelScopeGate.ts";
 import { resolvePlatformCollectedDriverIds } from "../_shared/platformCollectedDriverScope.ts";
 

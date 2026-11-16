@@ -15,7 +15,7 @@ import {
   PAYMENT_SESSION_GATE_STATUS,
   PAYMENT_SESSION_PURPOSE_RIDE_BOOKING,
 } from "../../functions/_shared/paymentSessionCaptureGateSSOT.ts";
-import { executeAdminCaptureTripPayment } from "../../functions/_shared/adminCaptureTripPaymentSSOT.ts";
+import { executeAdminCaptureTripPayment } from "../../functions/admin-capture-trip-payment/lib/adminCaptureTripPaymentSSOT.ts";
 import { FINANCIAL_MODEL_VIOLATION, SERVICE_AREA_FINANCIAL_MODEL } from "../../functions/_shared/commissionWalletSSOT.ts";
 
 const ROOT = new URL("../../functions/", import.meta.url).pathname;
@@ -44,7 +44,7 @@ const BASE_TRIP = {
 };
 
 Deno.test("A: Admin capture AUTHORIZED path — persist after provider capture, then settlement", async () => {
-  const src = await Deno.readTextFile(new URL("../../functions/_shared/adminCaptureTripPaymentSSOT.ts", import.meta.url));
+  const src = await Deno.readTextFile(new URL("../../functions/admin-capture-trip-payment/lib/adminCaptureTripPaymentSSOT.ts", import.meta.url));
   const captureIdx = src.indexOf('decision.action === "retry_capture"');
   const persistIdx = src.indexOf("await persistConfirmedCapture");
   const settlementIdx = src.indexOf("await applySettlement");
@@ -53,7 +53,7 @@ Deno.test("A: Admin capture AUTHORIZED path — persist after provider capture, 
 });
 
 Deno.test("B: Admin capture COMPLETED path — reconcile via persistConfirmedProviderCapture, no captureOrder", async () => {
-  const src = await Deno.readTextFile(new URL("../../functions/_shared/adminCaptureTripPaymentSSOT.ts", import.meta.url));
+  const src = await Deno.readTextFile(new URL("../../functions/admin-capture-trip-payment/lib/adminCaptureTripPaymentSSOT.ts", import.meta.url));
   const reconcileBlock = src.slice(
     src.indexOf('decision.action === "reconcile_already_captured"'),
     src.indexOf('decision.action === "retry_capture"'),
@@ -65,7 +65,7 @@ Deno.test("B: Admin capture COMPLETED path — reconcile via persistConfirmedPro
 });
 
 Deno.test("C: Post-capture wallet failure — retry_provider_capture always false", async () => {
-  const src = await Deno.readTextFile(new URL("../../functions/_shared/adminCaptureTripPaymentSSOT.ts", import.meta.url));
+  const src = await Deno.readTextFile(new URL("../../functions/admin-capture-trip-payment/lib/adminCaptureTripPaymentSSOT.ts", import.meta.url));
   assertStringIncludes(src, "attachCapturedPostCaptureFields");
   assertStringIncludes(src, "postingWalletMismatch");
   assertEquals(src.includes("retry_provider_capture: true"), false);
@@ -77,7 +77,7 @@ Deno.test("D: Missing Payment Session — fail closed before provider", async ()
   const classified = classifyRideBookingPaymentSessions([]);
   assertEquals(classified.gate_status, PAYMENT_SESSION_GATE_STATUS.PAYMENT_SESSION_MISSING);
 
-  const src = await Deno.readTextFile(new URL("../../functions/_shared/adminCaptureTripPaymentSSOT.ts", import.meta.url));
+  const src = await Deno.readTextFile(new URL("../../functions/admin-capture-trip-payment/lib/adminCaptureTripPaymentSSOT.ts", import.meta.url));
   const beforeRetrieve = src.slice(0, src.indexOf("retrieveOrder("));
   assertStringIncludes(beforeRetrieve, PAYMENT_SESSION_GATE_STATUS.PAYMENT_SESSION_MISSING);
 });

@@ -6,10 +6,10 @@ import {
   assertEquals,
   assertStringIncludes,
 } from "https://deno.land/std@0.224.0/assert/mod.ts";
-import { authorizeAdminEmergencyDispatch } from "../../functions/_shared/adminEmergencyDispatchAuth.ts";
+import { authorizeAdminEmergencyDispatch } from "../../functions/admin-emergency-dispatch/lib/adminEmergencyDispatchAuth.ts";
 
 const INDEX = new URL("../../functions/admin-emergency-dispatch/index.ts", import.meta.url);
-const AUTH = new URL("../../functions/_shared/adminEmergencyDispatchAuth.ts", import.meta.url);
+const AUTH = new URL("../../functions/admin-emergency-dispatch/lib/adminEmergencyDispatchAuth.ts", import.meta.url);
 
 const ACTOR = "00000000-0000-4000-8000-0000000000a1";
 const SPOOF = "00000000-0000-4000-8000-0000000000b2";

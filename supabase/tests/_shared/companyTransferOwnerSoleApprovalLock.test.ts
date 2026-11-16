@@ -5,7 +5,7 @@
 import { assertEquals, assertStringIncludes } from "https://deno.land/std@0.224.0/assert/mod.ts";
 
 const edgePath = new URL("../../functions/admin-company-outgoing-transfer/index.ts", import.meta.url);
-const ssotPath = new URL("../../functions/_shared/companyTransferSoleAdminApprovalSSOT.ts", import.meta.url);
+const ssotPath = new URL("../../functions/admin-company-outgoing-transfer/lib/companyTransferSoleAdminApprovalSSOT.ts", import.meta.url);
 const panelPath = new URL(
   "../../../src/components/finance/PayoutLedgerCompanyTransfersPanel.tsx",
   import.meta.url,

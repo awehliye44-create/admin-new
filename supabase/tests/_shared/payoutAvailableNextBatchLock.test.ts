@@ -19,10 +19,10 @@ Deno.test("eligibility batch never silently omits drivers", async () => {
 
 Deno.test("overview / list scope filters use length > 0 (not >= 0)", async () => {
   const overview = await Deno.readTextFile(
-    new URL("../../functions/_shared/adminPayoutLedgerOverviewSSOT.ts", import.meta.url),
+    new URL("../../functions/admin-payout-ledger/lib/adminPayoutLedgerOverviewSSOT.ts", import.meta.url),
   );
   const list = await Deno.readTextFile(
-    new URL("../../functions/_shared/adminPayoutLedgerListSSOT.ts", import.meta.url),
+    new URL("../../functions/admin-payout-ledger/lib/adminPayoutLedgerListSSOT.ts", import.meta.url),
   );
   assertEquals(overview.includes("length >= 0"), false);
   assertEquals(list.includes("length >= 0"), false);
@@ -33,7 +33,7 @@ Deno.test("overview / list scope filters use length > 0 (not >= 0)", async () =>
 
 Deno.test("accounts overview retries eligibility then fails closed", async () => {
   const src = await Deno.readTextFile(
-    new URL("../../functions/_shared/adminPayoutLedgerAccountsOverviewSSOT.ts", import.meta.url),
+    new URL("../../functions/admin-payout-ledger/lib/adminPayoutLedgerAccountsOverviewSSOT.ts", import.meta.url),
   );
   assertStringIncludes(src, "ACCOUNTS_OVERVIEW_ELIGIBILITY_INCOMPLETE");
   assertStringIncludes(src, "eligibility failed after retry");
@@ -60,10 +60,10 @@ Deno.test("overview chips: Pending label is settlement-only; Held/Unbacked is se
     new URL("../../../src/components/finance/PayoutLedgerOverviewPanel.tsx", import.meta.url),
   );
   const overview = await Deno.readTextFile(
-    new URL("../../functions/_shared/adminPayoutLedgerOverviewSSOT.ts", import.meta.url),
+    new URL("../../functions/admin-payout-ledger/lib/adminPayoutLedgerOverviewSSOT.ts", import.meta.url),
   );
   const dto = await Deno.readTextFile(
-    new URL("../../functions/_shared/payoutLedgerOverviewSSOT.ts", import.meta.url),
+    new URL("../../functions/admin-payout-ledger/lib/payoutLedgerOverviewSSOT.ts", import.meta.url),
   );
   assertStringIncludes(panel, 'title="Pending (settlement)"');
   assertEquals(panel.includes("Other Pending / Held"), false);

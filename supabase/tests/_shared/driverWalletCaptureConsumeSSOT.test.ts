@@ -2,7 +2,7 @@ import { assertEquals } from "https://deno.land/std@0.224.0/assert/mod.ts";
 import {
   buildSessionCaptureByTripId,
   buildWalletEarningInputsFromPaymentSessions,
-} from "../../functions/_shared/driverWalletCaptureConsumeSSOT.ts";
+} from "./support/driverWalletCaptureConsumeSSOT.ts";
 import { sumClearedSettlementBatchPence } from "../../functions/_shared/payoutEligibilitySSOT.ts";
 
 Deno.test("wallet consume: PS capture 480 wins; trips.capture never consulted", () => {

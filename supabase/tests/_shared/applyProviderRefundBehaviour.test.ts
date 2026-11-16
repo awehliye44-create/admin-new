@@ -12,7 +12,7 @@ import {
   buildClientWithAtomicRpcMock,
   createAtomicRpcMockState,
   seedTripEarning,
-} from "../../functions/_shared/applyProviderRefundAtomicRpcMock.ts";
+} from "./support/applyProviderRefundAtomicRpcMock.ts";
 
 type MockFilters = Record<string, unknown>;
 

@@ -13,13 +13,13 @@ import { tripProviderOrderId } from "../_shared/tripPaymentProviderSSOT.ts";
 import {
   durableSettlementColumns,
   needsDurableSettlementPersist,
-} from "../_shared/durableSettlementOutcomeSSOT.ts";
+} from "./lib/durableSettlementOutcomeSSOT.ts";
 import { isTipWindowOpen } from "../_shared/tripPaymentFinalised.ts";
 import {
   assertCronOrServiceRoleAuth,
   extractBearerToken,
 } from "../_shared/cronEdgeAuth.ts";
-import { resolveTrustedCaptureTipPence } from "../_shared/resolveTrustedCaptureTipPence.ts";
+import { resolveTrustedCaptureTipPence } from "./lib/resolveTrustedCaptureTipPence.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",

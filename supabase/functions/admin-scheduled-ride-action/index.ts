@@ -8,8 +8,8 @@ import {
   requireAdminOrStaff,
   requireAnyPageAccess,
 } from "../_shared/adminPaymentGate.ts";
-import { requireStaffAction } from "../_shared/staffActionAuth.ts";
-import { permissionKeyForScheduledRideAction } from "../_shared/scheduledRidesActionPermissionsSSOT.ts";
+import { requireStaffAction } from "./lib/staffActionAuth.ts";
+import { permissionKeyForScheduledRideAction } from "./lib/scheduledRidesActionPermissionsSSOT.ts";
 import { assertPaymentGate, PaymentGateError } from "../_shared/paymentGate.ts";
 import { buildBroadcastNowPatch } from "../_shared/scheduledAdminReleaseSSOT.ts";
 import { assertAirportPricingReady } from "../_shared/scheduledMarketplaceHoldSSOT.ts";

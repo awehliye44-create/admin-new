@@ -19,7 +19,7 @@ import {
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
 const SDN = "supabase/functions/send-driver-notification/index.ts";
-const HELPER = "supabase/functions/_shared/internalNotificationAuth.ts";
+const HELPER = "supabase/functions/send-driver-notification/lib/internalNotificationAuth.ts";
 
 const SYN_SR = "test-service-role-key-aaaaaaaaaaaaaaaaaaaaaaaa";
 const SYN_INTERNAL = "test-internal-notification-token-bbbbbbbbbbbbbbbb";

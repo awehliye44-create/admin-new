@@ -16,7 +16,7 @@ import {
   readWhatsAppHubVerifyQuery,
   verifyWhatsAppHubChallenge,
   verifyWhatsAppWebhookSignature,
-} from "../_shared/whatsappWebhookVerify.ts";
+} from "./lib/whatsappWebhookVerify.ts";
 import { processWhatsAppInboundMessage } from "../_shared/whatsappWorkflow.ts";
 
 declare const EdgeRuntime:

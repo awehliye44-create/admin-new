@@ -10,7 +10,7 @@ import {
   getDriverId,
   insertSystemMessage,
   verifyChatOpen,
-} from "../_shared/lostPropertyHelpers.ts";
+} from "./lib/lostPropertyHelpers.ts";
 import {
   buildTripFinancialModelSnapshot,
   classifyServiceAreaFinancialPairing,
@@ -22,7 +22,7 @@ import { notifyCustomerTripLifecycle } from "../_shared/customerTripLifecycleNot
 import {
   authorizeLostPropertyCronRequest,
   isLostPropertyCronAction,
-} from "../_shared/lostPropertyCronAuth.ts";
+} from "./lib/lostPropertyCronAuth.ts";
 import { filterCasePhotoPaths, validateCasePhotoPaths } from "./photoPaths.ts";
 
 async function tripCwSnapshotFields(

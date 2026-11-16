@@ -41,7 +41,7 @@ import {
 import {
   buildTipWindowCaptureIdempotencyKey,
   decideExpiredStaleReclaimAfterGet,
-} from "../_shared/expiredTipWindowStaleReclaimSSOT.ts";
+} from "./lib/expiredTipWindowStaleReclaimSSOT.ts";
 import { resolveRevolutMerchantContext } from "../_shared/revolutMerchantContext.ts";
 import { retrieveRevolutOrder } from "../_shared/revolutOrders.ts";
 import { extractConfirmedCaptureAmountPence } from "../_shared/paymentHoldProviderTerminalPure.ts";

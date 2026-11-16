@@ -17,7 +17,7 @@ import {
   isCustomerSearchWindowActive,
   resolveCustomerSearchDeadlineMs,
   shouldExpireTripAfterWavesExhausted,
-} from "../../functions/_shared/dispatchSearchWindow.ts";
+} from "../../functions/auto-dispatch/lib/dispatchSearchWindow.ts";
 import { classifyTerminalHoldDisposition } from "../../functions/_shared/terminalTripPaymentDisposition.ts";
 import {
   buildScheduledUrgentConversionPatch,
@@ -443,7 +443,7 @@ Deno.test("source lock: schedule-dispatch converts via Admin SSOT then auto-disp
   assertEquals(edge.includes("dispatch_trip_offers"), false);
 
   const sweep = await Deno.readTextFile(
-    new URL("../../functions/_shared/scheduleDispatchConversionSweep.ts", import.meta.url),
+    new URL("../../functions/schedule-dispatch/lib/scheduleDispatchConversionSweep.ts", import.meta.url),
   );
   assertStringIncludes(sweep, "shouldConvertScheduledToUrgent");
   assertStringIncludes(sweep, "buildScheduledUrgentConversionPatch");
@@ -600,7 +600,7 @@ Deno.test("source lock: SQL expire does not use created_at TTL for scheduled han
 
 Deno.test("source lock: restore / get-active-trip ignore stale TTL during scheduled handover", async () => {
   const restore = await Deno.readTextFile(
-    new URL("../../functions/_shared/activeTripRestoreCore.ts", import.meta.url),
+    new URL("../../functions/restore-active-trip/lib/activeTripRestoreCore.ts", import.meta.url),
   );
   const getActive = await Deno.readTextFile(
     new URL("../../functions/get-active-trip/index.ts", import.meta.url),

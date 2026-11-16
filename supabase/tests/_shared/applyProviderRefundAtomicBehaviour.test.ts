@@ -11,7 +11,7 @@ import {
   createAtomicRpcMockState,
   seedTripEarning,
   simulateAtomicRpc,
-} from "../../functions/_shared/applyProviderRefundAtomicRpcMock.ts";
+} from "./support/applyProviderRefundAtomicRpcMock.ts";
 import { PAYMENT_SESSION_GATE_STATUS } from "../../functions/_shared/paymentSessionCaptureGateSSOT.ts";
 
 const CAPTURED = 1250;

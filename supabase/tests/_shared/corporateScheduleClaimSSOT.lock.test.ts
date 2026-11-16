@@ -1,5 +1,5 @@
 import { assertEquals } from "https://deno.land/std@0.224.0/assert/assert_equals.ts";
-import { CorporateScheduleClaimRegistry } from "../../functions/_shared/corporateScheduleClaimSSOT.ts";
+import { CorporateScheduleClaimRegistry } from "./support/corporateScheduleClaimSSOT.ts";
 
 Deno.test("same client_action_id reclaim is idempotent", async () => {
   const reg = new CorporateScheduleClaimRegistry();

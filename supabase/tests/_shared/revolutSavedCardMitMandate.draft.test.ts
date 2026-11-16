@@ -1,7 +1,7 @@
 import {
   resolveSavedCardChargeInitiator,
   mustPresentAcsWhenRevolutRequires,
-} from '../../functions/_shared/revolutSavedCardMitMandate.draft.ts';
+} from '../../../shared/revolutSavedCardMitMandate.draft.ts';
 
 Deno.test('customer-saved method stays CIT and must not skip SCA', () => {
   const decided = resolveSavedCardChargeInitiator({

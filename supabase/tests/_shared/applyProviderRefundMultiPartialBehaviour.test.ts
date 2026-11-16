@@ -12,7 +12,7 @@ import {
   buildClientWithAtomicRpcMock,
   createAtomicRpcMockState,
   seedTripEarning,
-} from "../../functions/_shared/applyProviderRefundAtomicRpcMock.ts";
+} from "./support/applyProviderRefundAtomicRpcMock.ts";
 
 const CAPTURED = 1250;
 const COMMISSION = 250;

@@ -9,10 +9,10 @@ import {
 } from "https://deno.land/std@0.224.0/assert/mod.ts";
 import {
   isSameVerifiedBookingAttempt,
-} from "../../functions/_shared/sameBookingAttemptSSOT.ts";
+} from "../../functions/create-trip-after-payment/lib/sameBookingAttemptSSOT.ts";
 import {
   isCurrentTripPaymentAuthorisation,
-} from "../../functions/_shared/lostPaymentAuthorisationTripSSOT.ts";
+} from "../../functions/revolut-webhook/lib/lostPaymentAuthorisationTripSSOT.ts";
 import {
   PAYMENT_FAILURE_NOTICE_COPY,
   dedupeKeyForBookingCancelledPayment,
@@ -173,7 +173,7 @@ Deno.test("customer payment failure notice copy is exact", () => {
 
 Deno.test("lostPaymentAuthorisationTripSSOT refuses superseded / still-authorised", async () => {
   const src = await Deno.readTextFile(
-    new URL("../../functions/_shared/lostPaymentAuthorisationTripSSOT.ts", import.meta.url),
+    new URL("../../functions/revolut-webhook/lib/lostPaymentAuthorisationTripSSOT.ts", import.meta.url),
   );
   assertStringIncludes(src, "tripHasNewerValidAuthorisation");
   assertStringIncludes(src, "session_still_authorised");

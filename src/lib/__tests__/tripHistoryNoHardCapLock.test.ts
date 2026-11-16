@@ -66,7 +66,7 @@ describe('trip history — no hard 500/2000 history cap', () => {
   });
 
   it('FR summary no longer defaults to silent 500 under-sample', () => {
-    const src = read('supabase/functions/_shared/financeReconciliationTripQuery.ts');
+    const src = read('supabase/functions/admin-finance-reconciliation/lib/financeReconciliationTripQuery.ts');
     expect(src).not.toMatch(/raw \|\| 500/);
     expect(src).toContain('FINANCE_RECONCILIATION_TRIP_AUDIT_LIMIT_DEFAULT = 10_000');
   });

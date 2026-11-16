@@ -6,16 +6,16 @@ import { createClient } from "npm:@supabase/supabase-js@2.57.2";
 import {
   buildMinimalTripInsertRow,
   type BookingCommitBody,
-} from "../_shared/bookingSSOT.ts";
+} from "./lib/bookingSSOT.ts";
 import { assertBookingSurgeAtPickup } from "../_shared/demandZoneSurgeSSOT.ts";
 import { resolveScheduledDispatchConfig } from "../_shared/scheduledDispatchConfig.ts";
 import { findPassengerScheduleOverlap } from "../_shared/passengerScheduleOverlapSSOT.ts";
-import { buildBookingPostCommitTasks } from "../_shared/bookingPostCommit.ts";
+import { buildBookingPostCommitTasks } from "./lib/bookingPostCommit.ts";
 import {
   evaluateAirportPersistReadiness,
   resolveAuthoritativeAirportSplitForBooking,
-} from "../_shared/authoritativeAirportBookingPersistSSOT.ts";
-import { verifyRevolutHoldForTripCreateFast } from "../_shared/bookingPaymentVerifyFast.ts";
+} from "./lib/authoritativeAirportBookingPersistSSOT.ts";
+import { verifyRevolutHoldForTripCreateFast } from "./lib/bookingPaymentVerifyFast.ts";
 import {
   assertCanBookRide,
   logPassengerBookingBlocked,
@@ -24,7 +24,7 @@ import {
 import { assertCustomerIdentityBookAllowed } from "../_shared/customerIdentityVeriff.ts";
 import {
   BOOKING_FAILED_NO_TRIP_MESSAGE,
-} from "../_shared/bookingFailurePreauthReversal.ts";
+} from "./lib/bookingFailurePreauthReversal.ts";
 import {
   assertGatewayExecutable,
   checkServiceAreaGateway,
@@ -44,12 +44,12 @@ import {
   PAYMENT_ORPHANED_CUSTOMER_MESSAGE,
 } from "../_shared/paymentSessionSSOT.ts";
 import { buildBookingWaterfallMilestoneReport } from "../_shared/bookingWaterfallSSOT.ts";
-import { digitalOnlyPaymentMethodFlags } from "../_shared/digitalFinanceSSOT.ts";
+import { digitalOnlyPaymentMethodFlags } from "./lib/digitalFinanceSSOT.ts";
 import { isAuthorisedHoldSessionStatus } from "../_shared/revolutPaymentHoldSSOT.ts";
 import { serveWithEdgeTiming } from "../_shared/edgeFunctionTiming.ts";
 import { createBookingWaterfallCollector } from "../_shared/bookingWaterfallTelemetry.ts";
 import { releaseHoldForPaymentSession } from "../_shared/holdReleaseSSOT.ts";
-import { isSameVerifiedBookingAttempt } from "../_shared/sameBookingAttemptSSOT.ts";
+import { isSameVerifiedBookingAttempt } from "./lib/sameBookingAttemptSSOT.ts";
 import { upsertCustomerPaymentFailureNotice } from "../_shared/customerPaymentFailureNoticeSSOT.ts";
 import {
   buildTripFinancialModelSnapshot,

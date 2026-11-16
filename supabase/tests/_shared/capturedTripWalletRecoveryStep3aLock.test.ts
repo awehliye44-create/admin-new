@@ -9,7 +9,7 @@ import { assertEquals, assert } from "https://deno.land/std@0.192.0/testing/asse
 import {
   APPROVED_CAPTURED_TRIP_WALLET_RECOVERY_TRIP_IDS,
   recoverCapturedTripWallet,
-} from "../../functions/_shared/capturedTripWalletRecovery.ts";
+} from "../../functions/admin-recover-captured-trip-wallet/lib/capturedTripWalletRecovery.ts";
 import { DEFAULT_PAYOUT_CLEARING_DELAY_HOURS } from "../../functions/_shared/driverPayoutEligibilitySSOT.ts";
 
 const TRIP_002 = "3a575bad-ce3d-491e-998a-cd83fa5256ea";
@@ -397,7 +397,7 @@ Deno.test("eligibility origin is original capture + 27h, not recovery time", () 
 });
 
 Deno.test("recovery source never calls Revolut and credits saved stamps only", async () => {
-  const src = await Deno.readTextFile(new URL("../../functions/_shared/capturedTripWalletRecovery.ts", import.meta.url));
+  const src = await Deno.readTextFile(new URL("../../functions/admin-recover-captured-trip-wallet/lib/capturedTripWalletRecovery.ts", import.meta.url));
   assertEquals(/retrieveRevolutOrder|refundRevolutOrder|captureRevolut|revolutOrders/.test(src), false);
   assert(src.includes("saved stamps only"));
   const executeIdx = src.lastIndexOf("await creditCapturedCardTripLedger");

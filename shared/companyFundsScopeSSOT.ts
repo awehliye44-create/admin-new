@@ -1,1 +1,1 @@
-export * from "../supabase/functions/_shared/companyFundsScopeSSOT.ts";
+export * from "../supabase/functions/admin-payout-ledger/lib/companyFundsScopeSSOT.ts";

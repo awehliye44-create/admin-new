@@ -20,7 +20,7 @@ import { createClient } from "npm:@supabase/supabase-js@2.57.2";
 import {
   resolveAlertSound,
   TRIP_EVENT_SOUND_MAP,
-} from "../_shared/alertSoundResolver.ts";
+} from "./lib/alertSoundResolver.ts";
 import {
   canonicalizeCustomerTripNotificationEvent,
   customerAndroidChannelIdForEvent,

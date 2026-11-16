@@ -30,7 +30,7 @@ import {
   shouldSendOutOfAreaNotice,
   WHATSAPP_OUT_OF_AREA_NOTICE_TEXT,
   withOutOfAreaNoticeSent,
-} from "../_shared/whatsappOutOfAreaNotice.ts";
+} from "./lib/whatsappOutOfAreaNotice.ts";
 import { assertPickupCoveredByResolveServiceArea } from "../_shared/whatsappPickupCoverageSSOT.ts";
 
 Deno.serve(async (req) => {

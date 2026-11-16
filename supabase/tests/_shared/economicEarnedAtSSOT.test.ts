@@ -16,7 +16,7 @@ import {
   PAYMENT_SESSION_PURPOSE_PAYMENT_RECOVERY,
   specResolveEconomicDate,
   type SpecPaymentSession,
-} from "../../functions/_shared/economicEarnedAtResolverSpec.ts";
+} from "./support/economicEarnedAtResolverSpec.ts";
 import {
   DEFAULT_PAYOUT_CLEARING_DELAY_HOURS,
   isPayoutClearedForPlatformCollected,
@@ -412,7 +412,7 @@ Deno.test("4D.4: return-type migration casts int4 ledger money; 12/13 stay froze
     new URL("../../migrations/20260929140000_driver_wallet_economic_earned_at_return_types.sql", import.meta.url),
   );
   const snapshot = JSON.parse(
-    await Deno.readTextFile(new URL("../../functions/_shared/driverWalletEconomicSchemaSnapshot.json", import.meta.url)),
+    await Deno.readTextFile(new URL("./support/driverWalletEconomicSchemaSnapshot.json", import.meta.url)),
   ) as { columns: { table: string; column: string; data_type: string; udt_name: string }[] };
   const throwaway = await Deno.readTextFile(
     new URL("../../../.rollback-step4d4-2026-08-18/throwaway_schema.sql", import.meta.url),
@@ -524,7 +524,7 @@ Deno.test("lock: consume SSOT does not join payment_sessions; payout I/O stays i
 
 Deno.test("lock: Edge consumers no longer load payment_sessions evidence", async () => {
   const snapshot = await Deno.readTextFile(new URL("../../functions/_shared/fetchDriverWalletPayoutSnapshot.ts", import.meta.url));
-  const summary = await Deno.readTextFile(new URL("../../functions/_shared/fetchDriverWalletSummary.ts", import.meta.url));
+  const summary = await Deno.readTextFile(new URL("../../functions/admin-driver-wallet-ssot/lib/fetchDriverWalletSummary.ts", import.meta.url));
   const invoice = await Deno.readTextFile(new URL("../../functions/_shared/driverInvoiceAggregation.ts", import.meta.url));
   const earnings = await Deno.readTextFile(new URL("../../functions/driver-earnings-summary/index.ts", import.meta.url));
   for (const src of [snapshot, summary, invoice, earnings]) {

@@ -2,7 +2,7 @@ import { assertEquals } from "https://deno.land/std@0.208.0/assert/mod.ts";
 import {
   actualProviderFeePence,
   aggregatePaymentSessionsMoney,
-} from "../../functions/_shared/adminPaymentSessionsMoneyAggregatesSSOT.ts";
+} from "../../functions/admin-payment-sessions/lib/adminPaymentSessionsMoneyAggregatesSSOT.ts";
 
 type Row = Parameters<typeof aggregatePaymentSessionsMoney>[0][number];
 

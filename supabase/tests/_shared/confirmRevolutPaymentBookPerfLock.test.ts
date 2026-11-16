@@ -7,7 +7,7 @@ import {
   CONFIRM_REVOLUT_BOOKING_CAP_MS,
   CONFIRM_REVOLUT_SAVE_CARD_CAP_MS,
   resolveConfirmRevolutMaxWaitMs,
-} from "../../functions/_shared/confirmRevolutPaymentWaitSSOT.ts";
+} from "../../functions/confirm-revolut-payment/lib/confirmRevolutPaymentWaitSSOT.ts";
 
 const ROOT = new URL("../../functions", import.meta.url).pathname;
 

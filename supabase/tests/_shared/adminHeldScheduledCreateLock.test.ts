@@ -13,7 +13,7 @@ import {
   assert,
   assertStringIncludes,
 } from "https://deno.land/std@0.224.0/assert/mod.ts";
-import { buildMinimalTripInsertRow } from "../../functions/_shared/bookingSSOT.ts";
+import { buildMinimalTripInsertRow } from "../../functions/create-trip-after-payment/lib/bookingSSOT.ts";
 import {
   ADMIN_HELD_SCHEDULED_STATUS,
   isAdminHeldScheduledStatus,
@@ -106,7 +106,7 @@ Deno.test("Admin HELD: T−urgent convert includes admin_held; Phase 3 marketpla
 
 Deno.test("Admin HELD: bookingSSOT does not stamp marketplace broadcast at create", async () => {
   const src = await Deno.readTextFile(
-    new URL("../../functions/_shared/bookingSSOT.ts", import.meta.url),
+    new URL("../../functions/create-trip-after-payment/lib/bookingSSOT.ts", import.meta.url),
   );
   assertStringIncludes(src, 'scheduledStatus = "admin_held"');
   assertStringIncludes(src, "scheduledBroadcastAt = null");

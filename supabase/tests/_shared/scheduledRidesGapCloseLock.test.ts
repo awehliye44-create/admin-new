@@ -161,7 +161,7 @@ Deno.test("accept + check_eligibility reject Admin HELD / undued broadcast", asy
 
 Deno.test("activeTripRestoreCore ignores HELD/preconfirm convert clock", async () => {
   const src = await Deno.readTextFile(
-    new URL("../../functions/_shared/activeTripRestoreCore.ts", import.meta.url),
+    new URL("../../functions/restore-active-trip/lib/activeTripRestoreCore.ts", import.meta.url),
   );
   assertStringIncludes(src, 'scheduledStatus === "admin_held"');
   assertStringIncludes(src, 'scheduledStatus === "awaiting_activation_accept"');

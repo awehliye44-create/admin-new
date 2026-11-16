@@ -7,7 +7,7 @@ import {
   DRIVER_PAYOUT_BLOCK_REASON,
   buildDriverPayoutWithdrawalQuote,
   type DriverPayoutWithdrawalQuote,
-} from "../../functions/_shared/driverPayoutWithdrawalQuoteSSOT.ts";
+} from "../../functions/driver-withdraw/lib/driverPayoutWithdrawalQuoteSSOT.ts";
 import type { DriverPayoutEligibilityResult } from "../../functions/_shared/driverPayoutEligibilitySSOT.ts";
 import { PAYOUT_ELIGIBILITY_STATUS } from "../../functions/_shared/driverPayoutEligibilitySSOT.ts";
 import {
@@ -16,7 +16,7 @@ import {
   DRIVER_WITHDRAW_SERVICE_AREA_MISSING,
   runDriverWithdrawPostOrchestration,
   type WithdrawOrchestrationPorts,
-} from "../../functions/_shared/driverWithdrawPostOrchestrationSSOT.ts";
+} from "../../../shared/driverWithdrawPostOrchestrationSSOT.ts";
 
 const MK_SA = "cb58f1bd-8b6f-45b9-ad31-b3140309892c";
 const MK_DRIVER = "c40dd8a6-f422-40bc-9534-bae7be88b93e";

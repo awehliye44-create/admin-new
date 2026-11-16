@@ -7,7 +7,7 @@ import {
   isValidOnboardingPhone,
   normalizeOnboardingPhone,
 } from "../_shared/onboardingValidation.ts";
-import { phonesMatchForPasswordReset } from "../_shared/passwordResetSsot.ts";
+import { phonesMatchForPasswordReset } from "./lib/passwordResetSsot.ts";
 import { nativeAppCorsHeaders as corsHeaders } from "../_shared/security.ts";
 
 function jsonResponse(body: Record<string, unknown>, status = 200) {

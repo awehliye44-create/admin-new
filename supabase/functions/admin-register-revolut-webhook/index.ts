@@ -11,7 +11,7 @@ import {
   ensureOnecabRevolutWebhook,
   ONECAB_REVOLUT_WEBHOOK_EVENTS,
   resolveOnecabRevolutWebhookUrl,
-} from "../_shared/revolutWebhooks.ts";
+} from "./lib/revolutWebhooks.ts";
 import type { ProviderEnvironment } from "../_shared/paymentProviders/types.ts";
 
 const corsHeaders = {

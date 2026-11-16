@@ -17,11 +17,11 @@ import {
   evaluateInvalidAssignmentOwnership,
   evaluateOfferInvariants,
   evaluateOverlappingWaitingOpen,
-} from "../../functions/_shared/financialSsotMonitorScans.ts";
+} from "../../functions/financial-ssot-monitor/lib/financialSsotMonitorScans.ts";
 
 const read = (rel: string) => Deno.readTextFile(new URL(rel, import.meta.url));
 const MONITOR = "../../functions/financial-ssot-monitor/index.ts";
-const SCANS = "../../functions/_shared/financialSsotMonitorScans.ts";
+const SCANS = "../../functions/financial-ssot-monitor/lib/financialSsotMonitorScans.ts";
 
 const STAGES = [
   "offer_vs_committed",

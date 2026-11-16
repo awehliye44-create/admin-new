@@ -423,7 +423,7 @@ Deno.test("excluded sources cannot enter negotiation on restore/redispatch", asy
   assertEquals(offer.includes("ineligible_corporate"), true);
   assertEquals(offer.includes("ineligible_whatsapp"), true);
   const bookingSsot = await Deno.readTextFile(
-    new URL("../../functions/_shared/bookingSSOT.ts", import.meta.url),
+    new URL("../../functions/create-trip-after-payment/lib/bookingSSOT.ts", import.meta.url),
   );
   const ctap = await Deno.readTextFile(
     new URL("../../functions/create-trip-after-payment/index.ts", import.meta.url),

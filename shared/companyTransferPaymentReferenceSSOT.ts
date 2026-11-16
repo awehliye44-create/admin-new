@@ -3,4 +3,4 @@
  * Re-exported here for frontend/test imports.
  */
 
-export * from "../supabase/functions/_shared/companyTransferPaymentReferenceSSOT.ts";
+export * from "../supabase/functions/admin-company-outgoing-transfer/lib/companyTransferPaymentReferenceSSOT.ts";

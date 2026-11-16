@@ -23,7 +23,7 @@ import {
   readWhatsAppHubVerifyQuery,
   verifyWhatsAppHubChallenge,
   verifyWhatsAppWebhookSignature,
-} from "../../functions/_shared/whatsappWebhookVerify.ts";
+} from "../../functions/whatsapp-webhook/lib/whatsappWebhookVerify.ts";
 import {
   resolveWhatsAppWorkflowIntent,
   shouldSendWhatsAppWelcome,
@@ -250,7 +250,7 @@ Deno.test("continuation link messages disable preview_url — plain text default
 });
 
 Deno.test("GET verify token comparison is timing-safe", () => {
-  const verify = readSrc("supabase/functions/_shared/whatsappWebhookVerify.ts");
+  const verify = readSrc("supabase/functions/whatsapp-webhook/lib/whatsappWebhookVerify.ts");
   assert(verify.includes("timingSafeEqual(query.verifyToken, expectedVerifyToken)"));
   assert(!verify.includes("query.verifyToken !== expectedVerifyToken"));
   assert(!verify.includes("query.verifyToken === expectedVerifyToken"));

@@ -15,7 +15,7 @@ import {
   sumSegmentSeconds,
   type TrustedDriverLocation,
 } from "../../functions/_shared/waitingSegmentClock.ts";
-import { evaluateCanMarkNoShow } from "../../functions/_shared/tripNoShowRules.ts";
+import { evaluateCanMarkNoShow } from "../../functions/pickup-no-show/lib/tripNoShowRules.ts";
 
 const PICKUP = { lat: 52.04, lng: -0.76 };
 const FAR = { lat: 52.05, lng: -0.75 }; // ~1.4km
@@ -309,7 +309,7 @@ Deno.test("lock: pickup-no-show uses countedInRadiusSeconds", async () => {
 
 Deno.test("lock: hydrate surfaces geofence + counted waiting fields", async () => {
   const restore = await Deno.readTextFile(
-    new URL("../../functions/_shared/activeTripRestoreCore.ts", import.meta.url),
+    new URL("../../functions/restore-active-trip/lib/activeTripRestoreCore.ts", import.meta.url),
   );
   assertEquals(restore.includes("waiting_geofence_status"), true);
   assertEquals(restore.includes("pickup_waiting_counted_seconds"), true);

@@ -18,19 +18,19 @@ import {
   COMPANY_TRANSFER_CATEGORIES,
   COMPANY_TRANSFER_RECIPIENT_TYPES,
   resolveEnforcedCompanyTransferMoneySource,
-} from "../_shared/companyOutgoingTransferSSOT.ts";
+} from "./lib/companyOutgoingTransferSSOT.ts";
 import {
   DEFAULT_COMPANY_TRANSFER_APPROVAL_TIERS,
   resolveCompanyTransferApprovalsRequiredForCategory,
   resolveHighRiskApprovalRequirement,
   assertDirectTransferAllowed,
-} from "../_shared/companyOutgoingTransferApprovalSSOT.ts";
+} from "./lib/companyOutgoingTransferApprovalSSOT.ts";
 import { resolveLiveCompanyBalanceWithSlice10Gate } from "../_shared/companyBalanceResolveSSOT.ts";
 import { loadActiveOperationalReservePolicy } from "../_shared/companyOperationalReserveLoadSSOT.ts";
 import {
   loadProtectedDriverLiabilityPence,
   loadReservedDriverPayoutPence,
-} from "../_shared/companyBalanceCompositionLoadSSOT.ts";
+} from "./lib/companyBalanceCompositionLoadSSOT.ts";
 import {
   evaluateSoleAdminCompanyTransferSelfApproval,
   isCompanyTransferPayeeProviderVerified,
@@ -43,7 +43,7 @@ import {
   SOLE_ADMIN_CT_SETTING,
   SOLE_OWNER_CT_SETTING,
   soleAdminCtReasonLabel,
-} from "../_shared/companyTransferSoleAdminApprovalSSOT.ts";
+} from "./lib/companyTransferSoleAdminApprovalSSOT.ts";
 import {
   assertCompanyTransferSelfApprovalPolicy,
   buildCompanyTransferFundingSnapshot,
@@ -58,12 +58,12 @@ import {
   parseLiveCompanyTransferExecutionEnabled,
   resolveLiveCompanyTransferExecutionEnabledFailClosed,
   type CompanyTransferFundingSnapshot,
-} from "../_shared/companyTransferLifecycleSSOT.ts";
+} from "./lib/companyTransferLifecycleSSOT.ts";
 import type { CompanyBalanceSnapshot } from "../_shared/companyBalanceSSOT.ts";
 import {
   resolveCompanyTransferPaymentReferenceKind,
   sanitizeCompanyTransferStatementReference,
-} from "../_shared/companyTransferPaymentReferenceSSOT.ts";
+} from "./lib/companyTransferPaymentReferenceSSOT.ts";
 import {
   evaluatePreDraftCompanyFundsGate,
   isAmountValidationOnlyBlock,
@@ -71,11 +71,11 @@ import {
   canReturnCompanyTransferToDraft,
   canCancelCompanyTransferSafely,
   resolveAvailableCompanyFundsPenceFromBalance,
-} from "../_shared/companyTransferDraftValidationSSOT.ts";
+} from "./lib/companyTransferDraftValidationSSOT.ts";
 import {
   companyFundsPrecheckPasses,
   resolvePrecheckAvailableCompanyFundsPence,
-} from "../_shared/companyTransferCreatePrecheckSSOT.ts";
+} from "./lib/companyTransferCreatePrecheckSSOT.ts";
 
 async function loadProviderPaymentIdForTransfer(
   supabase: { from: (t: string) => any },

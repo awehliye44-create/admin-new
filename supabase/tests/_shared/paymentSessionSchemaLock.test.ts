@@ -16,7 +16,7 @@ import {
 } from "../../functions/_shared/paymentSessionCaptureGateSSOT.ts";
 import {
   tripWalletRecoverySelectColumns,
-} from "../../functions/_shared/capturedTripWalletRecovery.ts";
+} from "../../functions/admin-recover-captured-trip-wallet/lib/capturedTripWalletRecovery.ts";
 
 /** Frozen production public.payment_sessions column names (2026-08-18). */
 const AUTHORITATIVE_PRODUCTION_PAYMENT_SESSIONS_COLUMNS = new Set<string>([
@@ -138,7 +138,7 @@ Deno.test("wallet posting path reads trip financial_model from trips, not paymen
 });
 
 Deno.test("capturedTripWalletRecovery uses shared recovery session loader without payment_sessions financial_model", async () => {
-  const recoverySrc = await readSharedSource("../../functions/_shared/capturedTripWalletRecovery.ts");
+  const recoverySrc = await readSharedSource("../../functions/admin-recover-captured-trip-wallet/lib/capturedTripWalletRecovery.ts");
   assertEquals(extractPaymentSessionSelectStrings(recoverySrc).length, 0);
   assertEquals(recoverySrc.includes("loadWalletRecoveryPaymentSessions"), true);
   assertEquals(recoverySrc.includes("financial_model"), true);

@@ -9,7 +9,7 @@ import { fromFileUrl } from "https://deno.land/std@0.224.0/path/from_file_url.ts
 import { join } from "https://deno.land/std@0.224.0/path/join.ts";
 import {
   attemptAutoRevolutLinkage,
-} from "../../functions/_shared/updateDriverPayoutDestinationHandler.ts";
+} from "../../functions/update-driver-payout-destination/lib/updateDriverPayoutDestinationHandler.ts";
 import {
   PAYOUT_DESTINATION_OUTCOME,
   httpStatusForOutcome,

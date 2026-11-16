@@ -4,18 +4,18 @@ import {
   mergePayoutTabTransactions,
   paginatePayoutTransactions,
   type WalletPayoutTransaction,
-} from "../_shared/walletPayoutTransactions.ts";
+} from "./lib/walletPayoutTransactions.ts";
 import {
   walletTransactionDisplayTitle,
   WALLET_TRIPS_TAB_LEDGER_TYPES,
-} from "../_shared/walletTransactionTitles.ts";
+} from "./lib/walletTransactionTitles.ts";
 import {
   driverWalletDisplayAmountPence,
   driverWalletTransactionIsCredit,
   isDriverWalletHiddenLedgerType,
   walletTabHistoryWeeks,
   walletTransactionHistoryCutoffIso,
-} from "../_shared/driverWalletDisplaySSOT.ts";
+} from "./lib/driverWalletDisplaySSOT.ts";
 import {
   DRIVER_WALLET_ADJUSTMENT_METADATA_SOURCE,
   driverWalletAdjustmentDriverSubtitle,

@@ -1,5 +1,5 @@
 import { assertEquals } from "https://deno.land/std@0.224.0/assert/mod.ts";
-import { authoriseLateCancellationCaller } from "../../functions/_shared/lateCancellationCallerAuthSSOT.ts";
+import { authoriseLateCancellationCaller } from "../../functions/late-cancellation-check/lib/lateCancellationCallerAuthSSOT.ts";
 
 const PASSENGER = "11111111-1111-1111-1111-111111111111";
 const OTHER = "22222222-2222-2222-2222-222222222222";

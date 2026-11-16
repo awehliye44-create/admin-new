@@ -13,9 +13,9 @@ const MIG =
 const RB =
   'supabase/migrations/rollback/rollback_20261109410000_phase_a8b27b_lost_property_cron_internal_auth_bridge.sql';
 const VERIFY = 'supabase/tests/phase_a8b27b_lost_property_cron_internal_auth_verify.sql';
-const EDGE_AUTH = 'supabase/functions/_shared/lostPropertyCronAuth.ts';
+const EDGE_AUTH = 'supabase/functions/lost-property/lib/lostPropertyCronAuth.ts';
 const ENTRY = 'supabase/functions/lost-property/index.ts';
-const HELPERS = 'supabase/functions/_shared/lostPropertyHelpers.ts';
+const HELPERS = 'supabase/functions/lost-property/lib/lostPropertyHelpers.ts';
 
 function read(rel: string): string {
   return fs.readFileSync(path.join(ROOT, rel), 'utf8');

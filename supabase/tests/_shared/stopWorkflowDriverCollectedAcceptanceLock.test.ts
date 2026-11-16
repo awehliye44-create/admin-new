@@ -9,8 +9,8 @@ import {
   completeTripCashDecision,
   isDriverCollectedCashTrip,
   isPlatformCollectedOperationalCash,
-} from "../../functions/_shared/stopWorkflowSecurity.ts";
-import { requiresProviderSettlement } from "../../functions/_shared/digitalPaymentCapture.ts";
+} from "../../functions/stop-workflow/lib/stopWorkflowSecurity.ts";
+import { requiresProviderSettlement } from "../../functions/stop-workflow/lib/digitalPaymentCapture.ts";
 
 const DC = {
   financial_model: "DRIVER_COLLECTED_COMMISSION_WALLET",
@@ -154,7 +154,7 @@ Deno.test("stop-workflow completion, cancel, stacked, waiting, and isolation loc
   assertEquals(rematch.includes("status: \"cancelled\""), false);
 
   const terminal = await Deno.readTextFile(
-    new URL("../../functions/_shared/driverTripCancel.ts", import.meta.url),
+    new URL("../../functions/stop-workflow/lib/driverTripCancel.ts", import.meta.url),
   );
   assertEquals(terminal.includes("USE_DRIVER_CANCEL_REMATCH"), true);
   assertEquals(terminal.includes("status: \"cancelled\""), true);

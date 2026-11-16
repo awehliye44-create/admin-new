@@ -2,8 +2,8 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { z } from "https://esm.sh/zod@3.23.8";
 import { auditAdminUserId, corsHeaders, jsonResponse, requireAdmin, requirePageAccess } from "../_shared/adminPaymentGate.ts";
-import { executeAdminCaptureTripPayment } from "../_shared/adminCaptureTripPaymentSSOT.ts";
-import { ADMIN_CAPTURE_PRECONDITION } from "../_shared/adminCaptureTripPaymentPreconditions.ts";
+import { executeAdminCaptureTripPayment } from "./lib/adminCaptureTripPaymentSSOT.ts";
+import { ADMIN_CAPTURE_PRECONDITION } from "./lib/adminCaptureTripPaymentPreconditions.ts";
 // Capture composition SSOT — admin capture funnels through finalize → revolutCompletionCapture.
 import { planCaptureComposition } from "../_shared/captureCompositionSSOT.ts";
 void planCaptureComposition;

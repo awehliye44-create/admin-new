@@ -40,7 +40,7 @@ import {
   DRIVER_FINANCIAL_REPAIR_ACTION,
   DRIVER_FINANCIAL_REPAIR_BLOCK,
   type DriverFinancialRepairEvidence,
-} from "../../functions/_shared/driverFinancialReviewRepairSSOT.ts";
+} from "../../functions/admin-driver-financial-repair/lib/driverFinancialReviewRepairSSOT.ts";
 
 const DRIVER = "drv-terminal-beneficiary";
 const OTHER_DRIVER = "drv-other";

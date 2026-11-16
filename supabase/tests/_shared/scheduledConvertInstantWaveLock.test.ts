@@ -10,7 +10,7 @@ import {
   maxBroadcastRoundFromOfferRows,
   resolveConversionBroadcastRoundAnchor,
   resolveUniqueDispatchBroadcastRound,
-} from "../../functions/_shared/dispatchBroadcastRoundAllocation.ts";
+} from "../../functions/auto-dispatch/lib/dispatchBroadcastRoundAllocation.ts";
 import { resolveNextRematchBroadcastRound } from "../../functions/_shared/driverCancelRematch.ts";
 import { buildScheduledUrgentConversionPatch } from "../../functions/_shared/scheduledDispatchConfig.ts";
 import {

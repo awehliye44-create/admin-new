@@ -22,7 +22,7 @@ import {
   successResponse,
   errorResponse,
 } from "../_shared/security.ts";
-import { broadcastCustomerCounterOffer } from "../_shared/driverNegotiationBroadcast.ts";
+import { broadcastCustomerCounterOffer } from "./lib/driverNegotiationBroadcast.ts";
 import { buildDriverNegotiationPushData } from "../_shared/driverNegotiationPush.ts";
 import {
   OFFER_ACCEPTED_ASSIGNED_BODY,

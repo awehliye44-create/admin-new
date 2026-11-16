@@ -23,7 +23,7 @@ import {
   compareVehicleByDisplayOrder,
   resolveVehicleDisplayOrder,
   sortVehicleRowsByDisplayOrder,
-} from "../_shared/vehicleTypeSort.ts";
+} from "./lib/vehicleTypeSort.ts";
 import {
   applyZoneSurgeToMeteredFarePence,
   meteredFareEligibleForZoneSurge,

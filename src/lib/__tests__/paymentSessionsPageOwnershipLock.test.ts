@@ -77,7 +77,7 @@ describe('Payment Sessions page ownership', () => {
 });
 
 describe('Payment Sessions list backend SSOT', () => {
-  const listSsot = readSrc('supabase/functions/_shared/adminPaymentSessionsListSSOT.ts');
+  const listSsot = readSrc('supabase/functions/admin-payment-sessions/lib/adminPaymentSessionsListSSOT.ts');
 
   it('does not query driver_wallet_ledger or enrich driver credit', () => {
     expect(listSsot).not.toContain('driver_wallet_ledger');

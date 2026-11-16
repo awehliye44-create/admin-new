@@ -6,7 +6,7 @@ import {
   parseMerchantVaultAddCardAllowlist,
   parseMerchantVaultAddCardGateMode,
   resolveMerchantVaultAddCardAllowed,
-} from "../../functions/_shared/merchantVaultAddCardGate.ts";
+} from "../../functions/setup-revolut-card/lib/merchantVaultAddCardGate.ts";
 
 Deno.test("unset / unknown gate mode → off (fail closed)", () => {
   if (parseMerchantVaultAddCardGateMode(undefined) !== "off") {

@@ -5,7 +5,7 @@
 import { assertEquals } from "https://deno.land/std@0.224.0/assert/mod.ts";
 
 Deno.test("createCallLog stamps expires_at for timeout sweep", async () => {
-  const src = await Deno.readTextFile(new URL("../../functions/_shared/callMaskingLogs.ts", import.meta.url));
+  const src = await Deno.readTextFile(new URL("../../functions/call-masking/lib/callMaskingLogs.ts", import.meta.url));
   assertEquals(src.includes("expires_at: expiresAt"), true);
   assertEquals(src.includes("MAX_CALL_DURATION_SEC"), true);
 });

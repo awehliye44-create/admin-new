@@ -5,7 +5,7 @@ import {
   mapTripsToCaptureSsotRows,
   TRIP_CAPTURE_SSOT_SELECT,
   type TripCaptureSsotRow,
-} from "../_shared/tripsCaptureSsotBatch.ts";
+} from "./lib/tripsCaptureSsotBatch.ts";
 import type { TripAuditSourceRow } from "../_shared/financeSettlementSummary.ts";
 
 const InputSchema = z.object({

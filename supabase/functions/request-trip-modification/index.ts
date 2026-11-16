@@ -4,7 +4,7 @@ import {
   fetchTripAndBroadcastUpdated,
   upsertTripRoutePolyline,
 } from "../_shared/tripModificationApply.ts";
-import { resolveModifyTripCurrentStops } from "../_shared/modifyTripStopsSSOT.ts";
+import { resolveModifyTripCurrentStops } from "./lib/modifyTripStopsSSOT.ts";
 import {
   computeLiveTripFarePreview,
   resolveConfirmedCustomerFarePence,
@@ -12,14 +12,14 @@ import {
 import {
   currencySymbolForCode,
   metersToDisplayDistance,
-} from "../_shared/units.ts";
-import { computeRequiresDriverApproval } from "../_shared/tripModificationApproval.ts";
+} from "./lib/units.ts";
+import { computeRequiresDriverApproval } from "./lib/tripModificationApproval.ts";
 import { serveWithEdgeTiming } from "../_shared/edgeFunctionTiming.ts";
 import {
   type DriverLiveLocationRow,
   resolveModificationRouteOrigin,
-} from "../_shared/modificationRouteOrigin.ts";
-import { computeModificationFareDelta } from "../_shared/tripModificationFareDelta.ts";
+} from "./lib/modificationRouteOrigin.ts";
+import { computeModificationFareDelta } from "./lib/tripModificationFareDelta.ts";
 import { SERVICE_AREA_FINANCIAL_MODEL } from "../_shared/commissionWalletSSOT.ts";
 import { executeFareIncreaseModificationPayment } from "../_shared/executeFareIncreaseModificationPayment.ts";
 import {

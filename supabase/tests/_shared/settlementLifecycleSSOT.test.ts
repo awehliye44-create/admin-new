@@ -3,7 +3,7 @@ import {
   buildFifoSettlementAllocations,
   deriveSettlementLifecycleStatus,
   SETTLEMENT_LIFECYCLE,
-} from "../../functions/_shared/settlementLifecycleSSOT.ts";
+} from "../../functions/admin-reconcile-historical-payout-allocation/lib/settlementLifecycleSSOT.ts";
 
 Deno.test("deriveSettlementLifecycleStatus: CREATED when new row", () => {
   assertEquals(

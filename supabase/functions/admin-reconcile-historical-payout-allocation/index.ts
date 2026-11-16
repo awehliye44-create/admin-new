@@ -5,8 +5,8 @@ import {
   buildPayoutEventsFromRows,
   type AllocationCandidate,
   type AllocationResult,
-} from "../_shared/historicalPayoutAllocation.ts";
-import { writePayoutAllocationLine } from "../_shared/settlementLifecycleSSOT.ts";
+} from "./lib/historicalPayoutAllocation.ts";
+import { writePayoutAllocationLine } from "./lib/settlementLifecycleSSOT.ts";
 import { assertCronOrServiceRoleAuth } from "../_shared/cronEdgeAuth.ts";
 
 const corsHeaders = {
@@ -72,7 +72,7 @@ async function fetchAllocationPool(
 
 async function writeAllocation(
   supabase: AnySupabaseClient,
-  payout: import("../_shared/historicalPayoutAllocation.ts").PayoutEvent,
+  payout: import("./lib/historicalPayoutAllocation.ts").PayoutEvent,
   match: { settlement_id: string; ledger_entry_id: string; amount_pence: number },
   allocatedAt: string,
 ): Promise<boolean> {
@@ -97,7 +97,7 @@ async function writeAllocation(
 
 async function payoutAlreadyAllocated(
   supabase: AnySupabaseClient,
-  payout: import("../_shared/historicalPayoutAllocation.ts").PayoutEvent,
+  payout: import("./lib/historicalPayoutAllocation.ts").PayoutEvent,
 ): Promise<boolean> {
   if (payout.payout_item_id) {
     const { data } = await supabase

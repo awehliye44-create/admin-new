@@ -3,4 +3,4 @@
  * Re-exported here for frontend/test imports.
  */
 
-export * from "../supabase/functions/_shared/campaignHeadsUpTemplates.ts";
+export * from "../supabase/functions/send-campaign-heads-up/lib/campaignHeadsUpTemplates.ts";

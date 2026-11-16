@@ -44,11 +44,11 @@ const PLATFORM_HOOKS = [
   'supabase/functions/admin-driver-wallet-detail/index.ts',
   'supabase/functions/admin-payout-ledger/index.ts',
   'supabase/functions/admin-payment-holds-reconciliation/index.ts',
-  'supabase/functions/_shared/adminPaymentSessionsListSSOT.ts',
+  'supabase/functions/admin-payment-sessions/lib/adminPaymentSessionsListSSOT.ts',
   'supabase/functions/_shared/adminPaymentSessionsTripCompareSSOT.ts',
-  'supabase/functions/_shared/adminPayoutLedgerListSSOT.ts',
-  'supabase/functions/_shared/adminPayoutLedgerOverviewSSOT.ts',
-  'supabase/functions/_shared/adminPayoutLedgerAccountsOverviewSSOT.ts',
+  'supabase/functions/admin-payout-ledger/lib/adminPayoutLedgerListSSOT.ts',
+  'supabase/functions/admin-payout-ledger/lib/adminPayoutLedgerOverviewSSOT.ts',
+  'supabase/functions/admin-payout-ledger/lib/adminPayoutLedgerAccountsOverviewSSOT.ts',
   'supabase/functions/_shared/fetchDriverWalletPayoutSnapshot.ts',
   'supabase/functions/_shared/paymentHoldReconciliationSSOT.ts',
 ] as const;
@@ -100,7 +100,7 @@ describe('Edge SSOT PLATFORM boundaries', () => {
   });
 
   it('Payment Sessions list excludes null SA outside allowed PLATFORM set', () => {
-    const src = read('supabase/functions/_shared/adminPaymentSessionsListSSOT.ts');
+    const src = read('supabase/functions/admin-payment-sessions/lib/adminPaymentSessionsListSSOT.ts');
     expect(src).toContain('if (!row.service_area_id) continue');
     expect(src).toContain('allowed_service_area_ids');
     expect(src).toContain('classifyTripForPlatformCollectedAdminPage');
@@ -108,7 +108,7 @@ describe('Edge SSOT PLATFORM boundaries', () => {
   });
 
   it('FR trip query hard-filters PLATFORM_COLLECTED and scopes wallet drivers', () => {
-    const tripQ = read('supabase/functions/_shared/financeReconciliationTripQuery.ts');
+    const tripQ = read('supabase/functions/admin-finance-reconciliation/lib/financeReconciliationTripQuery.ts');
     const fr = read('supabase/functions/admin-finance-reconciliation/index.ts');
     expect(tripQ).toContain('.eq("financial_model", FINANCE_RECONCILIATION_TRIP_FINANCIAL_MODEL)');
     expect(fr).toContain('resolvePlatformCollectedDriverIds');
@@ -123,7 +123,7 @@ describe('Edge SSOT PLATFORM boundaries', () => {
   });
 
   it('Payout Ledger batch/audit paths pass allowed_service_area_ids into nested lists', () => {
-    const src = read('supabase/functions/_shared/adminPayoutLedgerListSSOT.ts');
+    const src = read('supabase/functions/admin-payout-ledger/lib/adminPayoutLedgerListSSOT.ts');
     expect(src).toContain('allowed_service_area_ids: request.allowed_service_area_ids ?? null');
     expect(src).toContain('scopedDriverBatches');
     expect(src).toContain('platformDriverSet.has(row.driver_id)');
@@ -131,7 +131,7 @@ describe('Edge SSOT PLATFORM boundaries', () => {
 
   it('Payment holds loader accepts allowed_service_area_ids', () => {
     const holds = read('supabase/functions/_shared/paymentHoldReconciliationSSOT.ts');
-    const list = read('supabase/functions/_shared/adminPaymentSessionsListSSOT.ts');
+    const list = read('supabase/functions/admin-payment-sessions/lib/adminPaymentSessionsListSSOT.ts');
     const edge = read('supabase/functions/admin-payment-holds-reconciliation/index.ts');
     expect(holds).toContain('allowed_service_area_ids');
     expect(holds).toContain('classifyTripForPlatformCollectedAdminPage');
@@ -142,7 +142,7 @@ describe('Edge SSOT PLATFORM boundaries', () => {
   });
 
   it('Driver Wallet summary excludes CW trip commission', () => {
-    const src = read('supabase/functions/_shared/fetchDriverWalletSummary.ts');
+    const src = read('supabase/functions/admin-driver-wallet-ssot/lib/fetchDriverWalletSummary.ts');
     expect(src).toContain('.eq("financial_model", "PLATFORM_COLLECTED")');
   });
 
@@ -155,7 +155,7 @@ describe('Edge SSOT PLATFORM boundaries', () => {
   });
 
   it('FR location filter intersects allowed PLATFORM service areas', () => {
-    const tripQ = read('supabase/functions/_shared/financeReconciliationTripQuery.ts');
+    const tripQ = read('supabase/functions/admin-finance-reconciliation/lib/financeReconciliationTripQuery.ts');
     const fr = read('supabase/functions/admin-finance-reconciliation/index.ts');
     expect(tripQ).toContain('allowedServiceAreaIds');
     expect(fr).toContain('allowedServiceAreaIds: modelScope.allowedServiceAreaIds');
@@ -218,7 +218,7 @@ describe('Edge SSOT PLATFORM boundaries', () => {
   });
 
   it('Payout Ledger accounts overview KPIs scope payout_items to PLATFORM drivers', () => {
-    const src = read('supabase/functions/_shared/adminPayoutLedgerAccountsOverviewSSOT.ts');
+    const src = read('supabase/functions/admin-payout-ledger/lib/adminPayoutLedgerAccountsOverviewSSOT.ts');
     expect(src).toContain('loadPayoutItemStatusTotals(supabase, platformDriverIds)');
     expect(src).toContain('.in("driver_id", [...platformDriverIds])');
     expect(src).toContain('resolvePlatformCollectedDriverIds');

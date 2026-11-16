@@ -13,7 +13,7 @@ Deno.test("admin-new create-trip-after-payment is the production booking writer"
     join(REPO_ROOT, "supabase/functions/create-trip-after-payment/index.ts"),
   );
   const booking = await Deno.readTextFile(
-    join(REPO_ROOT, "supabase/functions/_shared/bookingSSOT.ts"),
+    join(REPO_ROOT, "supabase/functions/create-trip-after-payment/lib/bookingSSOT.ts"),
   );
   assert(ctap.includes("skipPlatformPreauth"));
   assert(ctap.includes("tripInsertFieldsFromFinancialModelSnapshot") || booking.includes("tripInsertFieldsFromFinancialModelSnapshot"));

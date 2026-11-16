@@ -8,7 +8,7 @@
  * Run: deno test --allow-read supabase/functions/_shared/tripModificationFareDelta.test.ts
  */
 import { assertEquals } from "https://deno.land/std@0.224.0/assert/mod.ts";
-import { computeModificationFareDelta } from "../../functions/_shared/tripModificationFareDelta.ts";
+import { computeModificationFareDelta } from "../../functions/request-trip-modification/lib/tripModificationFareDelta.ts";
 
 /** Priced from the Driver's real position (~10m from pickup). */
 const DRIVER_TO_LIDL = 1224; // 13670 m
@@ -158,7 +158,7 @@ Deno.test("fare total never drops below 1p", () => {
 
 Deno.test("M. distance band pricing is supplied by the fare engine, not recomputed here", async () => {
   const src = await Deno.readTextFile(
-    new URL("../../functions/_shared/tripModificationFareDelta.ts", import.meta.url),
+    new URL("../../functions/request-trip-modification/lib/tripModificationFareDelta.ts", import.meta.url),
   );
 
   // Route fares arrive from calculate-fare; no local rate/band arithmetic.

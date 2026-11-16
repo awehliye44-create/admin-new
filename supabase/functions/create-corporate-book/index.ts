@@ -21,7 +21,7 @@ import {
   assertServiceAreaInOrgScope,
   assertClientActionIdOrgBound,
   assertPaymentMethodAllowed,
-} from "../_shared/corporateBookAuthoritySSOT.ts";
+} from "./lib/corporateBookAuthoritySSOT.ts";
 import { assertRideNowVehicleAvailableOrError } from "../_shared/findDriversAvailabilitySSOT.ts";
 
 const corsHeaders = {

@@ -15,7 +15,7 @@ import {
   resolveFcmTerminalPhase,
   resolveOfferIdFromPushData,
   shouldRecordFcmPushOutcome,
-} from "../../functions/_shared/fcmPushDeliveryInstrumentation.ts";
+} from "../../functions/send-driver-notification/lib/fcmPushDeliveryInstrumentation.ts";
 
 const BOOKING = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee";
 const DRIVER = "11111111-2222-4333-8444-555555555555";

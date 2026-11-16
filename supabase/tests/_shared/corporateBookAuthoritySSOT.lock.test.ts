@@ -5,7 +5,7 @@ import {
   assertServiceAreaInOrgScope,
   assertClientActionIdOrgBound,
   assertPaymentMethodAllowed,
-} from "../../functions/_shared/corporateBookAuthoritySSOT.ts";
+} from "../../functions/create-corporate-book/lib/corporateBookAuthoritySSOT.ts";
 
 const orgA = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa";
 const orgB = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb";

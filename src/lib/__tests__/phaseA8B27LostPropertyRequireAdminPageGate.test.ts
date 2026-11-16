@@ -7,7 +7,7 @@ import path from 'path';
 import { describe, expect, it } from 'vitest';
 
 const ROOT = path.join(__dirname, '../../..');
-const HELPERS = 'supabase/functions/_shared/lostPropertyHelpers.ts';
+const HELPERS = 'supabase/functions/lost-property/lib/lostPropertyHelpers.ts';
 const ENTRY = 'supabase/functions/lost-property/index.ts';
 const DENO_TEST = 'supabase/functions/_shared/lostPropertyHelpers.a8b27.test.ts';
 

@@ -3,4 +3,4 @@
  * Re-exported here for frontend/test imports.
  */
 
-export * from "../supabase/functions/_shared/pinnedPoiSelection.ts";
+export * from "../supabase/functions/place-lookup/lib/pinnedPoiSelection.ts";

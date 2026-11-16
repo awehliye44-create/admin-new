@@ -1,6 +1,6 @@
 import { createClient } from "npm:@supabase/supabase-js@2.57.2";
 import { requireAdmin, requirePageAccess } from "../_shared/adminPaymentGate.ts";
-import { requestOpsAlertAiAnalysis } from "../_shared/opsAlertAnalysis.ts";
+import { requestOpsAlertAiAnalysis } from "./lib/opsAlertAnalysis.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",

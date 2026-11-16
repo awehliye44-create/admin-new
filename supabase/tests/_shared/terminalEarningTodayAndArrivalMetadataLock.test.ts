@@ -12,8 +12,8 @@
  * left MK-261002-014 with arrival_cancellation_applied = false.
  */
 import { assertEquals, assertStringIncludes } from "jsr:@std/assert@1";
-import { specResolveEconomicDate } from "../../functions/_shared/economicEarnedAtResolverSpec.ts";
-import { sumTodayEarningsPence } from "../../functions/_shared/todayEarningsSsot.ts";
+import { specResolveEconomicDate } from "./support/economicEarnedAtResolverSpec.ts";
+import { sumTodayEarningsPence } from "../../functions/driver-earnings-summary/lib/todayEarningsSsot.ts";
 import {
   arrivalCancellationLegacyPatch,
   TRIP_FEE_PATCH_FAILED,

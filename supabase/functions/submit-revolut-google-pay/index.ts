@@ -28,7 +28,7 @@ import {
   classifyGooglePaySubmitFailure,
   isFailedPaymentState,
   latestFailedPaymentDeclineReason,
-} from "../_shared/googlePaySubmitOutcome.ts";
+} from "./lib/googlePaySubmitOutcome.ts";
 
 const RATE_LIMIT_CONFIG = { limit: 15, windowMs: 60 * 1000 };
 

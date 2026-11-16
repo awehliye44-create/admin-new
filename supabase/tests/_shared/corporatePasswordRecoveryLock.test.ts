@@ -11,8 +11,8 @@ import {
   getRecoveryRedirect,
   isAllowedPasswordResetRecoveryUrl,
   parseRecoveryApp,
-} from "../../functions/_shared/passwordRecoverySSOT.ts";
-import { buildPasswordResetEmail } from "../../functions/_shared/passwordResetEmail.ts";
+} from "../../functions/request-password-recovery/lib/passwordRecoverySSOT.ts";
+import { buildPasswordResetEmail } from "../../functions/request-password-recovery/lib/passwordResetEmail.ts";
 
 Deno.test("parseRecoveryApp accepts corporate", () => {
   assertEquals(parseRecoveryApp("corporate"), "corporate");
