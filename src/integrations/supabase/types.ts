@@ -4324,6 +4324,7 @@ export type Database = {
           accuracy: number | null
           created_at: string
           customer_id: string
+          gps_recorded_at: string | null
           heading: number | null
           latitude: number
           longitude: number
@@ -4335,6 +4336,7 @@ export type Database = {
           accuracy?: number | null
           created_at?: string
           customer_id: string
+          gps_recorded_at?: string | null
           heading?: number | null
           latitude: number
           longitude: number
@@ -4346,6 +4348,7 @@ export type Database = {
           accuracy?: number | null
           created_at?: string
           customer_id?: string
+          gps_recorded_at?: string | null
           heading?: number | null
           latitude?: number
           longitude?: number
@@ -30859,6 +30862,10 @@ export type Database = {
         Args: { p_driver_id: string }
         Returns: Json
       }
+      assert_driver_scheduled_journey_compliance: {
+        Args: { p_driver_id: string; p_trip_id: string }
+        Returns: Json
+      }
       assert_driver_wallet_read_access: {
         Args: { p_driver_id: string }
         Returns: undefined
@@ -30979,6 +30986,10 @@ export type Database = {
       }
       check_driver_documents_approved: {
         Args: { p_driver_id: string }
+        Returns: boolean
+      }
+      check_driver_documents_valid_through: {
+        Args: { p_as_of: string; p_driver_id: string }
         Returns: boolean
       }
       check_email_available_for_change: {
@@ -31628,6 +31639,10 @@ export type Database = {
       }
       driver_eligible_for_new_work_invitation: {
         Args: { p_driver_id: string }
+        Returns: boolean
+      }
+      driver_eligible_for_scheduled_journey: {
+        Args: { p_driver_id: string; p_trip_id: string }
         Returns: boolean
       }
       driver_freshness_reason: {
@@ -32306,6 +32321,7 @@ export type Database = {
         Returns: {
           accuracy: number
           expires_at: string
+          gps_recorded_at: string
           heading: number
           is_fresh: boolean
           latitude: number
@@ -33627,6 +33643,10 @@ export type Database = {
         Args: { p_new_claim_token: string; p_now?: string; p_trip_id: string }
         Returns: Json
       }
+      reconcile_scheduled_journey_compliance: {
+        Args: { p_limit?: number }
+        Returns: Json
+      }
       reconcile_stale_online_drivers: {
         Args: never
         Returns: {
@@ -33788,12 +33808,35 @@ export type Database = {
         }
         Returns: Json
       }
+      release_ineligible_scheduled_assignments_for_driver: {
+        Args: { p_driver_id: string }
+        Returns: Json
+      }
       release_invoice_smoke_send_slot: {
         Args: { p_smoke_run_id: string }
         Returns: Json
       }
       release_scheduled_airport_broadcast_hold: {
         Args: { p_trip_id: string }
+        Returns: Json
+      }
+      release_scheduled_assignment_for_compliance: {
+        Args: {
+          p_expected_driver_id: string
+          p_reason?: string
+          p_trip_id: string
+          p_urgent?: boolean
+        }
+        Returns: Json
+      }
+      release_scheduled_assignment_for_driver_cancel: {
+        Args: {
+          p_expected_driver_id: string
+          p_note?: string
+          p_reason: string
+          p_trip_id: string
+          p_urgent?: boolean
+        }
         Returns: Json
       }
       release_sub_minimum_weekly_payout_reservations: {
@@ -34484,6 +34527,7 @@ export type Database = {
       upsert_customer_live_location: {
         Args: {
           p_accuracy?: number
+          p_gps_recorded_at?: string
           p_heading?: number
           p_latitude: number
           p_longitude: number

@@ -7,6 +7,7 @@ import {
   formatEvidenceAge,
   formatEvidenceDistance,
   googleMapsPointUrl,
+  type LegacyCompletionLocation,
   type TripLocationEvidence,
 } from '@/lib/tripLocationEvidence';
 
@@ -14,6 +15,8 @@ type Props = {
   evidence: TripLocationEvidence[] | undefined;
   isLoading: boolean;
   error: Error | null;
+  /** End position saved on the trip itself, for trips ended before location proof existed. */
+  legacyCompletion?: LegacyCompletionLocation | null;
 };
 
 const fmtTime = (iso: string | null) => (iso ? format(new Date(iso), 'dd MMM yyyy, HH:mm:ss') : '—');
@@ -30,7 +33,7 @@ function Dot({ color, label }: { color: string; label?: string }) {
   );
 }
 
-export function TripLocationEvidencePanel({ evidence, isLoading, error }: Props) {
+export function TripLocationEvidencePanel({ evidence, isLoading, error, legacyCompletion }: Props) {
   return (
     <div className="space-y-2" data-testid="trip-location-evidence">
       <h4 className="text-sm font-semibold flex items-center gap-2">
@@ -54,6 +57,32 @@ export function TripLocationEvidencePanel({ evidence, isLoading, error }: Props)
         <p className="text-sm text-muted-foreground">
           No location proof was recorded for this trip. Proof is saved for taps made from 13 Nov 2026 onwards.
         </p>
+      )}
+
+      {legacyCompletion && (
+        <div className="rounded-md border border-border p-3 space-y-2 text-sm" data-testid="trip-legacy-completion-location">
+          <div className="flex items-center gap-2">
+            <Dot color={EVIDENCE_ACTION_META.trip_completed.color} label={EVIDENCE_ACTION_META.trip_completed.marker} />
+            <p className="font-medium">Driver end-of-trip position (older record)</p>
+          </div>
+          {legacyCompletion.distance_to_dropoff_m != null && (
+            <p className="flex items-center gap-1 text-xs text-destructive">
+              <AlertTriangle className="h-3.5 w-3.5" /> Driver ended the trip{' '}
+              {formatEvidenceDistance(legacyCompletion.distance_to_dropoff_m)} from the drop-off.
+            </p>
+          )}
+          <a
+            href={googleMapsPointUrl(legacyCompletion.lat, legacyCompletion.lng)}
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex items-center gap-1 font-mono text-xs text-primary hover:underline"
+          >
+            {fmtCoord(legacyCompletion.lat, legacyCompletion.lng)} <ExternalLink className="h-3 w-3" />
+          </a>
+          <p className="text-xs text-muted-foreground">
+            Saved on the trip when it ended. It has no GPS time or accuracy, unlike newer location proof.
+          </p>
+        </div>
       )}
 
       {evidence?.map((row) => {

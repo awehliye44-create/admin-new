@@ -31,3 +31,25 @@ describe('trip location evidence', () => {
     expect(sortEvidence(rows).map((r) => r.action)).toEqual(['arrived_pickup', 'no_show', 'trip_completed']);
   });
 });
+
+import { legacyCompletionLocation } from '../tripLocationEvidence';
+
+describe('older trips without location proof', () => {
+  const drop = { dropoff_latitude: 52.0, dropoff_longitude: -0.7 };
+
+  it('shows the trip end position when the driver ended 100 m or more from the drop-off', () => {
+    const r = legacyCompletionLocation({ ...drop, driver_location_lat: 52.002, driver_location_lng: -0.7 }, []);
+    expect(r).not.toBeNull();
+    expect(Math.round(r!.distance_to_dropoff_m!)).toBe(222);
+  });
+
+  it('hides it when the driver ended within 100 m of the drop-off', () => {
+    expect(legacyCompletionLocation({ ...drop, driver_location_lat: 52.0005, driver_location_lng: -0.7 }, [])).toBeNull();
+  });
+
+  it('hides it once a trip-ended proof row exists', () => {
+    expect(
+      legacyCompletionLocation({ ...drop, driver_location_lat: 52.01, driver_location_lng: -0.7 }, [{ action: 'trip_completed' }]),
+    ).toBeNull();
+  });
+});

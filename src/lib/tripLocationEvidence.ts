@@ -78,3 +78,47 @@ export function formatEvidenceAge(seconds: number | null | undefined): string {
 export function googleMapsPointUrl(lat: number, lng: number): string {
   return `https://www.google.com/maps/search/?api=1&query=${lat},${lng}`;
 }
+
+/**
+ * Trips ended before location proof existed only have the trip's own
+ * driver_location_lat/lng. Shown only when no "trip_completed" proof row exists,
+ * and only when the driver was 100 m or more from the drop-off.
+ */
+export const LEGACY_COMPLETION_MIN_DISTANCE_M = 100;
+
+export interface LegacyCompletionLocation {
+  lat: number;
+  lng: number;
+  distance_to_dropoff_m: number | null;
+}
+
+function distanceMeters(lat1: number, lng1: number, lat2: number, lng2: number): number {
+  const R = 6371000;
+  const dLat = ((lat2 - lat1) * Math.PI) / 180;
+  const dLng = ((lng2 - lng1) * Math.PI) / 180;
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos((lat1 * Math.PI) / 180) * Math.cos((lat2 * Math.PI) / 180) * Math.sin(dLng / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+export function legacyCompletionLocation(
+  trip: {
+    driver_location_lat: number | null;
+    driver_location_lng: number | null;
+    dropoff_latitude: number | null;
+    dropoff_longitude: number | null;
+  },
+  evidence: Pick<TripLocationEvidence, 'action'>[],
+): LegacyCompletionLocation | null {
+  if (evidence.some((row) => row.action === 'trip_completed')) return null;
+  const lat = trip.driver_location_lat;
+  const lng = trip.driver_location_lng;
+  if (lat == null || lng == null || !Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+  if (trip.dropoff_latitude == null || trip.dropoff_longitude == null) {
+    return { lat, lng, distance_to_dropoff_m: null };
+  }
+  const d = distanceMeters(lat, lng, trip.dropoff_latitude, trip.dropoff_longitude);
+  if (d < LEGACY_COMPLETION_MIN_DISTANCE_M) return null;
+  return { lat, lng, distance_to_dropoff_m: d };
+}

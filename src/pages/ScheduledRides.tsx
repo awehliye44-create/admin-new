@@ -49,6 +49,10 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { supabase } from '@/integrations/supabase/client';
 import {
+  toAdminScheduledRideActionResult,
+  type AdminScheduledRideActionResult,
+} from '@/lib/adminScheduledRideActionInvoke';
+import {
   adminLookupByIds,
   adminPageSelect,
   adminServiceAreasLookup,
@@ -105,7 +109,7 @@ async function invokeAdminScheduledRideAction(input: {
   reason: string;
   executeAt?: string;
   driverId?: string;
-}): Promise<{ success: boolean; error?: string; message?: string }> {
+}): Promise<AdminScheduledRideActionResult> {
   const { data, error } = await supabase.functions.invoke('admin-scheduled-ride-action', {
     body: {
       action: input.action,
@@ -115,18 +119,7 @@ async function invokeAdminScheduledRideAction(input: {
       driver_id: input.driverId,
     },
   });
-  if (error) {
-    return { success: false, error: error.message || 'Edge invoke failed' };
-  }
-  const body = (data ?? {}) as { success?: boolean; error?: string; message?: string };
-  if (body.success !== true) {
-    return {
-      success: false,
-      error: body.error || 'action_failed',
-      message: body.message,
-    };
-  }
-  return { success: true };
+  return toAdminScheduledRideActionResult(data, error);
 }
 
 function requireEmergencyReason(prefix: string): string | null {
@@ -435,7 +428,7 @@ export default function ScheduledRides() {
         toast.error(
           result.error === 'PAYMENT_GATE_NOT_SATISFIED'
             ? 'Cannot assign — payment authorisation does not cover this booking.'
-            : result.error === 'ACTION_PERMISSION_DENIED' || result.error === 'Forbidden — scheduled_rides.assign required'
+            : result.error === 'ACTION_PERMISSION_DENIED'
             ? 'You do not have permission to Assign'
             : result.error === 'AIRPORT_PRICING_UNRESOLVED'
             ? 'Blocked — unresolved airport pricing'
@@ -493,6 +486,10 @@ export default function ScheduledRides() {
         toast.error(
           result.error === 'PAYMENT_GATE_NOT_SATISFIED'
             ? 'Blocked — payment authorisation does not cover this booking'
+            : result.error === 'ACTION_PERMISSION_DENIED'
+            ? 'You do not have permission to Assign At'
+            : result.error === 'AIRPORT_PRICING_UNRESOLVED'
+            ? 'Blocked — unresolved airport pricing'
             : result.message || result.error || 'Failed to schedule Assign At',
         );
         return;
@@ -569,7 +566,11 @@ export default function ScheduledRides() {
         reason,
       });
       if (!result.success) {
-        toast.error(result.message || result.error || 'Failed to cancel pending release');
+        toast.error(
+          result.error === 'ACTION_PERMISSION_DENIED'
+            ? 'You do not have permission to cancel a pending release'
+            : result.message || result.error || 'Failed to cancel pending release',
+        );
         return;
       }
       toast.success('Pending release cancelled');
