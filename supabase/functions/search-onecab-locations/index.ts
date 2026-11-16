@@ -15,7 +15,7 @@ import { sanitizePostgrestFilterValue } from "../_shared/security.ts";
  */
 
 import { createClient } from "npm:@supabase/supabase-js@2.57.2";
-import { corsHeaders } from "npm:@supabase/supabase-js@2/cors";
+import { corsHeaders } from "../_shared/corsHeaders.ts";
 import {
   geoBoundaryToBbox,
   haversineMetres,
