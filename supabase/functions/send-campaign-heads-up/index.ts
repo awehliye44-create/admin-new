@@ -225,25 +225,6 @@ function jsonResponse(body: unknown, status = 200): Response {
   });
 }
 
-async function requireAdminOrStaff(
-  supabase: AnySupabaseClient,
-  bearer: string,
-  serviceKey: string,
-): Promise<Response | null> {
-  if (bearer === serviceKey) return null;
-  const { data: userData, error: userErr } = await supabase.auth.getUser(bearer);
-  if (userErr || !userData.user) return jsonResponse({ error: "Unauthorized" }, 401);
-  const uid = userData.user.id;
-  const [{ data: adminRole }, { data: staffRow }] = await Promise.all([
-    supabase.from("user_roles").select("role").eq("user_id", uid).eq("role", "admin").maybeSingle(),
-    supabase.from("staff_profiles").select("id").eq("user_id", uid).eq("is_active", true).maybeSingle(),
-  ]);
-  if (!adminRole && !staffRow) {
-    return jsonResponse({ error: "Forbidden — admin or staff role required" }, 403);
-  }
-  return null;
-}
-
 async function resolveFcm(): Promise<
   { ok: true; sa: string; projectId: string } | { ok: false; response: Response }
 > {
