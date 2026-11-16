@@ -1,0 +1,1 @@
+ALTER FUNCTION public._admin_page_bind_value(text, jsonb, text, boolean) SET search_path TO 'public';
