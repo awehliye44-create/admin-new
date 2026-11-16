@@ -9,7 +9,7 @@ cd "$ROOT"
 
 echo "=== [1/2] Bug #29 Edge bundle lock ==="
 deno test --no-check --allow-read \
-  supabase/functions/_shared/scheduledJitActivationEdgeBundleLock.test.ts
+  supabase/tests/_shared/scheduledJitActivationEdgeBundleLock.test.ts
 
 PROJECT_REF="${SUPABASE_PROJECT_REF:-thazislrdkjpvvghtvzo}"
 SERVICE_KEY="${SUPABASE_SERVICE_ROLE_KEY:-}"

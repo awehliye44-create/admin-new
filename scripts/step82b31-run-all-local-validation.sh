@@ -15,14 +15,14 @@ bash "$REPO/scripts/step82b31-deploy-wrapper.test.sh" | tee -a "$AUDIT/tests.log
 
 echo "=== behavioural + regression ===" | tee -a "$AUDIT/tests.log"
 deno test --allow-read --allow-run --no-check --allow-env \
-  "$REPO/supabase/functions/_shared/adminCaptureTripPaymentPreconditions.test.ts" \
-  "$REPO/supabase/functions/_shared/adminCaptureTripPaymentSSOT.test.ts" \
-  "$REPO/supabase/functions/_shared/adminCaptureTripPaymentOwnershipLock.test.ts" \
-  "$REPO/supabase/functions/_shared/applyProviderRefundBehaviour.test.ts" \
-  "$REPO/supabase/functions/_shared/applyProviderRefundAtomicBehaviour.test.ts" \
-  "$REPO/supabase/functions/_shared/financeOwnershipLock.test.ts" \
-  "$REPO/supabase/functions/_shared/applyCanonicalSettlementAfterCapture.test.ts" \
-  "$REPO/supabase/functions/_shared/step82a2BundleBoot.test.ts" \
+  "$REPO/supabase/tests/_shared/adminCaptureTripPaymentPreconditions.test.ts" \
+  "$REPO/supabase/tests/_shared/adminCaptureTripPaymentSSOT.test.ts" \
+  "$REPO/supabase/tests/_shared/adminCaptureTripPaymentOwnershipLock.test.ts" \
+  "$REPO/supabase/tests/_shared/applyProviderRefundBehaviour.test.ts" \
+  "$REPO/supabase/tests/_shared/applyProviderRefundAtomicBehaviour.test.ts" \
+  "$REPO/supabase/tests/_shared/financeOwnershipLock.test.ts" \
+  "$REPO/supabase/tests/_shared/applyCanonicalSettlementAfterCapture.test.ts" \
+  "$REPO/supabase/tests/_shared/step82a2BundleBoot.test.ts" \
   | tee -a "$AUDIT/tests.log"
 
 echo "ALL_STEP82B31_LOCAL_VALIDATION_PASS"
