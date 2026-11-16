@@ -68,8 +68,8 @@ Deno.test("monitor: no Slack / PagerDuty / external alerting, no PII in the stru
 
 Deno.test("scans reuse the existing SSOTs (no new fare maths)", async () => {
   const scans = await read(SCANS);
-  assertStringIncludes(scans, 'from "./committedBookingOfferFareSSOT.ts"');
-  assertStringIncludes(scans, 'from "./airportChargeFareSplitSSOT.ts"');
+  assertStringIncludes(scans, 'from "../../_shared/committedBookingOfferFareSSOT.ts"');
+  assertStringIncludes(scans, 'from "../../_shared/airportChargeFareSplitSSOT.ts"');
   assertStringIncludes(scans, "resolveCommittedOfferGross");
   assertStringIncludes(scans, "stampOfferDriverNetFromCommittedFare");
   assertStringIncludes(scans, "driverNetFromCustomerTotal");

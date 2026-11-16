@@ -1,7 +1,7 @@
 /**
  * Bug #29 lock — JIT / Phase-5 shared modules must be static imports.
  *
- * Dynamic import("../../functions/_shared/scheduledJourneyComplianceGate.ts") (and
+ * Dynamic import("../_shared/scheduledJourneyComplianceGate.ts") (and
  * scheduledDepartureAckRescueGateSSOT) omitted the files from the Supabase
  * Edge eszip → scheduled-dispatch returned HTTP 500 Module not found every
  * minute, so confirmed JIT never armed (MK-261115-002).
@@ -44,8 +44,8 @@ Deno.test("Bug #29: journey compliance is a static import (not dynamic)", async 
   for (const rel of MUST_STATIC_JOURNEY) {
     const src = stripComments(await Deno.readTextFile(join(REPO, rel)));
     assert(
-      src.includes('from "../../functions/_shared/scheduledJourneyComplianceGate.ts"') ||
-        src.includes('from "../../functions/_shared/scheduledJourneyComplianceGate.ts"'),
+      src.includes('from "./scheduledJourneyComplianceGate.ts"') ||
+        src.includes('from "../_shared/scheduledJourneyComplianceGate.ts"'),
       `${rel} must statically import scheduledJourneyComplianceGate`,
     );
     assert(
@@ -60,8 +60,8 @@ Deno.test("Bug #29: departure-ack rescue gate is a static import (not dynamic)",
   for (const rel of MUST_STATIC_RESCUE_GATE) {
     const src = stripComments(await Deno.readTextFile(join(REPO, rel)));
     assert(
-      src.includes('from "../../functions/_shared/scheduledDepartureAckRescueGateSSOT.ts"') ||
-        src.includes('from "../../functions/_shared/scheduledDepartureAckRescueGateSSOT.ts"'),
+      src.includes('from "../_shared/scheduledDepartureAckRescueGateSSOT.ts"') ||
+        src.includes('from "./scheduledDepartureAckRescueGateSSOT.ts"'),
       `${rel} must statically import scheduledDepartureAckRescueGateSSOT`,
     );
     assert(
@@ -117,13 +117,13 @@ Deno.test("Bug #29: exclusive rescue statically imports eligibility + journey ga
       ),
     ),
   );
-  assert(src.includes('from "../../functions/_shared/rideOfferDriverEligibility.ts"'));
+  assert(src.includes('from "./rideOfferDriverEligibility.ts"'));
   assert(
     !/await\s+import\(\s*["']\.\/rideOfferDriverEligibility\.ts["']\s*\)/.test(
       src,
     ),
   );
-  assert(src.includes('from "../../functions/_shared/scheduledJourneyComplianceGate.ts"'));
+  assert(src.includes('from "./scheduledJourneyComplianceGate.ts"'));
 });
 
 Deno.test("Bug #29: scheduled-dispatch top-level HTTP 500 ops alert", async () => {
@@ -179,7 +179,7 @@ Deno.test("Bug #29: scheduled-checkin statically imports DepartureAck SSOT", asy
       join(REPO, "supabase/functions/scheduled-checkin/index.ts"),
     ),
   );
-  assert(src.includes('from "../../functions/_shared/scheduledDepartureAckSSOT.ts"'));
+  assert(src.includes('from "../_shared/scheduledDepartureAckSSOT.ts"'));
   assert(
     !/await\s+import\(\s*["']\.\.\/_shared\/scheduledDepartureAckSSOT\.ts["']\s*\)/
       .test(src),
@@ -192,9 +192,9 @@ Deno.test("Bug #29: auto-dispatch statically imports directional SSOT", async ()
       join(REPO, "supabase/functions/auto-dispatch/index.ts"),
     ),
   );
-  assert(src.includes('from "../../functions/auto-dispatch/lib/scheduledDirectionalDispatchSSOT.ts"'));
+  assert(src.includes('from "./lib/scheduledDirectionalDispatchSSOT.ts"'));
   assert(
-    !/await\s+import\(\s*["']\.\.\/_shared\/scheduledDirectionalDispatchSSOT\.ts["']\s*\)/
+    !/await\s+import\(\s*["'](\.\/lib\/|\.\.\/_shared\/)scheduledDirectionalDispatchSSOT\.ts["']\s*\)/
       .test(src),
   );
 });
@@ -205,14 +205,14 @@ Deno.test("Bug #29: scheduled-dispatch keeps lateness + early-arrival static", a
       join(REPO, "supabase/functions/scheduled-dispatch/index.ts"),
     ),
   );
-  assert(src.includes('from "../../functions/scheduled-dispatch/lib/scheduledPostActivationLatenessSSOT.ts"'));
-  assert(src.includes('from "../../functions/scheduled-dispatch/lib/scheduledEarlyArrivalUnlockSSOT.ts"'));
+  assert(src.includes('from "./lib/scheduledPostActivationLatenessSSOT.ts"'));
+  assert(src.includes('from "./lib/scheduledEarlyArrivalUnlockSSOT.ts"'));
   assert(
-    !/await\s+import\(\s*["']\.\.\/_shared\/scheduledPostActivationLatenessSSOT\.ts["']\s*\)/
+    !/await\s+import\(\s*["'](\.\/lib\/|\.\.\/_shared\/)scheduledPostActivationLatenessSSOT\.ts["']\s*\)/
       .test(src),
   );
   assert(
-    !/await\s+import\(\s*["']\.\.\/_shared\/scheduledEarlyArrivalUnlockSSOT\.ts["']\s*\)/
+    !/await\s+import\(\s*["'](\.\/lib\/|\.\.\/_shared\/)scheduledEarlyArrivalUnlockSSOT\.ts["']\s*\)/
       .test(src),
   );
 });
