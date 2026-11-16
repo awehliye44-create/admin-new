@@ -465,6 +465,18 @@ export default function TripHistory() {
   useEffect(() => {
     locationEvidenceRef.current = locationEvidence ?? [];
   }, [locationEvidence]);
+  // Trips ended before location proof existed: fall back to the trip's own end position.
+  const legacyCompletion = useMemo(
+    () =>
+      !selectedTrip || locationEvidenceQuery.isLoading
+        ? null
+        : legacyCompletionLocation(selectedTrip, locationEvidence ?? []),
+    [selectedTrip, locationEvidence, locationEvidenceQuery.isLoading],
+  );
+  const legacyCompletionRef = useRef<LegacyCompletionLocation | null>(null);
+  useEffect(() => {
+    legacyCompletionRef.current = legacyCompletion;
+  }, [legacyCompletion]);
 
   const getDateRange = useCallback(() => {
     const now = new Date();
@@ -823,6 +835,13 @@ export default function TripHistory() {
       }
     });
 
+    const legacy = legacyCompletionRef.current;
+    if (legacy) {
+      const meta = EVIDENCE_ACTION_META.trip_completed;
+      addCircleMarker(legacy.lng, legacy.lat, meta.color, 'Driver end-of-trip position (older record)', meta.marker);
+      bounds.extend([legacy.lng, legacy.lat]);
+    }
+
     const srcId = routeSourceIdRef.current;
     const layerId = `${srcId}-layer`;
     const lineData: GeoJSON.Feature<GeoJSON.LineString> = {
@@ -933,7 +952,7 @@ export default function TripHistory() {
     if (!map || !isMapLoaded || !selectedTrip) return;
     if (map.isStyleLoaded()) drawTripRouteOnMap(map);
     else map.once('load', () => drawTripRouteOnMap(map));
-  }, [selectedTrip, tripStops, locationEvidence, isMapLoaded, drawTripRouteOnMap]);
+  }, [selectedTrip, tripStops, locationEvidence, legacyCompletion, isMapLoaded, drawTripRouteOnMap]);
 
   const formatDuration = (minutes: number | null) => {
     if (!minutes) return 'N/A';
@@ -2195,6 +2214,7 @@ export default function TripHistory() {
                     evidence={locationEvidence}
                     isLoading={locationEvidenceQuery.isLoading}
                     error={locationEvidenceQuery.error as Error | null}
+                    legacyCompletion={legacyCompletion}
                   />
                 </div>
               </div>

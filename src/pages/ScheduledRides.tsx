@@ -486,6 +486,10 @@ export default function ScheduledRides() {
         toast.error(
           result.error === 'PAYMENT_GATE_NOT_SATISFIED'
             ? 'Blocked — payment authorisation does not cover this booking'
+            : result.error === 'ACTION_PERMISSION_DENIED'
+            ? 'You do not have permission to Assign At'
+            : result.error === 'AIRPORT_PRICING_UNRESOLVED'
+            ? 'Blocked — unresolved airport pricing'
             : result.message || result.error || 'Failed to schedule Assign At',
         );
         return;
@@ -562,7 +566,11 @@ export default function ScheduledRides() {
         reason,
       });
       if (!result.success) {
-        toast.error(result.message || result.error || 'Failed to cancel pending release');
+        toast.error(
+          result.error === 'ACTION_PERMISSION_DENIED'
+            ? 'You do not have permission to cancel a pending release'
+            : result.message || result.error || 'Failed to cancel pending release',
+        );
         return;
       }
       toast.success('Pending release cancelled');
