@@ -42,10 +42,12 @@ export type GooglePaySubmitFailure = {
 /**
  * @param providerRejected true when Revolut returned a failed/declined payment;
  *   false when the submit call itself errored (no provider outcome known).
+ * @param revolutHttpStatus Merchant API HTTP status when the pay call itself failed.
  */
 export function classifyGooglePaySubmitFailure(args: {
   declineReason: string | null | undefined;
   providerRejected: boolean;
+  revolutHttpStatus?: number | null;
 }): GooglePaySubmitFailure {
   const declineReason = String(args.declineReason ?? "").trim() || null;
   if (findBankDeclineReason(declineReason)) {
@@ -57,11 +59,54 @@ export function classifyGooglePaySubmitFailure(args: {
       bank_declined: true,
     };
   }
+  if (args.providerRejected || declineReason) {
+    return {
+      status: 402,
+      code: "PAYMENT_NOT_AUTHORISED",
+      message: REVOLUT_PAYMENT_NOT_AUTHORISED_CUSTOMER_MESSAGE,
+      decline_reason: declineReason,
+      bank_declined: false,
+    };
+  }
+  // Revolut validation / client errors are definitive — never a 502 "maybe paid" hang.
+  const revolutStatus = Number(args.revolutHttpStatus ?? 0);
+  if (revolutStatus >= 400 && revolutStatus < 500) {
+    return {
+      status: 400,
+      code: "GOOGLE_PAY_SUBMIT_FAILED",
+      message: REVOLUT_PAYMENT_NOT_AUTHORISED_CUSTOMER_MESSAGE,
+      decline_reason: null,
+      bank_declined: false,
+    };
+  }
   return {
-    status: args.providerRejected || declineReason ? 402 : 502,
-    code: args.providerRejected || declineReason ? "PAYMENT_NOT_AUTHORISED" : "GOOGLE_PAY_SUBMIT_FAILED",
+    status: 502,
+    code: "GOOGLE_PAY_SUBMIT_FAILED",
     message: REVOLUT_PAYMENT_NOT_AUTHORISED_CUSTOMER_MESSAGE,
-    decline_reason: declineReason,
+    decline_reason: null,
     bank_declined: false,
   };
+}
+
+/** Extract Revolut Merchant API throw shape (plain object, not Error). */
+export function readRevolutApiThrow(err: unknown): {
+  message: string;
+  status: number | null;
+} {
+  if (err instanceof Error) {
+    return { message: err.message || "pay_failed", status: null };
+  }
+  if (err && typeof err === "object") {
+    const rec = err as { message?: unknown; status?: unknown };
+    const message =
+      typeof rec.message === "string" && rec.message.trim()
+        ? rec.message.trim()
+        : "pay_failed";
+    const status =
+      typeof rec.status === "number" && Number.isFinite(rec.status)
+        ? Math.round(rec.status)
+        : null;
+    return { message, status };
+  }
+  return { message: "pay_failed", status: null };
 }

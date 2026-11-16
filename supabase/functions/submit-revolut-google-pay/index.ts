@@ -28,6 +28,7 @@ import {
   classifyGooglePaySubmitFailure,
   isFailedPaymentState,
   latestFailedPaymentDeclineReason,
+  readRevolutApiThrow,
 } from "./lib/googlePaySubmitOutcome.ts";
 
 const RATE_LIMIT_CONFIG = { limit: 15, windowMs: 60 * 1000 };
@@ -231,6 +232,8 @@ serve(async (req) => {
         billingAddress: mapBillingAddress(body.billing_address),
       });
     } catch (err) {
+      // revolutMerchantRequest throws a plain object — never Error.
+      const revolutThrow = readRevolutApiThrow(err);
       // Read-only GET of the same order for Revolut's decline_reason. Never re-submits.
       let declineReason: string | null = null;
       try {
@@ -239,13 +242,18 @@ serve(async (req) => {
       } catch {
         declineReason = null;
       }
-      const failure = classifyGooglePaySubmitFailure({ declineReason, providerRejected: false });
+      const failure = classifyGooglePaySubmitFailure({
+        declineReason,
+        providerRejected: false,
+        revolutHttpStatus: revolutThrow.status,
+      });
       await logAuditEvent(supabase, "GOOGLE_PAY_SUBMIT_FAILED", {
         details: {
           payment_session_id: ps.id,
           provider_order_id: providerOrderId,
           token_sha256: tokenHash,
-          message: err instanceof Error ? err.message : "pay_failed",
+          message: revolutThrow.message,
+          revolut_http_status: revolutThrow.status,
           decline_reason: failure.decline_reason,
           customer_code: failure.code,
         },
@@ -255,7 +263,12 @@ serve(async (req) => {
       return errorResponse(
         failure.message,
         failure.status,
-        { decline_reason: failure.decline_reason, bank_declined: failure.bank_declined },
+        {
+          decline_reason: failure.decline_reason,
+          bank_declined: failure.bank_declined,
+          revolut_message: revolutThrow.message,
+          revolut_http_status: revolutThrow.status,
+        },
         failure.code,
       );
     }
