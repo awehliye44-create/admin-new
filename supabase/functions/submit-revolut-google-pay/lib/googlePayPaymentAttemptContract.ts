@@ -149,7 +149,8 @@ export function verifyGooglePayAttemptBinding(
     return {
       ok: false,
       code: "GOOGLE_PAY_ATTEMPT_MISSING",
-      message: "Google Pay payment attempt context is missing. Start payment again.",
+      message:
+        "Google Pay payment attempt context is missing. Start payment again (do not reuse an old checkout).",
     };
   }
   const sessionId = trimStr(input.paymentSessionId);
@@ -159,7 +160,8 @@ export function verifyGooglePayAttemptBinding(
     return {
       ok: false,
       code: "GOOGLE_PAY_ATTEMPT_GATEWAY_SHA_MISSING",
-      message: "Google Pay order binding could not be verified. Start payment again.",
+      message:
+        "This app version cannot complete Google Pay securely. Force-close the app, reopen to load the latest update, then try Google Pay again — or choose another payment method.",
     };
   }
   if (sessionId && sessionId !== snapshot.payment_session_id) {

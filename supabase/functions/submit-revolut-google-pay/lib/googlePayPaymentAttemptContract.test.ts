@@ -135,7 +135,11 @@ Deno.test("verifyGooglePayAttemptBinding rejects missing gateway sha (fail close
     gatewayMerchantIdSha256: null,
   });
   assertEquals(bad.ok, false);
-  if (!bad.ok) assertEquals(bad.code, "GOOGLE_PAY_ATTEMPT_GATEWAY_SHA_MISSING");
+  if (!bad.ok) {
+    assertEquals(bad.code, "GOOGLE_PAY_ATTEMPT_GATEWAY_SHA_MISSING");
+    // Older OTAs omit gateway_merchant_id_sha256 — fail closed with OTA recovery, never Pay-for-order.
+    assertEquals(/Force-close|latest update/i.test(bad.message), true);
+  }
 });
 
 Deno.test("readGooglePayAttemptSnapshot round-trips metadata", async () => {

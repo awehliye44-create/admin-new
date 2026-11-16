@@ -1,61 +1,116 @@
-# Revolut escalation — Bug #37 Google Pay (ONECAB)
+# Revolut engineering escalation — ONECAB Bug #37 (Google Pay)
 
-**Status:** Provider-side evidence required. Do **not** submit fabricated Google Pay tokens to production orders.
+**Merchant:** ONECAB Ltd  
+**Status:** Open — production Google Pay authorisations failing since 2026-11-16 ~13:56 UTC  
+**Constraint:** Do **not** ask ONECAB to submit fabricated Google Pay tokens to production orders.
 
-## Successful authorisations (baseline)
+---
 
-| Session | Created (UTC) | Revolut order prefix | Outcome |
-|---|---|---|---|
-| `5afefb62-d600-4fd3-9263-5c92faffb269` | 2026-11-15 15:33 | `6af9d0c6-6794` | `COMPLETED` / captured + trip |
-| `5f760418-64f2-4237-96f3-25370f6290ea` | 2026-11-15 19:28 | `6afa07b6-976d` | Authorised then released |
+## 1. Last successful authorisations
 
-Success billing (retrieve): UK postcode present (e.g. `MK4 4PY`), street + city.
+| Field | Value |
+|---|---|
+| Session | `5f760418-64f2-4237-96f3-25370f6290ea` |
+| Created (UTC) | **2026-11-15 19:27:50** |
+| Revolut order | `6afa07b6-976d-…` (prefix) |
+| Amount | 720p GBP |
+| Outcome | Token submitted (`google_pay_submitted=true`); order later `CANCELLED` / session `released` (hold released after success path) |
 
-## First subsequent failure (regression start)
+Prior same-day success:
 
-| Session | Created (UTC) | Revolut order prefix | Audit |
-|---|---|---|---|
-| `1980723e-c788-49e2-9196-14edbbd7c40d` | 2026-11-16 13:56 | `6afb0ba8-cb65` | `GOOGLE_PAY_SUBMIT_FAILED` / opaque `pay_failed` (pre-hardened Edge) |
+| Field | Value |
+|---|---|
+| Session | `5afefb62-d600-4fd3-9263-5c92faffb269` |
+| Created (UTC) | **2026-11-15 15:33:26** |
+| Revolut order | `6af9d0c6-6794-…` |
+| Amount | 500p GBP |
+| Outcome | `COMPLETED` / captured + trip created |
+| Billing on retrieve (sanitised) | UK postcode present (shape `MK4 4PY`), street + city present |
 
-Device context: Play Store updated `com.onecab.customer.app` **versionCode 46** at **2026-11-16 12:40:58** (installer `com.android.vending`), ~76 minutes before first fail.
+Also: `a5ec8296-…` at 15:28 UTC same day (captured).
 
-## Latest failed attempt (full billing present)
+**No successful Google Pay submit after 2026-11-16 12:40:58 UTC** (0 / 16 attempts).
+
+---
+
+## 2. First failed attempt (regression start)
+
+| Field | Value |
+|---|---|
+| Session | `1980723e-c788-49e2-9196-14edbbd7c40d` |
+| Created (UTC) | **2026-11-16 13:56:56** |
+| Revolut order | `6afb0ba8-cb65-…` |
+| Amount | 763p GBP |
+| Audit | `GOOGLE_PAY_SUBMIT_FAILED` message `pay_failed` (pre-hardened Edge — **opaque**; does not prove billing vs token) |
+| Trip / hold | none |
+
+Chronology on device under test:
+
+- Play updated `com.onecab.customer.app` to **versionCode 46** at **2026-11-16 12:40:58** (`com.android.vending`).
+- First fail ~76 minutes later.
+
+---
+
+## 3. Latest real failed attempt (structured evidence)
 
 | Field | Value |
 |---|---|
 | Session | `67a7c729-53af-4786-9d6b-d50f99e9b5c6` |
-| Order | `6afb58fd-c9ac-ac08-b38b-4dda3266ec20` |
-| Correlation ID | `c0b7f813-7a5b-4da9-a73f-f1e00d3f3d1a` |
-| Revolut HTTP | `400` |
-| Revolut code / message | `validation` / `postcode is empty` |
-| Our billing field_presence | street, city, postcode, country = true |
-| Token shape | `token_is_json_object=true`, `token_len=1424`, not truncated |
-| Ambiguity | Fake-token probes also return `postcode is empty` — message is **not** conclusive billing proof |
+| Created (UTC) | **2026-11-16 19:26:52** |
+| Revolut order id | `6afb58fd-c9ac-ac08-b38b-4dda3266ec20` |
+| ONECAB correlation id | `c0b7f813-7a5b-4da9-a73f-f1e00d3f3d1a` |
+| Amount | 500p GBP |
+| Revolut HTTP | **400** |
+| Revolut body (sanitised) | `code=validation`, `message=postcode is empty` |
+| Our `billing_address` field_presence | `street=true`, `city=true`, `postcode=true` (len 6, digit+letter), `country=true` |
+| Token shape | `token_is_json_object=true`, `token_len=1424`, not truncated (`token_looks_truncated=false`) |
+| Token fingerprint (SHA-256 prefix) | `d7ee30cea1e9acd8…` (full hash in audit; **never** raw token) |
 
-## Integration contract we follow
+---
 
-- Create order → use response **`token`** (not `id`) as Google Pay `gatewayMerchantId`
-- `gateway`: `revolut`
-- Pay-for-order: `POST /orders/{order_id}/payments` with `payment_method.type=google_pay`
-- Merchant API version for pay: `2024-09-01` (same as other order ops)
-- `environment.type`: `browser` (only value Revolut documents as supported)
-- Billing: Wallet FULL address mapped to Revolut `billing_address` (no invented postcodes)
+## 4. Integration contract (verified against Revolut Android S2S docs)
 
-## Ask for Revolut
+| Step | ONECAB behaviour |
+|---|---|
+| Create order | Merchant API create order → use response **`token`** (public order token), **not** `id` |
+| Google Pay `gateway` | `"revolut"` |
+| Google Pay `gatewayMerchantId` | dynamic per payment = order **`token`** |
+| Tokenisation | `PAYMENT_GATEWAY` |
+| Auth methods | `PAN_ONLY` + `CRYPTOGRAM_3DS` |
+| Billing collection | `billingAddressRequired=true`, format `FULL` |
+| Pay-for-order | `POST /api/orders/{order_id}/payments` |
+| Merchant API version (pay / orders) | **`2024-09-01`** (`Revolut-Api-Version`) |
+| `payment_method.type` | `google_pay` |
+| `environment.type` | `browser` (only documented value) |
+| Billing | Wallet FULL mapped to Revolut `billing_address`; **no** invented postcodes |
 
-1. For order `6afb58fd-…` / request correlated to `c0b7f813-…`, was the Google Pay token decrypted successfully?
-2. If decryption failed, what was the gatewayMerchantId / merchant mismatch?
-3. Why does validation return `postcode is empty` when `billing_address.postcode` is present?
-4. Diff sanitised accept vs reject for success order `6af9d0c6-…` vs fail `6afb58fd-…`.
+Native `PaymentDataRequest` construction is **identical** between last EAS store binary **vc45** (`dfb5128`) and Play **vc46/vc47** release SHA `ec78af1` for gateway / tokenisation / auth methods / FULL billing. `play-services-wallet:19.4.0` unchanged. Upload signing SHA-1 `8D:3D:C7:03:…:85:44` matches.
 
-## Sanitised payload differences (merchant-side)
+---
 
-| | Success `5afefb62` | Fail `67a7c729` |
-|---|---|---|
-| Amount | 500p | 500p |
-| Currency | GBP | GBP |
-| Billing postcode present | yes | yes (len 6, UK shape) |
-| Token submitted | yes | yes (JSON object, len 1424) |
-| Provider payments after submit | authorised/completed | none / rejected |
+## 5. Questions for Revolut
 
-Never include raw Google Pay tokens, cryptograms, PAN, or full addresses in tickets.
+For order **`6afb58fd-c9ac-ac08-b38b-4dda3266ec20`** and ONECAB correlation **`c0b7f813-7a5b-4da9-a73f-f1e00d3f3d1a`**:
+
+1. **Token decryption** — Did Google Pay token decrypt succeed or fail?
+2. **Gateway merchant mismatch** — Did `gatewayMerchantId` in the token match the order’s public `token`?
+3. **Order-token binding** — Was the token bound to a different order / expired token / wrong merchant?
+4. **Merchant / Google Pay configuration** — Any merchant-side Google Pay or production-access regression between 2026-11-15 19:28Z and 2026-11-16 13:56Z?
+5. **Billing validation** — Why return `postcode is empty` when request `billing_address.postcode` is present (UK shape, non-empty)?
+6. **Provider regression** — Any known Google Pay / Pay-for-order validation change in that window?
+
+Please compare sanitised accept path for success order **`6af9d0c6-6794-…`** / session `5afefb62-…` vs reject path for `6afb58fd-…`.
+
+---
+
+## 6. What we are **not** providing
+
+- Raw Google Pay payment tokens / cryptograms / PAN  
+- Customer full billing addresses or cardholder PII beyond field presence  
+- Fabricated tokens for further production probes  
+
+---
+
+## 7. Contact / follow-up
+
+ONECAB can supply additional sanitised audit rows (token SHA-256, correlation ids, HTTP status, field_presence) for any order id you nominate from the failed set after 2026-11-16 13:56Z.
