@@ -28,6 +28,23 @@ Env `false` was set on 2026-11-15 after an APNs probe showed env `true` would ha
 4. **Feature flag tests** — env `false` must keep fanout off when DB is true.
 5. **Production activation** — DB `enabled=true` + env Android/iOS/global `true` after Edge deploy; APNs credentials left untouched.
 
+## Production verification (2026-11-16)
+
+| Check | Result |
+| --- | --- |
+| Edge `publish-customer-live-trip` | Deployed |
+| DB `customer_live_trip_settings` | `enabled/android/ios = true` |
+| Env kill switches | all `true` |
+| APNs probe | configured; JWT mint OK; topic matches bundle |
+| Gates after probe | `global/android/iosEnabled = true` |
+| Admin commit | `2c7d6288` |
+| Customer commit | `d685e46` |
+| OTA Android `1.0.6(46)` (released store) | `01a1e5b2-9c7b-76a1-9738-27ac4609867e` |
+| OTA iOS `1.0.6(23)` (released store) | `01a1e5b2-9c7b-7729-b0d9-e12e977173cf` |
+| OTA Android `1.0.6(47)` / iOS `1.0.6(24)` tip | also published |
+
+**Device QA still required:** background + lock-screen Live Trip on a real Android 1.0.6(46) Customer after OTA cold start, then one live trip.
+
 ## Scheduled / privacy
 
 Unchanged: eligibility SSOT blocks pre-activation scheduled holds; lock-screen content remains first-name / vehicle / ETA / status only (no phone, addresses, payment).
