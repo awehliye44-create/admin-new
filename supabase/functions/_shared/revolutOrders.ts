@@ -322,6 +322,11 @@ export async function payRevolutOrderWithGooglePay(
     (typeof p.cardholderName === "string" && p.cardholderName.trim()) ||
     "Cardholder";
 
+  const street1 = (billing.street_line_1 ?? "").trim() || undefined;
+  const street2 = (billing.street_line_2 ?? "").trim() || undefined;
+  const region = (billing.region ?? "").trim() || undefined;
+  const city = (billing.city ?? "").trim() || undefined;
+
   return await revolutMerchantRequest<RevolutOrderPayment>(
     p.environment,
     p.secretKey,
@@ -333,11 +338,12 @@ export async function payRevolutOrderWithGooglePay(
           type: "google_pay",
           token: p.googlePayToken,
           cardholder_name: cardholder,
+          // Genuine Wallet billing only — required postcode + country_code.
           billing_address: {
-            street_line_1: billing.street_line_1,
-            street_line_2: billing.street_line_2,
-            region: billing.region,
-            city: billing.city,
+            ...(street1 ? { street_line_1: street1 } : {}),
+            ...(street2 ? { street_line_2: street2 } : {}),
+            ...(region ? { region } : {}),
+            ...(city ? { city } : {}),
             country_code: country,
             postcode,
           },
