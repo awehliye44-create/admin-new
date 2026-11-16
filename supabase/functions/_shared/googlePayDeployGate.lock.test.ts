@@ -36,7 +36,7 @@ Deno.test("local submit-revolut-google-pay tree includes billing contract (must 
   assert(contract.includes("isFabricatedGooglePayPostcode"));
   assert(!contract.includes('postcodeCompact === "SW1A1AA"'));
   assertEquals(contract.includes("000000") || contract.includes("/^0+$/"), true);
-  assert(fingerprint.includes("BUG37_GPAY_EDGE_FINGERPRINT_v3_sw1a_late_auth_safe"));
+  assert(fingerprint.includes("BUG37_GPAY_EDGE_FINGERPRINT_v4_token_shape_postcode_paradox"));
   assert(script.includes("LIVE_SUBMIT_HASH"));
   assert(script.includes("mayFinaliseAuthorisedPaymentSession"));
 });

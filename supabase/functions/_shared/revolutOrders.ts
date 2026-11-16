@@ -295,7 +295,54 @@ export type PayGooglePayParams = {
   googlePayToken: string;
   cardholderName?: string | null;
   billingAddress?: GooglePayBillingAddress | null;
+  /** Optional 3DS environment enrichment from the Edge request (never logged). */
+  browserEnvironment?: {
+    client_ip?: string | null;
+    user_agent?: string | null;
+  } | null;
 };
+
+/** Sanitised token diagnostics — never includes token content. */
+export function inspectGooglePayTokenShape(token: string): {
+  token_len: number;
+  token_is_json_object: boolean;
+  token_looks_truncated: boolean;
+} {
+  const trimmed = String(token ?? "").trim();
+  let token_is_json_object = false;
+  if (trimmed.startsWith("{") && trimmed.endsWith("}")) {
+    try {
+      const parsed = JSON.parse(trimmed) as unknown;
+      token_is_json_object =
+        Boolean(parsed) && typeof parsed === "object" && !Array.isArray(parsed);
+    } catch {
+      token_is_json_object = false;
+    }
+  }
+  // Google Pay encrypted tokens are large JSON blobs; order UUIDs are ~36 chars.
+  return {
+    token_len: trimmed.length,
+    token_is_json_object,
+    token_looks_truncated: trimmed.length > 0 && trimmed.length < 80,
+  };
+}
+
+/** Sanitised postcode diagnostics — never includes the postcode value. */
+export function inspectGooglePayPostcodeShape(postcode: string): {
+  postcode_len: number;
+  postcode_compact_len: number;
+  postcode_has_letter: boolean;
+  postcode_has_digit: boolean;
+} {
+  const trimmed = String(postcode ?? "").trim();
+  const compact = trimmed.toUpperCase().replace(/\s+/g, "");
+  return {
+    postcode_len: trimmed.length,
+    postcode_compact_len: compact.length,
+    postcode_has_letter: /[A-Z]/i.test(compact),
+    postcode_has_digit: /\d/.test(compact),
+  };
+}
 
 /**
  * Submit encrypted Google Pay token to Revolut Pay-for-order.
@@ -320,15 +367,34 @@ export async function payRevolutOrderWithGooglePay(
       body: { code: "validation", message: "postcode is empty" },
     } satisfies RevolutApiError;
   }
+
+  const token = String(p.googlePayToken ?? "").trim();
+  const tokenShape = inspectGooglePayTokenShape(token);
+  if (!token || tokenShape.token_looks_truncated || !tokenShape.token_is_json_object) {
+    throw {
+      message: "google_pay_token is invalid",
+      status: 400,
+      body: {
+        code: "validation",
+        message: "google_pay_token is invalid",
+        ...tokenShape,
+      },
+    } satisfies RevolutApiError;
+  }
+
   const cardholder =
     (typeof p.cardholderName === "string" && p.cardholderName.trim()) ||
     "Cardholder";
 
-  const street1 = (billing.street_line_1 ?? "").trim() || undefined;
-  const street2 = (billing.street_line_2 ?? "").trim() || undefined;
-  const region = (billing.region ?? "").trim() || undefined;
-  const city = (billing.city ?? "").trim() || undefined;
+  const street1 = (billing.street_line_1 ?? "").trim();
+  const street2 = (billing.street_line_2 ?? "").trim();
+  const region = (billing.region ?? "").trim();
+  const city = (billing.city ?? "").trim();
+  const clientIp = String(p.browserEnvironment?.client_ip ?? "").trim();
+  const userAgent = String(p.browserEnvironment?.user_agent ?? "").trim();
 
+  // Match Revolut Android server-to-server example shape (required postcode +
+  // country_code; optional lines only when Wallet supplied them).
   return await revolutMerchantRequest<RevolutOrderPayment>(
     p.environment,
     p.secretKey,
@@ -338,9 +404,8 @@ export async function payRevolutOrderWithGooglePay(
       body: JSON.stringify({
         payment_method: {
           type: "google_pay",
-          token: p.googlePayToken,
+          token,
           cardholder_name: cardholder,
-          // Genuine Wallet billing only — required postcode + country_code.
           billing_address: {
             ...(street1 ? { street_line_1: street1 } : {}),
             ...(street2 ? { street_line_2: street2 } : {}),
@@ -359,6 +424,8 @@ export async function payRevolutOrderWithGooglePay(
             challenge_window_width: 360,
             browser_url: "https://onecab.app",
             locale: "en-GB",
+            ...(clientIp ? { client_ip: clientIp } : {}),
+            ...(userAgent ? { user_agent: userAgent } : {}),
           },
         },
       }),

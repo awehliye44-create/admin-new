@@ -12,7 +12,7 @@ REQUIRED_FUNCTIONS=(
 )
 
 # Exact fingerprint from googlePayDeployFingerprint.ts — bump when contract changes.
-EXPECTED_FINGERPRINT="BUG37_GPAY_EDGE_FINGERPRINT_v3_sw1a_late_auth_safe"
+EXPECTED_FINGERPRINT="BUG37_GPAY_EDGE_FINGERPRINT_v4_token_shape_postcode_paradox"
 
 LIVE_MUST_CONTAIN=(
   "resolveGooglePayBillingContract"

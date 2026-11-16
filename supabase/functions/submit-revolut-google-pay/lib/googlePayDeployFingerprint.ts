@@ -5,4 +5,4 @@
  * Bump the suffix when the Google Pay submit contract changes materially.
  */
 export const GOOGLE_PAY_EDGE_DEPLOY_FINGERPRINT =
-  "BUG37_GPAY_EDGE_FINGERPRINT_v3_sw1a_late_auth_safe";
+  "BUG37_GPAY_EDGE_FINGERPRINT_v4_token_shape_postcode_paradox";
