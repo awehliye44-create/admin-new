@@ -5,4 +5,4 @@
  * Bump the suffix when the Google Pay submit contract changes materially.
  */
 export const GOOGLE_PAY_EDGE_DEPLOY_FINGERPRINT =
-  "BUG37_GPAY_EDGE_FINGERPRINT_v5_token_rejected_not_billing";
+  "BUG37_GPAY_EDGE_FINGERPRINT_v6_immutable_attempt_contract";

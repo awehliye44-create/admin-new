@@ -428,6 +428,7 @@ export async function payRevolutOrderWithGooglePay(
             postcode,
           },
           environment: {
+            // Official Revolut Android S2S Google Pay guide: only `browser` is supported.
             type: "browser",
             time_zone_utc_offset: 0,
             color_depth: 48,
@@ -437,6 +438,7 @@ export async function payRevolutOrderWithGooglePay(
             challenge_window_width: 360,
             browser_url: "https://onecab.app",
             locale: "en-GB",
+            accept_header: "application/json",
             ...(clientIp ? { client_ip: clientIp } : {}),
             ...(userAgent ? { user_agent: userAgent } : {}),
           },

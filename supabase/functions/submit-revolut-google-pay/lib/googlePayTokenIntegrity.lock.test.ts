@@ -14,9 +14,12 @@ async function read(rel: string): Promise<string> {
 Deno.test("payRevolutOrderWithGooglePay passes token verbatim under payment_method.google_pay", async () => {
   const src = await read("supabase/functions/_shared/revolutOrders.ts");
   assert(src.includes("type: \"google_pay\""));
-  assert(src.includes("token: p.googlePayToken"));
+  // Local `token` is trimmed from p.googlePayToken then passed verbatim (no re-encode).
+  assert(src.includes("const token = String(p.googlePayToken"));
+  assert(/payment_method:\s*\{[\s\S]*type:\s*"google_pay"[\s\S]*token,/.test(src));
   // Must not JSON.parse / stringify / slice the encrypted token.
   assert(!/JSON\.parse\(\s*p\.googlePayToken/.test(src));
+  assert(!/JSON\.parse\(\s*token\s*\)/.test(src));
   assert(!/googlePayToken\.slice\(/.test(src));
   assert(!/btoa\(\s*p\.googlePayToken/.test(src));
   assert(!/encodeURIComponent\(\s*p\.googlePayToken/.test(src));
@@ -70,7 +73,9 @@ Deno.test("sanitised success vs fail payload shapes differ only by billing/token
 Deno.test("gateway config remains revolut + order token (client native) — server does not re-tokenise", async () => {
   const submit = await read("supabase/functions/submit-revolut-google-pay/index.ts");
   assert(submit.includes("payRevolutOrderWithGooglePay"));
-  // Server must not invent a second gateway merchant id / re-wrap token.
-  assert(!/gatewayMerchantId/.test(submit));
+  // Binding may verify gateway_merchant_id_sha256 — must never mint PaymentDataRequest fields.
+  assert(submit.includes("gateway_merchant_id_sha256") || submit.includes("gatewayMerchantIdSha256"));
   assert(!/PAYMENT_GATEWAY/.test(submit));
+  assert(!/\.put\(\s*"gatewayMerchantId"/.test(submit));
+  assert(!/tokenizationSpecification/.test(submit));
 });

@@ -43,6 +43,10 @@ import {
   readRevolutApiThrow,
   type GooglePaySubmitFailure,
 } from "./lib/googlePaySubmitOutcome.ts";
+import {
+  readGooglePayAttemptSnapshot,
+  verifyGooglePayAttemptBinding,
+} from "./lib/googlePayPaymentAttemptContract.ts";
 
 const RATE_LIMIT_CONFIG = { limit: 15, windowMs: 60 * 1000 };
 
@@ -132,6 +136,10 @@ serve(async (req) => {
       typeof body.google_pay_token === "string" ? body.google_pay_token.trim() : "";
     const cardholderName =
       typeof body.cardholder_name === "string" ? body.cardholder_name.trim() : null;
+    const gatewayMerchantIdSha256 =
+      typeof body.gateway_merchant_id_sha256 === "string"
+        ? body.gateway_merchant_id_sha256.trim().toLowerCase()
+        : "";
 
     if (!providerOrderId || !googlePayToken) {
       return errorResponse(
@@ -206,6 +214,62 @@ serve(async (req) => {
         status: ps.status,
         provider_state: ps.provider_state,
       });
+    }
+
+    // Immutable attempt binding — Wallet token must match the create-preauth order.
+    const attemptSnapshot = readGooglePayAttemptSnapshot(meta);
+    const attemptBind = verifyGooglePayAttemptBinding({
+      snapshot: attemptSnapshot,
+      paymentSessionId: ps.id,
+      providerOrderId: String(ps.provider_order_id ?? providerOrderId),
+      gatewayMerchantIdSha256: gatewayMerchantIdSha256 || null,
+      amountPence:
+        typeof ps.authorised_amount_pence === "number"
+          ? ps.authorised_amount_pence
+          : null,
+      currency: "GBP",
+    });
+    if (!attemptBind.ok) {
+      const failure: GooglePaySubmitFailure = {
+        status: 409,
+        code: attemptBind.code,
+        message: attemptBind.message,
+        decline_reason: null,
+        bank_declined: false,
+        category: "validation",
+        ambiguous: false,
+        revolut_error_code: attemptBind.code,
+        revolut_message: attemptBind.code,
+        payment_stage: "attempt_binding",
+      };
+      await logAuditEvent(supabase, "GOOGLE_PAY_SUBMIT_FAILED", {
+        details: {
+          payment_session_id: ps.id,
+          provider_order_id: providerOrderId,
+          token_sha256: tokenHash,
+          message: attemptBind.code,
+          customer_code: failure.code,
+          category: failure.category,
+          payment_stage: failure.payment_stage,
+          correlation_id: correlationId,
+          ambiguous: false,
+          attempt_generation: attemptSnapshot?.generation ?? null,
+          order_token_suffix: attemptSnapshot?.order_token_suffix ?? null,
+          gateway_merchant_id_sha_present: Boolean(gatewayMerchantIdSha256),
+        },
+        ipAddress: clientIP,
+        userAgent: req.headers.get("user-agent") || "unknown",
+      });
+      return errorResponse(
+        failure.message,
+        failure.status,
+        {
+          category: failure.category,
+          correlation_id: correlationId,
+          attempt_code: attemptBind.code,
+        },
+        failure.code,
+      );
     }
 
     const { secretKey, environment } = await resolveRevolutMerchantContext(supabase, "live");

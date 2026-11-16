@@ -1320,6 +1320,99 @@ export async function createRevolutPreauthResponse(
       "revolutPreauth.ts:upsertPaymentSessionPending",
       { payment_session_id: paymentSessionId },
     );
+
+    // Bug #37 — bind Google Pay Wallet authorisation to this exact order token.
+    if (
+      paymentSessionId &&
+      String(paymentMethodType ?? "").toLowerCase() === "google_pay" &&
+      typeof order.token === "string" &&
+      order.token.trim()
+    ) {
+      try {
+        const { buildGooglePayAttemptSnapshot } = await import(
+          "../submit-revolut-google-pay/lib/googlePayPaymentAttemptContract.ts"
+        );
+        const attempt = await buildGooglePayAttemptSnapshot({
+          paymentSessionId,
+          providerOrderId: order.id,
+          orderToken: order.token,
+          amountPence: authorisedAmountPence,
+          currency: "GBP",
+          generation: 1,
+        });
+        const { data: existingRow } = await supabase
+          .from("payment_sessions")
+          .select("metadata")
+          .eq("id", paymentSessionId)
+          .maybeSingle();
+        const priorMeta =
+          existingRow?.metadata && typeof existingRow.metadata === "object"
+            ? (existingRow.metadata as Record<string, unknown>)
+            : {};
+        const { error: attemptErr } = await supabase
+          .from("payment_sessions")
+          .update({
+            metadata: {
+              ...priorMeta,
+              google_pay_attempt: attempt,
+              mutation_source: "create_preauth_google_pay_attempt",
+            },
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", paymentSessionId);
+        if (attemptErr) {
+          logStep("Google Pay attempt bind failed — cancelling order", {
+            paymentSessionId,
+            error: attemptErr.message,
+          });
+          try {
+            const { cancelRevolutOrder } = await import("./revolutOrders.ts");
+            await cancelRevolutOrder(environment, secretKey, order.id);
+          } catch (cancelErr) {
+            logStep("Google Pay attempt-bind cancel failed", {
+              orderId: order.id,
+              error: String(cancelErr),
+            });
+          }
+          return new Response(JSON.stringify({
+            error:
+              "We couldn't start Google Pay for this booking. Please try again.",
+            code: "GOOGLE_PAY_ATTEMPT_BIND_FAILED",
+            charge_state: "reversed",
+            payment_intent_id: order.id,
+          }), {
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+            status: 500,
+          });
+        }
+        logStep("Google Pay attempt bound", {
+          paymentSessionId,
+          order_token_suffix: attempt.order_token_suffix,
+          generation: attempt.generation,
+        });
+      } catch (bindErr) {
+        logStep("Google Pay attempt bind threw — cancelling order", {
+          paymentSessionId,
+          error: bindErr instanceof Error ? bindErr.message : String(bindErr),
+        });
+        try {
+          const { cancelRevolutOrder } = await import("./revolutOrders.ts");
+          await cancelRevolutOrder(environment, secretKey, order.id);
+        } catch {
+          // best-effort cancel
+        }
+        return new Response(JSON.stringify({
+          error:
+            "We couldn't start Google Pay for this booking. Please try again.",
+          code: "GOOGLE_PAY_ATTEMPT_BIND_FAILED",
+          charge_state: "reversed",
+          payment_intent_id: order.id,
+        }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+          status: 500,
+        });
+      }
+    }
   }
 
   if (clientActionId || tripId) {
