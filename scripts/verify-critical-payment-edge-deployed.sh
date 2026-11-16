@@ -122,13 +122,18 @@ if ! download_fn revolut-webhook; then
   exit 2
 fi
 
-LIVE_SUBMIT_ROOT="$(find "$TMPDIR_GATE/submit-revolut-google-pay" -type d -path '*/submit-revolut-google-pay' | head -1)"
-LIVE_WEBHOOK_ROOT="$(find "$TMPDIR_GATE/revolut-webhook" -type d -path '*/revolut-webhook' | head -1)"
-if [[ -z "$LIVE_SUBMIT_ROOT" || -z "$LIVE_WEBHOOK_ROOT" ]]; then
+# Prefer the nested supabase/functions/<slug> tree (not the outer download cwd).
+LIVE_SUBMIT_ROOT="$(find "$TMPDIR_GATE/submit-revolut-google-pay" -type f -path '*/supabase/functions/submit-revolut-google-pay/index.ts' -print \
+  | head -1 | xargs -I{} dirname {})"
+LIVE_WEBHOOK_ROOT="$(find "$TMPDIR_GATE/revolut-webhook" -type f -path '*/supabase/functions/revolut-webhook/index.ts' -print \
+  | head -1 | xargs -I{} dirname {})"
+if [[ -z "$LIVE_SUBMIT_ROOT" || -z "$LIVE_WEBHOOK_ROOT" || ! -f "$LIVE_SUBMIT_ROOT/index.ts" ]]; then
   echo "DEPLOY_GATE_BLOCKED: downloaded trees missing expected folders"
-  find "$TMPDIR_GATE" -maxdepth 4 -type d | head -40
+  find "$TMPDIR_GATE" -maxdepth 6 -type d | head -40
   exit 2
 fi
+echo "LIVE_SUBMIT_ROOT: $LIVE_SUBMIT_ROOT"
+echo "LIVE_WEBHOOK_ROOT: $LIVE_WEBHOOK_ROOT"
 
 LIVE_BLOB="$(find "$LIVE_SUBMIT_ROOT" "$LIVE_WEBHOOK_ROOT" -type f \( -name '*.ts' -o -name '*.js' \) -print0 | xargs -0 cat 2>/dev/null || true)"
 
