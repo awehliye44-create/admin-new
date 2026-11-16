@@ -25,10 +25,14 @@ import {
 } from "../_shared/revolutOrders.ts";
 import { resolveRevolutMerchantContext } from "../_shared/revolutMerchantContext.ts";
 import { resolveGooglePayBillingContract } from "./lib/googlePayBillingContract.ts";
+import { GOOGLE_PAY_EDGE_DEPLOY_FINGERPRINT } from "./lib/googlePayDeployFingerprint.ts";
 import {
   googlePayFailureFingerprint,
   upsertGooglePayOpsAlert,
 } from "./lib/googlePayOpsAlertSSOT.ts";
+
+// Keep fingerprint referenced so the Edge bundle always embeds it for deploy gate.
+void GOOGLE_PAY_EDGE_DEPLOY_FINGERPRINT;
 import {
   classifyGooglePaySubmitFailure,
   isFailedPaymentState,

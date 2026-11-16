@@ -309,15 +309,11 @@ export async function payRevolutOrderWithGooglePay(
   const billing = p.billingAddress ?? {};
   const country = (billing.country_code ?? "GB").trim().toUpperCase() || "GB";
   const postcode = (billing.postcode ?? "").trim();
-  // Revolut Merchant Pay-for-order rejects empty / placeholder postcodes
-  // ("postcode is empty"). Never invent "000000" — fail closed upstream.
+  // Revolut Merchant Pay-for-order requires a real postcode. Never invent
+  // "000000". Do not blacklist genuine UK postcodes (e.g. SW1A 1AA).
   const postcodeCompact = postcode.toUpperCase().replace(/\s+/g, "");
-  const placeholder =
-    !postcode ||
-    /^0+$/.test(postcodeCompact) ||
-    postcodeCompact === "SW1A1AA" ||
-    postcodeCompact === "TEST";
-  if (placeholder) {
+  const fabricated = !postcode || /^0+$/.test(postcodeCompact);
+  if (fabricated) {
     throw {
       message: "postcode is empty",
       status: 400,

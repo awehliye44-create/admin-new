@@ -36,6 +36,7 @@ import {
 } from "../_shared/paymentSessionLifecycleStateSSOT.ts";
 import { applyPaymentSessionWebhookLifecycleUpdate } from "../_shared/applyPaymentSessionWebhookLifecycleUpdate.ts";
 import { cancelTripForLostPaymentAuthorisation } from "./lib/lostPaymentAuthorisationTripSSOT.ts";
+import { mayFinaliseAuthorisedPaymentSession } from "./lib/mayFinaliseAuthorisedPaymentSession.ts";
 import { resolvePaymentSessionCaptureAdvanceExtras } from "../_shared/paymentSessionCaptureTimestampSSOT.ts";
 import { transitionPaymentSession } from "../_shared/paymentSessionTransitionFacade.ts";
 import { persistProviderFeeAndMaybeResumeTerminalSettlement } from "../_shared/terminalFeeSettlementResumptionSSOT.ts";
@@ -801,9 +802,13 @@ Deno.serve(async (req) => {
 
         if (
           ["AUTHORISED", "COMPLETED", "CAPTURED"].includes(effectiveStateUpper) &&
-          !session.trip_id &&
-          !alreadyOrphaned &&
-          !["cancelled", "failed", "released"].includes(sessionStatus)
+          mayFinaliseAuthorisedPaymentSession({
+            sessionStatus,
+            holdReleaseState: session.hold_release_state,
+            tripId: session.trip_id,
+            alreadyOrphaned,
+            metadata: sessionMeta,
+          })
         ) {
           // Persist authoritative capture_deadline before finalize (CTAP parity).
           // Never invent a deadline — provider order / retrieve only.

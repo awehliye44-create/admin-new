@@ -114,18 +114,44 @@ Deno.test("billing contract accepts Google Pay key aliases and international cou
   if (us.ok) assertEquals(us.billing.country_code, "US");
 });
 
-Deno.test("billing contract rejects missing and placeholder postcodes", () => {
+Deno.test("billing contract accepts SW1A 1AA; rejects only empty/all-zero fabrication", () => {
   assertEquals(resolveGooglePayBillingContract({ countryCode: "GB" }).ok, false);
   assertEquals(
     resolveGooglePayBillingContract({ postcode: "000000", country_code: "GB" }).ok,
     false,
   );
-  assertEquals(
-    resolveGooglePayBillingContract({ postcode: "SW1A 1AA", country_code: "GB" }).ok,
-    false,
-  );
+  const sw1a = resolveGooglePayBillingContract({
+    postcode: "SW1A 1AA",
+    country_code: "GB",
+  });
+  assertEquals(sw1a.ok, true);
+  if (sw1a.ok) assertEquals(sw1a.billing.postcode, "SW1A 1AA");
   assertEquals(isPlaceholderGooglePayPostcode("000000"), true);
+  assertEquals(isPlaceholderGooglePayPostcode("SW1A 1AA"), false);
   assertEquals(isPlaceholderGooglePayPostcode("MK4 4PY"), false);
+});
+
+Deno.test("billing contract accepts international addresses; never invents missing postcode", () => {
+  const us = resolveGooglePayBillingContract({
+    address1: "1600 Amphitheatre Parkway",
+    locality: "Mountain View",
+    postalCode: "94043",
+    countryCode: "US",
+  });
+  assertEquals(us.ok, true);
+  if (us.ok) {
+    assertEquals(us.billing.country_code, "US");
+    assertEquals(us.billing.postcode, "94043");
+  }
+  // HK has no mandatory domestic postcode — Revolut still requires a Wallet
+  // value; we fail closed rather than invent.
+  const hk = resolveGooglePayBillingContract({
+    address1: "Main Street",
+    locality: "Hong Kong",
+    countryCode: "HK",
+  });
+  assertEquals(hk.ok, false);
+  if (!hk.ok) assertEquals(hk.code, "GOOGLE_PAY_BILLING_INCOMPLETE");
 });
 
 Deno.test("ops alert row includes required NOT NULL columns", () => {
