@@ -8,6 +8,10 @@ export type AuthoritativeToken = {
   token: string;
   platform: string;
   device_id: string;
+  /** Native/OTA hints for Live Trip runtime gating (optional). */
+  app_version?: string | null;
+  runtime_version?: string | null;
+  client_capabilities?: string[] | null;
 };
 
 /** Driver: active device → matching active push token only. */
@@ -85,13 +89,27 @@ export async function resolveCustomerAuthoritativeToken(
   const authUserId = await resolveCustomerAuthUserId(client, userId);
   const { data: active, error: activeErr } = await client
     .from("customer_active_devices")
-    .select("device_id, platform")
+    .select(
+      "device_id, platform, app_version, runtime_version, client_capabilities",
+    )
     .eq("user_id", authUserId)
     .maybeSingle();
 
   if (activeErr || !active?.device_id) {
     return null;
   }
+
+  const runtimeHints = {
+    app_version:
+      typeof active.app_version === "string" ? active.app_version : null,
+    runtime_version:
+      typeof active.runtime_version === "string"
+        ? active.runtime_version
+        : null,
+    client_capabilities: Array.isArray(active.client_capabilities)
+      ? (active.client_capabilities as string[])
+      : null,
+  };
 
   let query = client
     .from("customer_push_tokens")
@@ -115,6 +133,7 @@ export async function resolveCustomerAuthoritativeToken(
         token: matched.token,
         platform: matched.platform ?? active.platform,
         device_id: active.device_id,
+        ...runtimeHints,
       };
     }
   }
@@ -129,5 +148,6 @@ export async function resolveCustomerAuthoritativeToken(
     token: row.token,
     platform: row.platform ?? active.platform ?? "android",
     device_id: active.device_id,
+    ...runtimeHints,
   };
 }

@@ -28,6 +28,7 @@ import {
 } from "../_shared/fcmHttpV1.ts";
 import { resolveCustomerAuthoritativeToken } from "../_shared/authoritativeDevicePush.ts";
 import { resolveCustomerLiveTripPlatformGates } from "../_shared/customerLiveTripFeatureFlag.ts";
+import { isCustomerLiveTripRuntimeCompatible } from "../_shared/customerLiveTripRuntimeGate.ts";
 import {
   peekTripRouteCacheLeg,
   resolveLiveTripEtaLeg,
@@ -253,9 +254,26 @@ Deno.serve(async (req) => {
         : hadLive
         ? "update"
         : "start";
+    const isEndEvent = event === "end";
+
+    // Single active-device runtime check for both platforms.
+    const authDevice = await resolveCustomerAuthoritativeToken(
+      admin,
+      customerUserId,
+    );
+    const runtimeCompatible = authDevice
+      ? isCustomerLiveTripRuntimeCompatible({
+        platform: authDevice.platform,
+        appVersion: authDevice.app_version,
+        runtimeVersion: authDevice.runtime_version,
+        clientCapabilities: authDevice.client_capabilities,
+      })
+      : false;
+    delivery.runtime_compatible = runtimeCompatible;
 
     // iOS ActivityKit — gated on APNs readiness (Android independent).
-    if (allowFanout && allowIosFanout) {
+    // Start/update require a compatible native train; end always attempts cleanup.
+    if (allowFanout && allowIosFanout && (runtimeCompatible || isEndEvent)) {
       const { data: tokens } = await admin
         .from("customer_live_activity_tokens")
         .select("push_token, push_to_start_token, trip_id, apns_environment")
@@ -323,36 +341,39 @@ Deno.serve(async (req) => {
     }
 
     // Android: data-only FCM for native LiveTrip handler (no alert / sound).
+    // Compatible runtimes only for start/update; terminal/end still fans out so
+    // a previously shown card can be cleared on an upgraded device.
     const serviceAccountJson = readFcmServiceAccountJson();
     if (allowFanout && allowAndroidFanout && serviceAccountJson) {
       try {
-        const authToken = await resolveCustomerAuthoritativeToken(
-          admin,
-          customerUserId,
-        );
+        const authToken = authDevice;
         if (authToken?.token && authToken.platform !== "ios") {
-          delivery.fcm_attempted = true;
-          const access = await getFcmHttpV1AccessToken(serviceAccountJson);
-          const projectId = fcmProjectIdFromServiceAccount(serviceAccountJson);
-          const data: Record<string, string> = {
-            type: "live_trip_update",
-            trip_id: tripId,
-            assignment_generation: String(projection.assignment_generation),
-            presentation_version: String(projection.presentation_version),
-            eligible: projection.eligible ? "1" : "0",
-            terminal: projection.terminal ? "1" : "0",
-            content_state: JSON.stringify(projection.content_state),
-          };
-          const send = await sendFcmHttpV1Message({
-            accessToken: access,
-            projectId,
-            message: {
-              token: authToken.token,
-              data,
-              android: { priority: "HIGH" },
-            },
-          });
-          delivery.fcm_ok = send.ok;
+          if (!runtimeCompatible && !isEndEvent) {
+            delivery.fcm_skipped_runtime = true;
+          } else {
+            delivery.fcm_attempted = true;
+            const access = await getFcmHttpV1AccessToken(serviceAccountJson);
+            const projectId = fcmProjectIdFromServiceAccount(serviceAccountJson);
+            const data: Record<string, string> = {
+              type: "live_trip_update",
+              trip_id: tripId,
+              assignment_generation: String(projection.assignment_generation),
+              presentation_version: String(projection.presentation_version),
+              eligible: projection.eligible ? "1" : "0",
+              terminal: projection.terminal ? "1" : "0",
+              content_state: JSON.stringify(projection.content_state),
+            };
+            const send = await sendFcmHttpV1Message({
+              accessToken: access,
+              projectId,
+              message: {
+                token: authToken.token,
+                data,
+                android: { priority: "HIGH" },
+              },
+            });
+            delivery.fcm_ok = send.ok;
+          }
         }
       } catch (err) {
         console.warn(
