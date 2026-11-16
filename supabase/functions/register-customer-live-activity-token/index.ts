@@ -46,7 +46,7 @@ Deno.serve(async (req) => {
     }
 
     const body = await req.json();
-    const deviceId = sanitizeString(String(body.device_id ?? body.deviceId ?? ""), 128);
+    const deviceId = sanitizeString(String(body.device_id ?? body.deviceId ?? ""), 128) ?? "";
     const pushToken = sanitizeString(String(body.push_token ?? body.pushToken ?? ""), 512);
     const pushToStart = sanitizeString(
       String(body.push_to_start_token ?? body.pushToStartToken ?? ""),
@@ -57,10 +57,10 @@ Deno.serve(async (req) => {
     const bundleId =
       sanitizeString(String(body.bundle_id ?? body.bundleId ?? ""), 128) ||
       "com.onecab.customer.app";
-    const apnsEnvironmentRaw = sanitizeString(
+    const apnsEnvironmentRaw = (sanitizeString(
       String(body.apns_environment ?? body.apnsEnvironment ?? ""),
       32,
-    ).toLowerCase();
+    ) ?? "").toLowerCase();
     const apnsEnvironment =
       apnsEnvironmentRaw === "sandbox" || apnsEnvironmentRaw === "production"
         ? apnsEnvironmentRaw

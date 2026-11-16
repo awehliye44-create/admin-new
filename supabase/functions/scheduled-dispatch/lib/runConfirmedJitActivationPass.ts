@@ -211,7 +211,7 @@ export async function runConfirmedJitActivationPass(input: {
   logSnapshot: (args: {
     tripId: string;
     action: string;
-    stage: string;
+    stage: "considered" | "offer_inserted";
     driverId?: string | null;
     metadata?: Record<string, unknown>;
   }) => Promise<void>;
@@ -722,7 +722,7 @@ export async function runConfirmedJitActivationPass(input: {
     });
     // Diagnostic retained for Phase-5 source lock — fixedFallbackDue is forced
     // false above, so this path is unreachable in production JIT ticks.
-    if (decision.source === "fixed_fallback") {
+    if ("source" in decision && decision.source === "fixed_fallback") {
       console.log("SCHEDULED_JIT_FIXED_FALLBACK_SELECTED", {
         trip_id: trip.id,
         driver_id: confirmedDriverId,
@@ -736,6 +736,7 @@ export async function runConfirmedJitActivationPass(input: {
       // Overdue sticky/dynamic deadline still waiting = ops escalate (Bug #29).
       if (
         decision.action === "wait" &&
+        "deadlineMs" in decision &&
         Number.isFinite(decision.deadlineMs) &&
         nowMs - decision.deadlineMs >= 3 * 60_000
       ) {
@@ -764,6 +765,7 @@ export async function runConfirmedJitActivationPass(input: {
 
     // Due for arm — escalate if already 2+ minutes past authoritative deadline.
     if (
+      "deadlineMs" in decision &&
       Number.isFinite(decision.deadlineMs) &&
       nowMs - decision.deadlineMs >= 2 * 60_000
     ) {

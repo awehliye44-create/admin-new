@@ -208,7 +208,7 @@ async function loadDriverOverviewSection(
   let nextBatch = 0;
   let nextDrivers = 0;
 
-  const driverById = new Map(
+  const driverById = new Map<string, Record<string, unknown>>(
     (drivers ?? []).map((d: { id: string }) => [String(d.id), d as Record<string, unknown>]),
   );
   const eligibilityByDriver = await loadDriverWalletEligibilityBalancesBatchRpc(supabase, driverIds);

@@ -260,7 +260,7 @@ serve(async (req) => {
       }
 
       const adapter = getPaymentProviderAdapter(supabase, provider, environment, {
-        updatedBy: auth.user.id,
+        updatedBy: gate.userId,
       });
       const result = await adapter.testConnection();
 
@@ -306,7 +306,7 @@ serve(async (req) => {
             environment,
             secretName: name,
             secretValue: value.trim(),
-            updatedBy: auth.user.id,
+            updatedBy: gate.userId,
           });
         }
       }
