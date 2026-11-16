@@ -23,7 +23,9 @@ import { Textarea } from "@/components/ui/textarea";
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
+  SelectLabel,
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
@@ -47,6 +49,11 @@ import {
   type CampaignScheduleMode,
   type CampaignTargetApp,
 } from "../../../shared/campaignHeadsUpTemplates";
+import {
+  savedTemplateHasPlaceholders,
+  savedTemplatePrefill,
+  type SavedNotificationTemplate,
+} from "@/lib/campaignSavedTemplatePrefill";
 
 interface CampaignTemplate {
   id: string;
@@ -167,8 +174,11 @@ function campaignSendToast(result: { delivered: number; noReach: boolean }): str
   return "Campaign dispatched — no devices reached (check target app / active devices)";
 }
 
+const SAVED_TEMPLATE_PREFIX = "saved:";
+
 const emptyForm = {
   templateId: "",
+  savedTemplateId: "",
   category: "celebration" as CampaignHeadsUpCategory,
   title: "",
   subtitle: "",
@@ -213,6 +223,20 @@ export function CampaignHeadsUpSection() {
         .order("name");
       if (error) throw error;
       return (data ?? []) as CampaignTemplate[];
+    },
+  });
+
+  const { data: savedTemplates = [], isLoading: loadingSavedTemplates } = useQuery({
+    queryKey: ["campaign-saved-notification-templates"],
+    staleTime: 0,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("notification_templates")
+        .select("id, name, category, title_template, message_template")
+        .eq("is_active", true)
+        .order("created_at", { ascending: false });
+      if (error) throw error;
+      return (data ?? []) as SavedNotificationTemplate[];
     },
   });
 
@@ -276,6 +300,7 @@ export function CampaignHeadsUpSection() {
     setForm((prev) => ({
       ...prev,
       templateId: template.id,
+      savedTemplateId: "",
       category: template.category,
       title: scrubCampaignTaxiBranding(template.title),
       subtitle: scrubCampaignTaxiBranding(template.subtitle),
@@ -289,6 +314,22 @@ export function CampaignHeadsUpSection() {
       deep_link: template.deep_link ?? template.cta_url ?? "",
       target_app: template.default_target_app,
     }));
+  }, []);
+
+  const applySavedTemplate = useCallback((template: SavedNotificationTemplate) => {
+    const prefill = savedTemplatePrefill(template);
+    setForm((prev) => ({
+      ...prev,
+      templateId: "",
+      savedTemplateId: template.id,
+      title: replaceCampaignTaxiBranding(prefill.title),
+      subtitle: replaceCampaignTaxiBranding(prefill.subtitle),
+      emoji: prefill.emoji ?? prev.emoji,
+      target_app: prefill.target_app ?? prev.target_app,
+    }));
+    if (savedTemplateHasPlaceholders(template)) {
+      toast.warning("This template has {{placeholders}} — replace them with real text before sending");
+    }
   }, []);
 
   const isTimed =
@@ -492,15 +533,34 @@ export function CampaignHeadsUpSection() {
               </div>
               <div className="space-y-2">
                 <Label>Template</Label>
-                <Select value={form.templateId} onValueChange={(id) => {
-                  const t = templates.find((x) => x.id === id);
-                  if (t) applyTemplate(t);
-                }}>
+                <Select
+                  value={form.savedTemplateId ? `${SAVED_TEMPLATE_PREFIX}${form.savedTemplateId}` : form.templateId}
+                  onValueChange={(id) => {
+                    if (id.startsWith(SAVED_TEMPLATE_PREFIX)) {
+                      const saved = savedTemplates.find((x) => x.id === id.slice(SAVED_TEMPLATE_PREFIX.length));
+                      if (saved) applySavedTemplate(saved);
+                      return;
+                    }
+                    const t = templates.find((x) => x.id === id);
+                    if (t) applyTemplate(t);
+                  }}
+                >
                   <SelectTrigger><SelectValue placeholder="Choose template" /></SelectTrigger>
                   <SelectContent>
-                    {filteredTemplates.map((t) => (
-                      <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>
-                    ))}
+                    {savedTemplates.length > 0 && (
+                      <SelectGroup>
+                        <SelectLabel>My templates</SelectLabel>
+                        {savedTemplates.map((t) => (
+                          <SelectItem key={t.id} value={`${SAVED_TEMPLATE_PREFIX}${t.id}`}>{t.name}</SelectItem>
+                        ))}
+                      </SelectGroup>
+                    )}
+                    <SelectGroup>
+                      <SelectLabel>Pre-built · {CAMPAIGN_HEADS_UP_CATEGORIES[form.category].label}</SelectLabel>
+                      {filteredTemplates.map((t) => (
+                        <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>
+                      ))}
+                    </SelectGroup>
                   </SelectContent>
                 </Select>
               </div>
@@ -723,6 +783,35 @@ export function CampaignHeadsUpSection() {
             </div>
           </CardContent>
         </Card>
+      </div>
+
+      <div>
+        <h3 className="text-base font-semibold mb-1 flex items-center gap-2">
+          <Sparkles className="h-4 w-4" />
+          My Templates
+        </h3>
+        <p className="text-xs text-muted-foreground mb-3">Templates you created in the Templates tab. Click one to fill the form.</p>
+        {loadingSavedTemplates ? (
+          <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+        ) : savedTemplates.length === 0 ? (
+          <p className="text-sm text-muted-foreground">No active templates yet — create one in the Templates tab.</p>
+        ) : (
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
+            {savedTemplates.map((t) => (
+              <button
+                key={t.id}
+                type="button"
+                className={`text-left rounded-xl border p-3 hover:border-primary transition-colors ${form.savedTemplateId === t.id ? "border-primary" : ""}`}
+                onClick={() => applySavedTemplate(t)}
+              >
+                <Badge variant="outline" className="text-[10px] mb-2 capitalize">{t.category}</Badge>
+                <p className="font-semibold text-sm">{t.name}</p>
+                <p className="text-xs text-muted-foreground line-clamp-2 mt-1">{t.message_template}</p>
+                <Badge variant="secondary" className="mt-2 text-[10px]">My template</Badge>
+              </button>
+            ))}
+          </div>
+        )}
       </div>
 
       <div>
