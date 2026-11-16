@@ -135,11 +135,11 @@ fi
 echo "LIVE_SUBMIT_ROOT: $LIVE_SUBMIT_ROOT"
 echo "LIVE_WEBHOOK_ROOT: $LIVE_WEBHOOK_ROOT"
 
-LIVE_BLOB="$(find "$LIVE_SUBMIT_ROOT" "$LIVE_WEBHOOK_ROOT" -type f \( -name '*.ts' -o -name '*.js' \) -print0 | xargs -0 cat 2>/dev/null || true)"
-
+# Search files directly — do not concatenate multi-MB webhook trees into a
+# shell variable (truncation caused false marker misses).
 mismatch=0
 for needle in "${LIVE_MUST_CONTAIN[@]}"; do
-  if ! printf '%s' "$LIVE_BLOB" | rg -q --fixed-strings "$needle"; then
+  if ! rg -F -q -- "$needle" "$LIVE_SUBMIT_ROOT" "$LIVE_WEBHOOK_ROOT" 2>/dev/null; then
     echo "LIVE_VERSION_MISMATCH: missing marker '$needle'"
     mismatch=1
   else
@@ -147,7 +147,7 @@ for needle in "${LIVE_MUST_CONTAIN[@]}"; do
   fi
 done
 for forbidden in "${LIVE_MUST_NOT_CONTAIN[@]}"; do
-  if printf '%s' "$LIVE_BLOB" | rg -q --fixed-strings "$forbidden"; then
+  if rg -F -q -- "$forbidden" "$LIVE_SUBMIT_ROOT" "$LIVE_WEBHOOK_ROOT" 2>/dev/null; then
     echo "LIVE_VERSION_MISMATCH: forbidden marker '$forbidden' still present"
     mismatch=1
   else
