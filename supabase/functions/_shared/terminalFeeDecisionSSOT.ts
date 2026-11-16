@@ -507,7 +507,7 @@ export function resolveTerminalPaymentDecision(args: {
   ) {
     const scheduledMs = parseMs(evidence.scheduled_at);
     const thresholdMin = Number(config.late_cancel_threshold_minutes);
-    const statusLower = String(evidence.status ?? "").trim().toLowerCase();
+    const statusLower = String(evidence.trip_status ?? "").trim().toLowerCase();
     const rematchInProgress =
       statusLower === "searching_new_driver" ||
       statusLower === "searching" ||
