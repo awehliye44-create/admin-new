@@ -231,6 +231,9 @@ export default function Notifications() {
         supabase
           .from('notifications')
           .select('id, type, category, title, message, priority, target_audience, target_region_id, target_service_area_id, target_user_id, is_read, is_dismissed, action_url, action_label, metadata, expires_at, created_at, created_by')
+          // Automatic ride-offer and scheduled-ride messages are delivery records, not admin alerts.
+          .neq('category', 'trip')
+          .not('title', 'ilike', 'Scheduled ride%')
           .order('created_at', { ascending: false })
           .limit(100),
         supabase
