@@ -265,7 +265,7 @@ Deno.test("send-driver-notification auth order: rate-limit memory, auth, POST, t
   const src = read(SDN);
   const helper = read(HELPER);
 
-  assert(src.includes('from "../_shared/internalNotificationAuth.ts"'));
+  assert(src.includes('from "./lib/internalNotificationAuth.ts"'));
   assert(src.includes("authorizeInternalNotificationRequest"));
   assert(src.includes("methodNotAllowedResponse"));
 

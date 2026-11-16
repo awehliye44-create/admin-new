@@ -118,6 +118,6 @@ Deno.test("canonicalTypedWalletPostingSSOT owns TRIP_EARNING_NET posting entry",
 });
 
 Deno.test("financeOwnershipLock tests still pass paths unchanged", async () => {
-  const src = await Deno.readTextFile(new URL("../../functions/_shared/financeOwnershipLock.test.ts", import.meta.url));
+  const src = await Deno.readTextFile(new URL("./financeOwnershipLock.test.ts", import.meta.url));
   assertStringIncludes(src, "creditCapturedCardTripLedger");
 });

@@ -152,7 +152,7 @@ Deno.test("stop-workflow uses ensure RPC + authoritative helper; no pickup+dropo
     new URL("../../functions/stop-workflow/index.ts", import.meta.url),
   );
   assertEquals(
-    src.includes('from "../_shared/ensureTripStopsFromAuthoritative.ts"'),
+    src.includes('from "./lib/ensureTripStopsFromAuthoritative.ts"'),
     true,
   );
   assertEquals(src.includes("ensure_trip_stops_for_assignment"), true);

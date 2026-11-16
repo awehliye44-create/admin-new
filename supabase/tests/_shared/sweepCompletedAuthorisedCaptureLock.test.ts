@@ -41,8 +41,8 @@ Deno.test("sweep and complete_trip statically import capture modules", async () 
   assertEquals(/await\s+import\s*\(/.test(sweep), false);
   // Completion capture must not dynamically import revolutOrders (boot lock).
   assertEquals(/await\s+import\s*\(\s*["']\.\/revolutOrders\.ts["']\s*\)/.test(capture), false);
-  assertEquals(stop.includes('await import("../_shared/digitalPaymentCapture.ts")'), false);
-  assertEquals(stop.includes('from "../_shared/digitalPaymentCapture.ts"'), true);
+  assertEquals(stop.includes('await import("./lib/digitalPaymentCapture.ts")'), false);
+  assertEquals(stop.includes('from "./lib/digitalPaymentCapture.ts"'), true);
   assertEquals(sweep.includes('from "../_shared/revolutOrders.ts"'), true);
   assertEquals(sweep.includes('from "../_shared/applyCanonicalSettlementAfterCapture.ts"'), true);
   assertEquals(sweep.includes('mode: "recovery"'), true);
