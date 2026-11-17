@@ -90,6 +90,26 @@ Deno.test("publish edge fans out APNs + FCM without blocking mutations", async (
   assertStringIncludes(src, "Do not fail trip producers hard");
 });
 
+Deno.test("Live Trip hydrate exposes category image_key without inventing vehiclePhotoUrl (MK-261117-007)", async () => {
+  const hydrate = await Deno.readTextFile(
+    new URL(
+      "../../functions/publish-customer-live-trip/lib/hydrateLiveTripAssignmentIdentity.ts",
+      import.meta.url,
+    ),
+  );
+  const projection = await Deno.readTextFile(
+    new URL(
+      "../../functions/publish-customer-live-trip/lib/customerLiveTripProjectionSSOT.ts",
+      import.meta.url,
+    ),
+  );
+  assertStringIncludes(hydrate, "image_key: imageKey");
+  assertStringIncludes(hydrate, "Never invent a vehicle photo from category branding");
+  assertStringIncludes(hydrate, "photo_url: null");
+  assertStringIncludes(projection, "vehicleImageKey");
+  assertStringIncludes(projection, "MK-261117-007");
+});
+
 Deno.test("register ActivityKit token never selects missing server_device_id (MK-261116-013)", async () => {
   const src = await Deno.readTextFile(
     new URL(

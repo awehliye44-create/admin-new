@@ -361,6 +361,13 @@ export function buildCustomerLiveTripProjection(args: {
       readString(vehicleNode?.vehicle_photo_url) ??
       null)
     : null;
+  // Category side-art key (bundled on client) — never a photo URL (MK-261117-007).
+  const vehicleImageKey = showDriver
+    ? (readString(vehicleNode?.image_key) ??
+      readString(vehicleNode?.imageKey) ??
+      readString(vehicleNode?.category) ??
+      null)
+    : null;
 
   const updatedAt = new Date(nowMs).toISOString();
   const staleMs =
@@ -403,6 +410,7 @@ export function buildCustomerLiveTripProjection(args: {
         ? driverRating.toFixed(1)
         : null,
     vehiclePhotoUrl,
+    vehicleImageKey,
     vehicleMake: showDriver
       ? (readString(vehicleNode?.make) ?? readString(trip.vehicle_make))
       : null,

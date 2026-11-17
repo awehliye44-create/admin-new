@@ -87,7 +87,7 @@ export async function hydrateLiveTripAssignmentIdentity(
   const { data: approvedRows } = await admin
     .from("vehicles")
     .select(
-      "id, make, model, color, license_plate, is_primary, approval_status",
+      "id, make, model, color, license_plate, is_primary, approval_status, vehicle_type_id",
     )
     .eq("driver_id", driverId)
     .eq("approval_status", "approved")
@@ -99,12 +99,36 @@ export async function hydrateLiveTripAssignmentIdentity(
     const { data: anyRows } = await admin
       .from("vehicles")
       .select(
-        "id, make, model, color, license_plate, is_primary, approval_status",
+        "id, make, model, color, license_plate, is_primary, approval_status, vehicle_type_id",
       )
       .eq("driver_id", driverId)
       .order("is_primary", { ascending: false })
       .limit(1);
     vehicleRow = (anyRows?.[0] as Record<string, unknown> | undefined) ?? null;
+  }
+
+  let category: string | null = null;
+  let imageKey: string | null = null;
+  const vehicleTypeId =
+    (vehicleRow?.vehicle_type_id as string | null | undefined) ??
+    (typeof trip.vehicle_type_id === "string" ? trip.vehicle_type_id : null);
+  if (vehicleTypeId) {
+    const { data: typeRow } = await admin
+      .from("vehicle_types")
+      .select("name, slug")
+      .eq("id", vehicleTypeId)
+      .maybeSingle();
+    const slug =
+      typeof typeRow?.slug === "string" && typeRow.slug.trim()
+        ? typeRow.slug.trim().toLowerCase()
+        : null;
+    const name =
+      typeof typeRow?.name === "string" && typeRow.name.trim()
+        ? typeRow.name.trim()
+        : null;
+    category = name || slug;
+    // Prefer slug for Lock Screen side-art (go/comfort/…) — MK-261117-007.
+    imageKey = slug || (name ? name.toLowerCase() : null);
   }
 
   const colour =
@@ -138,6 +162,8 @@ export async function hydrateLiveTripAssignmentIdentity(
       color: colour,
       registration: vehicleRow.license_plate ?? null,
       license_plate: vehicleRow.license_plate ?? null,
+      category,
+      image_key: imageKey,
       // Never invent a vehicle photo from category branding.
       photo_url: null,
     }
