@@ -15,15 +15,16 @@ alwaysApply: true
 - Message: `Your bank declined this payment. Please check your card, use another card, or choose another payment method.`
 - Buttons: `Choose another card` / `Cancel`
 
-### Trip modification (Bug #28)
+### Trip modification (Bug #28 / #28B)
 
-- Title: `Payment declined`
-- Message: `Your bank declined the additional payment of £X.XX. Your original trip and fare of £X.XX remain unchanged.` (dynamic authoritative amounts; amount-less fallback omits the £ figures)
-- Button: `OK` only — returns to the original active trip (Bug #25)
+- Confirmed issuer/card decline (non-funds): Title `Payment declined` — Message `Your bank declined the additional payment of £X.XX. Your original trip and fare of £X.XX remain unchanged.` (dynamic authoritative amounts; amount-less fallback omits the £ figures)
+- Confirmed `insufficient_funds` / `not_sufficient_funds`: Title `Insufficient funds` — dedicated trip-mod popup (backend classification stays bank/issuer decline; Customer maps the confirmed reason). Booking/new-payment still uses the unified bank-decline title for the same reason.
+- Button: `OK` only — returns to the **current** original active-trip screen/phase (Bug #25 / #28B)
+- Never show an “Authorising additional payment” Alert — Confirm busy label + bounded reconcile for pending
 
 No card switch is offered mid-trip: a fare increase must increment the **same** Revolut order, and a second pre-authorisation/order is forbidden (see `revolut-incremental-auth-primary-lock.mdc`). Original destination/stops/fare stay unchanged.
 
-Technical / unknown terminal failures use **Payment unsuccessful** (never bank wording). Pending uses **Authorising additional payment**.
+Technical / unknown terminal failures use **Payment unsuccessful** (never bank wording). Genuinely pending / ambiguous authorisation must be reconciled — never coerced to Payment unsuccessful.
 
 ## What counts as a bank decline
 
@@ -61,7 +62,7 @@ These get neutral payment copy (no bank blame):
 
 - Show different decline wording per payment method
 - Show "Apple Pay couldn't complete this payment" / "Google Pay couldn't complete this payment" / "ONECAB could not take payment" for a bank/card decline
-- Keep a separate "Insufficient funds" title, or put a decline under "Booking didn't complete"
+- Keep a separate "Insufficient funds" title for **booking / new payment**, or put a decline under "Booking didn't complete" (trip-mod confirmed `insufficient_funds` → dedicated Insufficient funds popup is required — Bug #28B)
 - Map technical, risk, internal or unknown failures to the bank-decline popup
 - Keep separate decline lists in client and backend that disagree
 - Pass raw provider/internal text to the customer
