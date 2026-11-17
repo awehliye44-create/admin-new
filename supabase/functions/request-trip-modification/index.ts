@@ -13,7 +13,10 @@ import {
   currencySymbolForCode,
   metersToDisplayDistance,
 } from "./lib/units.ts";
-import { computeRequiresDriverApproval } from "./lib/tripModificationApproval.ts";
+import {
+  computeNavigationTargetChanged,
+  computeRequiresDriverApproval,
+} from "./lib/tripModificationApproval.ts";
 import { serveWithEdgeTiming } from "../_shared/edgeFunctionTiming.ts";
 import {
   type DriverLiveLocationRow,
@@ -1111,8 +1114,11 @@ serveWithEdgeTiming("request-trip-modification", corsHeaders, async (req) => {
         ? Math.round(Number(trip.estimated_duration_minutes) * 60)
         : null);
 
-    // Requires driver approval when route/fare/workload changes materially (MK-260704-002).
-    const navigationImpacted = computeRequiresDriverApproval({
+    // Driver approval stays disabled (computeRequiresDriverApproval → false).
+    // navigation_impacted must reflect whether the active nav target changed
+    // so clients redraw routes after change_dropoff / stop edits (Bug #42/#43,
+    // MK-261117-010 stamped navigation_impacted=false on an applied dropoff change).
+    const requiresApproval = computeRequiresDriverApproval({
       changeType,
       beforeStops: currentStops,
       afterStops: afterRouteSnapshot.stops,
@@ -1122,6 +1128,12 @@ serveWithEdgeTiming("request-trip-modification", corsHeaders, async (req) => {
       afterDistanceMeters: newDistance,
       beforeDurationSeconds,
       afterDurationSeconds: newDuration,
+    });
+    const navigationImpacted = computeNavigationTargetChanged({
+      changeType,
+      beforeStops: currentStops,
+      afterStops: afterRouteSnapshot.stops,
+      tripStatus: String(trip.status ?? ""),
     });
 
     const currencyCode = String(estimatePayload.currencyCode || trip.currency_code || "").toUpperCase();
@@ -1197,7 +1209,7 @@ serveWithEdgeTiming("request-trip-modification", corsHeaders, async (req) => {
         currentConfirmedCustomerTotalPence,
         paymentRequired: fareDeltaPence > 0,
         navigationImpacted,
-        requiresApproval: navigationImpacted,
+        requiresApproval,
         newDistanceMeters: newDistance,
         newDurationSeconds: newDuration,
       }), {
@@ -1284,14 +1296,11 @@ serveWithEdgeTiming("request-trip-modification", corsHeaders, async (req) => {
         new_duration_seconds: newDuration,
         expires_at: expiresAt,
         navigation_impacted: navigationImpacted,
-        requires_approval: navigationImpacted,
+        requires_approval: requiresApproval,
         payment_status: paymentRequired ? "required" : "not_required",
-        // Trigger determine_trip_change_approval sets final status from payment + nav rules.
-        status: paymentRequired
-          ? "payment_required"
-          : navigationImpacted
-            ? "pending_driver_approval"
-            : "approved",
+        // Driver approval is disabled — never gate on navigation_impacted.
+        // navigation_impacted is informational for client route redraw only (Bug #42/#43).
+        status: paymentRequired ? "payment_required" : "approved",
       })
       .select()
       .single();
@@ -1445,7 +1454,7 @@ serveWithEdgeTiming("request-trip-modification", corsHeaders, async (req) => {
       success: true,
       requestId: finalRequest.id,
       status: finalRequest.status ?? "pending_driver_approval",
-      requiresApproval: finalRequest.requires_approval ?? navigationImpacted,
+      requiresApproval: finalRequest.requires_approval ?? requiresApproval,
       navigationImpacted: finalRequest.navigation_impacted ?? navigationImpacted,
       paymentStatus: finalRequest.payment_status ?? (paymentRequired ? "required" : "not_required"),
       paymentRequired,
