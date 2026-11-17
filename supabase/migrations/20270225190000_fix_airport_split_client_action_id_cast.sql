@@ -42,8 +42,10 @@ BEGIN
       'airport split client_action_id join marker not found — abort (function body drifted)';
   END IF;
 
-  v_def := replace(v_def, 'CREATE FUNCTION', 'CREATE OR REPLACE FUNCTION', 1);
-  v_def := replace(v_def, v_old, v_new, 1);
+  -- PG15-compatible replace (3-arg only). Do not use replace(..., occurrence)
+  -- — that form requires PG16+ and breaks CI migration gates.
+  v_def := replace(v_def, 'CREATE FUNCTION', 'CREATE OR REPLACE FUNCTION');
+  v_def := replace(v_def, v_old, v_new);
   EXECUTE v_def;
 END;
 $patch$;
