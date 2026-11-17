@@ -70,7 +70,17 @@ export function clampWaitingIntervalToEligibleWindow(input: {
   return { startMs: start, endMs: end, durationMs };
 }
 
-/** Resolve pickup eligible floor from a trip row (preserves scheduled_at after rematch). */
+/**
+ * Resolve pickup eligible floor from a trip row.
+ *
+ * Scheduled origin = authoritative booking classification:
+ * - is_scheduled === true, OR
+ * - scheduled_at still present after convert/rematch (Bug #38 rematch protection)
+ *
+ * Ordinary instant bookings have is_scheduled=false and scheduled_at=null — floor
+ * is arrived_at only (Bug #38B). Never invent scheduled origin from pause state,
+ * arrival time, or eligible_waiting_from alone. Intermediate stops do not use this.
+ */
 export function eligibleFromMsForPickupTrip(trip: {
   arrived_at?: string | null;
   pickup_arrived_at?: string | null;

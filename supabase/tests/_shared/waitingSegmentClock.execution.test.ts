@@ -467,6 +467,27 @@ Deno.test("A12 rematch preserves scheduled_at; waiting reset does not touch it; 
   );
 });
 
+Deno.test("A12b Bug #38B: ordinary instant booking never gets scheduled pickup floor", () => {
+  const arrived = iso(SCHED_MS - 600_000);
+  const instant = {
+    arrived_at: arrived,
+    pickup_arrived_at: arrived,
+    scheduled_at: null as string | null,
+    is_scheduled: false,
+  };
+  assertEquals(eligibleFromMsForPickupTrip(instant), SCHED_MS - 600_000);
+
+  // Converted / rematch: is_scheduled cleared but scheduled_at retained → floor kept.
+  assertEquals(
+    eligibleFromMsForPickupTrip({
+      ...instant,
+      scheduled_at: SCHEDULED,
+      is_scheduled: false,
+    }),
+    SCHED_MS,
+  );
+});
+
 Deno.test("A13 source locks: finalize on Start Trip, driver-cancel and admin force-end use shared helpers", async () => {
   const stop = await Deno.readTextFile(new URL("../../functions/stop-workflow/index.ts", import.meta.url));
   assert(stop.includes("finalizeEligibleFromMs"));
