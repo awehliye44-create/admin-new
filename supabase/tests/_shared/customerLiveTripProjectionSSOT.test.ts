@@ -198,6 +198,64 @@ Deno.test("finding must not highlight Driver assigned progress (MK-261116-013)",
   assertEquals(assigned.progress_step_index, 0);
 });
 
+Deno.test("progress steps cover real lifecycle incl. stop (MK-261117-005)", () => {
+  const heading = buildCustomerLiveTripProjection({
+    trip: {
+      id: "t1",
+      status: "en_route_to_pickup",
+      confirmed_driver_id: DRIVER_A,
+      driver: { id: DRIVER_A, first_name: "Alex", vehicle: { license_plate: "AB12 CDE" } },
+    },
+    customerUserId: "u1",
+    nowMs: 8_000,
+  })!;
+  assertEquals(heading.lifecycle_stage, "heading_to_pickup");
+  assertEquals(heading.progress_step_index, 1);
+
+  const arrived = buildCustomerLiveTripProjection({
+    trip: {
+      id: "t1",
+      status: "arrived_at_pickup",
+      confirmed_driver_id: DRIVER_A,
+      driver: { id: DRIVER_A, first_name: "Alex", vehicle: { license_plate: "AB12 CDE" } },
+    },
+    customerUserId: "u1",
+    previous: heading,
+    nowMs: 8_100,
+  })!;
+  assertEquals(arrived.lifecycle_stage, "at_pickup");
+  assertEquals(arrived.progress_step_index, 2);
+
+  const trip = buildCustomerLiveTripProjection({
+    trip: {
+      id: "t1",
+      status: "in_progress",
+      confirmed_driver_id: DRIVER_A,
+      driver: { id: DRIVER_A, first_name: "Alex", vehicle: { license_plate: "AB12 CDE" } },
+    },
+    customerUserId: "u1",
+    previous: arrived,
+    nowMs: 8_200,
+  })!;
+  assertEquals(trip.lifecycle_stage, "trip_started");
+  assertEquals(trip.progress_step_index, 3);
+
+  const stop = buildCustomerLiveTripProjection({
+    trip: {
+      id: "t1",
+      status: "arrived_at_stop",
+      confirmed_driver_id: DRIVER_A,
+      driver: { id: DRIVER_A, first_name: "Alex", vehicle: { license_plate: "AB12 CDE" } },
+    },
+    customerUserId: "u1",
+    previous: trip,
+    nowMs: 8_300,
+  })!;
+  assertEquals(stop.lifecycle_stage, "intermediate_stop");
+  assertEquals(stop.status_title, "At stop");
+  assertEquals(stop.progress_step_index, 4);
+});
+
 Deno.test("heading_to_pickup title is On the way (not stuck on Driver assigned)", () => {
   const row = buildCustomerLiveTripProjection({
     trip: {
