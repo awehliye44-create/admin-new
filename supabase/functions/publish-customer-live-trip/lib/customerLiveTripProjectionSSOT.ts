@@ -64,6 +64,45 @@ function vehicleColour(trip: Record<string, unknown>, vehicle: Record<string, un
   );
 }
 
+/** Compact plate identity for duplication checks (Bug #17). */
+function plateIdentity(registration: string | null | undefined): string {
+  const raw = readString(registration);
+  if (!raw) return "";
+  return raw.replace(/[\s-]+/g, "").toUpperCase();
+}
+
+/** Full plate for Lock Screen — never truncate; UK-style spacing when applicable. */
+function formatVehicleRegistration(registration: string | null | undefined): string | null {
+  const raw = readString(registration);
+  if (!raw) return null;
+  const compact = raw.replace(/[\s-]+/g, "").toUpperCase();
+  if (!compact) return null;
+  if (/^[A-Z]{2}\d{2}[A-Z]{3}$/.test(compact)) {
+    return `${compact.slice(0, 4)} ${compact.slice(4)}`;
+  }
+  return compact;
+}
+
+/** Drop make/model tokens that duplicate the registration (e.g. make="BG70NOF"). */
+function sanitizeMakeModel(input: {
+  make: string | null;
+  model: string | null;
+  registration: string | null;
+}): { make: string | null; model: string | null } {
+  const plateId = plateIdentity(input.registration);
+  const clean = (value: string | null): string | null => {
+    const raw = readString(value);
+    if (!raw) return null;
+    if (plateId && plateIdentity(raw) === plateId) return null;
+    if (plateId && plateIdentity(raw).startsWith(plateId)) {
+      const rest = raw.replace(/[\s-]+/g, "").slice(plateId.length).trim();
+      return rest.length > 0 ? rest : null;
+    }
+    return raw;
+  };
+  return { make: clean(input.make), model: clean(input.model) };
+}
+
 function resolveLifecycleStage(status: string, rematching: boolean): string {
   if (rematching) return "finding_new_driver";
   const s = status;
@@ -155,32 +194,34 @@ function copyForStage(stage: string): {
       return {
         status_title: "Driver assigned",
         status_description: "Driver confirmed for your trip",
-        // 0 Assigned → 1 On the way → 2 Arrived → 3 Trip started → 4 At stop
+        // Bug #17: 0 Assigned → 1 Arrived → 2 Started → 3 Completed
         progress_step_index: 0,
       };
     case "heading_to_pickup":
       return {
         status_title: "On the way",
         status_description: "Heading to your pickup",
-        progress_step_index: 1,
+        // On the way keeps Assigned chevron — status text carries ETA copy.
+        progress_step_index: 0,
       };
     case "at_pickup":
       return {
         status_title: "Arrived",
         status_description: "Driver has arrived at pickup",
-        progress_step_index: 2,
+        progress_step_index: 1,
       };
     case "trip_started":
       return {
         status_title: "Trip in progress",
         status_description: "On the way to your destination",
-        progress_step_index: 3,
+        progress_step_index: 2,
       };
     case "intermediate_stop":
       return {
         status_title: "At stop",
         status_description: "Driver is at an intermediate stop",
-        progress_step_index: 4,
+        // Intermediate stops stay on Started — status text may say At stop.
+        progress_step_index: 2,
       };
     default:
       return {
@@ -230,8 +271,9 @@ export function nextAssignmentGeneration(args: {
   if (args.nextDriverId && !args.previousDriverId) {
     return prev + 1;
   }
-  const prevPlate = (args.previousVehicleRegistration ?? "").trim().toUpperCase();
-  const nextPlate = (args.nextVehicleRegistration ?? "").trim().toUpperCase();
+  // Compare plate identity so "BG70NOF" vs "BG70 NOF" does not false-bump.
+  const prevPlate = plateIdentity(args.previousVehicleRegistration);
+  const nextPlate = plateIdentity(args.nextVehicleRegistration);
   if (
     args.nextDriverId &&
     args.previousDriverId === args.nextDriverId &&
@@ -312,11 +354,14 @@ export function buildCustomerLiveTripProjection(args: {
 
   const showDriver = Boolean(assignedDriverId) && !rematching && eligibility.eligible;
 
-  const nextVehicleRegistration = showDriver
+  const nextVehicleRegistrationRaw = showDriver
     ? (readString(vehicleNode?.registration) ??
       readString(vehicleNode?.license_plate) ??
       readString(trip.license_plate) ??
       readString(trip.vehicle_registration))
+    : null;
+  const nextVehicleRegistration = showDriver
+    ? formatVehicleRegistration(nextVehicleRegistrationRaw)
     : null;
 
   const previousGen = Number(args.previous?.assignment_generation ?? 0) || 0;
@@ -366,7 +411,7 @@ export function buildCustomerLiveTripProjection(args: {
     ? (readString(vehicleNode?.image_key) ??
       readString(vehicleNode?.imageKey) ??
       readString(vehicleNode?.category) ??
-      null)
+      "go")
     : null;
 
   const updatedAt = new Date(nowMs).toISOString();
@@ -411,12 +456,17 @@ export function buildCustomerLiveTripProjection(args: {
         : null,
     vehiclePhotoUrl,
     vehicleImageKey,
-    vehicleMake: showDriver
-      ? (readString(vehicleNode?.make) ?? readString(trip.vehicle_make))
-      : null,
-    vehicleModel: showDriver
-      ? (readString(vehicleNode?.model) ?? readString(trip.vehicle_model))
-      : null,
+    ...(() => {
+      if (!showDriver) {
+        return { vehicleMake: null as string | null, vehicleModel: null as string | null };
+      }
+      const cleaned = sanitizeMakeModel({
+        make: readString(vehicleNode?.make) ?? readString(trip.vehicle_make),
+        model: readString(vehicleNode?.model) ?? readString(trip.vehicle_model),
+        registration: nextVehicleRegistrationRaw,
+      });
+      return { vehicleMake: cleaned.make, vehicleModel: cleaned.model };
+    })(),
     vehicleColour: showDriver ? vehicleColour(trip, vehicleNode) : null,
     vehicleRegistration: nextVehicleRegistration,
     silent: true,

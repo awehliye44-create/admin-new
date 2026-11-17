@@ -198,7 +198,7 @@ Deno.test("finding must not highlight Driver assigned progress (MK-261116-013)",
   assertEquals(assigned.progress_step_index, 0);
 });
 
-Deno.test("progress steps cover real lifecycle incl. stop (MK-261117-005)", () => {
+Deno.test("progress steps are four chevrons Assigned→Arrived→Started→Completed (Bug #17)", () => {
   const heading = buildCustomerLiveTripProjection({
     trip: {
       id: "t1",
@@ -210,7 +210,8 @@ Deno.test("progress steps cover real lifecycle incl. stop (MK-261117-005)", () =
     nowMs: 8_000,
   })!;
   assertEquals(heading.lifecycle_stage, "heading_to_pickup");
-  assertEquals(heading.progress_step_index, 1);
+  // On the way keeps Assigned chevron.
+  assertEquals(heading.progress_step_index, 0);
 
   const arrived = buildCustomerLiveTripProjection({
     trip: {
@@ -224,7 +225,7 @@ Deno.test("progress steps cover real lifecycle incl. stop (MK-261117-005)", () =
     nowMs: 8_100,
   })!;
   assertEquals(arrived.lifecycle_stage, "at_pickup");
-  assertEquals(arrived.progress_step_index, 2);
+  assertEquals(arrived.progress_step_index, 1);
 
   const trip = buildCustomerLiveTripProjection({
     trip: {
@@ -238,7 +239,7 @@ Deno.test("progress steps cover real lifecycle incl. stop (MK-261117-005)", () =
     nowMs: 8_200,
   })!;
   assertEquals(trip.lifecycle_stage, "trip_started");
-  assertEquals(trip.progress_step_index, 3);
+  assertEquals(trip.progress_step_index, 2);
 
   const stop = buildCustomerLiveTripProjection({
     trip: {
@@ -253,7 +254,8 @@ Deno.test("progress steps cover real lifecycle incl. stop (MK-261117-005)", () =
   })!;
   assertEquals(stop.lifecycle_stage, "intermediate_stop");
   assertEquals(stop.status_title, "At stop");
-  assertEquals(stop.progress_step_index, 4);
+  // Intermediate stop stays on Started chevron.
+  assertEquals(stop.progress_step_index, 2);
 });
 
 Deno.test("heading_to_pickup title is On the way (not stuck on Driver assigned)", () => {
