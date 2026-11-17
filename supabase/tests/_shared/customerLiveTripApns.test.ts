@@ -101,6 +101,13 @@ Deno.test("register ActivityKit token never selects missing server_device_id (MK
   assertStringIncludes(src, '.select("device_id")');
   assertEquals(src.includes("server_device_id"), false);
   assertStringIncludes(src, 'onConflict: "customer_user_id,device_id"');
+  // MK-261117-006: identical PTS/activity must always strip push_token.
+  assertStringIncludes(src, "stripping identical activity/PTS token");
+  assertStringIncludes(src, "MK-261117-006");
+  assertEquals(
+    src.includes("resolvedPushToken === resolvedPushToStart &&\n      !pushToken"),
+    false,
+  );
 });
 
 Deno.test("ETA refresh exposes safe APNs probe without enabling fanout", async () => {

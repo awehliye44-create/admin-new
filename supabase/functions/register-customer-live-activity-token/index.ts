@@ -138,13 +138,21 @@ Deno.serve(async (req) => {
     const existingPts = String(existing?.push_to_start_token ?? "").trim();
     let resolvedPushToken = pushToken || existingActivity;
     let resolvedPushToStart = pushToStart || existingPts;
-    // Drop legacy alias where push_token was a copy of push-to-start only.
+    // Activity update token must never equal push-to-start (MK-261117-006).
+    // Identical values → APNs update/end skipped → Lock Screen stuck on Finding
+    // with no driver name / plate. Always treat as PTS-only.
     if (
       resolvedPushToken &&
       resolvedPushToStart &&
-      resolvedPushToken === resolvedPushToStart &&
-      !pushToken
+      resolvedPushToken === resolvedPushToStart
     ) {
+      console.warn(
+        "[register-customer-live-activity-token] stripping identical activity/PTS token",
+        JSON.stringify({
+          device_id_suffix: deviceId.slice(-8),
+          client_sent_push_token: Boolean(pushToken),
+        }),
+      );
       resolvedPushToken = "";
     }
     if (!resolvedPushToken && !resolvedPushToStart) {
