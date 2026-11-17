@@ -368,6 +368,9 @@ export function buildCustomerLiveTripProjection(args: {
       : 8 * 60_000;
   const staleAt = new Date(nowMs + staleMs).toISOString();
 
+  // ActivityKit ContentState required keys (OneCabLiveTripAttributes.swift).
+  // Missing non-optional fields → APNs update accepted by Apple but decode-dropped
+  // on device (MK-261117-004: Lock Screen stuck on Finding while arrive FCM landed).
   const contentState: Record<string, unknown> = {
     phase: stage,
     statusTitle: copy.status_title,
@@ -380,6 +383,8 @@ export function buildCustomerLiveTripProjection(args: {
     assignedDriverId: assignedDriverId ?? "unassigned",
     assignmentGeneration,
     presentationVersion,
+    // Required by iOS ActivityAttributes.ContentState — never omit.
+    assignmentEventMs: nowMs,
     driverFirstName: showDriver
       ? firstName(
           readString(driverNode?.first_name) ??

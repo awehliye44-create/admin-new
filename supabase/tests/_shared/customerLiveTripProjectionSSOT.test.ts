@@ -242,3 +242,55 @@ Deno.test("publish hydrates identity — bare trips row alone cannot fill name/v
   assertEquals(bare.driver_first_name, null);
   assertEquals(bare.vehicle_make, null);
 });
+
+Deno.test(
+  "APNs content_state always includes ActivityKit-required assignmentEventMs (MK-261117-004)",
+  () => {
+    // OneCabLiveTripAttributes.ContentState.assignmentEventMs is non-optional Double.
+    // Omitting it makes ActivityKit drop remote updates → Lock Screen stuck on Finding.
+    const requiredKeys = [
+      "phase",
+      "statusTitle",
+      "statusDescription",
+      "progressStepIndex",
+      "showDriverVehicle",
+      "assignedDriverId",
+      "assignmentEpoch",
+      "assignmentEventMs",
+      "updatedAtMs",
+    ] as const;
+
+    const finding = buildCustomerLiveTripProjection({
+      trip: { id: "t1", status: "searching" },
+      customerUserId: "u1",
+      nowMs: 7_000,
+    })!;
+    for (const key of requiredKeys) {
+      assertEquals(
+        finding.content_state[key] !== undefined,
+        true,
+        `missing content_state.${key}`,
+      );
+    }
+    assertEquals(finding.content_state.assignmentEventMs, 7_000);
+    assertEquals(finding.content_state.updatedAtMs, 7_000);
+
+    const arrived = buildCustomerLiveTripProjection({
+      trip: {
+        id: "t1",
+        status: "arrived_at_pickup",
+        confirmed_driver_id: DRIVER_A,
+        driver: {
+          id: DRIVER_A,
+          first_name: "Alex",
+          vehicle: { license_plate: "AB12 CDE" },
+        },
+      },
+      customerUserId: "u1",
+      previous: finding,
+      nowMs: 7_100,
+    })!;
+    assertEquals(arrived.content_state.assignmentEventMs, 7_100);
+    assertEquals(arrived.lifecycle_stage, "at_pickup");
+  },
+);
