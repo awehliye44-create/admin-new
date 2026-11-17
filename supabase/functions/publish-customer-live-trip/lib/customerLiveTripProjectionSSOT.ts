@@ -94,9 +94,13 @@ function sanitizeMakeModel(input: {
     const raw = readString(value);
     if (!raw) return null;
     if (plateId && plateIdentity(raw) === plateId) return null;
-    if (plateId && plateIdentity(raw).startsWith(plateId)) {
-      const rest = raw.replace(/[\s-]+/g, "").slice(plateId.length).trim();
-      return rest.length > 0 ? rest : null;
+    // Only strip a leading whole token equal to the plate — never compact
+    // startsWith (BG70NO vs BG70NOF left a stray "F Corolla").
+    if (plateId) {
+      const tokens = raw.split(/\s+/).filter(Boolean);
+      if (tokens.length > 1 && plateIdentity(tokens[0]) === plateId) {
+        return tokens.slice(1).join(" ") || null;
+      }
     }
     return raw;
   };
@@ -471,16 +475,19 @@ export function buildCustomerLiveTripProjection(args: {
     vehicleRegistration: nextVehicleRegistration,
     silent: true,
     updatedAtMs: nowMs,
+    // Assignment identity only — never append presentationVersion (lexicographic
+    // compare of …|9 vs …|10 froze Lock Screen updates after the 10th publish).
     assignmentEpoch: [
       tripId,
       assignedDriverId ?? "unassigned",
       showDriver
-        ? (readString(vehicleNode?.license_plate) ??
-          readString(vehicleNode?.registration) ??
-          "")
+        ? plateIdentity(
+          readString(vehicleNode?.license_plate) ??
+            readString(vehicleNode?.registration) ??
+            "",
+        )
         : "",
       String(assignmentGeneration),
-      String(presentationVersion),
     ].join("|"),
   };
 

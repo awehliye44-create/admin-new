@@ -33,7 +33,7 @@ Deno.test("route cache ETA uses eta_at remaining minutes without new routing", (
   assertEquals(resolved.etaLabel, "7 min");
 });
 
-Deno.test("expired cache yields Updating label rather than inventing ETA", () => {
+Deno.test("expired cache still shows last-known minutes — never Updating… (Bug #17)", () => {
   const nowMs = Date.parse("2026-11-14T12:00:00Z");
   const resolved = resolveAuthoritativeLiveTripEta({
     lifecycleStage: "trip_started",
@@ -47,7 +47,8 @@ Deno.test("expired cache yields Updating label rather than inventing ETA", () =>
   });
   assertEquals(resolved.source, "route_cache");
   assertEquals(resolved.fresh, false);
-  assertEquals(resolved.etaLabel, "Updating…");
+  // Keep "20 min" (from eta_at remaining) — Lock Screen must not show "Updati…".
+  assertEquals(resolved.etaLabel, "20 min");
 });
 
 Deno.test("rematch / no-driver clears ETA", () => {

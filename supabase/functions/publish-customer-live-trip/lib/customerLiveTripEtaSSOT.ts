@@ -57,9 +57,10 @@ function decayLastEtaMinutes(
   return Math.max(0, Math.ceil(base - elapsedMin));
 }
 
-function formatEtaLabel(etaMinutes: number | null, fresh: boolean): string | null {
-  if (etaMinutes == null) return fresh ? null : "Updating…";
-  if (!fresh) return "Updating…";
+function formatEtaLabel(etaMinutes: number | null, _fresh: boolean): string | null {
+  // Bug #17: never paint "Updating…" on Lock Screen — it truncates to "Updati…"
+  // and freezes the hero ETA. Prefer last-known minutes; else null → native "—".
+  if (etaMinutes == null) return null;
   if (etaMinutes <= 0) return "<1 min";
   return `${Math.round(etaMinutes)} min`;
 }
@@ -154,7 +155,7 @@ export function resolveAuthoritativeLiveTripEta(args: {
   return {
     etaMinutes: null,
     fresh: false,
-    etaLabel: "Updating…",
+    etaLabel: null,
     source: "unavailable",
     leg,
   };
