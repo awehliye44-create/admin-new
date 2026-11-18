@@ -40,7 +40,7 @@ describe('adminDocumentUploadRegressionLock', () => {
     expect(addIdx).toBeGreaterThan(editIdx);
 
     expect(dialog).toMatch(/useAdminDriverDocumentChecklist/);
-    expect(dialog).toMatch(/admin_submit_driver_document/);
+    expect(dialog).toMatch(/admin_submit_driver_document|uploadSideAndSubmit/);
     expect(dialog).toMatch(/Pending Review/);
     expect(dialog).toMatch(/Upload file/);
     expect(dialog).toMatch(/Front file/);
@@ -53,6 +53,10 @@ describe('adminDocumentUploadRegressionLock', () => {
     expect(dialog).toMatch(/adminChecklistStatusTone|DocumentStatusBadge/);
     // Must not hard-force Back as optional on every row.
     expect(dialog).not.toMatch(/Back file \(optional\)/);
+    // Error + orphan cleanup helpers (no generic Upload failed fallback only).
+    expect(dialog).toMatch(/logAdminDocumentUploadFailure/);
+    expect(dialog).toMatch(/userFacingUploadError/);
+    expect(dialog).not.toMatch(/err instanceof Error \? err\.message : 'Upload failed'/);
   });
 
   it('forces pending and blocks approved replacement without can_upload_replacement', () => {

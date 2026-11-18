@@ -23,13 +23,17 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Separator } from '@/components/ui/separator';
-import { supabase } from '@/integrations/supabase/client';
 import { useAdminDriverDocumentChecklist } from '@/hooks/useAdminDriverDocumentChecklist';
 import {
   adminChecklistStatusTone,
   type AdminChecklistRow,
   type AdminChecklistStatus,
 } from '@/lib/adminDriverDocumentChecklist';
+import {
+  logAdminDocumentUploadFailure,
+  uploadSideAndSubmit,
+  userFacingUploadError,
+} from '@/lib/adminDocumentUploadSubmit';
 import { driverRegistrationVerificationComplete } from '../../../shared/rolesPermissionsSSOT';
 import { cn } from '@/lib/utils';
 
@@ -61,13 +65,6 @@ type Draft = {
 
 const EMPTY_DRAFT: Draft = { primary: null, back: null, expiryDate: '' };
 
-function fileExtension(file: File): string {
-  const parts = file.name.split('.');
-  const raw = parts.length > 1 ? parts.pop()! : '';
-  const cleaned = raw.toLowerCase().replace(/[^a-z0-9]/g, '');
-  return cleaned || 'bin';
-}
-
 function loadErrorMessage(error: unknown): string {
   if (error instanceof Error && error.message.trim()) return error.message;
   if (
@@ -80,57 +77,6 @@ function loadErrorMessage(error: unknown): string {
     return (error as { message: string }).message;
   }
   return 'Unknown error';
-}
-
-function buildStoragePath(
-  driverId: string,
-  documentTypeKey: string,
-  side: string,
-  file: File,
-): string {
-  return `${driverId}/admin/${documentTypeKey}/${side}_${crypto.randomUUID()}.${fileExtension(file)}`;
-}
-
-async function uploadSideAndSubmit(args: {
-  driverId: string;
-  documentTypeId: string;
-  documentTypeKey: string;
-  side: 'front' | 'back' | 'single';
-  file: File;
-  expiryDate: string | null;
-}): Promise<void> {
-  const storagePath = buildStoragePath(
-    args.driverId,
-    args.documentTypeKey,
-    args.side,
-    args.file,
-  );
-
-  const { error: uploadError } = await supabase.storage
-    .from('driver-documents')
-    .upload(storagePath, args.file, {
-      contentType: args.file.type || undefined,
-      upsert: false,
-    });
-  if (uploadError) throw uploadError;
-
-  const { data, error } = await supabase.rpc('admin_submit_driver_document', {
-    p_driver_id: args.driverId,
-    p_document_type_id: args.documentTypeId,
-    p_storage_path: storagePath,
-    p_side: args.side,
-    p_expiry_date: args.expiryDate,
-    p_mime_type: args.file.type || null,
-    p_original_filename: args.file.name,
-    p_file_size_bytes: args.file.size,
-    p_idempotency_key: crypto.randomUUID(),
-  });
-  if (error) throw error;
-
-  const result = data as { success?: boolean; message?: string; error?: string } | null;
-  if (result && result.success === false) {
-    throw new Error(result.message || result.error || 'Document submit failed');
-  }
 }
 
 function rowHasPrimaryFile(row: AdminChecklistRow, draft: Draft | undefined): boolean {
@@ -289,17 +235,11 @@ export function AdminAddDriverDocumentsDialog({
             expiryDate: expiry,
           });
         } else {
-          const side =
-            row.capture.kind === 'front_only'
-              ? 'front'
-              : row.capture.kind === 'back_only'
-                ? 'back'
-                : 'single';
           await uploadSideAndSubmit({
             driverId: driver.id,
             documentTypeId: row.document_type_id,
             documentTypeKey: row.document_type_key,
-            side,
+            side: row.capture.submitSide,
             file: draft.primary!,
             expiryDate: expiry,
           });
@@ -320,8 +260,8 @@ export function AdminAddDriverDocumentsDialog({
       onSubmitted?.();
       onOpenChange(false);
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'Upload failed';
-      toast.error(message);
+      logAdminDocumentUploadFailure(err);
+      toast.error(userFacingUploadError(err));
     } finally {
       setSubmitting(false);
     }

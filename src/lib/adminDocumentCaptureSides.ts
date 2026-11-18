@@ -4,8 +4,12 @@
  * `resolveNamedSingleDocumentSide` — name/code only, never catalogue description.
  */
 
+/**
+ * UI layout kind stays `single` for one-file docs; submitSide must match
+ * Driver / document_attachments SSOT: front | back | full | other.
+ */
 export type AdminDocumentCaptureLayout =
-  | { kind: 'single'; submitSide: 'single' }
+  | { kind: 'single'; submitSide: 'full' }
   | { kind: 'front_only'; submitSide: 'front' }
   | { kind: 'back_only'; submitSide: 'back' }
   | { kind: 'dual'; submitSides: ['front', 'back'] };
@@ -84,5 +88,5 @@ export function resolveAdminDocumentCaptureLayout(input: {
   const named = resolveNamedSingleDocumentSide(input);
   if (named === 'front') return { kind: 'front_only', submitSide: 'front' };
   if (named === 'back') return { kind: 'back_only', submitSide: 'back' };
-  return { kind: 'single', submitSide: 'single' };
+  return { kind: 'single', submitSide: 'full' };
 }
