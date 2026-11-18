@@ -37,3 +37,8 @@ AS $$
     ELSE (string_to_array(name, '/'))[1:GREATEST(coalesce(array_length(string_to_array(name, '/'), 1), 1) - 1, 0)]
   END
 $$;
+
+-- Migrations after the baseline run as `postgres`. CREATE POLICY requires ownership.
+ALTER TABLE storage.objects OWNER TO postgres;
+ALTER FUNCTION storage.foldername(text) OWNER TO postgres;
+GRANT USAGE ON SCHEMA storage TO postgres;

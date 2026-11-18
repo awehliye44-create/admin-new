@@ -80,8 +80,8 @@ if [ "$tbl_count" -lt 250 ] || [ "$fn_count" -lt 800 ]; then
   echo "ERROR: restored schema looks incomplete (expected >=250 tables, >=800 functions)" >&2; exit 1
 fi
 
-echo "=== storage stubs (image has no storage schema; production does) ==="
-psql "$DB_URL" -X -q -v ON_ERROR_STOP=1 -f "$CI_DIR/pg_harness_storage_stubs.sql"
+echo "=== storage stubs (schema exists but objects do not; production has both) ==="
+psql "$ADMIN_DB_URL" -X -q -v ON_ERROR_STOP=1 -f "$CI_DIR/pg_harness_storage_stubs.sql"
 
 echo "=== applying repo migrations newer than $BASELINE ==="
 applied=0
