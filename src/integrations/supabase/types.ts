@@ -6640,6 +6640,7 @@ export type Database = {
       }
       documents: {
         Row: {
+          admin_staff_id: string | null
           created_at: string
           document_name: string
           document_type: string
@@ -6659,8 +6660,12 @@ export type Database = {
           submission_idempotency_key: string | null
           superseded_by: string | null
           updated_at: string
+          upload_source: string | null
+          uploaded_at: string | null
+          uploaded_by: string | null
         }
         Insert: {
+          admin_staff_id?: string | null
           created_at?: string
           document_name: string
           document_type: string
@@ -6680,8 +6685,12 @@ export type Database = {
           submission_idempotency_key?: string | null
           superseded_by?: string | null
           updated_at?: string
+          upload_source?: string | null
+          uploaded_at?: string | null
+          uploaded_by?: string | null
         }
         Update: {
+          admin_staff_id?: string | null
           created_at?: string
           document_name?: string
           document_type?: string
@@ -6701,6 +6710,9 @@ export type Database = {
           submission_idempotency_key?: string | null
           superseded_by?: string | null
           updated_at?: string
+          upload_source?: string | null
+          uploaded_at?: string | null
+          uploaded_by?: string | null
         }
         Relationships: [
           {
@@ -34281,6 +34293,24 @@ export type Database = {
         Returns: undefined
       }
       stop_stop_waiting: { Args: { p_waiting_id: string }; Returns: Json }
+      admin_submit_driver_document: {
+        Args: {
+          p_driver_id: string
+          p_document_type_id: string
+          p_storage_path: string
+          p_side?: string
+          p_expiry_date?: string
+          p_mime_type?: string
+          p_original_filename?: string
+          p_file_size_bytes?: number
+          p_idempotency_key?: string
+        }
+        Returns: Json
+      }
+      driver_has_completed_registration_verification: {
+        Args: { p_driver_id: string }
+        Returns: boolean
+      }
       submit_driver_document: {
         Args: {
           p_document_type_id: string

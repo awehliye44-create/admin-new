@@ -35,6 +35,10 @@ export interface DriverDocumentComplianceRow {
   expiry_status: ExpiryStatus;
   days_until_expiry: number | null;
   blocks_online: boolean;
+  /** Server SSOT: replacement window open (renewal / versioning). */
+  can_upload_replacement?: boolean | null;
+  renewal_state?: string | null;
+  renewal_open_days?: number | null;
 }
 
 export function useDriverDocumentCompliance(driverId: string | null | undefined) {
