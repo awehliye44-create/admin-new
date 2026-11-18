@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  adminChecklistStatusTone,
   composeAdminDriverDocumentChecklist,
   resolveAdminChecklistStatus,
   resolveAdminChecklistUploadEligible,
@@ -241,8 +242,40 @@ describe('adminDriverDocumentChecklist', () => {
       ],
     });
     expect(pending[0].status).toBe('pending_review');
+    expect(pending[0].status_label).toBe('Pending review');
     // Pending is still upload-eligible for same-doc side attach / resubmit in Driver SSOT.
     expect(resolveAdminChecklistUploadEligible(pending[0].compliance!)).toBe(true);
+  });
+
+  it('matches Driver My Documents status badge tones', () => {
+    expect(adminChecklistStatusTone('approved')).toEqual({
+      backgroundColor: '#E8F6EC',
+      color: '#2F7D46',
+    });
+    expect(adminChecklistStatusTone('expiring_soon')).toEqual({
+      backgroundColor: '#FBF0D6',
+      color: '#B7811A',
+    });
+    expect(adminChecklistStatusTone('pending_review')).toEqual({
+      backgroundColor: '#FBF0D6',
+      color: '#B7811A',
+    });
+    expect(adminChecklistStatusTone('expired')).toEqual({
+      backgroundColor: '#F8E4E3',
+      color: '#C0392B',
+    });
+    expect(adminChecklistStatusTone('rejected')).toEqual({
+      backgroundColor: '#F8E4E3',
+      color: '#C0392B',
+    });
+    expect(adminChecklistStatusTone('missing')).toEqual({
+      backgroundColor: '#E8EEF7',
+      color: '#3B6EA5',
+    });
+    expect(adminChecklistStatusTone('not_uploaded')).toEqual({
+      backgroundColor: '#F2F2F0',
+      color: '#5F5F5F',
+    });
   });
 
   it('applies a different service-area catalogue dynamically (Banadir-shaped)', () => {

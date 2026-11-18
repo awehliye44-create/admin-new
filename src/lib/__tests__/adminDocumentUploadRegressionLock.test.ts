@@ -47,6 +47,10 @@ describe('adminDocumentUploadRegressionLock', () => {
     expect(dialog).toMatch(/Back file/);
     expect(dialog).toMatch(/requires_expiry/);
     expect(dialog).toMatch(/row\.can_upload/);
+    // Scrollable body with fixed header/footer (Radix ScrollArea was freezing).
+    expect(dialog).toMatch(/overflow-y-auto/);
+    expect(dialog).toMatch(/overscroll-contain/);
+    expect(dialog).toMatch(/adminChecklistStatusTone|DocumentStatusBadge/);
     // Must not hard-force Back as optional on every row.
     expect(dialog).not.toMatch(/Back file \(optional\)/);
   });

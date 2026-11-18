@@ -113,18 +113,49 @@ export function resolveAdminChecklistStatus(
     approval === 'submitted' ||
     approval === 'under_review'
   ) {
-    return { status: 'pending_review', label: 'Pending Review' };
+    // Driver My Documents statusLabel: "Pending review"
+    return { status: 'pending_review', label: 'Pending review' };
   }
   if (expiry === 'expired' || approval === 'expired') {
     return { status: 'expired', label: 'Expired' };
   }
   if (expiry === 'expiring_soon') {
-    return { status: 'expiring_soon', label: 'Expiring Soon' };
+    // Driver My Documents statusLabel: "Expiring soon"
+    return { status: 'expiring_soon', label: 'Expiring soon' };
   }
   if (expiry === 'approved_valid' || approval === 'approved') {
     return { status: 'approved', label: 'Approved' };
   }
-  return { status: 'pending_review', label: 'Pending Review' };
+  return { status: 'pending_review', label: 'Pending review' };
+}
+
+/**
+ * Driver My Documents badge tones (onecab-driver-native DocumentStatusBadge /
+ * theme tokens statusCompleted* / statusNoShow* / statusCancelled*).
+ */
+export type AdminChecklistStatusTone = {
+  backgroundColor: string;
+  color: string;
+};
+
+export function adminChecklistStatusTone(
+  status: AdminChecklistStatus,
+): AdminChecklistStatusTone {
+  switch (status) {
+    case 'approved':
+      return { backgroundColor: '#E8F6EC', color: '#2F7D46' };
+    case 'pending_review':
+    case 'expiring_soon':
+      return { backgroundColor: '#FBF0D6', color: '#B7811A' };
+    case 'rejected':
+    case 'expired':
+      return { backgroundColor: '#F8E4E3', color: '#C0392B' };
+    case 'not_uploaded':
+      return { backgroundColor: '#F2F2F0', color: '#5F5F5F' };
+    case 'missing':
+    default:
+      return { backgroundColor: '#E8EEF7', color: '#3B6EA5' };
+  }
 }
 
 export function resolveAdminChecklistUploadEligible(

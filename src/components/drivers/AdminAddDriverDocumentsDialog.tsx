@@ -1,6 +1,13 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { Loader2 } from 'lucide-react';
+import {
+  AlertCircle,
+  CheckCircle2,
+  Clock3,
+  FileQuestion,
+  Loader2,
+  XCircle,
+} from 'lucide-react';
 import { toast } from 'sonner';
 import {
   Dialog,
@@ -15,12 +22,16 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { ScrollArea } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
 import { supabase } from '@/integrations/supabase/client';
 import { useAdminDriverDocumentChecklist } from '@/hooks/useAdminDriverDocumentChecklist';
-import type { AdminChecklistRow } from '@/lib/adminDriverDocumentChecklist';
+import {
+  adminChecklistStatusTone,
+  type AdminChecklistRow,
+  type AdminChecklistStatus,
+} from '@/lib/adminDriverDocumentChecklist';
 import { driverRegistrationVerificationComplete } from '../../../shared/rolesPermissionsSSOT';
+import { cn } from '@/lib/utils';
 
 type DriverForUpload = {
   id: string;
@@ -134,6 +145,48 @@ function primaryFileLabel(row: AdminChecklistRow): string {
   if (row.capture.kind === 'front_only' || row.capture.kind === 'dual') return 'Front file';
   if (row.capture.kind === 'back_only') return 'Back file';
   return 'Upload file';
+}
+
+function StatusIcon({ status, color }: { status: AdminChecklistStatus; color: string }) {
+  const className = 'h-3.5 w-3.5 shrink-0';
+  switch (status) {
+    case 'approved':
+      return <CheckCircle2 className={className} style={{ color }} aria-hidden />;
+    case 'pending_review':
+    case 'expiring_soon':
+      return <Clock3 className={className} style={{ color }} aria-hidden />;
+    case 'rejected':
+    case 'expired':
+      return status === 'rejected' ? (
+        <XCircle className={className} style={{ color }} aria-hidden />
+      ) : (
+        <AlertCircle className={className} style={{ color }} aria-hidden />
+      );
+    case 'not_uploaded':
+    case 'missing':
+    default:
+      return <FileQuestion className={className} style={{ color }} aria-hidden />;
+  }
+}
+
+function DocumentStatusBadge({
+  status,
+  label,
+}: {
+  status: AdminChecklistStatus;
+  label: string;
+}) {
+  const tone = adminChecklistStatusTone(status);
+  return (
+    <span
+      className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-bold leading-none"
+      style={{ backgroundColor: tone.backgroundColor, color: tone.color }}
+      data-status={status}
+    >
+      <StatusIcon status={status} color={tone.color} />
+      {label}
+    </span>
+  );
 }
 
 export function AdminAddDriverDocumentsDialog({
@@ -276,8 +329,13 @@ export function AdminAddDriverDocumentsDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-2xl max-h-[90vh] flex flex-col">
-        <DialogHeader>
+      <DialogContent
+        className={cn(
+          // Override default grid so header/body/footer can flex; body scrolls.
+          'flex max-h-[90vh] w-full flex-col gap-0 overflow-hidden p-0 sm:max-w-2xl',
+        )}
+      >
+        <DialogHeader className="shrink-0 space-y-1.5 border-b px-6 py-4 text-left">
           <DialogTitle>Add driver documents</DialogTitle>
           <DialogDescription>
             Upload compliance documents on behalf of {driverLabel || 'the selected driver'}.
@@ -285,134 +343,130 @@ export function AdminAddDriverDocumentsDialog({
           </DialogDescription>
         </DialogHeader>
 
-        {disabledReason ? (
-          <Alert variant="destructive">
-            <AlertTitle>Upload unavailable</AlertTitle>
-            <AlertDescription>{disabledReason}</AlertDescription>
-          </Alert>
-        ) : (
-          <div className="flex flex-col gap-3 min-h-0 flex-1">
-            {isLoading ? (
-              <div className="flex items-center gap-2 text-sm text-muted-foreground py-8 justify-center">
-                <Loader2 className="h-4 w-4 animate-spin" />
-                Loading document checklist…
-              </div>
-            ) : isError ? (
-              <Alert variant="destructive">
-                <AlertTitle>Failed to load compliance</AlertTitle>
-                <AlertDescription>{loadErrorMessage(loadError)}</AlertDescription>
-              </Alert>
-            ) : !checklist?.serviceAreaId ? (
-              <Alert>
-                <AlertTitle>No service area</AlertTitle>
-                <AlertDescription>
-                  This driver has no assigned service area, so document requirements cannot be listed.
-                </AlertDescription>
-              </Alert>
-            ) : rows.length === 0 ? (
-              <Alert>
-                <AlertTitle>No document requirements</AlertTitle>
-                <AlertDescription>
-                  No active document rules are configured for this driver&apos;s service area.
-                </AlertDescription>
-              </Alert>
-            ) : (
-              <ScrollArea className="max-h-[55vh] pr-3">
-                <div className="space-y-4">
-                  {rows.map((row, index) => {
-                    const draft = drafts[row.document_type_id] ?? EMPTY_DRAFT;
-                    const uploadEnabled = uploadAllowed && row.can_upload && !submitting;
-                    return (
-                      <div key={row.document_type_id} className="space-y-3">
-                        {index > 0 ? <Separator /> : null}
-                        <div className="flex flex-wrap items-center gap-2">
-                          <p className="font-medium text-sm">{row.display_name}</p>
-                          <Badge variant={row.is_required ? 'secondary' : 'outline'}>
-                            {row.requirement_label}
-                          </Badge>
-                          <Badge variant="outline">{row.status_label}</Badge>
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-6 py-4">
+          {disabledReason ? (
+            <Alert variant="destructive">
+              <AlertTitle>Upload unavailable</AlertTitle>
+              <AlertDescription>{disabledReason}</AlertDescription>
+            </Alert>
+          ) : isLoading ? (
+            <div className="flex items-center justify-center gap-2 py-8 text-sm text-muted-foreground">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              Loading document checklist…
+            </div>
+          ) : isError ? (
+            <Alert variant="destructive">
+              <AlertTitle>Failed to load compliance</AlertTitle>
+              <AlertDescription>{loadErrorMessage(loadError)}</AlertDescription>
+            </Alert>
+          ) : !checklist?.serviceAreaId ? (
+            <Alert>
+              <AlertTitle>No service area</AlertTitle>
+              <AlertDescription>
+                This driver has no assigned service area, so document requirements cannot be listed.
+              </AlertDescription>
+            </Alert>
+          ) : rows.length === 0 ? (
+            <Alert>
+              <AlertTitle>No document requirements</AlertTitle>
+              <AlertDescription>
+                No active document rules are configured for this driver&apos;s service area.
+              </AlertDescription>
+            </Alert>
+          ) : (
+            <div className="space-y-4" data-testid="admin-add-documents-checklist">
+              {rows.map((row, index) => {
+                const draft = drafts[row.document_type_id] ?? EMPTY_DRAFT;
+                const uploadEnabled = uploadAllowed && row.can_upload && !submitting;
+                return (
+                  <div key={row.document_type_id} className="space-y-3">
+                    {index > 0 ? <Separator /> : null}
+                    <div className="flex flex-wrap items-center gap-2">
+                      <p className="text-sm font-medium">{row.display_name}</p>
+                      <Badge variant={row.is_required ? 'secondary' : 'outline'}>
+                        {row.requirement_label}
+                      </Badge>
+                      <DocumentStatusBadge status={row.status} label={row.status_label} />
+                    </div>
+
+                    {row.can_upload ? (
+                      <>
+                        <div
+                          className={
+                            row.capture.kind === 'dual'
+                              ? 'grid gap-3 sm:grid-cols-2'
+                              : 'grid max-w-md gap-3'
+                          }
+                        >
+                          <div className="space-y-1.5">
+                            <Label htmlFor={`primary-${row.document_type_id}`}>
+                              {primaryFileLabel(row)}{' '}
+                              <span className="text-destructive">*</span>
+                            </Label>
+                            <Input
+                              id={`primary-${row.document_type_id}`}
+                              type="file"
+                              accept="image/*,application/pdf"
+                              disabled={!uploadEnabled}
+                              onChange={(e) =>
+                                updateDraft(row.document_type_id, {
+                                  primary: e.target.files?.[0] ?? null,
+                                })
+                              }
+                            />
+                          </div>
+                          {row.capture.kind === 'dual' ? (
+                            <div className="space-y-1.5">
+                              <Label htmlFor={`back-${row.document_type_id}`}>
+                                Back file <span className="text-destructive">*</span>
+                              </Label>
+                              <Input
+                                id={`back-${row.document_type_id}`}
+                                type="file"
+                                accept="image/*,application/pdf"
+                                disabled={!uploadEnabled}
+                                onChange={(e) =>
+                                  updateDraft(row.document_type_id, {
+                                    back: e.target.files?.[0] ?? null,
+                                  })
+                                }
+                              />
+                            </div>
+                          ) : null}
                         </div>
 
-                        {row.can_upload ? (
-                          <>
-                            <div
-                              className={
-                                row.capture.kind === 'dual'
-                                  ? 'grid gap-3 sm:grid-cols-2'
-                                  : 'grid gap-3 max-w-md'
+                        {row.requires_expiry ? (
+                          <div className="max-w-xs space-y-1.5">
+                            <Label htmlFor={`expiry-${row.document_type_id}`}>
+                              Expiry date <span className="text-destructive">*</span>
+                            </Label>
+                            <Input
+                              id={`expiry-${row.document_type_id}`}
+                              type="date"
+                              value={draft.expiryDate}
+                              disabled={!uploadEnabled}
+                              onChange={(e) =>
+                                updateDraft(row.document_type_id, {
+                                  expiryDate: e.target.value,
+                                })
                               }
-                            >
-                              <div className="space-y-1.5">
-                                <Label htmlFor={`primary-${row.document_type_id}`}>
-                                  {primaryFileLabel(row)}{' '}
-                                  <span className="text-destructive">*</span>
-                                </Label>
-                                <Input
-                                  id={`primary-${row.document_type_id}`}
-                                  type="file"
-                                  accept="image/*,application/pdf"
-                                  disabled={!uploadEnabled}
-                                  onChange={(e) =>
-                                    updateDraft(row.document_type_id, {
-                                      primary: e.target.files?.[0] ?? null,
-                                    })
-                                  }
-                                />
-                              </div>
-                              {row.capture.kind === 'dual' ? (
-                                <div className="space-y-1.5">
-                                  <Label htmlFor={`back-${row.document_type_id}`}>
-                                    Back file <span className="text-destructive">*</span>
-                                  </Label>
-                                  <Input
-                                    id={`back-${row.document_type_id}`}
-                                    type="file"
-                                    accept="image/*,application/pdf"
-                                    disabled={!uploadEnabled}
-                                    onChange={(e) =>
-                                      updateDraft(row.document_type_id, {
-                                        back: e.target.files?.[0] ?? null,
-                                      })
-                                    }
-                                  />
-                                </div>
-                              ) : null}
-                            </div>
+                            />
+                          </div>
+                        ) : null}
+                      </>
+                    ) : (
+                      <p className="text-xs text-muted-foreground">
+                        Upload unavailable — replacement is not open for this document.
+                      </p>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
 
-                            {row.requires_expiry ? (
-                              <div className="space-y-1.5 max-w-xs">
-                                <Label htmlFor={`expiry-${row.document_type_id}`}>
-                                  Expiry date <span className="text-destructive">*</span>
-                                </Label>
-                                <Input
-                                  id={`expiry-${row.document_type_id}`}
-                                  type="date"
-                                  value={draft.expiryDate}
-                                  disabled={!uploadEnabled}
-                                  onChange={(e) =>
-                                    updateDraft(row.document_type_id, {
-                                      expiryDate: e.target.value,
-                                    })
-                                  }
-                                />
-                              </div>
-                            ) : null}
-                          </>
-                        ) : (
-                          <p className="text-xs text-muted-foreground">
-                            Upload unavailable — replacement is not open for this document.
-                          </p>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              </ScrollArea>
-            )}
-          </div>
-        )}
-
-        <DialogFooter className="gap-2 sm:gap-0">
+        <DialogFooter className="shrink-0 gap-2 border-t px-6 py-4 sm:gap-0">
           <Button
             type="button"
             variant="outline"
