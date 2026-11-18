@@ -15,14 +15,25 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Loader2, Pencil, Plus, Archive } from 'lucide-react';
+import { Loader2, Pencil, Plus, Archive, Send } from 'lucide-react';
 import { useServiceAreas } from '@/hooks/useServiceAreas';
 import { useRegions } from '@/hooks/useRegions';
 import {
   useArchiveDriverTripBonusCampaign,
   useDriverTripBonusCampaignsAdmin,
+  usePublishDriverTripBonusCampaign,
   useSaveDriverTripBonusCampaign,
   type TripBonusCampaignWithAreas,
 } from '@/hooks/useDriverTripBonusesAdmin';
@@ -75,6 +86,16 @@ function penceToPounds(pence: number): string {
   return (Math.max(0, pence) / 100).toFixed(2);
 }
 
+function formatSchedule(iso: string | null): string {
+  if (!iso) return 'Not set';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return 'Not set';
+  return d.toLocaleString(undefined, {
+    dateStyle: 'medium',
+    timeStyle: 'short',
+  });
+}
+
 function toDraft(row: TripBonusCampaignWithAreas): Draft {
   return {
     id: row.id,
@@ -104,15 +125,43 @@ export default function DriverTripBonuses() {
   const { data: regions = [] } = useRegions();
   const save = useSaveDriverTripBonusCampaign();
   const archive = useArchiveDriverTripBonusCampaign();
+  const publish = usePublishDriverTripBonusCampaign();
 
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState<Draft>(emptyDraft());
   const [formError, setFormError] = useState<string | null>(null);
+  const [publishTarget, setPublishTarget] = useState<TripBonusCampaignWithAreas | null>(null);
 
   const activeAreas = useMemo(
     () => (serviceAreas as Array<{ id: string; name: string; is_active?: boolean }>),
     [serviceAreas],
   );
+
+  const areaNameById = useMemo(() => {
+    const map = new Map<string, string>();
+    activeAreas.forEach((a) => map.set(a.id, a.name));
+    return map;
+  }, [activeAreas]);
+
+  const regionNameById = useMemo(() => {
+    const map = new Map<string, string>();
+    (regions as Array<{ id: string; name: string }>).forEach((r) => map.set(r.id, r.name));
+    return map;
+  }, [regions]);
+
+  const publishScopeSummary = useMemo(() => {
+    if (!publishTarget) return '';
+    if (publishTarget.scope_type === 'global') return 'Global';
+    if (publishTarget.scope_type === 'entire_region') {
+      return publishTarget.region_id
+        ? `Entire region: ${regionNameById.get(publishTarget.region_id) ?? publishTarget.region_id}`
+        : 'Entire region (missing region)';
+    }
+    const names = (publishTarget.service_area_ids ?? []).map(
+      (id) => areaNameById.get(id) ?? id,
+    );
+    return names.length ? names.join(', ') : 'No service areas selected';
+  }, [publishTarget, areaNameById, regionNameById]);
 
   const openCreate = () => {
     setDraft(emptyDraft());
@@ -201,7 +250,7 @@ export default function DriverTripBonuses() {
                     <TableHead>Scope</TableHead>
                     <TableHead>Status</TableHead>
                     <TableHead>Priority</TableHead>
-                    <TableHead className="w-[100px]" />
+                    <TableHead className="w-[200px]" />
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -220,7 +269,18 @@ export default function DriverTripBonuses() {
                         </Badge>
                       </TableCell>
                       <TableCell>{c.display_priority}</TableCell>
-                      <TableCell className="flex gap-1">
+                      <TableCell className="flex gap-1 justify-end">
+                        {c.status === 'draft' && (
+                          <Button
+                            size="sm"
+                            variant="default"
+                            onClick={() => setPublishTarget(c)}
+                            disabled={publish.isPending}
+                          >
+                            <Send className="h-3.5 w-3.5 mr-1" />
+                            Publish
+                          </Button>
+                        )}
                         <Button size="icon" variant="ghost" onClick={() => openEdit(c)}>
                           <Pencil className="h-4 w-4" />
                         </Button>
@@ -249,6 +309,84 @@ export default function DriverTripBonuses() {
           </CardContent>
         </Card>
       </div>
+
+      <AlertDialog
+        open={publishTarget != null}
+        onOpenChange={(next) => {
+          if (!next) setPublishTarget(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Publish this campaign?</AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-2 text-sm text-muted-foreground">
+                <p>
+                  Drivers will see this white Home progress card once published (Draft stays
+                  hidden). Active setting, dates and scope are preserved.
+                </p>
+                {publishTarget && (
+                  <dl className="space-y-1.5 rounded-md border bg-muted/40 p-3 text-foreground">
+                    <div className="flex justify-between gap-3">
+                      <dt className="text-muted-foreground">Title</dt>
+                      <dd className="font-medium text-right">{publishTarget.title}</dd>
+                    </div>
+                    <div className="flex justify-between gap-3">
+                      <dt className="text-muted-foreground">Service area / scope</dt>
+                      <dd className="font-medium text-right">{publishScopeSummary}</dd>
+                    </div>
+                    <div className="flex justify-between gap-3">
+                      <dt className="text-muted-foreground">Trip target</dt>
+                      <dd className="font-medium text-right">{publishTarget.trip_target} trips</dd>
+                    </div>
+                    <div className="flex justify-between gap-3">
+                      <dt className="text-muted-foreground">Bonus</dt>
+                      <dd className="font-medium text-right">
+                        £{penceToPounds(publishTarget.bonus_amount_pence)}
+                      </dd>
+                    </div>
+                    <div className="flex justify-between gap-3">
+                      <dt className="text-muted-foreground">Starts</dt>
+                      <dd className="font-medium text-right">
+                        {formatSchedule(publishTarget.starts_at)}
+                      </dd>
+                    </div>
+                    <div className="flex justify-between gap-3">
+                      <dt className="text-muted-foreground">Ends</dt>
+                      <dd className="font-medium text-right">
+                        {formatSchedule(publishTarget.ends_at)}
+                      </dd>
+                    </div>
+                    <div className="flex justify-between gap-3">
+                      <dt className="text-muted-foreground">Active</dt>
+                      <dd className="font-medium text-right">
+                        {publishTarget.is_active ? 'On' : 'Off'}
+                      </dd>
+                    </div>
+                  </dl>
+                )}
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={publish.isPending}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={publish.isPending || !publishTarget}
+              onClick={(e) => {
+                e.preventDefault();
+                if (!publishTarget) return;
+                void publish.mutateAsync(publishTarget).then(() => setPublishTarget(null));
+              }}
+            >
+              {publish.isPending ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                'Publish campaign'
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">

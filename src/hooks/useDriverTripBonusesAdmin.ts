@@ -1,10 +1,11 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
-import type {
-  DriverTripBonusCampaignRow,
-  TripBonusCampaignStatus,
-  TripBonusScopeType,
+import {
+  validateCampaignDraft,
+  type DriverTripBonusCampaignRow,
+  type TripBonusCampaignStatus,
+  type TripBonusScopeType,
 } from '../../shared/driverTripBonusCampaignSSOT';
 
 export type TripBonusCampaignWithAreas = DriverTripBonusCampaignRow & {
@@ -115,6 +116,57 @@ export function useArchiveDriverTripBonusCampaign() {
     },
     onError: (err: Error) => {
       toast.error(err.message || 'Failed to archive');
+    },
+  });
+}
+
+/** Publish a draft via the same gated save RPC — preserves Active, dates, and scope. */
+export function usePublishDriverTripBonusCampaign() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (campaign: TripBonusCampaignWithAreas) => {
+      if (campaign.status !== 'draft') {
+        throw new Error('Only draft campaigns can be published');
+      }
+      const errors = validateCampaignDraft({
+        title: campaign.title,
+        card_headline: campaign.card_headline,
+        trip_target: campaign.trip_target,
+        bonus_amount_pence: campaign.bonus_amount_pence,
+        scope_type: campaign.scope_type,
+        region_id: campaign.region_id,
+        service_area_ids: campaign.service_area_ids ?? [],
+      });
+      if (errors.length) {
+        throw new Error(`Cannot publish: ${errors.join(', ')}`);
+      }
+      const { data, error } = await db.rpc('admin_save_driver_trip_bonus_campaign', {
+        p_campaign: {
+          id: campaign.id,
+          title: campaign.title,
+          card_headline: campaign.card_headline,
+          card_body: campaign.card_body,
+          trip_target: campaign.trip_target,
+          bonus_amount_pence: campaign.bonus_amount_pence,
+          status: 'published',
+          is_active: campaign.is_active,
+          starts_at: campaign.starts_at,
+          ends_at: campaign.ends_at,
+          scope_type: campaign.scope_type,
+          region_id: campaign.region_id,
+          display_priority: campaign.display_priority,
+        },
+        p_service_area_ids: campaign.service_area_ids ?? [],
+      });
+      if (error) throw error;
+      return data as string;
+    },
+    onSuccess: () => {
+      toast.success('Campaign published');
+      qc.invalidateQueries({ queryKey: ['driver-trip-bonus-campaigns'] });
+    },
+    onError: (err: Error) => {
+      toast.error(err.message || 'Failed to publish campaign');
     },
   });
 }
