@@ -72,6 +72,20 @@ function fileExtension(file: File): string {
   return cleaned || 'bin';
 }
 
+function loadErrorMessage(error: unknown): string {
+  if (error instanceof Error && error.message.trim()) return error.message;
+  if (
+    error &&
+    typeof error === 'object' &&
+    'message' in error &&
+    typeof (error as { message: unknown }).message === 'string' &&
+    (error as { message: string }).message.trim()
+  ) {
+    return (error as { message: string }).message;
+  }
+  return 'Unknown error';
+}
+
 function buildStoragePath(
   driverId: string,
   documentTypeKey: string,
@@ -271,9 +285,7 @@ export function AdminAddDriverDocumentsDialog({
             ) : isError ? (
               <Alert variant="destructive">
                 <AlertTitle>Failed to load compliance</AlertTitle>
-                <AlertDescription>
-                  {loadError instanceof Error ? loadError.message : 'Unknown error'}
-                </AlertDescription>
+                <AlertDescription>{loadErrorMessage(loadError)}</AlertDescription>
               </Alert>
             ) : uploadableRows.length === 0 ? (
               <Alert>
