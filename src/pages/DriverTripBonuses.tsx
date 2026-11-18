@@ -96,7 +96,11 @@ function toDraft(row: TripBonusCampaignWithAreas): Draft {
 
 export default function DriverTripBonuses() {
   const { data: campaigns = [], isLoading } = useDriverTripBonusCampaignsAdmin();
-  const { data: serviceAreas = [] } = useServiceAreas();
+  const {
+    data: serviceAreas = [],
+    isLoading: areasLoading,
+    isError: areasError,
+  } = useServiceAreas({ pageSlug: 'driver-trip-bonuses', activeOnly: true });
   const { data: regions = [] } = useRegions();
   const save = useSaveDriverTripBonusCampaign();
   const archive = useArchiveDriverTripBonusCampaign();
@@ -106,8 +110,7 @@ export default function DriverTripBonuses() {
   const [formError, setFormError] = useState<string | null>(null);
 
   const activeAreas = useMemo(
-    () => (serviceAreas as Array<{ id: string; name: string; is_active?: boolean }>)
-      .filter((a) => a.is_active !== false),
+    () => (serviceAreas as Array<{ id: string; name: string; is_active?: boolean }>),
     [serviceAreas],
   );
 
@@ -387,6 +390,17 @@ export default function DriverTripBonuses() {
             {draft.scope_type === 'selected_service_areas' && (
               <div className="space-y-2 max-h-40 overflow-y-auto border rounded-md p-2">
                 <Label>Service areas</Label>
+                {areasLoading && (
+                  <p className="text-sm text-muted-foreground py-2">Loading service areas…</p>
+                )}
+                {!areasLoading && areasError && (
+                  <p className="text-sm text-destructive py-2">
+                    Could not load service areas. Check page access and try again.
+                  </p>
+                )}
+                {!areasLoading && !areasError && activeAreas.length === 0 && (
+                  <p className="text-sm text-muted-foreground py-2">No active service areas found.</p>
+                )}
                 {activeAreas.map((a) => {
                   const checked = draft.serviceAreaIds.includes(a.id);
                   return (
