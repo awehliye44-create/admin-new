@@ -30,6 +30,8 @@ import {
   type AdminChecklistStatus,
 } from '@/lib/adminDriverDocumentChecklist';
 import {
+  ADMIN_DOCUMENT_FILE_ACCEPT,
+  assertAdminDocumentFileAllowed,
   logAdminDocumentUploadFailure,
   uploadSideAndSubmit,
   userFacingUploadError,
@@ -208,6 +210,16 @@ export function AdminAddDriverDocumentsDialog({
         toast.error(`Front and Back files are required for ${row.display_name}`);
         return;
       }
+      try {
+        assertAdminDocumentFileAllowed(draft.primary);
+        if (row.capture.kind === 'dual' && draft.back) {
+          assertAdminDocumentFileAllowed(draft.back);
+        }
+      } catch (err) {
+        logAdminDocumentUploadFailure(err);
+        toast.error(userFacingUploadError(err));
+        return;
+      }
     }
 
     setSubmitting(true);
@@ -346,7 +358,7 @@ export function AdminAddDriverDocumentsDialog({
                             <Input
                               id={`primary-${row.document_type_id}`}
                               type="file"
-                              accept="image/*,application/pdf"
+                              accept={ADMIN_DOCUMENT_FILE_ACCEPT}
                               disabled={!uploadEnabled}
                               onChange={(e) =>
                                 updateDraft(row.document_type_id, {
@@ -363,7 +375,7 @@ export function AdminAddDriverDocumentsDialog({
                               <Input
                                 id={`back-${row.document_type_id}`}
                                 type="file"
-                                accept="image/*,application/pdf"
+                                accept={ADMIN_DOCUMENT_FILE_ACCEPT}
                                 disabled={!uploadEnabled}
                                 onChange={(e) =>
                                   updateDraft(row.document_type_id, {

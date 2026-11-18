@@ -6,7 +6,20 @@ import { supabase } from '@/integrations/supabase/client';
 
 export type AdminAttachmentSubmitSide = 'front' | 'back' | 'full' | 'other';
 
-export type AdminDocumentUploadStage = 'storage' | 'submit';
+export type AdminDocumentUploadStage = 'storage' | 'submit' | 'validation';
+
+/** Driver-parity allowlist — matches storage bucket + Driver App. */
+export const ADMIN_DOCUMENT_ALLOWED_MIME = [
+  'image/jpeg',
+  'image/jpg',
+  'image/png',
+  'image/webp',
+  'application/pdf',
+] as const;
+
+/** File picker accept — do not use image/* (that includes SVG). */
+export const ADMIN_DOCUMENT_FILE_ACCEPT =
+  'image/jpeg,image/jpg,image/png,image/webp,application/pdf,.jpg,.jpeg,.png,.webp,.pdf';
 
 export type AdminDocumentUploadFailure = {
   stage: AdminDocumentUploadStage;
@@ -117,6 +130,52 @@ function fileExtension(file: File): string {
   return cleaned || 'bin';
 }
 
+function mimeFromFileName(fileName: string): string | null {
+  const lower = fileName.trim().toLowerCase();
+  if (lower.endsWith('.jpg') || lower.endsWith('.jpeg')) return 'image/jpeg';
+  if (lower.endsWith('.png')) return 'image/png';
+  if (lower.endsWith('.webp')) return 'image/webp';
+  if (lower.endsWith('.pdf')) return 'application/pdf';
+  return null;
+}
+
+export function isAllowedAdminDocumentMime(mime: string): boolean {
+  const lower = mime.trim().toLowerCase();
+  return ADMIN_DOCUMENT_ALLOWED_MIME.some(
+    (allowed) =>
+      allowed === lower || (allowed === 'image/jpg' && lower === 'image/jpeg'),
+  );
+}
+
+/** Resolve MIME for Admin upload; reject SVG and other non-document types. */
+export function resolveAdminDocumentMime(file: File): string | null {
+  const raw = (file.type || '').trim().toLowerCase();
+  if (raw === 'image/svg+xml' || raw.includes('svg')) return null;
+  if (raw && isAllowedAdminDocumentMime(raw)) {
+    return raw === 'image/jpg' ? 'image/jpeg' : raw;
+  }
+  const fromName = mimeFromFileName(file.name);
+  if (fromName && isAllowedAdminDocumentMime(fromName)) return fromName;
+  return null;
+}
+
+export function assertAdminDocumentFileAllowed(file: File): void {
+  const mime = resolveAdminDocumentMime(file);
+  if (mime) return;
+  const reported = (file.type || '').trim() || 'unknown';
+  throw new AdminDocumentUploadError({
+    stage: 'validation',
+    code: 'UNSUPPORTED_MIME',
+    userMessage:
+      'Unsupported file type. Use JPG, PNG, WebP, or PDF — SVG and other formats are not accepted.',
+    diagnostic: {
+      stage: 'validation',
+      code: 'UNSUPPORTED_MIME',
+      message: `mime type ${reported} is not supported`,
+    },
+  });
+}
+
 export function buildAdminDocumentStoragePath(
   driverId: string,
   documentTypeKey: string,
@@ -220,12 +279,15 @@ async function cleanupAfterSubmitFailure(
 
 function storageFailure(error: unknown): AdminDocumentUploadError {
   const fields = extractSupabaseErrorFields(error);
+  const blob = `${fields.message ?? ''} ${fields.details ?? ''}`.toLowerCase();
+  const mimeRejected =
+    blob.includes('mime type') && blob.includes('not supported');
   return new AdminDocumentUploadError({
     stage: 'storage',
     code: fields.code,
-    userMessage:
-      fields.message ||
-      'File upload to storage failed. Please try again.',
+    userMessage: mimeRejected
+      ? 'Unsupported file type. Use JPG, PNG, WebP, or PDF — SVG and other formats are not accepted.'
+      : fields.message || 'File upload to storage failed. Please try again.',
     diagnostic: {
       stage: 'storage',
       code: fields.code,
@@ -263,6 +325,9 @@ export async function uploadSideAndSubmit(args: {
   file: File;
   expiryDate: string | null;
 }): Promise<void> {
+  assertAdminDocumentFileAllowed(args.file);
+  const resolvedMime = resolveAdminDocumentMime(args.file)!;
+
   const storagePath = buildAdminDocumentStoragePath(
     args.driverId,
     args.documentTypeKey,
@@ -273,7 +338,7 @@ export async function uploadSideAndSubmit(args: {
   const { error: uploadError } = await supabase.storage
     .from('driver-documents')
     .upload(storagePath, args.file, {
-      contentType: args.file.type || undefined,
+      contentType: resolvedMime,
       upsert: false,
     });
   if (uploadError) {
@@ -289,7 +354,7 @@ export async function uploadSideAndSubmit(args: {
       p_storage_path: storagePath,
       p_side: args.side,
       p_expiry_date: args.expiryDate,
-      p_mime_type: args.file.type || null,
+      p_mime_type: resolvedMime,
       p_original_filename: args.file.name,
       p_file_size_bytes: args.file.size,
       p_idempotency_key: crypto.randomUUID(),

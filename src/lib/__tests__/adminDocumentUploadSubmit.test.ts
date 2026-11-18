@@ -41,9 +41,11 @@ vi.mock('@/integrations/supabase/client', () => ({
 
 import {
   AdminDocumentUploadError,
+  assertAdminDocumentFileAllowed,
   buildAdminDocumentStoragePath,
   extractSupabaseErrorFields,
   removeUnreferencedAdminStorageObject,
+  resolveAdminDocumentMime,
   uploadSideAndSubmit,
   userFacingUploadError,
 } from '@/lib/adminDocumentUploadSubmit';
@@ -110,6 +112,27 @@ describe('adminDocumentUploadSubmit', () => {
       /^driver-1\/admin\/v5_logbook\/full_[0-9a-f-]+\.jpg$/,
     );
     expect(path).not.toContain('/single_');
+  });
+
+  it('rejects SVG and accepts Driver-parity document MIME types', () => {
+    const svg = new File([new Uint8Array([1])], 'download.svg', {
+      type: 'image/svg+xml',
+    });
+    expect(resolveAdminDocumentMime(svg)).toBeNull();
+    expect(() => assertAdminDocumentFileAllowed(svg)).toThrow(
+      /JPG, PNG, WebP, or PDF/i,
+    );
+
+    const jpeg = new File([new Uint8Array([1])], 'mot.jpg', {
+      type: 'image/jpeg',
+    });
+    expect(resolveAdminDocumentMime(jpeg)).toBe('image/jpeg');
+    expect(() => assertAdminDocumentFileAllowed(jpeg)).not.toThrow();
+
+    const pdf = new File([new Uint8Array([1])], 'mot.pdf', {
+      type: 'application/pdf',
+    });
+    expect(resolveAdminDocumentMime(pdf)).toBe('application/pdf');
   });
 
   it('surfaces plain Supabase objects and distinguishes stages', () => {
