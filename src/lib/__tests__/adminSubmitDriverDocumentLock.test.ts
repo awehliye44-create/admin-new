@@ -12,10 +12,13 @@ const MIGRATION =
   'supabase/migrations/20270226120000_admin_submit_driver_document.sql';
 const SIDE_FIX =
   'supabase/migrations/20270226140000_admin_submit_driver_document_side_ssot.sql';
+const IDEMPOTENCY_FIX =
+  'supabase/migrations/20270226150000_admin_submit_driver_document_idempotency_uuid.sql';
 
 describe('adminSubmitDriverDocumentLock', () => {
   const sql = fs.readFileSync(path.join(ROOT, MIGRATION), 'utf8');
   const sideFix = fs.readFileSync(path.join(ROOT, SIDE_FIX), 'utf8');
+  const idemFix = fs.readFileSync(path.join(ROOT, IDEMPOTENCY_FIX), 'utf8');
 
   it('seeds documents.admin_upload and does not redefine driver submit', () => {
     expect(sql).toMatch(/documents\.admin_upload/);
@@ -90,6 +93,22 @@ describe('adminSubmitDriverDocumentLock', () => {
     );
     expect(sideFix).not.toMatch(
       /ADD\s+CONSTRAINT\s+.*document_attachments_side_check/i,
+    );
+  });
+
+  it('stores and compares submission_idempotency_key as uuid (Driver parity)', () => {
+    expect(idemFix).toMatch(
+      /da\.submission_idempotency_key\s*=\s*p_idempotency_key\b/,
+    );
+    expect(idemFix).not.toMatch(
+      /submission_idempotency_key\s*=\s*p_idempotency_key::text/,
+    );
+    expect(idemFix).not.toMatch(/p_idempotency_key::text/);
+    // Keep side SSOT from prior follow-up.
+    expect(idemFix).toMatch(/IF v_side = 'single' THEN/);
+    expect(idemFix).toMatch(/v_side := 'full'/);
+    expect(idemFix).toMatch(
+      /NOT IN \('front',\s*'back',\s*'full',\s*'other'\)/,
     );
   });
 
