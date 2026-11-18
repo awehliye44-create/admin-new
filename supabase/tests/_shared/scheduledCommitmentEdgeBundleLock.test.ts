@@ -38,7 +38,7 @@ Deno.test("accept-offer / dispatch / scheduled actions statically import commitm
     const raw = await Deno.readTextFile(join(REPO, rel));
     const src = stripComments(raw);
     assert(
-      src.includes('from "../../functions/_shared/scheduledCommitmentOfferGateSSOT.ts"'),
+      src.includes('from "../_shared/scheduledCommitmentOfferGateSSOT.ts"'),
       `${rel} must statically import scheduledCommitmentOfferGateSSOT`,
     );
     assert(

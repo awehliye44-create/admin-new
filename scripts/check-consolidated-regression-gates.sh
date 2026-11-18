@@ -50,7 +50,10 @@ deno test --no-check --allow-read --allow-env \
   supabase/tests/_shared/financialSsotMonitorScansLock.test.ts \
   supabase/tests/_shared/financialSsotMonitorScansFixtures.test.ts \
   supabase/tests/_shared/negotiationAndOfferGuard20270222.lock.test.ts \
-  supabase/tests/_shared/globalOfferPrePromotionCommissionBaseLock.test.ts
+  supabase/tests/_shared/globalOfferPrePromotionCommissionBaseLock.test.ts \
+  supabase/tests/_shared/bug44JitAwarePredispatchEligibility.test.ts \
+  supabase/tests/_shared/scheduledCommitmentEdgeBundleLock.test.ts \
+  supabase/tests/_shared/commitmentEtaDistanceBandLock.test.ts
 
 echo
 echo "=== [3/3] postgres harness (local DB only) ==="

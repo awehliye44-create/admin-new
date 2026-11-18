@@ -59,7 +59,7 @@ Deno.test("Gap B: SQL math mirrors Edge feasibility constants", async () => {
   assertStringIncludes(sql, "interval '15 minutes'");
   // Edge precheck remains (SQL is a backstop, not a replacement).
   const acceptOffer = await read("supabase/functions/accept-offer/index.ts");
-  assertStringIncludes(acceptOffer, "driverMayAcceptAdditionalWork");
+  assertStringIncludes(acceptOffer, "evaluateInstantOfferScheduledCommitmentGate");
   const sched = await read("supabase/functions/scheduled-ride-action/index.ts");
   assertStringIncludes(sched, "driverMayTakeAdditionalScheduledBooking");
 });

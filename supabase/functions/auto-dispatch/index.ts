@@ -122,10 +122,11 @@ import {
 import { isScheduledInstantConversionPending } from "../_shared/scheduledHandoverHoldLock.ts";
 import { expireTripWhenSearchExhaustedAndNotifyCustomer } from "../_shared/customerTripLifecycleNotify.ts";
 import {
-  driverMayAcceptAdditionalWork,
+  evaluateInstantOfferScheduledCommitmentGate,
   loadDriverConfirmedScheduledCommitments,
 } from "../_shared/scheduledCommitmentOfferGateSSOT.ts";
 import { selectEarliestConfirmedCommitment } from "../_shared/scheduledCommitmentFeasibilitySSOT.ts";
+import { estimateEtaMinutes } from "../_shared/scheduledDispatchConfig.ts";
 import { finalizeRideAssignmentSideEffects } from "../_shared/rideAssignmentFinalize.ts";
 import {
   blockedTerminalTripLogPayload,
@@ -2608,7 +2609,8 @@ Deno.serve(async (req) => {
 
     uniqueDrivers = Array.from(new Map(combinedDrivers.map(d => [d.id, d])).values());
 
-    // Phase 4: do not offer work that makes a confirmed scheduled commitment infeasible.
+    // Bug #44 / Phase 4: JIT-aware pre-dispatch eligibility — same feasibility SSOT
+    // as accept-time conflict protection. Re-evaluated every wave (fresh nowMs).
     {
       const gated: typeof uniqueDrivers = [];
       const nowMsGate = Date.now();
@@ -2616,34 +2618,59 @@ Deno.serve(async (req) => {
         5,
         Number((trip as { estimated_duration_minutes?: number }).estimated_duration_minutes) || 30,
       );
+      const candPickLat = Number((trip as { pickup_latitude?: number }).pickup_latitude);
+      const candPickLng = Number((trip as { pickup_longitude?: number }).pickup_longitude);
+      const candDropLat = Number((trip as { dropoff_latitude?: number }).dropoff_latitude);
+      const candDropLng = Number((trip as { dropoff_longitude?: number }).dropoff_longitude);
       for (const d of uniqueDrivers) {
         const isStackedDriver = !!(d as { is_stacked?: boolean }).is_stacked;
-        const remainingAfter = isStackedDriver
-          ? candidateDuration +
-            Math.max(
-              5,
-              Number((d as { current_trip_eta_minutes?: number }).current_trip_eta_minutes) || 20,
-            )
-          : candidateDuration;
-        const dropLat = Number(
-          (trip as { dropoff_latitude?: number }).dropoff_latitude ??
-            (d as { current_lat?: number }).current_lat,
-        );
-        const dropLng = Number(
-          (trip as { dropoff_longitude?: number }).dropoff_longitude ??
-            (d as { current_lng?: number }).current_lng,
-        );
-        const gate = await driverMayAcceptAdditionalWork({
+        const stackedRemaining = isStackedDriver
+          ? Math.max(
+            5,
+            Number((d as { current_trip_eta_minutes?: number }).current_trip_eta_minutes) || 20,
+          )
+          : 0;
+        const driverLat = Number((d as { current_lat?: number }).current_lat);
+        const driverLng = Number((d as { current_lng?: number }).current_lng);
+        const originLat = isStackedDriver
+          ? Number(
+            (d as { dropoff_latitude?: number }).dropoff_latitude ??
+              (d as { current_lat?: number }).current_lat,
+          )
+          : driverLat;
+        const originLng = isStackedDriver
+          ? Number(
+            (d as { dropoff_longitude?: number }).dropoff_longitude ??
+              (d as { current_lng?: number }).current_lng,
+          )
+          : driverLng;
+        // Reuse haversine distance already computed for radius ranking — no Directions.
+        const distM = Number((d as { distance_meters?: number }).distance_meters);
+        const travelToPickupPrecomputed =
+          Number.isFinite(distM) && distM >= 0 &&
+            Number.isFinite(originLat) && Number.isFinite(originLng) &&
+            Number.isFinite(candPickLat) && Number.isFinite(candPickLng)
+            ? estimateEtaMinutes(originLat, originLng, candPickLat, candPickLng)
+            : null;
+        const gate = await evaluateInstantOfferScheduledCommitmentGate({
           supabase,
           driverId: d.id,
           nowMs: nowMsGate,
-          remainingJourneyMinutesAfterAccept: remainingAfter,
-          fromLat: Number.isFinite(dropLat) ? dropLat : null,
-          fromLng: Number.isFinite(dropLng) ? dropLng : null,
+          candidateDurationMinutes: candidateDuration,
+          candidatePickupLat: Number.isFinite(candPickLat) ? candPickLat : null,
+          candidatePickupLng: Number.isFinite(candPickLng) ? candPickLng : null,
+          candidateDropoffLat: Number.isFinite(candDropLat) ? candDropLat : null,
+          candidateDropoffLng: Number.isFinite(candDropLng) ? candDropLng : null,
+          originLat: Number.isFinite(originLat) ? originLat : null,
+          originLng: Number.isFinite(originLng) ? originLng : null,
+          driverLat: Number.isFinite(driverLat) ? driverLat : null,
+          driverLng: Number.isFinite(driverLng) ? driverLng : null,
+          stackedRemainingMinutes: stackedRemaining,
+          travelToCandidatePickupMinutes: travelToPickupPrecomputed,
           globalDispatchSettings: dispatchSettings as Record<string, unknown> | null,
         });
         if (!gate.allowed) {
-          logEligibility(d.id, false, "scheduled_commitment_infeasible", {
+          logEligibility(d.id, false, gate.reason ?? "scheduled_commitment_infeasible", {
             commitment_trip_id: gate.commitmentTripId,
           });
           continue;

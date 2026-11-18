@@ -6,21 +6,38 @@
  *   now + remainingActiveMinutes + travelToPickupEta + earlyArrival + safetyBuffer
  *   ≤ scheduled_at
  *
+ * Bug #44 — remainingActiveMinutes for an instant candidate is composed as:
+ *   stackedRemaining + travelToInstantPickup + pickupWaiting + candidateDuration
+ * so pre-dispatch eligibility matches acceptance-time conflict protection.
+ *
  * Uses the same JIT buffers as scheduledJitActivationSSOT.
  */
 
 import {
   classifyJitDistanceKind,
+  computeJitDepartureDeadlineMs,
   resolveScheduledJitActivationConfig,
   safetyBufferMinutesForJitKind,
   type ScheduledJitActivationConfig,
 } from "./scheduledJitActivationSSOT.ts";
+
+/** Conservative fallback when haversine/coords unavailable (mirrors offer gate). */
+export const COMMITMENT_TRAVEL_ETA_FALLBACK_MINUTES = 30;
+
+/**
+ * Instant pickup waiting allowance folded into remaining journey.
+ * Defaults to 5 min (300s grace) when dispatch settings omit the grace field.
+ */
+export const COMMITMENT_INSTANT_PICKUP_WAITING_MINUTES_DEFAULT = 5;
 
 export type ConfirmedScheduledCommitment = {
   tripId: string;
   scheduledAtMs: number;
   pickupLat: number | null;
   pickupLng: number | null;
+  scheduledStatus: string | null;
+  /** Sticky JIT departure deadline when already computed (trips.scheduled_jit_activate_at). */
+  jitActivateAtMs: number | null;
 };
 
 export type FeasibilityInput = {
@@ -73,6 +90,78 @@ export function evaluateScheduledCommitmentFeasibility(
     kind: classified.kind,
     reason: feasible ? "ok" : "insufficient_lead",
   };
+}
+
+/**
+ * Compose the remaining-journey minutes an instant (or stacked) accept adds
+ * before the driver can leave for the scheduled pickup.
+ *
+ * Does not include dropoff→scheduled travel — that is travelToPickupEtaMinutes
+ * in evaluateScheduledCommitmentFeasibility.
+ */
+export function composeInstantAdditionalWorkRemainingMinutes(input: {
+  stackedRemainingMinutes?: number | null;
+  travelToCandidatePickupMinutes: number;
+  pickupWaitingMinutes: number;
+  candidateDurationMinutes: number;
+}): number {
+  const stacked = Math.max(0, Math.ceil(Number(input.stackedRemainingMinutes) || 0));
+  const travel = Math.max(0, Math.ceil(Number(input.travelToCandidatePickupMinutes) || 0));
+  const waiting = Math.max(0, Math.ceil(Number(input.pickupWaitingMinutes) || 0));
+  const duration = Math.max(5, Math.ceil(Number(input.candidateDurationMinutes) || 30));
+  return stacked + travel + waiting + duration;
+}
+
+/** Resolve pickup waiting minutes from global_dispatch_settings (or default). */
+export function resolveCommitmentPickupWaitingMinutes(
+  globalDispatchSettings?: Record<string, unknown> | null,
+): number {
+  const secRaw = globalDispatchSettings?.pickup_waiting_grace_period_seconds;
+  const sec = Number(secRaw);
+  if (Number.isFinite(sec) && sec > 0) {
+    return Math.max(0, Math.ceil(sec / 60));
+  }
+  return COMMITMENT_INSTANT_PICKUP_WAITING_MINUTES_DEFAULT;
+}
+
+/**
+ * Protected JIT departure / activation stage — no new conflicting instant offers.
+ * Prefer sticky scheduled_jit_activate_at; else compute the same deadline SSOT.
+ */
+export function isJitDepartureActivationProtected(input: {
+  nowMs: number;
+  scheduledStatus: string | null | undefined;
+  jitActivateAtMs: number | null | undefined;
+  scheduledAtMs: number;
+  travelEtaToScheduledPickupMinutes: number;
+  config: ScheduledJitActivationConfig;
+}): { protected: boolean; reason: string | null } {
+  const status = String(input.scheduledStatus ?? "").trim().toLowerCase();
+  if (status === "awaiting_activation_accept") {
+    return { protected: true, reason: "jit_activation_armed" };
+  }
+
+  if (
+    input.jitActivateAtMs != null &&
+    Number.isFinite(input.jitActivateAtMs) &&
+    input.nowMs >= input.jitActivateAtMs
+  ) {
+    return { protected: true, reason: "jit_departure_deadline_reached" };
+  }
+
+  if (!Number.isFinite(input.scheduledAtMs)) {
+    return { protected: false, reason: null };
+  }
+
+  const computed = computeJitDepartureDeadlineMs({
+    scheduledAtMs: input.scheduledAtMs,
+    driverToPickupEtaMinutes: input.travelEtaToScheduledPickupMinutes,
+    config: input.config,
+  });
+  if (input.nowMs >= computed.deadlineMs) {
+    return { protected: true, reason: "jit_departure_deadline_reached" };
+  }
+  return { protected: false, reason: null };
 }
 
 /**

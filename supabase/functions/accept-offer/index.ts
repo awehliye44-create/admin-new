@@ -43,7 +43,7 @@ import {
 } from "./lib/acceptOfferPerf.ts";
 import { opsLog } from "../_shared/opsLog.ts";
 import { notifyCustomerTripLifecycle } from "../_shared/customerTripLifecycleNotify.ts";
-import { driverMayAcceptAdditionalWork } from "../_shared/scheduledCommitmentOfferGateSSOT.ts";
+import { evaluateInstantOfferScheduledCommitmentGate } from "../_shared/scheduledCommitmentOfferGateSSOT.ts";
 
 interface AcceptRequest {
   offer_id: string;
@@ -302,8 +302,10 @@ Deno.serve(async (req) => {
       }
     }
 
-    // Phase 4: refuse accept when it would make a confirmed scheduled commitment infeasible.
+    // Phase 4 / Bug #44: refuse accept when it would make a confirmed scheduled
+    // commitment infeasible. Same composition + JIT protection as pre-dispatch.
     // Static import (not dynamic) so Supabase Edge always bundles the SSOT module.
+    // SQL driver_scheduled_commitment_gate remains the atomic race safeguard.
     if (pendingOffer?.trip_id) {
       const { data: candidateTrip } = await supabase
         .from("trips")
@@ -316,28 +318,58 @@ Deno.serve(async (req) => {
         5,
         Number(candidateTrip?.estimated_duration_minutes) || 30,
       );
-      let remainingActive = 0;
+      let stackedRemaining = 0;
+      let originLat: number | null = null;
+      let originLng: number | null = null;
       if (effectiveIsStacked && effectiveCurrentTripId) {
         const { data: cur } = await supabase
           .from("trips")
-          .select("estimated_duration_minutes")
+          .select("estimated_duration_minutes, dropoff_latitude, dropoff_longitude")
           .eq("id", effectiveCurrentTripId)
           .maybeSingle();
-        remainingActive = Math.max(5, Number(cur?.estimated_duration_minutes) || 20);
+        stackedRemaining = Math.max(5, Number(cur?.estimated_duration_minutes) || 20);
+        const oLat = Number(cur?.dropoff_latitude);
+        const oLng = Number(cur?.dropoff_longitude);
+        originLat = Number.isFinite(oLat) ? oLat : null;
+        originLng = Number.isFinite(oLng) ? oLng : null;
       }
-      const fromLat = Number(
-        candidateTrip?.dropoff_latitude ?? candidateTrip?.pickup_latitude,
-      );
-      const fromLng = Number(
-        candidateTrip?.dropoff_longitude ?? candidateTrip?.pickup_longitude,
-      );
-      const gate = await driverMayAcceptAdditionalWork({
+      const { data: locDriver } = await supabase
+        .from("drivers")
+        .select("current_lat, current_lng")
+        .eq("id", driver_id)
+        .maybeSingle();
+      const driverLat = Number(locDriver?.current_lat);
+      const driverLng = Number(locDriver?.current_lng);
+      if (originLat == null || originLng == null) {
+        originLat = Number.isFinite(driverLat) ? driverLat : null;
+        originLng = Number.isFinite(driverLng) ? driverLng : null;
+      }
+      const { data: dispatchRow } = await supabase
+        .from("global_dispatch_settings")
+        .select(
+          "jit_target_early_arrival_minutes, jit_local_safety_buffer_minutes, jit_long_safety_buffer_minutes, jit_long_distance_eta_threshold_minutes, pickup_waiting_grace_period_seconds",
+        )
+        .eq("singleton", true)
+        .maybeSingle();
+      const pickLat = Number(candidateTrip?.pickup_latitude);
+      const pickLng = Number(candidateTrip?.pickup_longitude);
+      const dropLat = Number(candidateTrip?.dropoff_latitude);
+      const dropLng = Number(candidateTrip?.dropoff_longitude);
+      const gate = await evaluateInstantOfferScheduledCommitmentGate({
         supabase,
         driverId: driver_id,
         nowMs: Date.now(),
-        remainingJourneyMinutesAfterAccept: remainingActive + candidateDur,
-        fromLat: Number.isFinite(fromLat) ? fromLat : null,
-        fromLng: Number.isFinite(fromLng) ? fromLng : null,
+        candidateDurationMinutes: candidateDur,
+        candidatePickupLat: Number.isFinite(pickLat) ? pickLat : null,
+        candidatePickupLng: Number.isFinite(pickLng) ? pickLng : null,
+        candidateDropoffLat: Number.isFinite(dropLat) ? dropLat : null,
+        candidateDropoffLng: Number.isFinite(dropLng) ? dropLng : null,
+        originLat,
+        originLng,
+        driverLat: Number.isFinite(driverLat) ? driverLat : null,
+        driverLng: Number.isFinite(driverLng) ? driverLng : null,
+        stackedRemainingMinutes: stackedRemaining,
+        globalDispatchSettings: (dispatchRow as Record<string, unknown> | null) ?? null,
       });
       if (!gate.allowed) {
         return businessFailureResponse(
