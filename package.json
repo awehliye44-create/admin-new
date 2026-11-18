@@ -59,6 +59,8 @@
   },
   "devDependencies": {
     "@eslint/js": "^9.39.5",
+    "@lovable.dev/vite-plugin-dev-server-bridge": "^1.0.2",
+    "@lovable.dev/vite-plugin-hmr-gate": "^1.8.3",
     "@playwright/test": "^1.64.1",
     "@types/mapbox-gl": "^3.5.0",
     "@types/mapbox__mapbox-gl-draw": "^1.4.9",
