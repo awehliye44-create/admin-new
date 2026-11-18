@@ -18,12 +18,8 @@ import { Label } from '@/components/ui/label';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
 import { supabase } from '@/integrations/supabase/client';
-import {
-  useDriverDocumentCompliance,
-  reviewLabel,
-  validityLabel,
-  type DriverDocumentComplianceRow,
-} from '@/hooks/useDriverDocumentCompliance';
+import { useAdminDriverDocumentChecklist } from '@/hooks/useAdminDriverDocumentChecklist';
+import type { AdminChecklistRow } from '@/lib/adminDriverDocumentChecklist';
 import { driverRegistrationVerificationComplete } from '../../../shared/rolesPermissionsSSOT';
 
 type DriverForUpload = {
@@ -47,23 +43,12 @@ type Props = {
 };
 
 type Draft = {
-  front: File | null;
+  primary: File | null;
   back: File | null;
   expiryDate: string;
 };
 
-const EMPTY_DRAFT: Draft = { front: null, back: null, expiryDate: '' };
-
-function isUploadableRow(row: DriverDocumentComplianceRow): boolean {
-  if (row.can_upload_replacement === true) return true;
-  const status = row.expiry_status;
-  return (
-    status === 'missing' ||
-    status === 'rejected' ||
-    status === 'expired' ||
-    status === 'pending'
-  );
-}
+const EMPTY_DRAFT: Draft = { primary: null, back: null, expiryDate: '' };
 
 function fileExtension(file: File): string {
   const parts = file.name.split('.');
@@ -89,7 +74,7 @@ function loadErrorMessage(error: unknown): string {
 function buildStoragePath(
   driverId: string,
   documentTypeKey: string,
-  side: 'front' | 'back',
+  side: string,
   file: File,
 ): string {
   return `${driverId}/admin/${documentTypeKey}/${side}_${crypto.randomUUID()}.${fileExtension(file)}`;
@@ -99,7 +84,7 @@ async function uploadSideAndSubmit(args: {
   driverId: string;
   documentTypeId: string;
   documentTypeKey: string;
-  side: 'front' | 'back';
+  side: 'front' | 'back' | 'single';
   file: File;
   expiryDate: string | null;
 }): Promise<void> {
@@ -137,6 +122,20 @@ async function uploadSideAndSubmit(args: {
   }
 }
 
+function rowHasPrimaryFile(row: AdminChecklistRow, draft: Draft | undefined): boolean {
+  if (!draft?.primary) return false;
+  if (row.capture.kind === 'dual') {
+    return Boolean(draft.primary && draft.back);
+  }
+  return true;
+}
+
+function primaryFileLabel(row: AdminChecklistRow): string {
+  if (row.capture.kind === 'front_only' || row.capture.kind === 'dual') return 'Front file';
+  if (row.capture.kind === 'back_only') return 'Back file';
+  return 'Upload file';
+}
+
 export function AdminAddDriverDocumentsDialog({
   open,
   onOpenChange,
@@ -147,24 +146,19 @@ export function AdminAddDriverDocumentsDialog({
   const queryClient = useQueryClient();
   const driverId = driver?.id ?? null;
   const {
-    data: rows = [],
+    data: checklist,
     isLoading,
     isError,
     error: loadError,
     refetch,
-  } = useDriverDocumentCompliance(open ? driverId : null);
+  } = useAdminDriverDocumentChecklist(open ? driverId : null);
 
+  const rows = checklist?.rows ?? [];
   const [drafts, setDrafts] = useState<Record<string, Draft>>({});
   const [submitting, setSubmitting] = useState(false);
 
   const registrationOk = !!driver && driverRegistrationVerificationComplete(driver);
   const uploadAllowed = canUpload && registrationOk;
-
-  const uploadableRows = useMemo(() => {
-    return [...rows]
-      .filter(isUploadableRow)
-      .sort((a, b) => Number(b.is_required) - Number(a.is_required));
-  }, [rows]);
 
   useEffect(() => {
     if (!open) {
@@ -179,10 +173,10 @@ export function AdminAddDriverDocumentsDialog({
 
   const filledTypeIds = useMemo(
     () =>
-      uploadableRows
-        .filter((row) => drafts[row.document_type_id]?.front)
+      rows
+        .filter((row) => row.can_upload && rowHasPrimaryFile(row, drafts[row.document_type_id]))
         .map((row) => row.document_type_id),
-    [uploadableRows, drafts],
+    [rows, drafts],
   );
 
   const updateDraft = (documentTypeId: string, patch: Partial<Draft>) => {
@@ -204,11 +198,15 @@ export function AdminAddDriverDocumentsDialog({
     if (!driver || !uploadAllowed || filledTypeIds.length === 0) return;
 
     for (const typeId of filledTypeIds) {
-      const row = uploadableRows.find((r) => r.document_type_id === typeId);
+      const row = rows.find((r) => r.document_type_id === typeId);
       const draft = drafts[typeId];
-      if (!row || !draft?.front) continue;
-      if (row.has_expiry && !draft.expiryDate) {
+      if (!row || !draft?.primary) continue;
+      if (row.requires_expiry && !draft.expiryDate) {
         toast.error(`Expiry date is required for ${row.display_name}`);
+        return;
+      }
+      if (row.capture.kind === 'dual' && !draft.back) {
+        toast.error(`Front and Back files are required for ${row.display_name}`);
         return;
       }
     }
@@ -216,26 +214,40 @@ export function AdminAddDriverDocumentsDialog({
     setSubmitting(true);
     try {
       for (const typeId of filledTypeIds) {
-        const row = uploadableRows.find((r) => r.document_type_id === typeId)!;
+        const row = rows.find((r) => r.document_type_id === typeId)!;
         const draft = drafts[typeId]!;
-        const expiry = row.has_expiry ? draft.expiryDate || null : null;
+        const expiry = row.requires_expiry ? draft.expiryDate || null : null;
 
-        await uploadSideAndSubmit({
-          driverId: driver.id,
-          documentTypeId: row.document_type_id,
-          documentTypeKey: row.document_type_key,
-          side: 'front',
-          file: draft.front!,
-          expiryDate: expiry,
-        });
-
-        if (draft.back) {
+        if (row.capture.kind === 'dual') {
+          await uploadSideAndSubmit({
+            driverId: driver.id,
+            documentTypeId: row.document_type_id,
+            documentTypeKey: row.document_type_key,
+            side: 'front',
+            file: draft.primary!,
+            expiryDate: expiry,
+          });
           await uploadSideAndSubmit({
             driverId: driver.id,
             documentTypeId: row.document_type_id,
             documentTypeKey: row.document_type_key,
             side: 'back',
-            file: draft.back,
+            file: draft.back!,
+            expiryDate: expiry,
+          });
+        } else {
+          const side =
+            row.capture.kind === 'front_only'
+              ? 'front'
+              : row.capture.kind === 'back_only'
+                ? 'back'
+                : 'single';
+          await uploadSideAndSubmit({
+            driverId: driver.id,
+            documentTypeId: row.document_type_id,
+            documentTypeKey: row.document_type_key,
+            side,
+            file: draft.primary!,
             expiryDate: expiry,
           });
         }
@@ -243,6 +255,9 @@ export function AdminAddDriverDocumentsDialog({
 
       toast.success('Documents submitted for Pending Review', {
         description: 'Uploaded documents are not auto-approved.',
+      });
+      await queryClient.invalidateQueries({
+        queryKey: ['admin-driver-document-checklist', driver.id],
       });
       await queryClient.invalidateQueries({
         queryKey: ['driver-document-compliance', driver.id],
@@ -280,92 +295,114 @@ export function AdminAddDriverDocumentsDialog({
             {isLoading ? (
               <div className="flex items-center gap-2 text-sm text-muted-foreground py-8 justify-center">
                 <Loader2 className="h-4 w-4 animate-spin" />
-                Loading document compliance…
+                Loading document checklist…
               </div>
             ) : isError ? (
               <Alert variant="destructive">
                 <AlertTitle>Failed to load compliance</AlertTitle>
                 <AlertDescription>{loadErrorMessage(loadError)}</AlertDescription>
               </Alert>
-            ) : uploadableRows.length === 0 ? (
+            ) : !checklist?.serviceAreaId ? (
               <Alert>
-                <AlertTitle>Nothing to upload</AlertTitle>
+                <AlertTitle>No service area</AlertTitle>
                 <AlertDescription>
-                  No missing, rejected, expired, pending, or renewal-open document types for this driver.
+                  This driver has no assigned service area, so document requirements cannot be listed.
+                </AlertDescription>
+              </Alert>
+            ) : rows.length === 0 ? (
+              <Alert>
+                <AlertTitle>No document requirements</AlertTitle>
+                <AlertDescription>
+                  No active document rules are configured for this driver&apos;s service area.
                 </AlertDescription>
               </Alert>
             ) : (
               <ScrollArea className="max-h-[55vh] pr-3">
                 <div className="space-y-4">
-                  {uploadableRows.map((row, index) => {
+                  {rows.map((row, index) => {
                     const draft = drafts[row.document_type_id] ?? EMPTY_DRAFT;
+                    const uploadEnabled = uploadAllowed && row.can_upload && !submitting;
                     return (
                       <div key={row.document_type_id} className="space-y-3">
                         {index > 0 ? <Separator /> : null}
                         <div className="flex flex-wrap items-center gap-2">
                           <p className="font-medium text-sm">{row.display_name}</p>
-                          {row.is_required ? (
-                            <Badge variant="secondary">Required</Badge>
-                          ) : (
-                            <Badge variant="outline">Optional</Badge>
-                          )}
-                          <Badge variant="outline">{reviewLabel(row)}</Badge>
-                          {row.has_expiry ? (
-                            <Badge variant="outline">{validityLabel(row)}</Badge>
-                          ) : null}
+                          <Badge variant={row.is_required ? 'secondary' : 'outline'}>
+                            {row.requirement_label}
+                          </Badge>
+                          <Badge variant="outline">{row.status_label}</Badge>
                         </div>
 
-                        <div className="grid gap-3 sm:grid-cols-2">
-                          <div className="space-y-1.5">
-                            <Label htmlFor={`front-${row.document_type_id}`}>
-                              Front file <span className="text-destructive">*</span>
-                            </Label>
-                            <Input
-                              id={`front-${row.document_type_id}`}
-                              type="file"
-                              accept="image/*,application/pdf"
-                              disabled={submitting}
-                              onChange={(e) =>
-                                updateDraft(row.document_type_id, {
-                                  front: e.target.files?.[0] ?? null,
-                                })
+                        {row.can_upload ? (
+                          <>
+                            <div
+                              className={
+                                row.capture.kind === 'dual'
+                                  ? 'grid gap-3 sm:grid-cols-2'
+                                  : 'grid gap-3 max-w-md'
                               }
-                            />
-                          </div>
-                          <div className="space-y-1.5">
-                            <Label htmlFor={`back-${row.document_type_id}`}>Back file (optional)</Label>
-                            <Input
-                              id={`back-${row.document_type_id}`}
-                              type="file"
-                              accept="image/*,application/pdf"
-                              disabled={submitting}
-                              onChange={(e) =>
-                                updateDraft(row.document_type_id, {
-                                  back: e.target.files?.[0] ?? null,
-                                })
-                              }
-                            />
-                          </div>
-                        </div>
+                            >
+                              <div className="space-y-1.5">
+                                <Label htmlFor={`primary-${row.document_type_id}`}>
+                                  {primaryFileLabel(row)}{' '}
+                                  <span className="text-destructive">*</span>
+                                </Label>
+                                <Input
+                                  id={`primary-${row.document_type_id}`}
+                                  type="file"
+                                  accept="image/*,application/pdf"
+                                  disabled={!uploadEnabled}
+                                  onChange={(e) =>
+                                    updateDraft(row.document_type_id, {
+                                      primary: e.target.files?.[0] ?? null,
+                                    })
+                                  }
+                                />
+                              </div>
+                              {row.capture.kind === 'dual' ? (
+                                <div className="space-y-1.5">
+                                  <Label htmlFor={`back-${row.document_type_id}`}>
+                                    Back file <span className="text-destructive">*</span>
+                                  </Label>
+                                  <Input
+                                    id={`back-${row.document_type_id}`}
+                                    type="file"
+                                    accept="image/*,application/pdf"
+                                    disabled={!uploadEnabled}
+                                    onChange={(e) =>
+                                      updateDraft(row.document_type_id, {
+                                        back: e.target.files?.[0] ?? null,
+                                      })
+                                    }
+                                  />
+                                </div>
+                              ) : null}
+                            </div>
 
-                        {row.has_expiry ? (
-                          <div className="space-y-1.5 max-w-xs">
-                            <Label htmlFor={`expiry-${row.document_type_id}`}>
-                              Expiry date <span className="text-destructive">*</span>
-                            </Label>
-                            <Input
-                              id={`expiry-${row.document_type_id}`}
-                              type="date"
-                              value={draft.expiryDate}
-                              disabled={submitting}
-                              onChange={(e) =>
-                                updateDraft(row.document_type_id, {
-                                  expiryDate: e.target.value,
-                                })
-                              }
-                            />
-                          </div>
-                        ) : null}
+                            {row.requires_expiry ? (
+                              <div className="space-y-1.5 max-w-xs">
+                                <Label htmlFor={`expiry-${row.document_type_id}`}>
+                                  Expiry date <span className="text-destructive">*</span>
+                                </Label>
+                                <Input
+                                  id={`expiry-${row.document_type_id}`}
+                                  type="date"
+                                  value={draft.expiryDate}
+                                  disabled={!uploadEnabled}
+                                  onChange={(e) =>
+                                    updateDraft(row.document_type_id, {
+                                      expiryDate: e.target.value,
+                                    })
+                                  }
+                                />
+                              </div>
+                            ) : null}
+                          </>
+                        ) : (
+                          <p className="text-xs text-muted-foreground">
+                            Upload unavailable — replacement is not open for this document.
+                          </p>
+                        )}
                       </div>
                     );
                   })}

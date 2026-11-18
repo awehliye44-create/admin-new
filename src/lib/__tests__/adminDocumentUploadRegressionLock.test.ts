@@ -33,23 +33,28 @@ describe('adminDocumentUploadRegressionLock', () => {
     expect(rolesPage).toMatch(/Owner retains this capability/);
   });
 
-  it('keeps Add Documents under Edit Profile and supports multi-doc front/back + expiry', () => {
+  it('keeps Add Documents under Edit Profile and uses SA checklist + dynamic capture sides', () => {
     const editIdx = drivers.indexOf('Edit Profile');
     const addIdx = drivers.indexOf('Add Documents');
     expect(editIdx).toBeGreaterThan(-1);
     expect(addIdx).toBeGreaterThan(editIdx);
 
-    expect(dialog).toMatch(/side: 'front'/);
-    expect(dialog).toMatch(/side: 'back'/);
-    expect(dialog).toMatch(/has_expiry/);
+    expect(dialog).toMatch(/useAdminDriverDocumentChecklist/);
     expect(dialog).toMatch(/admin_submit_driver_document/);
     expect(dialog).toMatch(/Pending Review/);
+    expect(dialog).toMatch(/Upload file/);
+    expect(dialog).toMatch(/Front file/);
+    expect(dialog).toMatch(/Back file/);
+    expect(dialog).toMatch(/requires_expiry/);
+    expect(dialog).toMatch(/row\.can_upload/);
+    // Must not hard-force Back as optional on every row.
+    expect(dialog).not.toMatch(/Back file \(optional\)/);
   });
 
   it('forces pending and blocks approved replacement without can_upload_replacement', () => {
     expect(sql).toMatch(/REPLACEMENT_NOT_ALLOWED/);
     expect(sql).toMatch(/can_upload_replacement/);
     expect(sql).toMatch(/'status',\s*'pending'/);
-    expect(dialog).toMatch(/can_upload_replacement === true/);
+    expect(dialog).toMatch(/can_upload/);
   });
 });

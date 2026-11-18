@@ -13,15 +13,19 @@ const MIGRATION =
 
 describe('getDriverDocumentComplianceStaffAuthzLock', () => {
   const sql = fs.readFileSync(path.join(ROOT, MIGRATION), 'utf8');
+  // Ignore SQL comments — they may mention the old invalid labels historically.
+  const executable = sql
+    .replace(/--.*$/gm, '')
+    .replace(/\/\*[\s\S]*?\*\//g, '');
 
   it('replaces the RPC without inventing staff/super_admin app_role values', () => {
-    expect(sql).toMatch(
+    expect(executable).toMatch(
       /CREATE OR REPLACE FUNCTION public\.get_driver_document_compliance\s*\(/i,
     );
-    expect(sql).not.toMatch(/has_role\([^)]*['"]staff['"]/i);
-    expect(sql).not.toMatch(/has_role\([^)]*['"]super_admin['"]/i);
-    expect(sql).toMatch(/is_super_admin\s*\(/);
-    expect(sql).toMatch(/staff_profiles/);
-    expect(sql).toMatch(/has_role\([^)]*'admin'::public\.app_role/);
+    expect(executable).not.toMatch(/has_role\([^)]*['"]staff['"]/i);
+    expect(executable).not.toMatch(/has_role\([^)]*['"]super_admin['"]/i);
+    expect(executable).toMatch(/is_super_admin\s*\(/);
+    expect(executable).toMatch(/staff_profiles/);
+    expect(executable).toMatch(/has_role\([^)]*'admin'::public\.app_role/);
   });
 });
