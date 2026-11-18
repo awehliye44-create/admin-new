@@ -66,7 +66,7 @@ export function buildDisplaySummaryRows(data: DriverInvoiceRenderData): DisplayS
       isPositive: data.extraChargeEarningsPence > 0,
     },
     {
-      description: "Bonuses",
+      description: "Bonus",
       trips: 0,
       amountPence: data.bonusesPence,
       isPositive: data.bonusesPence > 0,

@@ -117,7 +117,7 @@ Deno.serve(async (req) => {
             { description: "Completed Cash Trip Earnings", trips: 1, amountPence: 1380 },
             { description: "Airport Fee Earnings", trips: 0, amountPence: 0 },
             { description: "Extra Charge Earnings", trips: 0, amountPence: 0 },
-            { description: "Bonuses", trips: 0, amountPence: 0 },
+            { description: "Bonus", trips: 0, amountPence: 0 },
             { description: "Adjustments", trips: 0, amountPence: 0 },
             { description: "Cash Collected (Offset)", trips: 0, amountPence: 1915, isDeduction: true },
           ],

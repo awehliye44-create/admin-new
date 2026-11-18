@@ -95,7 +95,13 @@ export function useSaveDriverTripBonusCampaign() {
       qc.invalidateQueries({ queryKey: ['driver-trip-bonus-campaigns'] });
     },
     onError: (err: Error) => {
-      toast.error(err.message || 'Failed to save campaign');
+      const raw = err.message || 'Failed to save campaign';
+      const overlap = raw.match(/trip_bonus_campaign_overlap:(.+)$/i);
+      toast.error(
+        overlap
+          ? `Cannot save published campaign: overlaps “${overlap[1].trim()}”.`
+          : raw,
+      );
     },
   });
 }
@@ -166,7 +172,69 @@ export function usePublishDriverTripBonusCampaign() {
       qc.invalidateQueries({ queryKey: ['driver-trip-bonus-campaigns'] });
     },
     onError: (err: Error) => {
-      toast.error(err.message || 'Failed to publish campaign');
+      const raw = err.message || 'Failed to publish campaign';
+      const overlap = raw.match(/trip_bonus_campaign_overlap:(.+)$/i);
+      toast.error(
+        overlap
+          ? `Cannot publish: overlaps “${overlap[1].trim()}”. Home shows one card — change dates or scope first.`
+          : raw,
+      );
+    },
+  });
+}
+
+export type TripBonusDeadOutboxRow = {
+  id: string;
+  trip_id: string;
+  driver_id: string;
+  service_area_id: string | null;
+  region_id: string | null;
+  completed_at: string;
+  attempt_count: number;
+  last_error: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+/** Dead outbox rows after 12 failed progress attempts — ops must re-enqueue. */
+export function useDeadTripBonusProgressOutbox() {
+  return useQuery({
+    queryKey: ['driver-trip-bonus-outbox-dead'],
+    queryFn: async (): Promise<TripBonusDeadOutboxRow[]> => {
+      const { data, error } = await db.rpc(
+        'admin_list_dead_driver_trip_bonus_progress_outbox',
+      );
+      if (error) {
+        // RPC missing until migration applied — fail soft so campaigns UI still loads.
+        if (/function|does not exist|404|PGRST/i.test(error.message)) return [];
+        throw error;
+      }
+      return (data ?? []) as TripBonusDeadOutboxRow[];
+    },
+    staleTime: 15_000,
+    refetchInterval: 60_000,
+  });
+}
+
+export function useReenqueueDeadTripBonusProgressOutbox() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (ids?: string[] | null) => {
+      const { data, error } = await db.rpc(
+        'admin_reenqueue_dead_driver_trip_bonus_progress_outbox',
+        { p_ids: ids?.length ? ids : null },
+      );
+      if (error) throw error;
+      return data as { ok?: boolean; requeued?: number };
+    },
+    onSuccess: (data) => {
+      toast.success(
+        `Re-queued ${Number(data?.requeued ?? 0)} trip-bonus progress job(s)`,
+      );
+      qc.invalidateQueries({ queryKey: ['driver-trip-bonus-outbox-dead'] });
+    },
+    onError: (err: Error) => {
+      toast.error(err.message || 'Failed to re-enqueue progress jobs');
     },
   });
 }

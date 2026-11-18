@@ -11,6 +11,9 @@ import { join } from "https://deno.land/std@0.224.0/path/join.ts";
 import {
   buildProgressView,
   bonusLedgerDescription,
+  campaignScopesCanMatchSameDriver,
+  campaignWindowsOverlap,
+  findOverlappingPublishedCampaign,
   isCampaignLive,
   matchesCampaignScope,
   selectHomeCampaign,
@@ -158,4 +161,76 @@ Deno.test("draft validation + BONUS ledger type lock", async () => {
   assertStringIncludes(mig, "driver_trip_bonus_campaign_progress");
   assertStringIncludes(mig, "'BONUS'");
   assertStringIncludes(mig, "driver-trip-bonuses");
+});
+
+Deno.test("overlap SSOT: windows + scopes aligned with SQL helpers", async () => {
+  assertEquals(
+    campaignWindowsOverlap(
+      { starts_at: "2026-11-01T00:00:00Z", ends_at: "2026-11-15T00:00:00Z" },
+      { starts_at: "2026-11-14T00:00:00Z", ends_at: "2026-11-30T00:00:00Z" },
+    ),
+    true,
+  );
+  assertEquals(
+    campaignWindowsOverlap(
+      { starts_at: "2026-11-01T00:00:00Z", ends_at: "2026-11-10T00:00:00Z" },
+      { starts_at: "2026-11-10T00:00:00Z", ends_at: "2026-11-30T00:00:00Z" },
+    ),
+    false,
+  );
+  assertEquals(
+    campaignScopesCanMatchSameDriver(
+      { scope_type: "selected_service_areas", region_id: null, service_area_ids: ["sa-1"] },
+      { scope_type: "selected_service_areas", region_id: null, service_area_ids: ["sa-1"] },
+      {},
+    ),
+    true,
+  );
+  assertEquals(
+    campaignScopesCanMatchSameDriver(
+      { scope_type: "entire_region", region_id: "reg-1", service_area_ids: [] },
+      { scope_type: "selected_service_areas", region_id: null, service_area_ids: ["sa-1"] },
+      { "sa-1": "reg-1" },
+    ),
+    true,
+  );
+  const overlap = findOverlappingPublishedCampaign(
+    {
+      ...campaign({
+        id: "new",
+        status: "published",
+        is_active: true,
+        scope_type: "selected_service_areas",
+        starts_at: "2026-11-01T00:00:00Z",
+        ends_at: "2026-11-30T00:00:00Z",
+      }),
+      service_area_ids: ["sa-1"],
+    },
+    [
+      {
+        ...campaign({
+          id: "existing",
+          status: "published",
+          is_active: true,
+          scope_type: "selected_service_areas",
+          starts_at: "2026-11-15T00:00:00Z",
+          ends_at: "2026-12-01T00:00:00Z",
+        }),
+        service_area_ids: ["sa-1"],
+      },
+    ],
+    {},
+  );
+  assertEquals(overlap?.id, "existing");
+
+  const outboxMig = await Deno.readTextFile(
+    join(REPO, "supabase/migrations/20270226200000_driver_trip_bonus_progress_outbox.sql"),
+  );
+  assertStringIncludes(outboxMig, "driver_trip_bonus_progress_outbox");
+  assertStringIncludes(outboxMig, "enqueue_driver_trip_bonus_progress");
+  const opsMig = await Deno.readTextFile(
+    join(REPO, "supabase/migrations/20270226220000_driver_trip_bonus_outbox_ops_recovery.sql"),
+  );
+  assertStringIncludes(opsMig, "admin_reenqueue_dead_driver_trip_bonus_progress_outbox");
+  assertStringIncludes(opsMig, "admin_list_dead_driver_trip_bonus_progress_outbox");
 });

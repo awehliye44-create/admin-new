@@ -217,7 +217,8 @@ export function buildInvoiceItems(
   push("other", "Airport Fee Earnings", 0, agg.airportFeeEarningsPence);
   push("other", "Extra Charge Earnings", 0, agg.extraChargeEarningsPence);
   if (agg.bonusesPence > 0) {
-    const bonusLabel = (agg.bonusDescription ?? "").trim() || "Bonuses";
+    // Prefer ledger “Trip bonus: …” description; never merge into trip_earnings.
+    const bonusLabel = (agg.bonusDescription ?? "").trim() || "Bonus";
     push("bonus", bonusLabel, 0, agg.bonusesPence);
   }
   if (agg.adjustmentsPence !== 0) push("adjustment", "Adjustments", 0, agg.adjustmentsPence);

@@ -28,16 +28,20 @@ import {
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Loader2, Pencil, Plus, Archive, Send } from 'lucide-react';
+import { toast } from 'sonner';
 import { useServiceAreas } from '@/hooks/useServiceAreas';
 import { useRegions } from '@/hooks/useRegions';
 import {
   useArchiveDriverTripBonusCampaign,
+  useDeadTripBonusProgressOutbox,
   useDriverTripBonusCampaignsAdmin,
   usePublishDriverTripBonusCampaign,
+  useReenqueueDeadTripBonusProgressOutbox,
   useSaveDriverTripBonusCampaign,
   type TripBonusCampaignWithAreas,
 } from '@/hooks/useDriverTripBonusesAdmin';
 import {
+  findOverlappingPublishedCampaign,
   validateCampaignDraft,
   type TripBonusCampaignStatus,
   type TripBonusScopeType,
@@ -121,20 +125,34 @@ export default function DriverTripBonuses() {
     data: serviceAreas = [],
     isLoading: areasLoading,
     isError: areasError,
-  } = useServiceAreas({ pageSlug: 'driver-trip-bonuses', activeOnly: true });
+  } = useServiceAreas({ pageSlug: 'driver-trip-bonuses', activeOnly: false });
   const { data: regions = [] } = useRegions();
   const save = useSaveDriverTripBonusCampaign();
   const archive = useArchiveDriverTripBonusCampaign();
   const publish = usePublishDriverTripBonusCampaign();
+  const { data: deadOutbox = [] } = useDeadTripBonusProgressOutbox();
+  const reenqueueDead = useReenqueueDeadTripBonusProgressOutbox();
 
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState<Draft>(emptyDraft());
   const [formError, setFormError] = useState<string | null>(null);
   const [publishTarget, setPublishTarget] = useState<TripBonusCampaignWithAreas | null>(null);
 
-  const activeAreas = useMemo(
-    () => (serviceAreas as Array<{ id: string; name: string; is_active?: boolean }>),
+  const allAreas = useMemo(
+    () =>
+      serviceAreas as Array<{
+        id: string;
+        name: string;
+        is_active?: boolean;
+        region_id?: string | null;
+      }>,
     [serviceAreas],
+  );
+
+  /** Picker: active SAs only. Overlap map uses allAreas (incl. inactive) to match SQL. */
+  const activeAreas = useMemo(
+    () => allAreas.filter((a) => a.is_active !== false),
+    [allAreas],
   );
 
   const areaNameById = useMemo(() => {
@@ -142,6 +160,14 @@ export default function DriverTripBonuses() {
     activeAreas.forEach((a) => map.set(a.id, a.name));
     return map;
   }, [activeAreas]);
+
+  const serviceAreaRegionById = useMemo(() => {
+    const map: Record<string, string | null | undefined> = {};
+    allAreas.forEach((a) => {
+      map[a.id] = a.region_id ?? null;
+    });
+    return map;
+  }, [allAreas]);
 
   const regionNameById = useMemo(() => {
     const map = new Map<string, string>();
@@ -191,6 +217,34 @@ export default function DriverTripBonuses() {
       setFormError(errors.join(', '));
       return;
     }
+    const startsAt = draft.starts_at ? new Date(draft.starts_at).toISOString() : null;
+    const endsAt = draft.ends_at ? new Date(draft.ends_at).toISOString() : null;
+    const overlap = findOverlappingPublishedCampaign(
+      {
+        id: draft.id ?? 'new',
+        title: draft.title.trim(),
+        card_headline: draft.card_headline.trim(),
+        card_body: draft.card_body.trim() || null,
+        trip_target: tripTarget,
+        bonus_amount_pence: bonusPence,
+        status: draft.status,
+        is_active: draft.is_active,
+        starts_at: startsAt,
+        ends_at: endsAt,
+        scope_type: draft.scope_type,
+        region_id: draft.scope_type === 'global' ? null : draft.region_id,
+        display_priority: Number(draft.display_priority) || 0,
+        service_area_ids: draft.serviceAreaIds,
+      },
+      campaigns,
+      serviceAreaRegionById,
+    );
+    if (overlap) {
+      setFormError(
+        `Overlaps published campaign “${overlap.title}”. Home shows one card — change dates, scope, or deactivate the other campaign first.`,
+      );
+      return;
+    }
     setFormError(null);
     await save.mutateAsync({
       id: draft.id,
@@ -201,14 +255,32 @@ export default function DriverTripBonuses() {
       bonus_amount_pence: bonusPence,
       status: draft.status,
       is_active: draft.is_active,
-      starts_at: draft.starts_at ? new Date(draft.starts_at).toISOString() : null,
-      ends_at: draft.ends_at ? new Date(draft.ends_at).toISOString() : null,
+      starts_at: startsAt,
+      ends_at: endsAt,
       scope_type: draft.scope_type,
       region_id: draft.scope_type === 'global' ? null : draft.region_id,
       display_priority: Number(draft.display_priority) || 0,
       service_area_ids: draft.serviceAreaIds,
     });
     setOpen(false);
+  };
+
+  const onPublishConfirm = async () => {
+    if (!publishTarget) return;
+    const overlap = findOverlappingPublishedCampaign(
+      { ...publishTarget, status: 'published' },
+      campaigns,
+      serviceAreaRegionById,
+    );
+    if (overlap) {
+      setPublishTarget(null);
+      toast.error(
+        `Cannot publish: overlaps “${overlap.title}”. Home shows one card — change dates or scope first.`,
+      );
+      return;
+    }
+    await publish.mutateAsync(publishTarget);
+    setPublishTarget(null);
   };
 
   return (
@@ -227,6 +299,56 @@ export default function DriverTripBonuses() {
             New campaign
           </Button>
         </div>
+
+        {deadOutbox.length > 0 ? (
+          <Card className="border-destructive/40 bg-destructive/5">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-base text-destructive">
+                Trip-bonus progress needs attention
+              </CardTitle>
+              <CardDescription>
+                {deadOutbox.length} completed trip(s) failed progress recording after
+                repeated retries. Re-enqueue safely — counts and BONUS credits stay
+                idempotent (never double-count or double-credit).
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  size="sm"
+                  variant="destructive"
+                  disabled={reenqueueDead.isPending}
+                  onClick={() => reenqueueDead.mutate(null)}
+                >
+                  {reenqueueDead.isPending ? (
+                    <Loader2 className="h-4 w-4 animate-spin mr-1" />
+                  ) : null}
+                  Re-enqueue all ({deadOutbox.length})
+                </Button>
+              </div>
+              <ul className="text-xs text-muted-foreground space-y-1 max-h-40 overflow-y-auto">
+                {deadOutbox.slice(0, 20).map((row) => (
+                  <li key={row.id} className="flex flex-wrap gap-x-3 gap-y-0.5">
+                    <span className="font-mono">{row.trip_id.slice(0, 8)}…</span>
+                    <span>{row.attempt_count} attempts</span>
+                    <span className="truncate max-w-[28rem]">
+                      {row.last_error || 'unknown error'}
+                    </span>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-6 px-2"
+                      disabled={reenqueueDead.isPending}
+                      onClick={() => reenqueueDead.mutate([row.id])}
+                    >
+                      Re-enqueue
+                    </Button>
+                  </li>
+                ))}
+              </ul>
+            </CardContent>
+          </Card>
+        ) : null}
 
         <Card>
           <CardHeader>
@@ -374,8 +496,7 @@ export default function DriverTripBonuses() {
               disabled={publish.isPending || !publishTarget}
               onClick={(e) => {
                 e.preventDefault();
-                if (!publishTarget) return;
-                void publish.mutateAsync(publishTarget).then(() => setPublishTarget(null));
+                void onPublishConfirm();
               }}
             >
               {publish.isPending ? (

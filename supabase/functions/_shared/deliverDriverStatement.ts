@@ -106,7 +106,7 @@ async function buildRenderData(
       { description: "Completed Cash Trip Earnings", trips: invoice.cash_trips ?? 0, amountPence: invoice.cash_trip_earnings_pence ?? 0 },
       { description: "Airport Fee Earnings", trips: 0, amountPence: invoice.airport_fee_earnings_pence ?? 0 },
       { description: "Extra Charge Earnings", trips: 0, amountPence: invoice.extra_charge_earnings_pence ?? 0 },
-      { description: "Bonuses", trips: 0, amountPence: invoice.bonuses_pence ?? 0 },
+      { description: "Bonus", trips: 0, amountPence: invoice.bonuses_pence ?? 0 },
       { description: "Adjustments", trips: 0, amountPence: invoice.adjustments_pence ?? 0 },
       { description: "Platform Commission", trips: 0, amountPence: invoice.commission_pence ?? 0, isDeduction: true },
       { description: "Cash Collected (Offset)", trips: 0, amountPence: invoice.cash_collected_pence ?? 0, isDeduction: true },

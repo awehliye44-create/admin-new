@@ -600,7 +600,7 @@ function buildRenderData(
     { description: "Completed Cash Trip Earnings", trips: Number(invoice.cash_trips ?? 0), amountPence: Number(invoice.cash_trip_earnings_pence ?? 0) },
     { description: "Airport Fee Earnings", trips: 0, amountPence: Number(invoice.airport_fee_earnings_pence ?? 0) },
     { description: "Extra Charge Earnings", trips: 0, amountPence: Number(invoice.extra_charge_earnings_pence ?? 0) },
-    { description: "Bonuses", trips: 0, amountPence: Number(invoice.bonuses_pence ?? 0) },
+    { description: "Bonus", trips: 0, amountPence: Number(invoice.bonuses_pence ?? 0) },
     { description: "Adjustments", trips: 0, amountPence: Number(invoice.adjustments_pence ?? 0) },
   ];
 

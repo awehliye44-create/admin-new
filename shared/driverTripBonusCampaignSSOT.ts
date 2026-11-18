@@ -183,3 +183,122 @@ export function validateCampaignDraft(input: {
   }
   return errors;
 }
+
+/**
+ * Publish overlap SSOT (mirrored by SQL:
+ * driver_trip_bonus_campaign_windows_overlap /
+ * driver_trip_bonus_campaign_scopes_overlap in
+ * 20270226210000_driver_trip_bonus_publish_overlap_guard.sql).
+ *
+ * Rules (must stay aligned Admin ↔ SQL):
+ * - Only published + is_active campaigns participate (draft/archived/inactive ignored).
+ * - Date windows: half-open [start, end); null start = -∞; null end = +∞.
+ * - Scope: global overlaps all; entire_region ↔ same region_id; selected SAs ↔
+ *   intersecting SA ids; entire_region ↔ selected if any selected SA.region_id
+ *   matches (SA active flag ignored — membership by id, same as SQL).
+ * Home shows one banner (selectHomeCampaign); overlapping publish is forbidden so
+ * a driver cannot earn a campaign they cannot see.
+ */
+
+/** Half-open style window overlap: [start, end). Null start = -∞, null end = +∞. */
+export function campaignWindowsOverlap(
+  a: Pick<DriverTripBonusCampaignRow, "starts_at" | "ends_at">,
+  b: Pick<DriverTripBonusCampaignRow, "starts_at" | "ends_at">,
+): boolean {
+  const aStart = a.starts_at ? new Date(a.starts_at).getTime() : Number.NEGATIVE_INFINITY;
+  const aEnd = a.ends_at ? new Date(a.ends_at).getTime() : Number.POSITIVE_INFINITY;
+  const bStart = b.starts_at ? new Date(b.starts_at).getTime() : Number.NEGATIVE_INFINITY;
+  const bEnd = b.ends_at ? new Date(b.ends_at).getTime() : Number.POSITIVE_INFINITY;
+  if (a.starts_at && !Number.isFinite(aStart)) return false;
+  if (b.starts_at && !Number.isFinite(bStart)) return false;
+  if (a.ends_at && !Number.isFinite(aEnd)) return false;
+  if (b.ends_at && !Number.isFinite(bEnd)) return false;
+  return aStart < bEnd && bStart < aEnd;
+}
+
+/**
+ * True when two campaign scopes can match the same driver.
+ * `serviceAreaRegionById` maps SA id → region id (needed for region vs SA compare).
+ * When a selected SA id is missing from the map, treat region↔SA as overlapping
+ * (fail closed) so Admin cannot under-detect vs SQL.
+ */
+export function campaignScopesCanMatchSameDriver(
+  a: Pick<DriverTripBonusCampaignRow, "scope_type" | "region_id"> & {
+    service_area_ids?: string[];
+  },
+  b: Pick<DriverTripBonusCampaignRow, "scope_type" | "region_id"> & {
+    service_area_ids?: string[];
+  },
+  serviceAreaRegionById: Record<string, string | null | undefined> = {},
+): boolean {
+  if (a.scope_type === "global" || b.scope_type === "global") return true;
+
+  if (a.scope_type === "entire_region" && b.scope_type === "entire_region") {
+    return Boolean(a.region_id && a.region_id === b.region_id);
+  }
+
+  const aAreas = a.service_area_ids ?? [];
+  const bAreas = b.service_area_ids ?? [];
+
+  if (a.scope_type === "selected_service_areas" && b.scope_type === "selected_service_areas") {
+    const setB = new Set(bAreas);
+    return aAreas.some((id) => setB.has(id));
+  }
+
+  const regionVsAreas = (
+    regionId: string | null,
+    areas: string[],
+  ): boolean => {
+    if (!regionId || areas.length === 0) return false;
+    for (const id of areas) {
+      if (!(id in serviceAreaRegionById)) {
+        // Unknown SA → fail closed (SQL resolves via service_areas table).
+        return true;
+      }
+      if (serviceAreaRegionById[id] === regionId) return true;
+    }
+    return false;
+  };
+
+  if (a.scope_type === "entire_region" && b.scope_type === "selected_service_areas") {
+    return regionVsAreas(a.region_id, bAreas);
+  }
+  if (b.scope_type === "entire_region" && a.scope_type === "selected_service_areas") {
+    return regionVsAreas(b.region_id, aAreas);
+  }
+  return false;
+}
+
+export type TripBonusOverlapCandidate = DriverTripBonusCampaignRow & {
+  service_area_ids?: string[];
+};
+
+/**
+ * Find another published+active campaign that could credit the same driver while
+ * Home only shows one card. Draft / inactive / archived are ignored.
+ */
+export function findOverlappingPublishedCampaign(
+  candidate: TripBonusOverlapCandidate,
+  existing: TripBonusOverlapCandidate[],
+  serviceAreaRegionById: Record<string, string | null | undefined> = {},
+): TripBonusOverlapCandidate | null {
+  if (candidate.status !== "published" || !candidate.is_active) return null;
+  for (const other of existing) {
+    if (other.id === candidate.id) continue;
+    if (other.status !== "published" || !other.is_active) continue;
+    if (!campaignWindowsOverlap(candidate, other)) continue;
+    if (
+      !campaignScopesCanMatchSameDriver(candidate, other, serviceAreaRegionById)
+    ) {
+      continue;
+    }
+    return other;
+  }
+  return null;
+}
+
+/** Ledger description / source → trip-bonus (not generic promotions). */
+export function isTripBonusLedgerDescription(description: string | null | undefined): boolean {
+  const d = String(description ?? "").trim();
+  return d.startsWith(TRIP_BONUS_LEDGER_DESCRIPTION_PREFIX);
+}
