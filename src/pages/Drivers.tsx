@@ -75,11 +75,13 @@ import {
   Ban,
   Power,
   Trash2,
-  ShieldAlert
+  ShieldAlert,
+  FileUp,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { tryGrantWelcomeCredit } from '@/lib/tryGrantWelcomeCredit';
 import { DriverDetailsDialog } from '@/components/drivers/DriverDetailsDialog';
+import { AdminAddDriverDocumentsDialog } from '@/components/drivers/AdminAddDriverDocumentsDialog';
 import { CouncilLicenceField } from '@/components/drivers/CouncilLicenceField';
 import { fetchCouncilLicences, saveCouncilLicence } from '@/lib/driverCouncilLicence';
 import { CountrySelectorField } from '@/components/CountrySelectorField';
@@ -90,6 +92,10 @@ import {
   formatCountryWithFlag,
   validateDriverAddressFields,
 } from '@/lib/driverAddress';
+import { useRoleCapabilities } from '@/hooks/useRoleCapabilities';
+import {
+  DOCUMENTS_ADMIN_UPLOAD_ACTION_KEY,
+} from '../../shared/rolesPermissionsSSOT';
 
 interface Driver {
   id: string;
@@ -117,6 +123,9 @@ interface Driver {
   documents_approved?: boolean;
   category_id?: string | null;
   current_trip_id?: string | null;
+  email_verified?: boolean | null;
+  phone_verified?: boolean | null;
+  terms_accepted_at?: string | null;
 }
 
 interface DriverCategory {
@@ -202,6 +211,11 @@ export default function Drivers() {
 
   // Edit driver state
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
+  const [addDocumentsDriver, setAddDocumentsDriver] = useState<Driver | null>(null);
+  const [isAddDocumentsOpen, setIsAddDocumentsOpen] = useState(false);
+  const { has: hasAction, actor: roleActor } = useRoleCapabilities();
+  const canAdminUploadDocuments =
+    roleActor.isSuperAdmin || hasAction(DOCUMENTS_ADMIN_UPLOAD_ACTION_KEY);
   const [editDriver, setEditDriver] = useState<Driver | null>(null);
   const [isSavingEdit, setIsSavingEdit] = useState(false);
 
@@ -283,6 +297,7 @@ export default function Drivers() {
           'profile_photo_url', 'created_at', 'region_id', 'residential_address', 'postcode',
           'city', 'country', 'country_code', 'service_area_id', 'is_pet_friendly',
           'documents_approved', 'category_id', 'current_trip_id',
+          'email_verified', 'phone_verified', 'terms_accepted_at',
         ],
         filters,
         or_groups: orGroups,
@@ -1233,6 +1248,17 @@ export default function Drivers() {
                             <Pencil className="mr-2 h-4 w-4" />
                             Edit Profile
                           </DropdownMenuItem>
+                          {canAdminUploadDocuments && (
+                            <DropdownMenuItem
+                              onClick={() => {
+                                setAddDocumentsDriver(driver);
+                                setIsAddDocumentsOpen(true);
+                              }}
+                            >
+                              <FileUp className="mr-2 h-4 w-4" />
+                              Add Documents
+                            </DropdownMenuItem>
+                          )}
                           <DropdownMenuItem onClick={() => openServiceAreasDialog(driver)}>
                             <Map className="mr-2 h-4 w-4" />
                             Assign Service Areas
@@ -1350,7 +1376,7 @@ export default function Drivers() {
             const updated = { ...prev };
             const driverId = updatedVehicle.driver_id;
             if (updated[driverId]) {
-              updated[driverId] = updated[driverId].map(v => 
+              updated[driverId] = updated[driverId].map(v =>
                 v.id === updatedVehicle.id ? updatedVehicle : v
               );
             }
@@ -1364,6 +1390,19 @@ export default function Drivers() {
         onManageServiceAreas={(driver) => {
           setIsDetailsOpen(false);
           openServiceAreasDialog(driver);
+        }}
+      />
+
+      <AdminAddDriverDocumentsDialog
+        open={isAddDocumentsOpen}
+        onOpenChange={(open) => {
+          setIsAddDocumentsOpen(open);
+          if (!open) setAddDocumentsDriver(null);
+        }}
+        driver={addDocumentsDriver}
+        canUpload={canAdminUploadDocuments}
+        onSubmitted={() => {
+          void fetchDrivers(true);
         }}
       />
 

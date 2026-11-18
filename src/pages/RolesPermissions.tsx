@@ -60,6 +60,9 @@ import {
   SCHEDULED_RIDES_ROLE_ACTION_KEYS,
   SCHEDULED_RIDES_ACTION_LABELS,
   SCHEDULED_RIDES_ACTION_HELP,
+  DOCUMENTS_ADMIN_UPLOAD_ACTION_KEYS,
+  DOCUMENTS_ADMIN_UPLOAD_ACTION_LABELS,
+  DOCUMENTS_ADMIN_UPLOAD_ACTION_HELP,
   ROLE_TOOLTIPS,
   TAB_HELP,
   DENIED_COPY,
@@ -1221,6 +1224,82 @@ export default function RolesPermissions() {
                                       isAllowed
                                         ? `Revoke ${SCHEDULED_RIDES_ACTION_LABELS[actionKey]} from ${role.name}`
                                         : `Grant ${SCHEDULED_RIDES_ACTION_LABELS[actionKey]} to ${role.name}`
+                                    }
+                                  />
+                                ) : isAllowed ? (
+                                  <CheckCircle className="h-4 w-4 text-green-500 mx-auto" />
+                                ) : (
+                                  <div className="h-4 w-4 rounded-full border-2 border-muted mx-auto" />
+                                )}
+                              </TableCell>
+                            );
+                          })}
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              </ScrollArea>
+            </CardContent>
+          </Card>
+
+          <Card className="mt-6">
+            <CardHeader>
+              <CardTitle>Driver Documents — Admin Upload Capability</CardTitle>
+              <CardDescription>
+                Allows staff to submit compliance documents on behalf of a verified driver from Driver Profiles.
+                Page access to Drivers or Documents does not grant this. Uploads always enter Pending Review;
+                approval remains a separate action. Owner retains this capability.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <ScrollArea className="w-full">
+                <div className="rounded-md border min-w-[800px]">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead className="w-[240px] sticky left-0 bg-background z-10">Capability</TableHead>
+                        {roles.map(role => {
+                          const r = role.id;
+                          const Icon = ROLE_CONFIG[role.base_role].icon;
+                          return (
+                            <TableHead key={r} className="text-center min-w-[100px]">
+                              <div className="flex items-center justify-center gap-1" title={role.description ?? role.name}>
+                                <Icon className="h-3 w-3" />
+                                <span className={`text-xs ${role.is_active ? '' : 'line-through text-muted-foreground'}`}>{role.name}</span>
+                              </div>
+                            </TableHead>
+                          );
+                        })}
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {DOCUMENTS_ADMIN_UPLOAD_ACTION_KEYS.map(actionKey => (
+                        <TableRow key={actionKey}>
+                          <TableCell className="sticky left-0 bg-background z-10 text-sm">
+                            <div className="font-medium">{DOCUMENTS_ADMIN_UPLOAD_ACTION_LABELS[actionKey]}</div>
+                            <p className="text-xs text-muted-foreground mt-0.5 max-w-[220px]">
+                              {DOCUMENTS_ADMIN_UPLOAD_ACTION_HELP[actionKey]}
+                            </p>
+                          </TableCell>
+                          {roles.map(role => {
+                            const r = role.id;
+                            const key = `${actionKey}-${r}`;
+                            const isAllowed = actionMatrix[actionKey]?.[r] ?? false;
+                            const isToggling = togglingAction === key;
+                            return (
+                              <TableCell key={r} className="text-center">
+                                {isToggling ? (
+                                  <Loader2 className="h-4 w-4 animate-spin mx-auto text-muted-foreground" />
+                                ) : canManageRoles && !role.is_owner_role ? (
+                                  <Checkbox
+                                    checked={isAllowed}
+                                    onCheckedChange={() => handleToggleActionPermission(r, actionKey)}
+                                    className="mx-auto"
+                                    aria-label={
+                                      isAllowed
+                                        ? `Revoke ${DOCUMENTS_ADMIN_UPLOAD_ACTION_LABELS[actionKey]} from ${role.name}`
+                                        : `Grant ${DOCUMENTS_ADMIN_UPLOAD_ACTION_LABELS[actionKey]} to ${role.name}`
                                     }
                                   />
                                 ) : isAllowed ? (

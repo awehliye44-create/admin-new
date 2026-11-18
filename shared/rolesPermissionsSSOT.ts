@@ -185,6 +185,42 @@ export const SCHEDULED_RIDES_EDGE_ACTION_PERMISSION: Record<string, ScheduledRid
   cancel_ride: 'scheduled_rides.cancel_ride',
 };
 
+/**
+ * Admin-assisted driver document upload.
+ * Seeded in role_action_permissions. Missing row = deny (Owner always allowed).
+ * Page access to Drivers / Documents does NOT grant upload.
+ */
+export const DOCUMENTS_ADMIN_UPLOAD_ACTION_KEYS = ['documents.admin_upload'] as const;
+
+export type DocumentsAdminUploadActionKey = (typeof DOCUMENTS_ADMIN_UPLOAD_ACTION_KEYS)[number];
+
+export const DOCUMENTS_ADMIN_UPLOAD_ACTION_KEY: DocumentsAdminUploadActionKey =
+  'documents.admin_upload';
+
+export const DOCUMENTS_ADMIN_UPLOAD_ACTION_LABELS: Record<DocumentsAdminUploadActionKey, string> = {
+  'documents.admin_upload': 'Upload documents on behalf of drivers',
+};
+
+export const DOCUMENTS_ADMIN_UPLOAD_ACTION_HELP: Record<DocumentsAdminUploadActionKey, string> = {
+  'documents.admin_upload':
+    'Allows Admin to submit driver compliance documents for Pending Review after the driver has completed registration verification. Does not approve documents.',
+};
+
+/** Driver registration gates required before Admin document upload. */
+export function driverRegistrationVerificationComplete(driver: {
+  email_verified?: boolean | null;
+  phone_verified?: boolean | null;
+  terms_accepted_at?: string | null;
+  deleted_at?: string | null;
+}): boolean {
+  if (driver.deleted_at) return false;
+  return (
+    driver.email_verified === true &&
+    driver.phone_verified === true &&
+    !!driver.terms_accepted_at
+  );
+}
+
 /* ------------------------------------------------------------------ */
 /* Help copy                                                           */
 /* ------------------------------------------------------------------ */

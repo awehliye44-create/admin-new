@@ -103,7 +103,7 @@ async function uploadSideAndSubmit(args: {
     });
   if (uploadError) throw uploadError;
 
-  const { data, error } = await supabase.rpc('admin_submit_driver_document' as any, {
+  const { data, error } = await supabase.rpc('admin_submit_driver_document', {
     p_driver_id: args.driverId,
     p_document_type_id: args.documentTypeId,
     p_storage_path: storagePath,
