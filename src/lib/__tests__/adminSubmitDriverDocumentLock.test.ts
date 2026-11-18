@@ -34,6 +34,7 @@ describe('adminSubmitDriverDocumentLock', () => {
     expect(sql).toMatch(/email_verified IS TRUE/);
     expect(sql).toMatch(/phone_verified IS TRUE/);
     expect(sql).toMatch(/terms_accepted_at IS NOT NULL/);
+    expect(sql).toMatch(/nullif\(trim\(d\.terms_version\),\s*''\) IS NOT NULL/);
     expect(sql).toMatch(/DRIVER_NOT_ELIGIBLE/);
     expect(sql).toMatch(/FORBIDDEN/);
   });
@@ -63,7 +64,7 @@ describe('adminSubmitDriverDocumentLock', () => {
   });
 
   it('exposes verification and audit columns on page select allowlists', () => {
-    expect(sql).toMatch(/'email_verified','phone_verified','terms_accepted_at'/);
+    expect(sql).toMatch(/'email_verified','phone_verified','terms_accepted_at','terms_version'/);
     expect(sql).toMatch(/'upload_source','uploaded_by','admin_staff_id','uploaded_at'/);
   });
 });

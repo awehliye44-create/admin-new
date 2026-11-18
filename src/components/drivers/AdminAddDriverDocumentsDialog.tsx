@@ -34,6 +34,7 @@ type DriverForUpload = {
   email_verified?: boolean | null;
   phone_verified?: boolean | null;
   terms_accepted_at?: string | null;
+  terms_version?: string | null;
   deleted_at?: string | null;
 };
 
@@ -182,7 +183,7 @@ export function AdminAddDriverDocumentsDialog({
     : !canUpload
       ? 'You do not have permission to upload documents on behalf of drivers (documents.admin_upload).'
       : !registrationOk
-        ? 'This driver has not completed registration verification (email, phone, and Terms). Admin upload is blocked until verification is complete.'
+        ? 'This driver has not completed registration verification (email, phone, and Terms / Service Agreement). Admin upload is blocked until verification is complete.'
         : null;
 
   const handleSubmit = async () => {

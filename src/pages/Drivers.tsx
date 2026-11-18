@@ -126,6 +126,7 @@ interface Driver {
   email_verified?: boolean | null;
   phone_verified?: boolean | null;
   terms_accepted_at?: string | null;
+  terms_version?: string | null;
 }
 
 interface DriverCategory {
@@ -297,7 +298,7 @@ export default function Drivers() {
           'profile_photo_url', 'created_at', 'region_id', 'residential_address', 'postcode',
           'city', 'country', 'country_code', 'service_area_id', 'is_pet_friendly',
           'documents_approved', 'category_id', 'current_trip_id',
-          'email_verified', 'phone_verified', 'terms_accepted_at',
+          'email_verified', 'phone_verified', 'terms_accepted_at', 'terms_version',
         ],
         filters,
         or_groups: orGroups,

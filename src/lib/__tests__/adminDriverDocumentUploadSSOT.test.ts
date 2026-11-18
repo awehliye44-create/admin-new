@@ -11,6 +11,13 @@ import {
   driverRegistrationVerificationComplete,
 } from '../../../shared/rolesPermissionsSSOT';
 
+const eligible = {
+  email_verified: true,
+  phone_verified: true,
+  terms_accepted_at: '2026-01-01T00:00:00Z',
+  terms_version: 'v1',
+};
+
 describe('adminDriverDocumentUploadSSOT', () => {
   it('exposes a dedicated documents.admin_upload action key', () => {
     expect(DOCUMENTS_ADMIN_UPLOAD_ACTION_KEY).toBe('documents.admin_upload');
@@ -19,44 +26,32 @@ describe('adminDriverDocumentUploadSSOT', () => {
     expect(DOCUMENTS_ADMIN_UPLOAD_ACTION_HELP['documents.admin_upload']).toMatch(/Pending Review/i);
   });
 
-  it('requires email, phone, and terms — and rejects soft-deleted drivers', () => {
-    expect(
-      driverRegistrationVerificationComplete({
-        email_verified: true,
-        phone_verified: true,
-        terms_accepted_at: '2026-01-01T00:00:00Z',
-      }),
-    ).toBe(true);
+  it('requires email, phone, and Terms/Service Agreement — rejects incomplete or deleted', () => {
+    expect(driverRegistrationVerificationComplete(eligible)).toBe(true);
 
     expect(
-      driverRegistrationVerificationComplete({
-        email_verified: false,
-        phone_verified: true,
-        terms_accepted_at: '2026-01-01T00:00:00Z',
-      }),
+      driverRegistrationVerificationComplete({ ...eligible, email_verified: false }),
+    ).toBe(false);
+
+    expect(
+      driverRegistrationVerificationComplete({ ...eligible, phone_verified: false }),
+    ).toBe(false);
+
+    expect(
+      driverRegistrationVerificationComplete({ ...eligible, terms_accepted_at: null }),
+    ).toBe(false);
+
+    expect(
+      driverRegistrationVerificationComplete({ ...eligible, terms_version: null }),
+    ).toBe(false);
+
+    expect(
+      driverRegistrationVerificationComplete({ ...eligible, terms_version: '   ' }),
     ).toBe(false);
 
     expect(
       driverRegistrationVerificationComplete({
-        email_verified: true,
-        phone_verified: false,
-        terms_accepted_at: '2026-01-01T00:00:00Z',
-      }),
-    ).toBe(false);
-
-    expect(
-      driverRegistrationVerificationComplete({
-        email_verified: true,
-        phone_verified: true,
-        terms_accepted_at: null,
-      }),
-    ).toBe(false);
-
-    expect(
-      driverRegistrationVerificationComplete({
-        email_verified: true,
-        phone_verified: true,
-        terms_accepted_at: '2026-01-01T00:00:00Z',
+        ...eligible,
         deleted_at: '2026-02-01T00:00:00Z',
       }),
     ).toBe(false);

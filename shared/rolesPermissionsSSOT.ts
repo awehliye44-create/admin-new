@@ -211,13 +211,16 @@ export function driverRegistrationVerificationComplete(driver: {
   email_verified?: boolean | null;
   phone_verified?: boolean | null;
   terms_accepted_at?: string | null;
+  /** Terms / Service Agreement version stamped at registration finalise. */
+  terms_version?: string | null;
   deleted_at?: string | null;
 }): boolean {
   if (driver.deleted_at) return false;
   return (
     driver.email_verified === true &&
     driver.phone_verified === true &&
-    !!driver.terms_accepted_at
+    !!driver.terms_accepted_at &&
+    !!driver.terms_version?.trim()
   );
 }
 

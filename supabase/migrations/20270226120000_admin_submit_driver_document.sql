@@ -109,12 +109,14 @@ AS $$
       AND d.deleted_at IS NULL
       AND d.email_verified IS TRUE
       AND d.phone_verified IS TRUE
+      -- Terms / Service Agreement acceptance (same stamp finalize_driver_onboarding_registration requires)
       AND d.terms_accepted_at IS NOT NULL
+      AND nullif(trim(d.terms_version), '') IS NOT NULL
   );
 $$;
 
 COMMENT ON FUNCTION public.driver_has_completed_registration_verification(uuid) IS
-  'Email verified + phone verified + Terms accepted. Used by Admin document upload eligibility.';
+  'Email + phone verified + Terms/Service Agreement accepted (terms_accepted_at + terms_version). Used by Admin document upload eligibility.';
 
 REVOKE ALL ON FUNCTION public.driver_has_completed_registration_verification(uuid) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.driver_has_completed_registration_verification(uuid) TO authenticated;
@@ -531,7 +533,7 @@ AS $fn$
       'country_code','service_area_id','is_pet_friendly','documents_approved','category_id',
       'current_trip_id','onboarding_complete','current_lat','current_lng','heading',
       'last_location_updated_at','last_seen_at','payouts_enabled','payout_operational_paused',
-      'charges_enabled','email_verified','phone_verified','terms_accepted_at'
+      'charges_enabled','email_verified','phone_verified','terms_accepted_at','terms_version'
     ]
     WHEN 'customers' THEN ARRAY[
       'id','user_id','customer_code','first_name','last_name','phone','created_at','updated_at',
