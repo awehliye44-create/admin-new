@@ -420,11 +420,12 @@ export function AdminSidebar() {
           </PermissionSection>
 
           {/* CONTENT & LEGAL */}
-          <PermissionSection canAccess={canAccessPage} collapsed={isCollapsed} label="Content & Legal" slugs={['content', 'help-centre', 'customer-special-offers', 'driver-special-offers']}>
+          <PermissionSection canAccess={canAccessPage} collapsed={isCollapsed} label="Content & Legal" slugs={['content', 'help-centre', 'customer-special-offers', 'driver-special-offers', 'driver-trip-bonuses']}>
             <PermissionNavItem canAccess={canAccessPage} pageSlug="content" to="/content" icon={<FileEdit className="h-4 w-4" />} label="Manage Content" active={currentPath === '/content'} collapsed={isCollapsed} />
             <PermissionNavItem canAccess={canAccessPage} pageSlug="help-centre" to="/help-centre" icon={<FileEdit className="h-4 w-4" />} label="Help Centre" active={currentPath === '/help-centre'} collapsed={isCollapsed} />
             <PermissionNavItem canAccess={canAccessPage} pageSlug="customer-special-offers" to="/customer-special-offers" icon={<Gift className="h-4 w-4" />} label="Customer Special Offers" active={currentPath === '/customer-special-offers'} collapsed={isCollapsed} />
             <PermissionNavItem canAccess={canAccessPage} pageSlug="driver-special-offers" to="/driver-special-offers" icon={<FileEdit className="h-4 w-4" />} label="Driver Special Offers" active={currentPath === '/driver-special-offers'} collapsed={isCollapsed} />
+            <PermissionNavItem canAccess={canAccessPage} pageSlug="driver-trip-bonuses" to="/driver-trip-bonuses" icon={<Gift className="h-4 w-4" />} label="Driver Trip Bonuses" active={currentPath === '/driver-trip-bonuses'} collapsed={isCollapsed} />
           </PermissionSection>
 
 

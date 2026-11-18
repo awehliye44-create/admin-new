@@ -118,6 +118,7 @@ const AdminProfile = lazyPage(() => import("./pages/AdminProfile"));
 const ManageContent = lazyPage(() => import("./pages/ManageContent"));
 const HelpCentre = lazyPage(() => import("./pages/HelpCentre"));
 const DriverSpecialOffers = lazyPage(() => import("./pages/DriverSpecialOffers"));
+const DriverTripBonuses = lazyPage(() => import("./pages/DriverTripBonuses"));
 const CustomerSpecialOffers = lazyPage(() => import("./pages/CustomerSpecialOffers"));
 const LiveChat = lazyPage(() => import("./pages/LiveChat"));
 const OnecabDocuments = lazyPage(() => import("./pages/OnecabDocuments"));
@@ -243,6 +244,7 @@ const App = () => (
               <Route path="content" element={<ManageContent />} />
               <Route path="help-centre" element={<HelpCentre />} />
               <Route path="driver-special-offers" element={<DriverSpecialOffers />} />
+              <Route path="driver-trip-bonuses" element={<DriverTripBonuses />} />
               <Route path="customer-special-offers" element={<CustomerSpecialOffers />} />
               
               {/* Settings */}

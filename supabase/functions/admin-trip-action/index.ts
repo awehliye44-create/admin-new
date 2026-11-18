@@ -21,6 +21,7 @@ import { calculateTripSettlement, resolveTripTierPercent, tripSettlementDbColumn
 import { closeAllOpenWaitingSegmentsForTrip } from "../_shared/waitingSegmentClock.ts";
 import { notifyCustomerTripLifecycle } from "../_shared/customerTripLifecycleNotify.ts";
 import { assertPlatformCollectedCompletionPaymentGate } from "../_shared/executeFareIncreaseModificationPayment.ts";
+import { recordTripBonusProgressAfterCompletion } from "../_shared/driverTripBonusProgressWriter.ts";
 
 const ACTIVE_STATUSES = new Set([
   "pending",
@@ -244,6 +245,18 @@ Deno.serve(async (req) => {
       // Waiting evidence: a force-ended trip must not leave an open pickup/stop
       // segment that keeps accruing (shared helper, best-effort, no fare change).
       await closeAllOpenWaitingSegmentsForTrip(gate.supabase, tripId, now);
+
+      if (trip.driver_id) {
+        void recordTripBonusProgressAfterCompletion(gate.supabase, {
+          driverId: String(trip.driver_id),
+          tripId,
+          serviceAreaId: (trip.service_area_id as string | null | undefined) ?? null,
+          regionId: (trip.region_id as string | null | undefined) ?? null,
+          completedAt: now,
+        }).catch((e) =>
+          console.warn("[admin-trip-action] trip-bonus progress failed:", e)
+        );
+      }
 
       // After authoritative force_complete — Customer trip_completed lifecycle push/WAV.
       const passengerIdComplete =

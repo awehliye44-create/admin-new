@@ -312,6 +312,10 @@ verify_jwt = false
 [functions.customer-special-offers]
 verify_jwt = false
 
+# Trip-bonus Home progress — JWT validated inside the function.
+[functions.driver-trip-bonus-progress]
+verify_jwt = false
+
 # Captured-trip wallet recovery — JWT checked inside (Super Admin / service-role).
 # Do not deploy until explicitly approved. Dry-run defaults to true.
 [functions.admin-recover-captured-trip-wallet]

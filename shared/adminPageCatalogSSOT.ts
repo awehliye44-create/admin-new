@@ -185,6 +185,7 @@ export const ADMIN_PAGE_CATALOG: readonly AdminPageDefinition[] = [
   { slug: 'help-centre', label: 'Help Centre', group: 'content', help: 'Allows the role to manage Help Centre articles.' },
   { slug: 'customer-special-offers', label: 'Customer Special Offers', group: 'content', help: 'Allows the role to manage customer special offers.' },
   { slug: 'driver-special-offers', label: 'Driver Special Offers', group: 'content', help: 'Allows the role to manage driver special offers.' },
+  { slug: 'driver-trip-bonuses', label: 'Driver Trip Bonuses', group: 'content', help: 'Allows the role to manage service-area trip-bonus progress campaigns.' },
 
   // Settings
   { slug: 'general-settings', label: 'General & Branding', group: 'settings', help: 'Allows the role to change global platform settings.' },

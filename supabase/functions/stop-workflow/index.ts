@@ -11,6 +11,7 @@ import {
   needsTripStopsReconstruction,
 } from "./lib/ensureTripStopsFromAuthoritative.ts";
 import { getDriverCommissionPct } from "../_shared/commission.ts";
+import { recordTripBonusProgressAfterCompletion } from "../_shared/driverTripBonusProgressWriter.ts";
 import { resolveTripFare, type TripFareRow } from "../_shared/tripFareSSOT.ts";
 import {
   buildSettlementTripRow,
@@ -4365,6 +4366,25 @@ Deno.serve(async (req) => {
           );
         }
         stages.mark('completion_writes_end');
+
+        // Trip-bonus campaigns: count this completed trip (idempotent RPC).
+        // Never block completion on campaign credit failures.
+        void recordTripBonusProgressAfterCompletion(supabase, {
+          driverId: driver_id,
+          tripId: trip_id,
+          serviceAreaId:
+            (tripBeforeComplete.service_area_id as string | null | undefined) ?? null,
+          regionId:
+            (tripBeforeComplete.region_id as string | null | undefined) ??
+            (driverRegionResult?.data?.region_id as string | null | undefined) ??
+            null,
+          completedAt: now,
+        }).catch((err) => {
+          console.warn("[stop-workflow] trip-bonus progress failed", {
+            trip_id,
+            message: err instanceof Error ? err.message : String(err),
+          });
+        });
 
         const remainingQueuedCount = queuedCountResult.count ?? 0;
         const hasStackedTrip =
