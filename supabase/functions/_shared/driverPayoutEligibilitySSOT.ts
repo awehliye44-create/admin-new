@@ -37,6 +37,8 @@ export const PAYOUT_ELIGIBLE_LEDGER_TYPES = new Set([
   "DRIVER_COMPENSATION_CREDIT",
   "DRIVER_TIP_CREDIT",
   "TIP_CREDIT",
+  /** Generic bonus — immediately available; no trip/capture/clearing gate. */
+  "BONUS",
 ]);
 
 /** Admin manual wallet credits — immediately available when metadata.payout_eligible. */
@@ -468,6 +470,26 @@ export function evaluateLedgerEntryEligibility(
     }
     if (entry.admin_wallet_payout_eligible === false) {
       return { status: PAYOUT_ELIGIBILITY_STATUS.ADMIN_HOLD, payable_pence: amount };
+    }
+    if (entry.allocated_to_payout === true || entry.paid_in_batch_id || entry.paid_in_payout_item_id) {
+      return { status: PAYOUT_ELIGIBILITY_STATUS.PAYOUT_ALLOCATED, payable_pence: 0 };
+    }
+    const allocated = Math.max(0, Math.round(Number(entry.allocated_amount_pence ?? 0)));
+    const payable = remainingPayable(amount, allocated, false);
+    if (payable <= 0) {
+      return { status: PAYOUT_ELIGIBILITY_STATUS.PAYOUT_ALLOCATED, payable_pence: 0 };
+    }
+    if (entry.payout_processing === true) {
+      return { status: PAYOUT_ELIGIBILITY_STATUS.PAYOUT_PROCESSING, payable_pence: payable };
+    }
+    return { status: PAYOUT_ELIGIBILITY_STATUS.ELIGIBLE, payable_pence: payable };
+  }
+
+  // Generic BONUS: immediately Available (no trip/capture/clearing). Same occupancy
+  // guards as trip credits so weekly payout / withdraw cannot pay twice.
+  if (type === "BONUS") {
+    if (amount <= 0) {
+      return { status: PAYOUT_ELIGIBILITY_STATUS.UNKNOWN_ELIGIBILITY_ERROR, payable_pence: 0 };
     }
     if (entry.allocated_to_payout === true || entry.paid_in_batch_id || entry.paid_in_payout_item_id) {
       return { status: PAYOUT_ELIGIBILITY_STATUS.PAYOUT_ALLOCATED, payable_pence: 0 };

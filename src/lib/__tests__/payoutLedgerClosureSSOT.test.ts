@@ -16,12 +16,14 @@ describe("payout ledger closure SSOT", () => {
     })).toBe(1_000);
   });
 
-  it("isAllocatableWalletLedgerType rejects commission, cash mix, and bonus rows", () => {
+  it("isAllocatableWalletLedgerType rejects commission/cash mix; allows BONUS", () => {
     expect(isAllocatableWalletLedgerType("PLATFORM_COMMISSION")).toBe(false);
     expect(isAllocatableWalletLedgerType("PAYMENT_PROVIDER_FEE")).toBe(false);
     expect(isAllocatableWalletLedgerType("CASH_TRIP_EARNING")).toBe(false);
     expect(isAllocatableWalletLedgerType("CASH_COMMISSION_DEBT")).toBe(false);
-    expect(isAllocatableWalletLedgerType("BONUS")).toBe(false);
+    expect(isAllocatableWalletLedgerType("ADJUSTMENT")).toBe(false);
+    expect(isAllocatableWalletLedgerType("ADMIN_WALLET_CREDIT")).toBe(false);
+    expect(isAllocatableWalletLedgerType("BONUS")).toBe(true);
     expect(isAllocatableWalletLedgerType("TRIP_EARNING_NET")).toBe(true);
     expect(isAllocatableWalletLedgerType("DRIVER_TIP_CREDIT")).toBe(true);
   });

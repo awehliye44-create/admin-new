@@ -11,6 +11,8 @@ export interface DriverInvoiceAggregation {
   airportFeeEarningsPence: number;
   extraChargeEarningsPence: number;
   bonusesPence: number;
+  /** Prefer ledger note/description when a single BONUS row is present. */
+  bonusDescription: string | null;
   adjustmentsPence: number;
   platformCommissionPence: number;
   cashCollectedOffsetPence: number;
@@ -35,7 +37,7 @@ export async function aggregateDriverInvoice(
   const periodEndTs = `${params.periodEnd}T23:59:59.999Z`;
   let ledgerQuery = supabase
     .from("driver_wallet_ledger")
-    .select("id, type, amount_pence, related_trip_id, service_area_id, created_at")
+    .select("id, type, amount_pence, related_trip_id, service_area_id, created_at, description, metadata")
     .eq("driver_id", params.driverId)
     .eq("currency", params.currencyCode);
 
@@ -50,7 +52,7 @@ export async function aggregateDriverInvoice(
   const attributedLedger = (ledgerData ?? []).map((e) => {
     const id = String((e as { id?: string }).id ?? "");
     const tripId = (e as { related_trip_id?: string | null }).related_trip_id ?? null;
-    return mergeBackendEconomicFields(
+    const merged = mergeBackendEconomicFields(
       {
         type: String((e as { type?: string }).type ?? ""),
         amount_pence: Number((e as { amount_pence?: number }).amount_pence ?? 0),
@@ -60,6 +62,11 @@ export async function aggregateDriverInvoice(
       },
       economicFieldsByLedgerOrTrip(economicFields, id, tripId),
     );
+    return {
+      ...merged,
+      description: (e as { description?: string | null }).description ?? null,
+      metadata: (e as { metadata?: Record<string, unknown> | null }).metadata ?? null,
+    };
   });
   const periodLedger = attributedLedger.filter((row) => {
     if (String(row.type ?? "").toUpperCase() === "TRIP_EARNING_NET") {
@@ -104,6 +111,7 @@ export async function aggregateDriverInvoice(
   let platformCommissionPence = 0;
   let cashCollectedOffsetPence = 0;
   const completedTripIds = new Set<string>();
+  const bonusDescriptions: string[] = [];
 
   for (const entry of periodLedger) {
     const amt = Number(entry.amount_pence ?? 0);
@@ -123,6 +131,17 @@ export async function aggregateDriverInvoice(
         break;
       case "BONUS":
         bonusesPence += amt;
+        {
+          const fromDescription = String(
+            (entry as { description?: string | null }).description ?? "",
+          ).trim();
+          const meta = (entry as { metadata?: Record<string, unknown> | null }).metadata;
+          const fromMeta = String(
+            meta?.public_description ?? meta?.description ?? meta?.reason_note ?? "",
+          ).trim();
+          const label = fromDescription || fromMeta;
+          if (label) bonusDescriptions.push(label);
+        }
         break;
       case "ADJUSTMENT":
       case "REFUND_DEBIT":
@@ -136,6 +155,11 @@ export async function aggregateDriverInvoice(
         break;
     }
   }
+
+  const uniqueBonusDescriptions = [...new Set(bonusDescriptions)];
+  const bonusDescription = uniqueBonusDescriptions.length === 1
+    ? uniqueBonusDescriptions[0]!
+    : null;
 
   const cardTrips = cardTripIds.size;
   const cashTrips = cashTripIds.size;
@@ -156,6 +180,7 @@ export async function aggregateDriverInvoice(
     airportFeeEarningsPence,
     extraChargeEarningsPence,
     bonusesPence,
+    bonusDescription,
     adjustmentsPence,
     platformCommissionPence,
     cashCollectedOffsetPence,
@@ -191,7 +216,10 @@ export function buildInvoiceItems(
   push("trip_earnings", "Completed Card Trip Earnings", agg.cardTrips, agg.cardTripEarningsPence);
   push("other", "Airport Fee Earnings", 0, agg.airportFeeEarningsPence);
   push("other", "Extra Charge Earnings", 0, agg.extraChargeEarningsPence);
-  if (agg.bonusesPence > 0) push("bonus", "Bonuses", 0, agg.bonusesPence);
+  if (agg.bonusesPence > 0) {
+    const bonusLabel = (agg.bonusDescription ?? "").trim() || "Bonuses";
+    push("bonus", bonusLabel, 0, agg.bonusesPence);
+  }
   if (agg.adjustmentsPence !== 0) push("adjustment", "Adjustments", 0, agg.adjustmentsPence);
   // Intentionally omit Platform Commission line items from driver invoices.
 

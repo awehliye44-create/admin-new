@@ -12,13 +12,15 @@ export const PAYOUT_ALLOCATION_EXCLUDED_TYPES = new Set([
 /**
  * Payout Ledger may consume only these Driver Wallet Ledger credits.
  * Must stay aligned with PAYOUT_ELIGIBLE_LEDGER_TYPES.
- * CASH_TRIP_EARNING / BONUS / ADJUSTMENT are never bank-transfer source rows.
+ * CASH_TRIP_EARNING / ADJUSTMENT / ADMIN_WALLET_* are never bank-transfer source rows.
+ * BONUS is allocatable (immediate credit; occupancy prevents double pay).
  */
 export const PAYOUT_ALLOCATION_ELIGIBLE_CREDIT_TYPES = new Set([
   "TRIP_EARNING_NET",
   "DRIVER_COMPENSATION_CREDIT",
   "DRIVER_TIP_CREDIT",
   "TIP_CREDIT",
+  "BONUS",
 ]);
 
 /** Allocations on these payout items stay on disk (audit) but no longer reserve the ledger. */

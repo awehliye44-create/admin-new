@@ -359,4 +359,54 @@ describe("driverPayoutEligibilitySSOT — Revolut trip credits", () => {
     expect(r.status).toBe(PAYOUT_ELIGIBILITY_STATUS.ELIGIBLE);
     expect(r.payable_pence).toBe(575);
   });
+
+  it("BONUS is immediately eligible without trip/capture; occupancy blocks double pay", () => {
+    const open = evaluateLedgerEntryEligibility({
+      ledger_entry_id: "bonus-1",
+      trip_id: null,
+      ledger_type: "BONUS",
+      amount_pence: 2000,
+      trip_exists: false,
+    });
+    expect(open.status).toBe(PAYOUT_ELIGIBILITY_STATUS.ELIGIBLE);
+    expect(open.payable_pence).toBe(2000);
+
+    const partial = evaluateLedgerEntryEligibility({
+      ledger_entry_id: "bonus-1",
+      trip_id: null,
+      ledger_type: "BONUS",
+      amount_pence: 2000,
+      trip_exists: false,
+      allocated_amount_pence: 500,
+    });
+    expect(partial.status).toBe(PAYOUT_ELIGIBILITY_STATUS.ELIGIBLE);
+    expect(partial.payable_pence).toBe(1500);
+
+    const paid = evaluateLedgerEntryEligibility({
+      ledger_entry_id: "bonus-1",
+      trip_id: null,
+      ledger_type: "BONUS",
+      amount_pence: 2000,
+      trip_exists: false,
+      allocated_amount_pence: 2000,
+    });
+    expect(paid.status).toBe(PAYOUT_ELIGIBILITY_STATUS.PAYOUT_ALLOCATED);
+    expect(paid.payable_pence).toBe(0);
+
+    const agg = aggregateDriverPayoutEligibility({
+      live_balance_pence: 2408,
+      entries: [
+        revolutTripCredit(),
+        {
+          ledger_entry_id: "bonus-1",
+          trip_id: null,
+          ledger_type: "BONUS",
+          amount_pence: 2000,
+          trip_exists: false,
+        },
+      ],
+    });
+    expect(agg.available_balance_pence).toBe(2408);
+    expect(agg.eligible_entries.some((e) => e.ledger_entry_id === "bonus-1")).toBe(true);
+  });
 });

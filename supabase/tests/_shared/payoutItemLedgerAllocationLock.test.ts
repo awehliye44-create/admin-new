@@ -33,7 +33,7 @@ Deno.test("payout allocation types match payout-eligible DWL credits only", () =
   assertEquals(isAllocatableWalletLedgerType("DRIVER_COMPENSATION_CREDIT"), true);
   assertEquals(isAllocatableWalletLedgerType("CASH_TRIP_EARNING"), false);
   assertEquals(isAllocatableWalletLedgerType("CASH_COMMISSION_DEBT"), false);
-  assertEquals(isAllocatableWalletLedgerType("BONUS"), false);
+  assertEquals(isAllocatableWalletLedgerType("BONUS"), true);
   assertEquals(isAllocatableWalletLedgerType("PLATFORM_COMMISSION"), false);
 });
 
