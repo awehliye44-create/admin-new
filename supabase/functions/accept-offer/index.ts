@@ -720,28 +720,93 @@ Deno.serve(async (req) => {
     });
 
     perf.mark("accept_rpc_start");
-    const { data, error } = await supabase.rpc("accept_ride_offer", {
-      p_offer_id: offer_id,
-      p_driver_id: driver_id,
-      p_allow_customer_counter: allowCustomerCounter,
-    });
+    // Bug #47: rematch dispatch can hold the trip lock briefly. Retry transient
+    // lock/timeout RPC errors inside Edge so the first Accept tap can still win
+    // without leaving the Driver on Accepting… for a full statement_timeout.
+    const isTransientAcceptRpcError = (message: string | null | undefined) =>
+      /statement timeout|lock_not_available|lock timeout|canceling statement|deadlock|serialization/i
+        .test(String(message ?? ""));
+
+    let data: any = null;
+    let error: { message?: string } | null = null;
+    const maxRpcAttempts = 3;
+    for (let attempt = 1; attempt <= maxRpcAttempts; attempt++) {
+      const rpc = await supabase.rpc("accept_ride_offer", {
+        p_offer_id: offer_id,
+        p_driver_id: driver_id,
+        p_allow_customer_counter: allowCustomerCounter,
+      });
+      data = rpc.data;
+      error = rpc.error;
+      if (!error) break;
+      console.error("[accept-offer] ACCEPT_ORIGINAL_RPC_ERROR", {
+        offer_id,
+        attempt,
+        message: error.message,
+      });
+      if (attempt >= maxRpcAttempts || !isTransientAcceptRpcError(error.message)) {
+        break;
+      }
+      await new Promise((r) => setTimeout(r, 80 * attempt));
+    }
 
     if (error) {
-      console.error("[accept-offer] ACCEPT_ORIGINAL_RPC_ERROR", { offer_id, message: error.message });
-      return businessFailureResponse("DATABASE_ERROR", error.message, { offer_id });
+      // Lost-response reconcile: another attempt (or late commit) may have assigned us.
+      try {
+        const { data: offerCheck } = await supabase
+          .from("ride_offers")
+          .select("status, negotiation_status, trip_id, trips:trip_id(driver_id, confirmed_driver_id, status)")
+          .eq("id", offer_id)
+          .eq("driver_id", driver_id)
+          .maybeSingle();
+        const tripRel = (offerCheck as any)?.trips;
+        const tripRow = Array.isArray(tripRel) ? tripRel[0] : tripRel;
+        const assignedToMe =
+          tripRow &&
+          (tripRow.driver_id === driver_id || tripRow.confirmed_driver_id === driver_id) &&
+          ["driver_assigned", "en_route", "arrived", "in_progress", "driver_en_route"].includes(
+            String(tripRow.status ?? ""),
+          );
+        if (
+          assignedToMe ||
+          (offerCheck?.status === "accepted" &&
+            String(offerCheck?.negotiation_status ?? "").toLowerCase() === "confirmed")
+        ) {
+          console.log("[accept-offer] ACCEPT_RECONCILED_AFTER_RPC_ERROR", {
+            offer_id,
+            trip_id: offerCheck?.trip_id ?? tripRow?.id,
+          });
+          data = {
+            success: true,
+            trip_id: offerCheck?.trip_id,
+            fare_source: "reconciled_after_rpc_error",
+            accepted_via: "accept_ride_offer_reconcile",
+          };
+          error = null;
+        }
+      } catch (reconcileErr) {
+        console.warn("[accept-offer] post-error reconcile failed", {
+          offer_id,
+          message: reconcileErr instanceof Error ? reconcileErr.message : "unknown",
+        });
+      }
+    }
+
+    if (error) {
+      return businessFailureResponse("DATABASE_ERROR", error.message ?? "Accept failed", { offer_id });
     }
 
     console.log("[accept-offer] ACCEPT_ORIGINAL_RPC_RESULT", data);
 
-    if (!data.success) {
+    if (!data?.success) {
       console.error("[accept-offer] ACCEPT_ORIGINAL_RPC_ERROR", {
         offer_id,
-        error: data.error,
-        message: data.message,
+        error: data?.error,
+        message: data?.message,
       });
       return businessFailureResponse(
-        data.error ?? "ACCEPT_FAILED",
-        data.message || "Failed to accept offer",
+        data?.error ?? "ACCEPT_FAILED",
+        data?.message || "Failed to accept offer",
         { offer_id, ...data },
       );
     }
