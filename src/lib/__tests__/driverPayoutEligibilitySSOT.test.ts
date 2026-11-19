@@ -326,7 +326,7 @@ describe("driverPayoutEligibilitySSOT — Revolut trip credits", () => {
     const r = evaluateLedgerEntryEligibility(
       revolutTripCredit({
         captured_at: "2026-09-01T20:22:26.000Z",
-        trip_completed_at: "2026-08-15T08:00:00.000Z",
+        completed_at: "2026-08-15T08:00:00.000Z",
         earning_credited_at: "2026-08-15T08:05:00.000Z",
         provider_available_on: null,
         provider_state: "CAPTURED",
@@ -346,7 +346,7 @@ describe("driverPayoutEligibilitySSOT — Revolut trip credits", () => {
         canonical_driver_net_pence: 680,
         captured_amount_pence: 800,
         allocated_amount_pence: 105,
-        trip_completed_at: "2026-08-15T08:00:00.000Z",
+        completed_at: "2026-08-15T08:00:00.000Z",
         earning_credited_at: "2026-08-15T08:05:00.000Z",
         captured_at: "2026-09-01T20:22:26.000Z",
         provider_available_on: null,
@@ -367,6 +367,9 @@ describe("driverPayoutEligibilitySSOT — Revolut trip credits", () => {
       ledger_type: "BONUS",
       amount_pence: 2000,
       trip_exists: false,
+      payment_session_id: null,
+      captured_amount_pence: null,
+      canonical_driver_net_pence: null,
     });
     expect(open.status).toBe(PAYOUT_ELIGIBILITY_STATUS.ELIGIBLE);
     expect(open.payable_pence).toBe(2000);
@@ -377,6 +380,9 @@ describe("driverPayoutEligibilitySSOT — Revolut trip credits", () => {
       ledger_type: "BONUS",
       amount_pence: 2000,
       trip_exists: false,
+      payment_session_id: null,
+      captured_amount_pence: null,
+      canonical_driver_net_pence: null,
       allocated_amount_pence: 500,
     });
     expect(partial.status).toBe(PAYOUT_ELIGIBILITY_STATUS.ELIGIBLE);
@@ -388,6 +394,9 @@ describe("driverPayoutEligibilitySSOT — Revolut trip credits", () => {
       ledger_type: "BONUS",
       amount_pence: 2000,
       trip_exists: false,
+      payment_session_id: null,
+      captured_amount_pence: null,
+      canonical_driver_net_pence: null,
       allocated_amount_pence: 2000,
     });
     expect(paid.status).toBe(PAYOUT_ELIGIBILITY_STATUS.PAYOUT_ALLOCATED);
@@ -403,6 +412,9 @@ describe("driverPayoutEligibilitySSOT — Revolut trip credits", () => {
           ledger_type: "BONUS",
           amount_pence: 2000,
           trip_exists: false,
+          payment_session_id: null,
+          captured_amount_pence: null,
+          canonical_driver_net_pence: null,
         },
       ],
     });

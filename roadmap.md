@@ -6,3 +6,5 @@
 - [ ] Stage 2 implementation — blocked on user review of audit
 - [ ] Stage 3 — Field-level masking (separate, after Stage 2)
 - [ ] Investigate 21 legacy failing tests (docs/stage1-roles-release.md)
+
+- [x] Fix fare display issue shown in user screenshot (image-79)

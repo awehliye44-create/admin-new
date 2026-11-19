@@ -3,7 +3,7 @@
 //
 // Admin-only. Uses REVOLUT_MERCHANT_SECRET_KEY.
 import { createClient } from "npm:@supabase/supabase-js@2.57.2";
-import { corsHeaders } from "npm:@supabase/supabase-js@2/cors";
+import { corsHeaders } from "../_shared/corsHeaders.ts";
 import { listRevolutMerchantPayouts } from "../_shared/revolutApi.ts";
 
 Deno.serve(async (req) => {

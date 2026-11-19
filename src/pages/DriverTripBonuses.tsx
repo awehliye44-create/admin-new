@@ -284,16 +284,12 @@ export default function DriverTripBonuses() {
   };
 
   return (
-    <AdminLayout>
-      <div className="space-y-6 p-6">
-        <div className="flex items-start justify-between gap-4">
-          <div>
-            <h1 className="text-2xl font-semibold tracking-tight">Driver Trip Bonuses</h1>
-            <p className="text-sm text-muted-foreground mt-1">
-              Service-area progress campaigns. Drivers see a white Home progress card; hitting the
-              trip target credits a BONUS wallet row (payout-eligible).
-            </p>
-          </div>
+    <AdminLayout
+      title="Driver Trip Bonuses"
+      description="Service-area progress campaigns. Drivers see a white Home progress card; hitting the trip target credits a BONUS wallet row (payout-eligible)."
+    >
+      <div className="space-y-6">
+        <div className="flex items-start justify-end gap-4">
           <Button onClick={openCreate}>
             <Plus className="h-4 w-4 mr-2" />
             New campaign

@@ -57,26 +57,6 @@ async function logEvent(
   }
 }
 
-async function logEvent(
-  supabase: SupabaseClient,
-  tripId: string,
-  eventType: string,
-  status: string,
-  message?: string,
-  metadata?: Record<string, unknown>,
-): Promise<void> {
-  const { error } = await supabase.from("trip_invoice_events").insert({
-    trip_id: tripId,
-    event_type: eventType,
-    status,
-    message: message ?? null,
-    metadata: metadata ?? null,
-  });
-  if (error) {
-    console.warn("[TRIP_INVOICE] log_event_failed", error.message);
-  }
-}
-
 function normalizeAction(action: TripInvoiceAction): TripInvoiceAction {
   if (action === "resend") return "resend_email";
   return action;

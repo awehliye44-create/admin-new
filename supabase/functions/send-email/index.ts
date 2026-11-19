@@ -1,4 +1,4 @@
-import { corsHeaders } from 'npm:@supabase/supabase-js@2/cors'
+import { corsHeaders } from "../_shared/corsHeaders.ts"
 import { z } from 'npm:zod@3.23.8'
 import { requireAdminOrService } from '../_shared/callerGate.ts'
 
