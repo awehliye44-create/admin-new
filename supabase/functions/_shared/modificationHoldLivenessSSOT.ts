@@ -31,9 +31,6 @@ export const STARTED_TRIP_STATUSES = new Set([
   "trip_started",
 ]);
 
-/** @deprecated Prefer STARTED_TRIP_STATUSES for lost-auth recovery branching. */
-export const IN_PROGRESS_LIKE_TRIP_STATUSES = STARTED_TRIP_STATUSES;
-
 export const MID_TRIP_AUTH_LOST_FLAG = "mid_trip_payment_auth_lost";
 
 export function isStartedTripStatus(status: unknown): boolean {

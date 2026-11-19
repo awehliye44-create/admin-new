@@ -299,27 +299,6 @@ export function resolvePerformanceStepTiming(input: RecordPerformanceStepInput):
   return { duration_ms, p95_target_ms, timeout_budget_ms, performance_status };
 }
 
-export function driverActionFromWorkflowAction(
-  action: string,
-  stopCount?: number,
-): DriverPerformanceAction {
-  switch (action) {
-    case 'arrive_pickup':
-      return 'driver_arrive_pickup';
-    case 'start_trip':
-      return 'driver_start_trip';
-    case 'arrive_stop':
-      return 'driver_arrive_stop';
-    case 'next_stop':
-    case 'drive_to_next':
-      return 'driver_drive_next';
-    case 'complete_trip':
-      return (stopCount ?? 0) > 2 ? 'driver_complete_multistop' : 'driver_complete_trip';
-    default:
-      return 'driver_start_trip';
-  }
-}
-
 export const EDGE_FUNCTION_PERF_ACTION: Record<string, BackendPerformanceAction> = {
   'accept-offer': 'edge_accept_offer',
   'stop-workflow': 'edge_stop_workflow',

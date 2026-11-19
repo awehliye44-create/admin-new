@@ -209,13 +209,6 @@ export function sumLedgerAdjustmentsPence(rows: LedgerRow[]): number {
   }, 0);
 }
 
-export function sumLedgerWalletBalance(rows: LedgerRow[]): number {
-  return rows.reduce((s, r) => {
-    if (r.type === "PLATFORM_COMMISSION" || r.type === "CASH_TRIP_EARNING") return s;
-    return s + (r.amount_pence || 0);
-  }, 0);
-}
-
 export function buildTripAuditRows(
   trips: TripAuditSourceRow[],
   payoutByTrip: Map<string, number>,

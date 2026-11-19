@@ -55,14 +55,3 @@ export async function loadServiceAreaNegotiationCountdown(
   );
 }
 
-/** Remaining whole seconds until an absolute deadline. No hardcoded cap. */
-export function calcNegotiationRemainingSec(
-  negotiationExpiresAt: string | null | undefined,
-  nowMs = Date.now(),
-): number {
-  if (!negotiationExpiresAt) return 0;
-  return Math.max(
-    0,
-    Math.ceil((new Date(negotiationExpiresAt).getTime() - nowMs) / 1000),
-  );
-}

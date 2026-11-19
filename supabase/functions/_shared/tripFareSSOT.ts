@@ -138,20 +138,6 @@ export type TripStopWaitingRow = {
   waiting_charge_pence?: number | null;
 };
 
-/** Sum intermediate stop waiting from trip_stops (canonical: waiting_total_amount_pence). */
-export function sumIntermediateStopWaitingPence(
-  tripStops?: TripStopWaitingRow[] | null,
-): number {
-  if (!tripStops?.length) return 0;
-  return tripStops
-    .filter((stop) => (stop.type ?? "").toLowerCase() === "stop")
-    .reduce((sum, stop) => {
-      const pence =
-        nonNegInt(stop.waiting_total_amount_pence) || nonNegInt(stop.waiting_charge_pence);
-      return sum + pence;
-    }, 0);
-}
-
 /** Modification surcharges (destination change, stop edits, extras). */
 export function resolveCustomerModificationChargePence(trip: TripFareRow): number {
   const direct = nonNegInt(trip.customer_modification_charge_pence);
@@ -406,19 +392,3 @@ export function computeCaptureAmount(
   };
 }
 
-export function computeDriverEarningsBreakdown(
-  trip: TripFareRow,
-  commissionPercent: number,
-  tipsOverridePence?: number,
-): DriverCommissionBreakdown {
-  const fare = resolveTripFare(trip, tipsOverridePence);
-  const totalCustomer = fare.final_fare_pence + fare.tips_pence;
-
-  return computeDriverCommissionBreakdown({
-    totalCustomerFarePence: totalCustomer,
-    airportChargePence: fare.airport_charge_pence,
-    otherPassThroughChargesPence: fare.pass_through_charge_pence,
-    tipsPence: fare.tips_pence,
-    commissionPercent: capTierCommissionPercent(commissionPercent),
-  });
-}

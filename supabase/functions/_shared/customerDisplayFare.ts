@@ -38,16 +38,3 @@ export function resolveCustomerPreauthBasePence(trip: TripFareRow): number {
   return 1000;
 }
 
-/**
- * Mid-trip cash→card switch payable — SSOT preauth base plus accrued waiting.
- * Uses estimated_fare / estimated_total_pence (not the legacy £1 floor).
- */
-export function resolveCashToCardSwitchPayablePence(trip: TripFareRow): number {
-  const base = resolveCustomerPreauthBasePence(trip);
-  const arrivalWaiting = Math.max(0, nonNegInt(trip.pickup_waiting_charge_pence));
-  const stopWaiting = Math.max(
-    0,
-    nonNegInt(trip.total_waiting_charge_pence) || nonNegInt(trip.waiting_charge_pence),
-  );
-  return base + arrivalWaiting + stopWaiting;
-}

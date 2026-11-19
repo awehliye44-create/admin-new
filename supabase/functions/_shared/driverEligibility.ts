@@ -344,13 +344,6 @@ export async function canGoOnline(
   };
 }
 
-export async function assertCanGoOnline(
-  service: SupabaseClient,
-  userId: string | null | undefined,
-): Promise<DriverEligibilityResult> {
-  return canGoOnline(service, userId);
-}
-
 /** Must be approved_online (online flag set). */
 export async function canReceiveOffers(
   service: SupabaseClient,
@@ -380,13 +373,6 @@ export async function canReceiveOffersByDriverId(
   };
 }
 
-export async function assertCanReceiveOffers(
-  service: SupabaseClient,
-  userId: string | null | undefined,
-): Promise<DriverEligibilityResult> {
-  return canReceiveOffers(service, userId);
-}
-
 export async function canAcceptOffer(
   service: SupabaseClient,
   userId: string | null | undefined,
@@ -399,13 +385,6 @@ export async function canAcceptOfferByDriverId(
   driverId: string | null | undefined,
 ): Promise<DriverEligibilityResult> {
   return canReceiveOffersByDriverId(service, driverId);
-}
-
-export async function assertCanAcceptOffer(
-  service: SupabaseClient,
-  userId: string | null | undefined,
-): Promise<DriverEligibilityResult> {
-  return canAcceptOffer(service, userId);
 }
 
 export async function assertCanAcceptOfferByDriverId(
@@ -627,22 +606,6 @@ export async function assertCanAcceptOfferByDriverIdFast(
   };
 }
 
-/** In-trip completion â allow approved drivers with active trip even if offer gates would block new offers. */
-export async function canCompleteTrip(
-  service: SupabaseClient,
-  userId: string | null | undefined,
-): Promise<DriverEligibilityResult> {
-  const base = await evaluateDriverAuthState(service, userId);
-  const allowed = base.state === "approved_online"
-    || base.state === "approved_offline"
-    || (base.state === "suspended" && base.driver_id != null);
-  return {
-    ...base,
-    allowed,
-    message: allowed ? "" : base.message || DEFAULT_DRIVER_OFFER_BLOCKED_MESSAGE,
-  };
-}
-
 export type DriverNotEligibleBody = {
   error: "DRIVER_NOT_ELIGIBLE";
   blocked_reasons: DriverBlockedReason[];
@@ -685,24 +648,3 @@ export function logDriverEligibilityBlocked(
   }));
 }
 
-/** Dispatch snapshot â mirrors auto-dispatch hard gates (excludes presence/location). */
-export function driverSnapshotBlocksReceiveOffers(
-  driver: {
-    approval_status?: string | null;
-    driver_status?: string | null;
-    documents_approved?: boolean | null;
-    is_online?: boolean | null;
-  },
-): DriverBlockedReason[] {
-  const reasons: DriverBlockedReason[] = [];
-  if (String(driver.driver_status ?? "").toLowerCase() !== "active") {
-    reasons.push(DRIVER_BLOCKED_REASON.ACCOUNT_INACTIVE);
-  }
-  const approval = String(driver.approval_status ?? "").toLowerCase();
-  if (approval === "suspended") reasons.push(DRIVER_BLOCKED_REASON.DRIVER_SUSPENDED);
-  if (approval === "rejected") reasons.push(DRIVER_BLOCKED_REASON.DRIVER_REJECTED);
-  if (approval !== "approved") reasons.push(DRIVER_BLOCKED_REASON.DRIVER_NOT_APPROVED);
-  if (driver.documents_approved !== true) reasons.push(DRIVER_BLOCKED_REASON.DOCUMENTS_PENDING_REVIEW);
-  if (driver.is_online !== true) reasons.push(DRIVER_BLOCKED_REASON.DRIVER_OFFLINE);
-  return reasons;
-}

@@ -79,51 +79,6 @@ export async function transitionPaymentSession(
   );
 }
 
-/** Provider-state patch with validation. */
-export async function transitionPaymentSessionProviderState(
-  supabase: SupabaseClient,
-  args: {
-    sessionId?: string | null;
-    clientActionId?: string | null;
-    providerOrderId?: string | null;
-    providerState: string;
-    source: PaymentSessionTransitionSource;
-    extra?: Record<string, unknown>;
-  },
-): Promise<{ ok: boolean; error?: string }> {
-  return transitionPaymentSession(supabase, {
-    sessionId: args.sessionId,
-    clientActionId: args.clientActionId,
-    providerOrderId: args.providerOrderId,
-    source: args.source,
-    patch: {
-      provider_state: args.providerState,
-      ...(args.extra ?? {}),
-    },
-  });
-}
-
-/** Fee backfill on an already-captured session. */
-export async function transitionPaymentSessionFeeBackfill(
-  supabase: SupabaseClient,
-  args: {
-    clientActionId?: string | null;
-    providerOrderId?: string | null;
-    sessionId?: string | null;
-    providerFeePence: number | null;
-    retrieveSucceeded?: boolean;
-    source?: PaymentSessionTransitionSource;
-  },
-): Promise<void> {
-  await markPaymentSessionProviderFee(supabase, {
-    clientActionId: args.clientActionId,
-    providerOrderId: args.providerOrderId,
-    sessionId: args.sessionId,
-    providerFeePence: args.providerFeePence,
-    retrieveSucceeded: args.retrieveSucceeded,
-  });
-}
-
 export {
   markPaymentSessionCaptured,
   markPaymentSessionStatus,

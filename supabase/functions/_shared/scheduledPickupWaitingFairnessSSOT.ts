@@ -47,30 +47,6 @@ export function isBeforeScheduledPickupEligibleWindow(input: {
 }
 
 /**
- * Clamp a segment interval into the eligible window.
- * Pre-scheduled time is never counted retrospectively.
- */
-export function clampWaitingIntervalToEligibleWindow(input: {
-  startMs: number;
-  endMs: number;
-  eligibleFromMs: number | null | undefined;
-}): { startMs: number; endMs: number; durationMs: number } {
-  let start = input.startMs;
-  let end = input.endMs;
-  if (
-    input.eligibleFromMs != null &&
-    Number.isFinite(input.eligibleFromMs)
-  ) {
-    if (end <= input.eligibleFromMs) {
-      return { startMs: start, endMs: end, durationMs: 0 };
-    }
-    start = Math.max(start, input.eligibleFromMs);
-  }
-  const durationMs = end > start ? end - start : 0;
-  return { startMs: start, endMs: end, durationMs };
-}
-
-/**
  * Resolve pickup eligible floor from a trip row.
  *
  * Scheduled origin = authoritative booking classification:

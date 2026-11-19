@@ -128,34 +128,3 @@ export function resolvePreActivationReleaseKind(input: {
   return "marketplace_reopen";
 }
 
-/** Helper for Edge callers that already loaded global_dispatch_settings. */
-export function buildPreActivationReleaseTripPatch(input: {
-  kind: ScheduledPreActivationReleaseKind;
-  nowIso: string;
-  broadcastAtIso: string;
-  broadcastEnabled: boolean;
-  cancellationReason?: string | null;
-  cancellationNote?: string | null;
-  searchingExpiresAtIso?: string;
-  maxExistingBroadcastRound?: number | null;
-  maxBroadcastSequences?: number | null;
-}): Record<string, unknown> {
-  if (input.kind === "urgent_convert") {
-    return buildScheduledUrgentRematchPatch({
-      nowIso: input.nowIso,
-      searchingExpiresAtIso:
-        input.searchingExpiresAtIso ??
-        new Date(Date.parse(input.nowIso) + 6 * 60_000).toISOString(),
-      maxExistingBroadcastRound: input.maxExistingBroadcastRound,
-      maxBroadcastSequences: input.maxBroadcastSequences,
-      currentBroadcastEnabled: input.broadcastEnabled,
-    });
-  }
-  return buildScheduledMarketplaceRematchPatch({
-    nowIso: input.nowIso,
-    broadcastAtIso: input.broadcastAtIso,
-    broadcastEnabled: input.broadcastEnabled,
-    cancellationReason: input.cancellationReason,
-    cancellationNote: input.cancellationNote,
-  });
-}

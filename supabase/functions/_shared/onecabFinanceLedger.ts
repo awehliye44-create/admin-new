@@ -30,11 +30,6 @@ export const BALANCE_EXCLUDED_LEDGER_TYPES = [
 /** Reporting-only types excluded from wallet balance (Phase 3A.4). COMMISSION_RECOVERED is included in wallet. */
 export const REPORTING_ONLY_LEDGER_TYPES = new Set<string>(BALANCE_EXCLUDED_LEDGER_TYPES);
 
-export const CARD_CREDIT_LEDGER_TYPES = new Set([
-  "TRIP_EARNING_NET",
-  "DRIVER_TIP_CREDIT",
-]);
-
 export const REVERSAL_LEDGER_TYPE = "LEDGER_REVERSAL";
 
 export const DEBT_RECOVERY_SOURCE = "CARD_EARNINGS_OFFSET";
@@ -50,11 +45,6 @@ export type TripPaymentRow = {
   id: string;
   payment_method?: string | null;
   payment_status?: string | null;
-};
-
-export type PaymentRow = {
-  trip_id: string;
-  status?: string | null;
 };
 
 export function isCashPaymentMethod(method: string | null | undefined): boolean {

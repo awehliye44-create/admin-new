@@ -361,32 +361,3 @@ export type CustomerPresetFareOption = {
   configuredAmountPence?: number | null;
 };
 
-export function toDriverPresetChipOption(o: PresetOptionCanonical): DriverPresetChipOption {
-  const driverNet =
-    (o as PresetOptionCanonical & { driverNetPence?: number }).driverNetPence
-    ?? (o as PresetOptionCanonical & { driver_net_pence?: number }).driver_net_pence
-    ?? 0;
-  return {
-    key: o.key,
-    grossFarePence: o.grossFarePence,
-    driverNetPence: driverNet > 0 ? driverNet : 0,
-    label: o.label,
-    color: o.color,
-    order: o.order,
-    configuredAmountPence:
-      o.configuredAmount != null ? Math.round(o.configuredAmount * 100) : null,
-  };
-}
-
-export function toCustomerPresetFareOption(o: PresetOptionCanonical): CustomerPresetFareOption {
-  return {
-    key: o.key,
-    grossFarePence: o.grossFarePence,
-    grossFare: o.grossFare,
-    label: o.label,
-    color: o.color,
-    order: o.order,
-    configuredAmountPence:
-      o.configuredAmount != null ? Math.round(o.configuredAmount * 100) : null,
-  };
-}

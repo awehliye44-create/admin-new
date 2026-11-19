@@ -87,13 +87,6 @@ export function blockedTerminalTripLogPayload(
   };
 }
 
-/** Pure filter when trip rows are already loaded. */
-export function filterNonTerminalTrips<T extends TripTerminalFields>(
-  trips: T[],
-): T[] {
-  return trips.filter((trip) => !isTripTerminalForDispatch(trip));
-}
-
 /** Pure filter for trip id lists when status map is available. */
 export function filterNonTerminalTripIds(
   tripIds: string[],

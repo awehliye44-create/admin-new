@@ -423,23 +423,6 @@ export function getAirportCharge(input: GetAirportChargeInput): number {
   return resolveAirportChargeFromAdmin(input).airportCharge;
 }
 
-/** @deprecated Prefer resolveAirportChargeFromAdmin — kept for existing tests/callers. */
-export function resolveAirportCharge(
-  pickupZone: ZoneRow | null,
-  dropoffZone: ZoneRow | null,
-  _zoneRoutes: ZoneRoutePricingRow[],
-  _vehicleTypeId: string | null,
-  matchedRoute: ZoneRoutePricingRow | null,
-  serviceAreaPricingSettings?: Record<string, unknown> | null,
-): number {
-  return getAirportCharge({
-    pickupZone,
-    dropoffZone,
-    routePricing: matchedRoute,
-    serviceAreaPricingSettings,
-  });
-}
-
 /** Canonical route-pricing fields for API responses (calculate-fare, estimate-fare, trip snapshots). */
 export type RoutePricingApiFields = {
   pricingMode: TripPricingMode;
@@ -668,16 +651,6 @@ export function findZoneRoutePricing(
     return (b.priority ?? 0) - (a.priority ?? 0);
   });
   return candidates[0];
-}
-
-/** @deprecated Use findZoneRoutePricing — kept for existing imports/tests. */
-export function pickZoneRoute(
-  routes: ZoneRoutePricingRow[],
-  fromZoneId: string,
-  toZoneId: string,
-  vehicleTypeId: string | null,
-): ZoneRoutePricingRow | null {
-  return findZoneRoutePricing(routes, fromZoneId, toZoneId, null, vehicleTypeId);
 }
 
 type RoutePricingContext = {

@@ -85,36 +85,3 @@ export async function resolveCurrencyFromDriver(
   };
 }
 
-/**
- * Resolve currency from a service_area_id → region chain.
- * Throws if Region or currency cannot be resolved.
- */
-export async function resolveCurrencyFromServiceArea(
-  supabase: SupabaseClient,
-  serviceAreaId: string
-): Promise<RegionCurrencyResult> {
-  const { data: sa, error } = await supabase
-    .from("service_areas")
-    .select("region_id, region:regions(id, name, currency_code, distance_unit)")
-    .eq("id", serviceAreaId)
-    .single();
-
-  if (error || !sa) {
-    throw new Error(`REGION_CURRENCY_UNRESOLVABLE: Cannot find service_area ${serviceAreaId}`);
-  }
-
-  const region = sa.region as any;
-
-  if (!region?.currency_code) {
-    throw new Error(
-      `REGION_CURRENCY_UNRESOLVABLE: Service area ${serviceAreaId} → region ${sa.region_id} has no currency_code configured. Configure currency on the Region.`
-    );
-  }
-
-  return {
-    currency_code: region.currency_code,
-    distance_unit: region.distance_unit || "mile",
-    region_id: region.id,
-    region_name: region.name,
-  };
-}

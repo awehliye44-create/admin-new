@@ -44,49 +44,6 @@ function remainingSeconds(expiresAt: string | null, nowMs = Date.now()): number 
   return Math.max(0, Math.floor((expiresMs - nowMs) / 1000));
 }
 
-export function toActiveCallProjection(
-  session: ProviderNeutralCallSession,
-  nowMs = Date.now(),
-): TripCommunicationActiveCallProjection | null {
-  if (isTerminalCallStatus(session.status)) return null;
-
-  const remaining = remainingSeconds(session.expiresAt, nowMs);
-  const expired = remaining !== null && remaining <= 0;
-  if (expired) {
-    // Present as not joinable; sweep will mark timed_out.
-    return {
-      call_id: session.callId,
-      method: session.method,
-      provider: session.provider,
-      status: "timed_out",
-      started_at: session.startedAt,
-      connected_at: session.connectedAt,
-      expires_at: session.expiresAt,
-      remaining_seconds: 0,
-      join_allowed: false,
-      end_allowed: false,
-    };
-  }
-
-  const joinAllowed = TRIP_COMMUNICATION_ACTIVE_STATUSES.has(session.status) &&
-    session.status !== "active"
-      ? true
-      : session.status === "active";
-
-  return {
-    call_id: session.callId,
-    method: session.method,
-    provider: session.provider,
-    status: session.status,
-    started_at: session.startedAt,
-    connected_at: session.connectedAt,
-    expires_at: session.expiresAt,
-    remaining_seconds: remaining,
-    join_allowed: joinAllowed && !expired,
-    end_allowed: TRIP_COMMUNICATION_ACTIVE_STATUSES.has(session.status) && !expired,
-  };
-}
-
 function mapVoipRow(row: Record<string, unknown>): ProviderNeutralCallSession {
   return {
     callId: String(row.id),
@@ -166,20 +123,6 @@ export async function findActiveCallForTrip(
   const masking = maskingRows?.[0];
   if (masking) return mapMaskingRow(masking);
   return null;
-}
-
-export async function findVoipCallById(
-  client: SupabaseClient,
-  callId: string,
-): Promise<ProviderNeutralCallSession | null> {
-  const { data } = await client
-    .from("voip_call_logs")
-    .select(
-      "id, trip_id, service_area_id, status, started_at, connected_at, expires_at, ended_at, duration_seconds, end_reason, room_name, initiator_role, incoming_push_sent_at",
-    )
-    .eq("id", callId)
-    .maybeSingle();
-  return data ? mapVoipRow(data) : null;
 }
 
 export async function findVoipCallByRoomName(

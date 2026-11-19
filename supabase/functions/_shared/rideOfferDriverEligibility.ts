@@ -235,11 +235,6 @@ export function evaluateRideOfferDriverEligibility(
   };
 }
 
-/** Voluntary decline cooldown only — never expired/ack_timeout/delivery miss. */
-export function isVoluntaryDeclineCooldownStatus(status: string): boolean {
-  return status === "declined";
-}
-
 export type RideOfferPushGateSkipReason =
   | RideOfferEligibilityReason
   | "offer_not_found"

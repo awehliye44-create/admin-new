@@ -168,11 +168,6 @@ export function derivePaymentCaptureStatus(
   return "requires_review";
 }
 
-/** Idempotency key prefix for final fare capture per trip (provider + ledger). */
-export function buildFinalFareCaptureIdempotencyKey(tripId: string): string {
-  return `final_fare_capture_${tripId}`;
-}
-
 /**
  * Tip already paid on a completed Revolut order.
  * Credit DRIVER_TIP_CREDIT only when the confirmed capture covers fare + requested tip.

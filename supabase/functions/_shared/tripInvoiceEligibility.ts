@@ -1,8 +1,6 @@
 /** Matches tip window SSOT (shared/tipWindowConstants.ts). */
 import { TIP_WINDOW_MS } from "./tipWindowConstants.ts";
 
-export const TRIP_INVOICE_TIP_WINDOW_MS = TIP_WINDOW_MS;
-
 /** Trip still in progress — auto invoice must never run. */
 const ACTIVE_TRIP_STATUSES = new Set([
   "payment_pending",

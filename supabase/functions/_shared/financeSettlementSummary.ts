@@ -146,7 +146,6 @@ export function tripGrossCommissionPence(row: TripFinanceRow): number {
   return Math.max(0, row.commission_pence ?? 0);
 }
 
-
 export function tripProviderFeePence(row: TripFinanceRow): number {
   return Math.max(0, row.provider_fee_pence ?? 0);
 }
@@ -227,20 +226,6 @@ export function sumTripFinanceMetrics(rows: TripFinanceRow[]) {
     verified_trip_count: verifiedCount,
     max_commission_at_15_percent_pence: maxCommissionAtDefaultRate,
     commission_exceeds_15_percent_cap: commissionExceedsCap,
-  };
-}
-
-/** @deprecated use sumTripFinanceMetrics */
-export function sumTripCommissions(rows: TripFinanceRow[]) {
-  const m = sumTripFinanceMetrics(rows);
-  return {
-    gross: m.onecab_gross_commission_pence,
-    providerFee: m.provider_fee_pence,
-    net: m.onecab_net_pence,
-    verifiedNet: m.verified_onecab_net_pence,
-    unverifiedNet: m.unverified_onecab_net_pence,
-    verifiedCount: m.verified_trip_count,
-    tripCount: m.tripCount,
   };
 }
 
@@ -836,23 +821,6 @@ function formatCustomerRevenueSourceLabel(
     default:
       return String(source);
   }
-}
-
-export function computeAuditCaptureMismatch(args: {
-  payment_method: string | null;
-  settlement_pence: number;
-  captured_pence: number;
-  outstanding_balance_pence?: number | null;
-  payment_coverage_status?: string | null;
-}): boolean {
-  if ((args.payment_method ?? "").toLowerCase() === "cash") return false;
-  if ((args.payment_coverage_status ?? "").toLowerCase() === "captured") return false;
-  const outstanding = computeAuditOutstandingPence({
-    settlement_pence: args.settlement_pence,
-    captured_pence: args.captured_pence,
-    outstanding_balance_pence: args.outstanding_balance_pence,
-  });
-  return outstanding > EXTRA_PAYMENT_TOLERANCE_PENCE;
 }
 
 export function computeAuditOutstandingPence(args: {

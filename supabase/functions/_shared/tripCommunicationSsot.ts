@@ -22,15 +22,6 @@ export interface TripCommunicationConfigResponse {
   disabled_message?: string | null;
 }
 
-export interface LiveKitVoipTokenResponse {
-  token: string;
-  livekit_url: string;
-  room_name: string;
-  maximum_call_duration_seconds: number;
-  participant_identity: string;
-  call_log_id?: string | null;
-}
-
 /**
  * Authoritative maximum call duration for VoIP and call masking.
  * Do not scatter literal 240 elsewhere — import this constant.
@@ -544,97 +535,6 @@ export function resolveCanStartNewCall(input: {
   if (!input.allowed || !input.methodAvailable) return false;
   if (!input.activeCall) return true;
   return !TRIP_COMMUNICATION_ACTIVE_STATUSES.has(input.activeCall.status);
-}
-
-/** Privacy-safe API projection (snake_case) for Edge Function responses. */
-export function toTripCommunicationConfigApiPayload(
-  result: TripCommunicationSsotResult,
-  activeCall: TripCommunicationActiveCallProjection | null = null,
-): {
-  trip_id: string;
-  public_trip_reference: string | null;
-  service_area_id: string | null;
-  actor_role: TripCommunicationActorRole | null;
-  communication_enabled: boolean;
-  allowed: boolean;
-  blocked_reason: string | null;
-  default_method: TripCommunicationMethodType | null;
-  maximum_duration_seconds: number;
-  options: {
-    voip: {
-      enabled: boolean;
-      ready: boolean;
-      available: boolean;
-      unavailable_reason: string | null;
-      can_start: boolean;
-    };
-    call_masking: {
-      enabled: boolean;
-      ready: boolean;
-      available: boolean;
-      unavailable_reason: string | null;
-      can_start: boolean;
-    };
-  };
-  active_call: TripCommunicationActiveCallProjection | null;
-  /** @deprecated Prefer options.*; kept for existing callers. */
-  methods: TripCommunicationMethod[];
-  calling_available: boolean;
-  disabled_message: string | null;
-  maximum_call_duration_seconds: number;
-} {
-  const orderedLabels = buildCommunicationMethods({
-    is_enabled: result.communicationEnabled,
-    voip_enabled: result.options.voip.enabled,
-    call_masking_enabled: result.options.callMasking.enabled,
-    default_method: result.defaultMethod ?? 'voip',
-  });
-
-  const voipCanStart = resolveCanStartNewCall({
-    allowed: result.allowed,
-    activeCall,
-    methodAvailable: result.options.voip.available,
-  });
-  const maskingCanStart = resolveCanStartNewCall({
-    allowed: result.allowed,
-    activeCall,
-    methodAvailable: result.options.callMasking.available,
-  });
-
-  return {
-    trip_id: result.tripId,
-    public_trip_reference: result.publicTripReference ?? null,
-    service_area_id: result.serviceAreaId,
-    actor_role: result.actorRole,
-    communication_enabled: result.communicationEnabled,
-    allowed: result.allowed,
-    blocked_reason: result.blockedReason ?? null,
-    default_method: result.defaultMethod ?? null,
-    maximum_duration_seconds: result.maximumDurationSeconds,
-    options: {
-      voip: {
-        enabled: result.options.voip.enabled,
-        ready: result.options.voip.ready,
-        available: result.options.voip.available,
-        unavailable_reason: result.options.voip.unavailableReason ?? null,
-        can_start: voipCanStart,
-      },
-      call_masking: {
-        enabled: result.options.callMasking.enabled,
-        ready: result.options.callMasking.ready,
-        available: result.options.callMasking.available,
-        unavailable_reason: result.options.callMasking.unavailableReason ?? null,
-        can_start: maskingCanStart,
-      },
-    },
-    active_call: activeCall,
-    methods: orderedLabels,
-    calling_available: result.allowed,
-    disabled_message: result.allowed
-      ? null
-      : (result.blockedReason ?? TRIP_COMMUNICATION_SSOT.disabledMessage),
-    maximum_call_duration_seconds: result.maximumDurationSeconds,
-  };
 }
 
 /** Server-only readiness flags from Edge env — never return secret values. */

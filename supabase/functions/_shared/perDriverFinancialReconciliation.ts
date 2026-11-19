@@ -164,29 +164,6 @@ export function buildPayoutGateReasons(args: {
   return { payout_blocked_reasons: hard, payout_warning_reasons: soft };
 }
 
-/** Hard payout blocks only — use buildPayoutGateReasons for soft warnings. */
-export function buildPayoutBlockedReasons(args: {
-  reconciliationStatus: "BALANCED" | "RECONCILIATION_MISMATCH";
-  reconciliationVariancePence?: number;
-  sourceTier: FinanceDataSourceBadge;
-  regionId?: string | null;
-  providerAllocatedPence: number;
-  ledgerSyncMissing: boolean;
-  availableNowPence: number;
-  walletBalancePence: number;
-}): string[] {
-  return buildPayoutGateReasons({
-    reconciliationStatus: args.reconciliationStatus,
-    reconciliationVariancePence: args.reconciliationVariancePence ?? 0,
-    sourceTier: args.sourceTier,
-    regionId: args.regionId,
-    providerAllocatedPence: args.providerAllocatedPence,
-    ledgerSyncMissing: args.ledgerSyncMissing,
-    availableNowPence: args.availableNowPence,
-    walletBalancePence: args.walletBalancePence,
-  }).payout_blocked_reasons;
-}
-
 export function computePerDriverSSOT(args: {
   driverId: string;
   regionId?: string | null;

@@ -224,27 +224,8 @@ export function evaluateDriverDocumentStateFromSnapshot(args: {
   };
 }
 
-export function hasRequiredDocuments(result: DriverDocumentEligibilityResult): boolean {
-  return result.missing_documents.length === 0;
-}
-
-export function hasExpiredDocuments(result: DriverDocumentEligibilityResult): boolean {
-  return result.expired_documents.length > 0;
-}
-
-export function hasRejectedDocuments(result: DriverDocumentEligibilityResult): boolean {
-  return result.rejected_documents.length > 0;
-}
-
 export function areDocumentsApproved(result: DriverDocumentEligibilityResult): boolean {
   return result.document_state === "documents_approved";
-}
-
-export function assertDocumentsApproved(
-  result: DriverDocumentEligibilityResult,
-): { ok: true } | { ok: false; result: DriverDocumentEligibilityResult } {
-  if (areDocumentsApproved(result)) return { ok: true };
-  return { ok: false, result };
 }
 
 export function documentStateToBlockedReasons(

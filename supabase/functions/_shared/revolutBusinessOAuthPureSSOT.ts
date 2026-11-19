@@ -32,17 +32,11 @@ export const REVOLUT_BUSINESS_JWT_ISS_DEFAULT = "adminonecab.net";
 export const REVOLUT_BUSINESS_REDIRECT_URI_EDGE =
   "https://thazislrdkjpvvghtvzo.supabase.co/functions/v1/admin-revolut-business-oauth-callback";
 
-export const REVOLUT_BUSINESS_JWT_ISS_EDGE = "thazislrdkjpvvghtvzo.supabase.co";
-
 /** @deprecated use resolveRevolutBusinessRedirectUri() */
 export const REVOLUT_BUSINESS_REDIRECT_URI = REVOLUT_BUSINESS_REDIRECT_URI_DEFAULT;
 
 /** @deprecated use resolveRevolutBusinessJwtIss() */
 export const REVOLUT_BUSINESS_JWT_ISS = REVOLUT_BUSINESS_JWT_ISS_DEFAULT;
-
-/** Legacy alias */
-export const REVOLUT_BUSINESS_REDIRECT_URI_LEGACY_ADMIN =
-  REVOLUT_BUSINESS_REDIRECT_URI_DEFAULT;
 
 export function resolveRevolutBusinessRedirectUri(envGet?: (k: string) => string | undefined): string {
   const read = envGet ?? ((k: string) => {
@@ -85,11 +79,6 @@ export function resolveRevolutBusinessJwtIss(envGet?: (k: string) => string | un
   }
 }
 
-
-
-export const REVOLUT_BUSINESS_TOKEN_URL_PROD =
-  "https://b2b.revolut.com/api/1.0/auth/token";
-
 export const REVOLUT_BUSINESS_AUTHORIZE_BASE =
   "https://business.revolut.com/app-confirm";
 
@@ -101,13 +90,6 @@ export const REVOLUT_BUSINESS_AUTHORIZE_BASE =
  */
 export const REVOLUT_BUSINESS_OAUTH_SCOPE = "READ,WRITE,PAY";
 
-/**
- * Pre-consent / unknown default for linkage capability checks.
- * Never pretends WRITE/PAY are granted; vault/env SCOPES_GRANTED overrides after real consent.
- * Never use REVOLUT_BUSINESS_OAUTH_SCOPE (requested) as a stand-in for granted capabilities.
- */
-export const REVOLUT_BUSINESS_OAUTH_SCOPE_GRANTED_DEFAULT = "READ";
-
 /** Vault + optional edge-secret names for scopes actually granted post-exchange. */
 export const REVOLUT_BUSINESS_OAUTH_SCOPES_GRANTED_VAULT_NAMES = [
   "business_oauth_scopes_granted",
@@ -116,9 +98,6 @@ export const REVOLUT_BUSINESS_OAUTH_SCOPES_GRANTED_VAULT_NAMES = [
 
 /** Allowed OAuth consent scopes (Revolut Business). PAYMENT is normalized to PAY. */
 export const REVOLUT_BUSINESS_OAUTH_SCOPE_ALLOWED = ["READ", "WRITE", "PAY"] as const;
-
-/** Rejected on Connect / consent URLs (alias handled separately). */
-export const REVOLUT_BUSINESS_OAUTH_SCOPE_FORBIDDEN = [] as const;
 
 export function parseRevolutBusinessGrantedScopes(
   raw: string | null | undefined,
@@ -258,7 +237,6 @@ export function buildRevolutBusinessAuthorizationUrl(args: {
   if (args.state) url.searchParams.set("state", String(args.state));
   return url.toString();
 }
-
 
 export function majorUnitsToPence(balance: unknown): number | null {
   if (balance == null || !Number.isFinite(Number(balance))) return null;

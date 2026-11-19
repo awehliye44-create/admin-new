@@ -8,8 +8,6 @@
  * Never rolls back provider capture evidence when a local application fails.
  */
 export const LOCAL_APPLICATION_INCOMPLETE = "LOCAL_APPLICATION_INCOMPLETE" as const;
-export const CAPTURE_COMPOSITION_LOCAL_APPLY_VERSION = "capture_composition_local_apply:v1" as const;
-
 export type CaptureCompositionComponents = {
   trip_fare_component_pence: number;
   tip_component_pence: number;

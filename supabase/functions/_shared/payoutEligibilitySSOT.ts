@@ -151,23 +151,6 @@ export function isEarningEligibleForPayout(
   return true;
 }
 
-export function deriveIneligibleReason(earning: EarningSettlementInput): string | null {
-  if ((earning.amount_pence ?? 0) <= 0) return "zero_or_negative_amount";
-  if (earning.paid_in_batch_id) return "already_paid";
-  if (earning.allocated_to_payout) return "already_allocated";
-  if (earning.trip_completed === false) return "trip_not_completed";
-  if (earning.payment_captured === false) return "payment_not_captured";
-  if (
-    requiresProviderSettlement(earning.payment_method, earning.payment_provider)
-    && earning.settlement_status !== "settled"
-  ) {
-    return earning.settlement_status === "failed"
-      ? "provider_settlement_failed"
-      : "awaiting_provider_settlement";
-  }
-  return null;
-}
-
 /**
  * Provider-neutral cleared settlement batch total.
  * Rows carrying an explicit settlement_status only count when it is "settled".
@@ -197,8 +180,6 @@ export function sumClearedSettlementBatchPence(
   }, 0);
 }
 
-export const sumProviderSettledUnpaidPence = sumClearedSettlementBatchPence;
-
 export function sumEligibleEarningPence(earnings: EarningSettlementInput[]): number {
   return earnings.reduce((sum, row) => {
     if (!isEarningEligibleForPayout(row)) return sum;
@@ -225,23 +206,3 @@ export function computeHoldbackAdjustedPayoutPence(
   return Math.max(0, raw - inFlight - manualReview);
 }
 
-/**
- * P1-4+ payout authorization amount from per-earning eligibility (not wallet alone).
- * Hard rule: when walletBalancePence is supplied, result never exceeds it.
- */
-export function computePayoutAmountFromEligibleEarnings(
-  earnings: EarningSettlementInput[],
-  args?: {
-    payoutBlocked?: boolean;
-    inFlightPayoutPence?: number;
-    manualReviewUnallocatedPence?: number;
-    walletBalancePence?: number;
-  },
-): number {
-  const afterHoldbacks = computeHoldbackAdjustedPayoutPence(earnings, args);
-  const wallet = args?.walletBalancePence;
-  if (wallet != null && Number.isFinite(wallet)) {
-    return Math.min(afterHoldbacks, Math.max(0, wallet));
-  }
-  return afterHoldbacks;
-}

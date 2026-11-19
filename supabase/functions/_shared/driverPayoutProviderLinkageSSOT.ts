@@ -41,8 +41,6 @@ export const LINKAGE_ERROR = {
 
 /** Revolut Business OAuth scopes required for create mutations. */
 export const REVOLUT_COUNTERPARTY_CREATE_SCOPE = "WRITE";
-export const REVOLUT_RECIPIENT_CREATE_SCOPE = "WRITE";
-
 const SCOPES_GRANTED_VAULT_NAMES = [
   "business_oauth_scopes_granted",
   "REVOLUT_BUSINESS_OAUTH_SCOPES_GRANTED",
@@ -116,10 +114,6 @@ export function revolutScopeAllows(args: {
 
 export function counterpartyIdempotencyKey(driverId: string, destinationId: string): string {
   return `driver-counterparty:${driverId}:${destinationId}`;
-}
-
-export function recipientIdempotencyKey(driverId: string, destinationId: string): string {
-  return `driver-recipient:${driverId}:${destinationId}`;
 }
 
 export function maskProviderId(id: string | null | undefined): string | null {

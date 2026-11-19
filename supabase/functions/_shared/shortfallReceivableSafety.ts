@@ -20,12 +20,6 @@ import { recordReceivableAfterDeclinedIncrement } from "./customerReceivableLife
 import { planCreateReceivableFromDeclinedIncrement } from "./customerReceivableSSOT.ts";
 import { mutatePaymentSession } from "./paymentSessionMutationCore.ts";
 
-export const SHORTFALL_EXCEPTION_STATUS = {
-  OPEN: "OPEN",
-  RESOLVED_RECEIVABLE_RECORDED: "RESOLVED_RECEIVABLE_RECORDED",
-  WRITTEN_OFF: "WRITTEN_OFF",
-} as const;
-
 export const SHORTFALL_SAFETY_STATE = {
   NOT_REQUIRED: "NOT_REQUIRED",
   RECEIVABLE_RECORDED: "RECEIVABLE_RECORDED",

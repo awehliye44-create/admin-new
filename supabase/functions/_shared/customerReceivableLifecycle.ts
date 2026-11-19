@@ -296,15 +296,6 @@ export async function reserveReceivablesBeforeProviderCall(
   }
 }
 
-/** Read-only fold preview (no reserve). Prefer reserveReceivablesBeforeProviderCall on live path. */
-export function previewFoldReceivables(args: {
-  ride_fare_pence: number;
-  buffer_pence: number;
-  open_receivables: Parameters<typeof planFoldReceivablesIntoPreauth>[0]["open_receivables"];
-}): PreauthReceivableFoldPlan {
-  return planFoldReceivablesIntoPreauth(args);
-}
-
 export async function settleReceivablesFromProviderEvidence(
   supabase: SupabaseClient,
   args: {

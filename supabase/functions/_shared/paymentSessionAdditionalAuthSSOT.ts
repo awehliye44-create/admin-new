@@ -29,27 +29,6 @@ export type AdditionalAuthChildStatus =
   | "superseded"
   | "failed";
 
-/** Audit: whether final capture requires additional provider authorisation. */
-export function classifyAdditionalAuthorisationNeed(args: {
-  finalFarePence: number;
-  authorisedHoldPence: number;
-}): {
-  required: boolean;
-  shortfall_pence: number;
-  status: AdditionalAuthStatus | "NOT_REQUIRED";
-} {
-  const finalFare = Math.max(0, Math.round(Number(args.finalFarePence ?? 0)));
-  const hold = Math.max(0, Math.round(Number(args.authorisedHoldPence ?? 0)));
-  if (finalFare <= hold) {
-    return { required: false, shortfall_pence: 0, status: "NOT_REQUIRED" };
-  }
-  return {
-    required: true,
-    shortfall_pence: finalFare - hold,
-    status: ADDITIONAL_AUTH_STATUS.ADDITIONAL_AUTHORISATION_REQUIRED,
-  };
-}
-
 /**
  * Invariant: capture must not exceed total authorised unless provider explicitly supports it.
  * ONECAB does not support over-capture without a new authorisation.
@@ -66,17 +45,6 @@ export function assertCaptureWithinTotalAuthorised(args: {
     status: ADDITIONAL_AUTH_STATUS.CAPTURE_LIMIT_EXCEEDED,
     excess_pence: capture - total,
   };
-}
-
-/** Expected residual after capture — audit only; never store as confirmed release. */
-export function expectedResidualAfterAdditionalAuth(args: {
-  totalAuthorisedPence: number;
-  capturedPence: number;
-}): number {
-  return Math.max(
-    0,
-    Math.round(Number(args.totalAuthorisedPence ?? 0)) - Math.round(Number(args.capturedPence ?? 0)),
-  );
 }
 
 export function buildAdditionalAuthIdempotencyKey(args: {
@@ -97,17 +65,3 @@ export function replacementTotalAuthorisedPence(args: {
   return Math.max(0, Math.round(Number(args.newProviderAuthorisedPence ?? 0)));
 }
 
-export function classifyPostAdditionalCapture(args: {
-  totalAuthorisedPence: number;
-  requiredCapturePence: number;
-  actualCapturedPence: number;
-}): AdditionalAuthStatus {
-  const total = Math.max(0, Math.round(Number(args.totalAuthorisedPence ?? 0)));
-  const required = Math.max(0, Math.round(Number(args.requiredCapturePence ?? 0)));
-  const actual = Math.max(0, Math.round(Number(args.actualCapturedPence ?? 0)));
-
-  if (actual <= 0) return ADDITIONAL_AUTH_STATUS.PAYMENT_RECOVERY_REQUIRED;
-  if (actual < required) return ADDITIONAL_AUTH_STATUS.PARTIAL_CAPTURE_ONLY;
-  if (actual > total) return ADDITIONAL_AUTH_STATUS.CAPTURE_LIMIT_EXCEEDED;
-  return ADDITIONAL_AUTH_STATUS.CAPTURE_CONFIRMED;
-}

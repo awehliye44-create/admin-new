@@ -113,16 +113,6 @@ export async function relayRevolutAccounts(accessToken: string): Promise<Respons
   return fetchWithTimeout(`${base}${path}`, { method: "GET", headers });
 }
 
-export async function relayRevolutAccount(accessToken: string, accountId: string): Promise<Response> {
-  const base = getRevolutBusinessRelayBaseUrl();
-  const secret = (Deno.env.get("REVOLUT_BUSINESS_RELAY_SHARED_SECRET") ?? "").trim();
-  if (!base || !secret) throw new Error("revolut_business_relay_not_configured");
-  const path = `/v1/revolut/accounts/${encodeURIComponent(accountId)}`;
-  const headers = await signedHeaders({ method: "GET", path, body: "", secret });
-  headers["x-revolut-access-token"] = accessToken;
-  return fetchWithTimeout(`${base}${path}`, { method: "GET", headers });
-}
-
 /** Public relay liveness (no HMAC). */
 export async function probeRelayPublicHealth(): Promise<{
   ok: boolean;

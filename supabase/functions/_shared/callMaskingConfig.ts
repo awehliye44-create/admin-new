@@ -9,9 +9,6 @@ export const DEFAULT_MAX_CALL_DURATION_SEC = TRIP_COMMUNICATION_MAX_DURATION_SEC
 /** @deprecated Prefer DEFAULT_MAX_CALL_DURATION_SEC / TRIP_COMMUNICATION_MAX_DURATION_SECONDS. */
 export const MAX_CALL_DURATION_SEC = DEFAULT_MAX_CALL_DURATION_SEC;
 
-/** Grace period after trip completion before masking session expires. */
-export const POST_COMPLETION_GRACE_MINUTES = 10;
-
 /**
  * Trip statuses that end masking immediately (except `completed`, which gets grace).
  * Keep aligned with customer app `TERMINAL_TRIP_STATUSES` minus `completed`.
@@ -47,8 +44,6 @@ export const DISCONNECT_REASON = {
   TRIP_CANCELLED: "TRIP_CANCELLED",
   SESSION_EXPIRED: "SESSION_EXPIRED",
 } as const;
-
-export type DisconnectReason = typeof DISCONNECT_REASON[keyof typeof DISCONNECT_REASON];
 
 /**
  * Trip statuses where call masking is allowed (aligned with shared/tripLifecycle.ts).

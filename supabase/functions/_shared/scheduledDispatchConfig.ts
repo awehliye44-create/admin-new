@@ -93,23 +93,6 @@ export function resolveScheduledDispatchConfig(
   };
 }
 
-/** Fixed-time activation: offer when now >= scheduled_at − urgentTriggerMinutes. */
-export function isAcceptedScheduledActivationDue(input: {
-  scheduledAt: string;
-  urgentTriggerMinutesBeforePickup: number;
-  nowMs: number;
-}): { due: boolean; activateAtMs: number; pickupMs: number; pastPickup: boolean } {
-  const pickupMs = Date.parse(input.scheduledAt);
-  if (!Number.isFinite(pickupMs)) {
-    return { due: false, activateAtMs: NaN, pickupMs: NaN, pastPickup: false };
-  }
-  const activateAtMs =
-    pickupMs - input.urgentTriggerMinutesBeforePickup * 60_000;
-  const pastPickup = input.nowMs > pickupMs;
-  const due = input.nowMs >= activateAtMs || pastPickup;
-  return { due, activateAtMs, pickupMs, pastPickup };
-}
-
 export type ScheduledTripForConversion = {
   id: string;
   scheduled_at: string;
@@ -526,43 +509,8 @@ export function estimateEtaMinutes(
   return Math.max(3, Math.ceil((roadKm / avgSpeedKmh) * 60));
 }
 
-/**
- * @deprecated ETA commitment activation removed — use scheduledActivationSSOT.
- * Kept as a no-op helper only if legacy tests import it; do not use for activation.
- */
-export function computeCommitmentTime(args: {
-  scheduledAtMs: number;
-  etaMinutes: number;
-  targetArrivalMinutesBeforePickup: number;
-}): Date {
-  const { scheduledAtMs, targetArrivalMinutesBeforePickup } = args;
-  return new Date(scheduledAtMs - targetArrivalMinutesBeforePickup * 60_000);
-}
-
 /** Predicted arrival time = now + live ETA (shared routing; not scheduled activation). */
 export function predictedArrivalMs(nowMs: number, etaMinutes: number): number {
   return nowMs + etaMinutes * 60_000;
 }
 
-/**
- * Returns true if the driver is moving away from the pickup.
- * Shared geo helper — not part of scheduled Commitment Policy.
- */
-export function isMovingAway(args: {
-  driverLat: number;
-  driverLng: number;
-  pickupLat: number;
-  pickupLng: number;
-  previousLat: number | null | undefined;
-  previousLng: number | null | undefined;
-  thresholdMetres: number;
-}): boolean {
-  const { driverLat, driverLng, pickupLat, pickupLng, previousLat, previousLng, thresholdMetres } = args;
-  if (previousLat == null || previousLng == null) return false;
-
-  const currentDistM = haversineKm(driverLat, driverLng, pickupLat, pickupLng) * 1000;
-  const previousDistM = haversineKm(previousLat, previousLng, pickupLat, pickupLng) * 1000;
-
-  // Driver is moving away if current distance > previous distance + threshold
-  return currentDistM > previousDistM + thresholdMetres;
-}

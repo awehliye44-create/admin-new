@@ -594,31 +594,3 @@ export function resolveTerminalPaymentDecision(args: {
   });
 }
 
-/** Validate no-show writer eligibility using existing fare_pricing_settings rules. */
-export function validateCustomerNoShowEligibility(args: {
-  arrived_at: string | null;
-  no_show_apply_after_arrival_only: boolean | null;
-  no_show_wait_time_minutes: number | null;
-  nowMs?: number;
-}): { ok: true } | { ok: false; message: string } {
-  const applyAfterArrival = args.no_show_apply_after_arrival_only !== false;
-  if (applyAfterArrival && !args.arrived_at) {
-    return { ok: false, message: "No-show can only be triggered after driver arrival" };
-  }
-  const waitMin = Number(args.no_show_wait_time_minutes);
-  if (args.arrived_at && Number.isFinite(waitMin) && waitMin > 0) {
-    const arrivedMs = parseMs(args.arrived_at);
-    if (arrivedMs == null) {
-      return { ok: false, message: "Invalid arrived_at for no-show eligibility" };
-    }
-    const nowMs = args.nowMs ?? Date.now();
-    const waitedMinutes = (nowMs - arrivedMs) / 60_000;
-    if (waitedMinutes < waitMin) {
-      return {
-        ok: false,
-        message: `Must wait ${waitMin} minutes before no-show. Waited: ${Math.floor(waitedMinutes)} min`,
-      };
-    }
-  }
-  return { ok: true };
-}

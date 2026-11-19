@@ -62,67 +62,6 @@ export function deriveEvidenceStatus(row: PaymentSessionAmountRow): PaymentSessi
   return "OK";
 }
 
-/** Read-only audit — never used for backfill inference. */
-export function auditPaymentSessionAmounts(row: PaymentSessionAmountRow): PaymentSessionAmountAudit {
-  const totalAuth = resolveTotalAuthorisedPence(row);
-  const captured = row.captured_amount_pence ?? null;
-  const released = row.released_amount_pence ?? null;
-  const refunded = row.refunded_amount_pence ?? null;
-  const invariants: AuditInvariantResult[] = [];
-  let balanced = true;
-
-  const evidence_status = deriveEvidenceStatus(row);
-
-  if (captured != null && captured < 0) balanced = false;
-  if (released != null && released < 0) balanced = false;
-  if (refunded != null && refunded < 0) balanced = false;
-
-  if (refunded != null && captured != null && refunded > captured) {
-    balanced = false;
-    invariants.push({ code: "INV-R4", passed: false, message: "refunded exceeds captured" });
-  } else {
-    invariants.push({ code: "INV-R4", passed: true });
-  }
-
-  if (totalAuth != null && captured != null && released != null) {
-    const sum = captured + released;
-    const passed = sum === totalAuth;
-    if (!passed) balanced = false;
-    invariants.push({
-      code: "INV-R2",
-      passed,
-      expected_sum_pence: totalAuth,
-      actual_sum_pence: sum,
-    });
-  }
-
-  if (
-    totalAuth != null
-    && released != null
-    && (captured == null || captured === 0)
-    && row.released_at
-  ) {
-    const passed = released === totalAuth;
-    if (!passed) balanced = false;
-    invariants.push({
-      code: "INV-R1",
-      passed,
-      expected_pence: totalAuth,
-      actual_pence: released,
-    });
-  }
-
-  return {
-    evidence_status,
-    balanced,
-    total_authorised_amount_pence: totalAuth,
-    captured_amount_pence: captured,
-    released_amount_pence: released,
-    refunded_amount_pence: refunded,
-    invariants,
-  };
-}
-
 export type PaymentSessionActionPolicy = {
   can_create_trip: boolean;
   can_retry_recovery: boolean;
@@ -214,15 +153,3 @@ export function paymentSessionActionPolicy(args: {
   };
 }
 
-/** Validates partial capture + remainder release case (900 + 300 = 1200). */
-export function validatePartialCaptureRelease(args: {
-  total_authorised_amount_pence: number;
-  captured_amount_pence: number;
-  released_amount_pence: number;
-}): boolean {
-  return (
-    args.captured_amount_pence >= 0
-    && args.released_amount_pence >= 0
-    && args.captured_amount_pence + args.released_amount_pence === args.total_authorised_amount_pence
-  );
-}

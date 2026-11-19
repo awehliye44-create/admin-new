@@ -79,22 +79,6 @@ export type MobileWalletPaymentMethodRecord = {
   status: MobileWalletPaymentStatus;
 };
 
-export function buildMobileWalletPaymentRecord(args: {
-  provider: string;
-  walletMethodId: MobileWalletMethodId;
-  accountReference?: string | null;
-  status?: MobileWalletPaymentStatus;
-}): MobileWalletPaymentMethodRecord {
-  return {
-    payment_method: "mobile_wallet",
-    provider: args.provider,
-    wallet_network: MOBILE_WALLET_METHOD_LABELS[args.walletMethodId],
-    wallet_method_id: args.walletMethodId,
-    account_reference: args.accountReference ?? null,
-    status: args.status ?? "pending",
-  };
-}
-
 export function resolvePaymentVaultProvider(
   provider: string | null | undefined,
 ): PaymentVaultProvider | null {

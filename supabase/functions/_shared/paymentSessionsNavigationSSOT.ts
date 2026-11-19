@@ -391,15 +391,6 @@ export function countPaymentSessionsOpChip(
   }
 }
 
-export function shouldShowPaymentSessionsOpChip(
-  chip: PaymentSessionsOpChip,
-  count: number | null,
-): boolean {
-  if (chip === 'all') return false;
-  if (chip === 'refund_failed') return count != null && count > 0;
-  return count != null && count > 0;
-}
-
 /** Header operational chips — hide zero counts. */
 export function buildPaymentSessionsOperationalChips(
   summary: AdminPaymentSessionsSummary | null | undefined,
@@ -546,16 +537,3 @@ export function resolvePaymentSessionsListHasMore(args: {
   return args.listOffset + args.rawRowCount < args.filteredTotal && args.backendHasMore;
 }
 
-/** @deprecated */
-export type PaymentSessionsStatusChip = 'all' | 'captured' | 'released' | 'refunded' | 'authorised' | 'cancelled';
-/** @deprecated */
-export type PaymentSessionsIssueChip = 'all' | 'action_required' | 'active_holds' | 'recovering' | 'failed' | 'provider_fee_pending';
-/** @deprecated */
-export type PaymentSessionsHistoryChip = 'all';
-
-export function parsePaymentSessionsStatusChip(): 'all' { return 'all'; }
-export function parsePaymentSessionsIssueChip(raw: string | null | undefined): PaymentSessionsOpChip {
-  if (raw && LEGACY_OP_FROM_ISSUE[raw]) return LEGACY_OP_FROM_ISSUE[raw];
-  return parsePaymentSessionsOpChip(raw);
-}
-export function parsePaymentSessionsHistoryChip(): 'all' { return 'all'; }

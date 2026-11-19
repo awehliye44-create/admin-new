@@ -35,13 +35,6 @@ import {
 } from "./paymentSessionRefundFeeSSOT.ts";
 import { notifyCustomerConfirmedRefund } from "./customerRefundNotify.ts";
 
-export type PaymentSessionStatus =
-  | RevolutPaymentSessionStatus
-  | "pending_payment"
-  | "payment_authorised"
-  | "payment_orphaned"
-  | "cancelled";
-
 export const PAYMENT_ORPHANED_CUSTOMER_MESSAGE =
   "Payment received. We're recovering your booking.";
 
@@ -179,13 +172,6 @@ export async function markPaymentSessionAuthorised(
     clientActionId: args.clientActionId ?? null,
     source: "markPaymentSessionAuthorised",
   });
-}
-
-export async function markPaymentSessionAuthorising(
-  supabase: SupabaseClient,
-  args: { clientActionId?: string | null; providerOrderId?: string | null },
-): Promise<void> {
-  await markPaymentSessionStatus(supabase, "authorising", args);
 }
 
 /** Customer opened Revolut checkout — not a payment confirmation. */
@@ -756,187 +742,6 @@ export async function upsertPaymentSessionAuthorisation(
   return { ok: true };
 }
 
-/**
- * Persist replacement-hold additional authorisation trail and parent totals.
- * Does not credit wallet. Caller must capture before settlement.
- */
-export async function markPaymentSessionAdditionalAuthorisationLifecycle(
-  supabase: SupabaseClient,
-  args: {
-    clientActionId?: string | null;
-    sessionId?: string | null;
-    tripId: string;
-    phase:
-      | "REQUIRED"
-      | "PENDING"
-      | "CONFIRMED"
-      | "CAPTURED"
-      | "FAILED";
-    previousProviderOrderId: string;
-    previousAuthorisedPence: number;
-    newProviderOrderId?: string | null;
-    newProviderAuthorisedPence?: number | null;
-    newProviderState?: string | null;
-    captureAmountPence?: number | null;
-    reason?: string | null;
-    shortfallPence?: number | null;
-  },
-): Promise<{ sessionId: string | null }> {
-  const session = await loadPaymentSession(supabase, {
-    clientActionId: args.clientActionId,
-    providerOrderId: args.previousProviderOrderId,
-    sessionId: args.sessionId,
-  });
-  const sessionId = session?.id != null
-    ? String(session.id)
-    : (args.sessionId ?? null);
-  if (!sessionId) return { sessionId: null };
-
-  const metadata = session?.metadata && typeof session.metadata === "object"
-    ? { ...(session.metadata as Record<string, unknown>) }
-    : {};
-  metadata.additional_auth_phase = args.phase;
-  if (args.reason) metadata.additional_auth_reason = args.reason;
-
-  if (args.phase === "REQUIRED") {
-    await markPaymentSessionStatus(supabase, "ADDITIONAL_AUTHORISATION_REQUIRED", {
-      sessionId,
-      clientActionId: args.clientActionId,
-    }, {
-      trip_id: args.tripId,
-      metadata,
-    });
-    return { sessionId };
-  }
-
-  if (args.phase === "PENDING") {
-    await markPaymentSessionStatus(supabase, "ADDITIONAL_AUTHORISATION_PENDING", {
-      sessionId,
-      clientActionId: args.clientActionId,
-    }, {
-      trip_id: args.tripId,
-      metadata,
-    });
-    return { sessionId };
-  }
-
-  if (args.phase === "FAILED") {
-    const shortfall = args.shortfallPence != null
-      ? Math.max(0, Math.round(Number(args.shortfallPence)))
-      : 0;
-    await markPaymentSessionPaymentShortfall(supabase, {
-      clientActionId: args.clientActionId,
-      providerOrderId: args.previousProviderOrderId,
-      tripId: args.tripId,
-      shortfallPence: shortfall,
-      reason: args.reason ?? "additional_authorisation_failed",
-      asPaymentRecovery: true,
-    });
-    if (args.previousAuthorisedPence > 0) {
-      await upsertPaymentSessionAuthorisation(supabase, {
-        paymentSessionId: sessionId,
-        providerOrderId: args.previousProviderOrderId,
-        authorisedAmountPence: Math.round(Number(args.previousAuthorisedPence)),
-        cumulativeTotalAuthorisedPence: Math.round(Number(args.previousAuthorisedPence)),
-        status: "failed",
-        source: ADDITIONAL_AUTH_SOURCE.TRIP_COMPLETION_REHOLD,
-        idempotencyKey: buildAdditionalAuthIdempotencyKey({
-          paymentSessionId: sessionId,
-          providerOrderId: args.previousProviderOrderId,
-          phase: "failed",
-        }),
-        providerState: "FAILED",
-        metadata: { reason: args.reason ?? null },
-      });
-    }
-    return { sessionId };
-  }
-
-  const newOrderId = String(args.newProviderOrderId ?? "").trim();
-  const newAuth = Math.round(Number(args.newProviderAuthorisedPence ?? 0));
-  if (!newOrderId || newAuth <= 0) {
-    return { sessionId };
-  }
-
-  const totalAuthorised = replacementTotalAuthorisedPence({
-    newProviderAuthorisedPence: newAuth,
-  });
-  const now = new Date().toISOString();
-
-  // Supersede previous hold (replacement semantics — amount is prior provider hold).
-  if (args.previousAuthorisedPence > 0) {
-    await upsertPaymentSessionAuthorisation(supabase, {
-      paymentSessionId: sessionId,
-      providerOrderId: args.previousProviderOrderId,
-      authorisedAmountPence: Math.round(Number(args.previousAuthorisedPence)),
-      cumulativeTotalAuthorisedPence: Math.round(Number(args.previousAuthorisedPence)),
-      status: "superseded",
-      source: ADDITIONAL_AUTH_SOURCE.TRIP_COMPLETION_REHOLD,
-      idempotencyKey: buildAdditionalAuthIdempotencyKey({
-        paymentSessionId: sessionId,
-        providerOrderId: args.previousProviderOrderId,
-        phase: "superseded",
-      }),
-      providerState: "CANCELLED",
-      releasedAt: now,
-      metadata: { replacement_order_id: newOrderId },
-    });
-  }
-
-  if (args.phase === "CONFIRMED") {
-    await upsertPaymentSessionAuthorisation(supabase, {
-      paymentSessionId: sessionId,
-      providerOrderId: newOrderId,
-      authorisedAmountPence: newAuth,
-      cumulativeTotalAuthorisedPence: totalAuthorised,
-      status: "authorised",
-      source: ADDITIONAL_AUTH_SOURCE.TRIP_COMPLETION_REHOLD,
-      idempotencyKey: buildAdditionalAuthIdempotencyKey({
-        paymentSessionId: sessionId,
-        providerOrderId: newOrderId,
-        phase: "authorised",
-      }),
-      providerState: args.newProviderState ?? "AUTHORISED",
-      metadata: { previous_order_id: args.previousProviderOrderId },
-    });
-    await markPaymentSessionStatus(supabase, "ADDITIONAL_AUTHORISATION_CONFIRMED", {
-      sessionId,
-      clientActionId: args.clientActionId,
-    }, {
-      trip_id: args.tripId,
-      provider_order_id: newOrderId,
-      authorised_amount_pence: newAuth,
-      total_authorised_amount_pence: totalAuthorised,
-      metadata,
-    });
-    return { sessionId };
-  }
-
-  // CAPTURED phase
-  const captureAmt = args.captureAmountPence != null
-    ? Math.round(Number(args.captureAmountPence))
-    : null;
-  await upsertPaymentSessionAuthorisation(supabase, {
-    paymentSessionId: sessionId,
-    providerOrderId: newOrderId,
-    authorisedAmountPence: newAuth,
-    cumulativeTotalAuthorisedPence: totalAuthorised,
-    status: "captured",
-    source: ADDITIONAL_AUTH_SOURCE.TRIP_COMPLETION_REHOLD,
-    idempotencyKey: buildAdditionalAuthIdempotencyKey({
-      paymentSessionId: sessionId,
-      providerOrderId: newOrderId,
-      phase: "captured",
-    }),
-    providerState: args.newProviderState ?? "COMPLETED",
-    capturedAmountPence: captureAmt,
-    capturedAt: now,
-    metadata: { previous_order_id: args.previousProviderOrderId },
-  });
-
-  return { sessionId };
-}
-
 export async function markPaymentSessionDispatching(
   supabase: SupabaseClient,
   args: { clientActionId: string; tripId: string },
@@ -1132,14 +937,6 @@ export async function markPaymentSessionCompletedPendingCapture(
   await markPaymentSessionStatus(supabase, "completed_pending_capture", args, {
     trip_id: args.tripId,
   });
-}
-
-export async function assertPaymentSessionAuthorisedForTripCreate(
-  supabase: SupabaseClient,
-  clientActionId: string,
-): Promise<{ ok: true; sessionId: string | null } | { ok: false; reason: string }> {
-  const session = await loadPaymentSession(supabase, { clientActionId });
-  return gatePaymentSessionForTripCreate(session);
 }
 
 /** Use a session already loaded on the hot path — avoids duplicate DB round-trips. */

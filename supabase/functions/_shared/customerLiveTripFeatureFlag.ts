@@ -13,8 +13,6 @@
 
 import { liveActivityApnsConfigured } from "./customerLiveTripApns.ts";
 
-export const CUSTOMER_LIVE_TRIP_FEATURE_FLAG = "customer_live_trip_enabled";
-
 export type CustomerLiveTripPlatformGates = {
   globalEnabled: boolean;
   androidEnabled: boolean;
@@ -69,7 +67,3 @@ export async function resolveCustomerLiveTripPlatformGates(
 }
 
 // deno-lint-ignore no-explicit-any
-export async function isCustomerLiveTripFeatureEnabled(admin: any): Promise<boolean> {
-  const gates = await resolveCustomerLiveTripPlatformGates(admin);
-  return gates.globalEnabled;
-}

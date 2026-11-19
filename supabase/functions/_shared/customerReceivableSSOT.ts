@@ -34,17 +34,6 @@ export const CUSTOMER_RECEIVABLE_STATUS = {
   MANUAL_REVIEW: "MANUAL_REVIEW",
 } as const;
 
-export const CUSTOMER_RECEIVABLE_EVENT = {
-  CREATED: "CREATED",
-  RESERVED: "RESERVED",
-  RELEASED: "RELEASED",
-  SETTLED: "SETTLED",
-  WAIVED: "WAIVED",
-  MANUAL_REVIEW: "MANUAL_REVIEW",
-  AMOUNT_ADJUSTED: "AMOUNT_ADJUSTED",
-  PARTIAL_SETTLED: "PARTIAL_SETTLED",
-} as const;
-
 export const ALLOCATION_STATUS = {
   RESERVED: "RESERVED",
   CAPTURED: "CAPTURED",
@@ -98,9 +87,6 @@ export const PREAUTH_RECEIVABLE_ORDERING = [
   "CALCULATE_FARE_PLUS_RESERVED",
   "CALL_REVOLUT_PREAUTH",
 ] as const;
-
-export type CustomerReceivableStatus =
-  (typeof CUSTOMER_RECEIVABLE_STATUS)[keyof typeof CUSTOMER_RECEIVABLE_STATUS];
 
 function positivePence(value: unknown): number {
   const n = Number(value);

@@ -24,7 +24,6 @@
  */
 
 export const SETTLEMENT_FORMULA_VERSION = "2";
-export const CANONICAL_SETTLEMENT_FORMULA_VERSION = SETTLEMENT_FORMULA_VERSION;
 /** Sanity ceiling for commission % (wave/base rates may exceed legacy 15% tier caps). */
 export const MAX_COMMISSION_PERCENT = 100;
 
@@ -108,25 +107,6 @@ export function commissionableFromComponents(args: {
     + nonNeg(args.pickup_waiting_charge_pence)
     + nonNeg(args.stop_waiting_charge_pence)
     + nonNeg(args.other_commissionable_extras_pence)
-  );
-}
-
-/**
- * Commissionable from captured customer money (FR consume helper).
- * v2: do NOT strip pass-through — it is commissionable when inside capture.
- */
-export function commissionableFromCapturedPence(args: {
-  capturedPence: number;
-  tipPence?: number;
-  airportPence?: number;
-  refundedPence?: number;
-}): number {
-  return Math.max(
-    0,
-    nonNeg(args.capturedPence)
-      - nonNeg(args.tipPence)
-      - nonNeg(args.airportPence)
-      - nonNeg(args.refundedPence),
   );
 }
 
@@ -252,14 +232,6 @@ export const CANONICAL_SETTLEMENT_GOLDEN_TRIPS = [
     },
   },
 ] as const;
-
-export const CANONICAL_SETTLEMENT_GOLDEN_TOTALS = {
-  captured_pence: 1658,
-  onecab_gross_commission_pence: 249,
-  provider_processing_fee_pence: 77,
-  onecab_net_commission_pence: 172,
-  driver_net_pence: 1409,
-} as const;
 
 /** Phase 0b — authoritative settlement contract (promoted + non-promoted). */
 export type AuthoritativeSettlementInput = CanonicalSettlementComponents & {

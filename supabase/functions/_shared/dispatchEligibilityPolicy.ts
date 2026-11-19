@@ -77,15 +77,6 @@ export type PriorDriverDispatchRecheckState = {
   lastExclusionClass: DispatchExclusionClass | null;
 };
 
-export type DispatchGateEvaluation = {
-  eligible: boolean;
-  rejectReason: string | null;
-  canonicalReason: string | null;
-  exclusionClass: DispatchExclusionClass;
-  recheckable: boolean;
-  adminLabel: DispatchRecheckAdminLabel | null;
-};
-
 /** Map internal gate codes to canonical policy reason strings. */
 export function canonicalizeDispatchRejectReason(
   raw: string,
@@ -381,5 +372,3 @@ export function isPresenceLivenessFresh(args: {
   );
 }
 
-/** Active offer statuses that block creating another offer for the same trip. */
-export const ACTIVE_OFFER_BLOCKING_STATUSES = ["pending", "accepted", "countered"] as const;

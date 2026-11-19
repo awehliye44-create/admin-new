@@ -82,9 +82,6 @@ export const ADJUSTMENT_LEDGER_TYPES = [
 
 export const CAPTURED_PAYMENT_STATUSES = new Set(["captured", "paid", "succeeded"]);
 
-/** Trip-level payment_status values that confirm provider capture (card trips). */
-export const CAPTURE_CONFIRMED_TRIP_PAYMENT_STATUSES = CAPTURED_PAYMENT_STATUSES;
-
 export type CustomerRevenueSourceLabel =
   | "payment_sessions_captured"
   | "payments_captured"
@@ -448,8 +445,6 @@ export function sumRefundedFromPaymentSessions(
 export function netCustomerRevenuePence(total: number, refunded: number): number {
   return Math.max(0, total - refunded);
 }
-
-
 
 export function tripTipsPence(row: TripSSOTRow): number {
   return Math.max(0, row.tip_pence ?? row.tip_amount_pence ?? 0);
@@ -834,7 +829,6 @@ export type PaymentMethodLedgerMetrics = {
   pending_provider_confirmation_driver_net_pence: number;
   pending_trip_count: number;
 };
-
 
 /** Provider-neutral processing fee — prefers provider_fee_pence when populated. */
 export function tripProviderProcessingFeePence(trip: {

@@ -215,11 +215,6 @@ export function resolveTripDisplayFare(trip: TripDisplayFareRow): ResolvedTripDi
   };
 }
 
-/** Commission base for settlement — final_fare_pence ONLY (excludes tips). */
-export function resolveCommissionBasePence(trip: TripDisplayFareRow): number {
-  return resolveTripDisplayFare(trip).commission_base_pence;
-}
-
 function resolveDiscountFields(input: BookingFarePersistInput) {
   const gross = Math.max(0, Math.round(input.grossFarePence));
   const payable = Math.max(0, Math.round(input.finalPayableFarePence));

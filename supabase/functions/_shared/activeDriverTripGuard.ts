@@ -22,8 +22,6 @@ export const ACTIVE_DRIVER_TRIP_STATUSES = [
   "in_progress",
 ] as const;
 
-export type ActiveDriverTripStatus = (typeof ACTIVE_DRIVER_TRIP_STATUSES)[number];
-
 export function isActiveDriverTripStatus(status: string | null | undefined): boolean {
   const normalized = String(status ?? "").trim().toLowerCase().replace(/-/g, "_");
   return (ACTIVE_DRIVER_TRIP_STATUSES as readonly string[]).includes(normalized);

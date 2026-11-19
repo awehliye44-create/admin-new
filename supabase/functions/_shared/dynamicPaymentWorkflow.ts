@@ -56,51 +56,6 @@ export function isCashPaymentMethod(paymentMethod: string | null | undefined): b
   return (paymentMethod ?? "").trim().toLowerCase() === "cash";
 }
 
-export function resolveBookingPaymentIntentId(trip: TripPaymentRow): string | null {
-  return trip.payment_intent_id ?? trip.provider_order_id ?? null;
-}
-
-export function resolveBookingIdempotencyKey(trip: TripPaymentRow): string | null {
-  return trip.idempotency_key ?? trip.client_action_id ?? null;
-}
-
-export function resolveTotalAuthorizedAmountPence(trip: TripPaymentRow): number {
-  return (
-    nonNegInt(trip.total_authorized_amount_pence)
-    || nonNegInt(trip.authorized_amount_pence)
-    || nonNegInt(trip.authorised_amount_pence)
-  );
-}
-
-/** Fare lock bypass: destination changes, stops, waiting, long-distance, admin adjustments. */
-export function shouldBypassFareLockForRecalc(trip: TripPaymentRow): boolean {
-  if (!trip.fare_locked) return true;
-
-  if (resolveCustomerModificationChargePence(trip) > 0) return true;
-  if (nonNegInt(trip.destination_change_charge_pence) > 0) return true;
-  if (nonNegInt(trip.stop_modification_charge_pence) > 0) return true;
-  if (resolveArrivalWaitingChargePence(trip) > 0) return true;
-  if (resolveStopWaitingChargePence(trip) > 0) return true;
-
-  const modificationStatus = (trip.modification_status ?? "").trim().toLowerCase();
-  if (modificationStatus === "confirmed" || modificationStatus === "approved") return true;
-
-  const snapshot = trip.fare_snapshot_json;
-  if (snapshot && typeof snapshot === "object") {
-    const reason = String((snapshot as Record<string, unknown>).modification_reason ?? "").toLowerCase();
-    if (
-      reason.includes("destination")
-      || reason.includes("add_stop")
-      || reason.includes("long_distance")
-      || reason.includes("admin")
-    ) {
-      return true;
-    }
-  }
-
-  return false;
-}
-
 export function buildPreauthIdempotencyKey(args: {
   tripId?: string | null;
   clientActionId?: string | null;
@@ -109,130 +64,8 @@ export function buildPreauthIdempotencyKey(args: {
   return `preauth_${suffix}`;
 }
 
-export function buildTopUpIdempotencyKey(tripId: string, fareRevisionNumber: number): string {
-  return `topup_${tripId}_rev${fareRevisionNumber}`;
-}
-
-export function buildUpdateAuthIdempotencyKey(tripId: string, fareRevisionNumber: number): string {
-  return `updateauth_${tripId}_rev${fareRevisionNumber}`;
-}
-
 export function buildCaptureIdempotencyKey(tripId: string, captureAmountPence: number): string {
   return `capture_${tripId}_${captureAmountPence}`;
-}
-
-export function computePaymentCoverageStatus(args: {
-  paymentMethod?: string | null;
-  finalPayablePence: number;
-  totalAuthorizedPence: number;
-  capturedPence?: number;
-  outstandingBalancePence?: number;
-  captureFailed?: boolean;
-}): PaymentCoverageStatus {
-  if (isCashPaymentMethod(args.paymentMethod)) return "not_required";
-  if (args.captureFailed) return "capture_failed";
-
-  const captured = nonNegInt(args.capturedPence);
-  const outstanding = nonNegInt(args.outstandingBalancePence);
-  const authorized = nonNegInt(args.totalAuthorizedPence);
-  const payable = nonNegInt(args.finalPayablePence);
-
-  if (captured > 0) {
-    if (outstanding > 0) return "under_captured";
-    return "captured";
-  }
-
-  if (authorized <= 0) return "pending_authorization";
-  if (payable <= authorized) return "fully_covered";
-  return "authorization_insufficient";
-}
-
-/** Trip/payment status after primary provider capture — never treat under-capture as fully paid. */
-export function resolvePaymentStatusAfterCapture(args: {
-  outstandingBalancePence: number;
-}): { payment_status: string; payment_coverage_status: PaymentCoverageStatus } {
-  if (nonNegInt(args.outstandingBalancePence) > 0) {
-    return {
-      payment_status: "partially_paid",
-      payment_coverage_status: "under_captured",
-    };
-  }
-  return {
-    payment_status: "captured",
-    payment_coverage_status: "captured",
-  };
-}
-
-export function computeCapturePlan(args: {
-  finalPayablePence: number;
-  totalAuthorizedPence: number;
-  walletAppliedPence?: number;
-}): {
-  walletAppliedPence: number;
-  cardPayablePence: number;
-  captureAmountPence: number;
-  outstandingBalancePence: number;
-} {
-  const walletAppliedPence = nonNegInt(args.walletAppliedPence);
-  const finalPayablePence = nonNegInt(args.finalPayablePence);
-  const totalAuthorizedPence = nonNegInt(args.totalAuthorizedPence);
-  const cardPayablePence = Math.max(0, finalPayablePence - walletAppliedPence);
-  const captureAmountPence = Math.min(cardPayablePence, totalAuthorizedPence);
-  const outstandingBalancePence = Math.max(0, cardPayablePence - captureAmountPence);
-
-  return {
-    walletAppliedPence,
-    cardPayablePence,
-    captureAmountPence,
-    outstandingBalancePence,
-  };
-}
-
-export async function hasAuthorizationForRevision(
-  supabase: SupabaseClient,
-  tripId: string,
-  fareRevisionNumber: number,
-  operation: PaymentAuthOperation = "top_up",
-): Promise<boolean> {
-  const { data, error } = await supabase
-    .from("payment_authorization_ledger")
-    .select("id, status, amount_pence")
-    .eq("trip_id", tripId)
-    .eq("fare_revision_number", fareRevisionNumber)
-    .eq("operation", operation)
-    .in("status", ["pending", "succeeded"])
-    .limit(1)
-    .maybeSingle();
-
-  if (error) {
-    console.warn("[dynamicPaymentWorkflow] ledger lookup failed", error.message);
-    return false;
-  }
-
-  return Boolean(data);
-}
-
-export async function hasSucceededCapture(
-  supabase: SupabaseClient,
-  tripId: string,
-  captureAmountPence: number,
-): Promise<boolean> {
-  const idempotencyKey = buildCaptureIdempotencyKey(tripId, captureAmountPence);
-  const { data, error } = await supabase
-    .from("payment_authorization_ledger")
-    .select("id")
-    .eq("trip_id", tripId)
-    .eq("operation", "capture")
-    .eq("idempotency_key", idempotencyKey)
-    .eq("status", "succeeded")
-    .maybeSingle();
-
-  if (error) {
-    console.warn("[dynamicPaymentWorkflow] capture ledger lookup failed", error.message);
-    return false;
-  }
-
-  return Boolean(data);
 }
 
 export async function recordPaymentAuthorizationEvent(
@@ -337,6 +170,3 @@ export function buildTripPaymentSyncPatch(args: {
   return patch;
 }
 
-export function nextFareRevisionNumber(trip: TripPaymentRow): number {
-  return nonNegInt(trip.fare_revision_number) + 1;
-}

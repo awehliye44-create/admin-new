@@ -35,21 +35,6 @@ export interface CommissionResult {
   driver_net_pence: number;
 }
 
-/** Synchronous split for offer preview (airport stripped from commissionable base). */
-export function calculateCommissionSplit(
-  grossFarePence: number,
-  commissionPercent: number,
-  opts?: { airport_charge_pence?: number },
-): { commissionPence: number; driverNetPence: number; commissionablePence: number } {
-  const gross = Math.max(0, Math.round(Number(grossFarePence) || 0));
-  const airport = Math.max(0, Math.round(Number(opts?.airport_charge_pence ?? 0) || 0));
-  const pct = Math.min(100, Math.max(0, Number(commissionPercent) || 0));
-  const commissionablePence = Math.max(0, gross - airport);
-  const commissionPence = Math.round((commissionablePence * pct) / 100);
-  const driverNetPence = Math.max(0, commissionablePence - commissionPence) + airport;
-  return { commissionPence, driverNetPence, commissionablePence };
-}
-
 /**
  * @deprecated Slice 4 — prefer calculateTripSettlement / calculateCanonicalSettlement.
  * Gross-only helper kept for legacy call sites; does not strip airport.

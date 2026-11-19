@@ -23,8 +23,6 @@ export const TERMINAL_COMPENSATION_LEDGER_TYPES = new Set([
   "DRIVER_COMPENSATION_CREDIT",
 ]);
 
-export const CHARGED_CANCELLATION_LEDGER_TYPE = "TRIP_EARNING_NET";
-
 export function isDriverEntitlementLedgerType(type: string | null | undefined): boolean {
   return DRIVER_ENTITLEMENT_LEDGER_TYPES.has(String(type ?? "").toUpperCase());
 }
@@ -35,17 +33,6 @@ export function hasConflictingEntitlementTypes(types: string[]): boolean {
   const hasTen = normalized.includes("TRIP_EARNING_NET");
   const hasComp = normalized.some((t) => TERMINAL_COMPENSATION_LEDGER_TYPES.has(t));
   return hasTen && hasComp;
-}
-
-export function evaluateDriverEntitlementLedgerEligibility(
-  entry: LedgerEligibilityEvidence,
-  policy?: PayoutClearingPolicy,
-): ReturnType<typeof evaluateLedgerEntryEligibility> {
-  const type = String(entry.ledger_type ?? "").toUpperCase();
-  if (!isDriverEntitlementLedgerType(type)) {
-    return { status: "UNKNOWN_ELIGIBILITY_ERROR" as const, payable_pence: 0 };
-  }
-  return evaluateLedgerEntryEligibility(entry, policy);
 }
 
 export const TERMINAL_FEE_LIFECYCLE_PROOF = {

@@ -59,11 +59,4 @@ export async function buildDriverInvoicePdf(data: DriverInvoiceRenderData): Prom
   return renderDriverInvoicePdfLib(data);
 }
 
-export async function buildDriverInvoicePdfFromHtml(html: string, fallbackData?: DriverInvoiceRenderData): Promise<Uint8Array> {
-  const browserlessPdf = await convertHtmlWithBrowserless(html);
-  if (browserlessPdf) return browserlessPdf;
-  if (fallbackData) return renderDriverInvoicePdfLib(fallbackData);
-  throw new Error("HTML to PDF conversion failed and no fallback data was provided");
-}
-
 export { buildDriverInvoiceHtml, prepareDriverInvoiceHtmlForPdf };

@@ -194,14 +194,3 @@ export function buildClearTripAssignmentPatch(): Record<string, null> {
   };
 }
 
-/**
- * Re-enable dispatch after driver cancel rematch.
- * Negotiation / accept paths may leave broadcast_enabled=false; auto-dispatch skips those trips.
- */
-export function buildDriverCancelRematchBroadcastPatch(): Record<string, boolean | null> {
-  return {
-    broadcast_enabled: true,
-    negotiation_status: null,
-    negotiation_locked_until: null,
-  };
-}

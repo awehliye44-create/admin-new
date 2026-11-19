@@ -115,19 +115,3 @@ export async function resolvePersonalVoucherForTrip(opts: {
   };
 }
 
-export async function consumePersonalVoucherForTrip(
-  admin: SupabaseClient,
-  tripId: string,
-  voucherId: string | null | undefined,
-): Promise<boolean> {
-  if (!voucherId) return false;
-  const { data, error } = await admin.rpc("consume_personal_voucher", {
-    p_voucher_id: voucherId,
-    p_trip_id: tripId,
-  });
-  if (error) {
-    console.warn("[personal-voucher] consume failed", { tripId, voucherId, error: error.message });
-    return false;
-  }
-  return data === true;
-}

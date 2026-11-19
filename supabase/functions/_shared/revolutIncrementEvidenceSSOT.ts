@@ -357,14 +357,6 @@ export const REVOLUT_INCREMENT_WEBHOOK_EVENTS = [
 
 export type RevolutIncrementWebhookEvent = typeof REVOLUT_INCREMENT_WEBHOOK_EVENTS[number];
 
-export function isRevolutIncrementWebhookEvent(
-  eventName: unknown,
-): eventName is RevolutIncrementWebhookEvent {
-  return (REVOLUT_INCREMENT_WEBHOOK_EVENTS as readonly string[]).includes(
-    String(eventName ?? "").trim().toUpperCase(),
-  );
-}
-
 export function expectedIncrementStateForWebhook(
   eventName: RevolutIncrementWebhookEvent,
 ): ProviderIncrementState {
@@ -373,46 +365,3 @@ export function expectedIncrementStateForWebhook(
   return "failed";
 }
 
-/**
- * Latest increment whose state matches the webhook event. Falls back to the
- * latest entry so the persisted row still records what Revolut returned.
- */
-export function findIncrementForWebhook(
-  order: RevolutOrder | null | undefined,
-  eventName: RevolutIncrementWebhookEvent,
-): { entry: IncrementEntry | null; stateMatchesEvent: boolean } {
-  const list = Array.isArray(order?.incremental_authorisations)
-    ? order!.incremental_authorisations!
-    : [];
-  const expected = expectedIncrementStateForWebhook(eventName);
-  for (let i = list.length - 1; i >= 0; i--) {
-    if (normalizeProviderIncrementState(list[i]?.state) === expected) {
-      return { entry: list[i], stateMatchesEvent: true };
-    }
-  }
-  return { entry: list.length > 0 ? list[list.length - 1] : null, stateMatchesEvent: false };
-}
-
-/**
- * Idempotency key for processed_revolut_events.event_id. Revolut's payload has
- * no event id, so identity is event + order + increment attempt + observed
- * state (a lagging retrieve that still shows `processing` must not block the
- * redelivery that observes the settled state). Unresolved receipts (retrieve
- * failed) are keyed by the signed request timestamp.
- */
-export function buildIncrementWebhookEventId(args: {
-  eventName: RevolutIncrementWebhookEvent;
-  orderId: string;
-  incrementReference?: string | null;
-  incrementNewAmountPence?: number | null;
-  incrementState?: string | null;
-  requestTimestamp?: string | null;
-}): string {
-  const base = `revolut_increment_webhook:${args.eventName}:${String(args.orderId).trim()}`;
-  const state = sanitizeProviderToken(args.incrementState, 40) ?? "none";
-  const reference = sanitizeProviderToken(args.incrementReference, MAX_REFERENCE_LENGTH);
-  if (reference) return `${base}:ref:${reference}:${state}`;
-  const amount = minorOrNull(args.incrementNewAmountPence);
-  if (amount != null && amount > 0) return `${base}:amount:${amount}:${state}`;
-  return `${base}:unresolved:${String(args.requestTimestamp ?? "").trim() || "no_ts"}`;
-}

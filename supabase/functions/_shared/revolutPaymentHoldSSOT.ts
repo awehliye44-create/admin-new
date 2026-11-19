@@ -125,24 +125,6 @@ export function planRevolutCompletionCapture(
 /** Shown on Revolut hosted checkout / wallet — never mention pre-auth or buffer. */
 export const REVOLUT_CUSTOMER_CHECKOUT_DESCRIPTION = "ONECAB ride";
 
-/** Customer-visible Revolut order description (internal hold/buffer stays in metadata only). */
-export function revolutCustomerCheckoutDescription(tripId?: string | null): string {
-  const ref = tripId?.trim();
-  return ref ? `${REVOLUT_CUSTOMER_CHECKOUT_DESCRIPTION} ${ref}` : REVOLUT_CUSTOMER_CHECKOUT_DESCRIPTION;
-}
-
-/** hold_amount = round_up(estimated_total + buffer) — estimated_total already includes pass-through. */
-export function computeRevolutHoldAmount(input: RevolutHoldAmountInput): RevolutHoldAmountResult {
-  const estimated = Math.max(0, Math.round(input.estimatedTotalPence));
-  const buffer = Math.max(0, Math.round(input.bufferPence));
-  const hold = estimated + buffer;
-  return {
-    estimated_total_pence: estimated,
-    buffer_pence: buffer,
-    hold_amount_pence: hold,
-  };
-}
-
 /** Map canonical status to persisted DB enum value. */
 export function toDbPaymentSessionStatus(
   status: RevolutPaymentSessionStatus,
@@ -186,20 +168,6 @@ export function fromDbPaymentSessionStatus(
   }
 }
 
-export function isTerminalPaymentSessionStatus(status: string | null | undefined): boolean {
-  const canonical = fromDbPaymentSessionStatus(status);
-  return (
-    canonical === "captured"
-    || canonical === "released"
-    || canonical === "failed"
-    || canonical === "payment_shortfall"
-    || canonical === "CAPTURE_CONFIRMED"
-    || canonical === "PAYMENT_RECOVERY_REQUIRED"
-    || canonical === "CAPTURE_LIMIT_EXCEEDED"
-    || canonical === "PARTIAL_CAPTURE_ONLY"
-  );
-}
-
 export function isAuthorisedHoldSessionStatus(status: string | null | undefined): boolean {
   const canonical = fromDbPaymentSessionStatus(status);
   return (
@@ -224,13 +192,3 @@ export function isBlockedForTripCreateSessionStatus(status: string | null | unde
   );
 }
 
-export function isAbandonedOrCancelledSessionStatus(status: string | null | undefined): boolean {
-  const canonical = fromDbPaymentSessionStatus(status);
-  return (
-    canonical === "abandoned"
-    || canonical === "expired"
-    || canonical === "released"
-    || canonical === "failed"
-    || canonical === "cancelled"
-  );
-}

@@ -18,11 +18,6 @@ export const CUSTOMER_NEW_FARE_OFFER_TITLE = 'New fare offer';
 export function customerNewFareOfferBody(driverOfferPence: number): string {
   return `Driver offered ${formatNegotiationGbp(driverOfferPence)} — respond before it expires.`;
 }
-export const CUSTOMER_NEW_FARE_OFFER_BODY = customerNewFareOfferBody(0).replace(
-  '£0.00',
-  'a new fare',
-);
-
 export function customerCounterOfferPushBody(counterPence: number): string {
   return `Customer counter offer ${formatNegotiationGbp(counterPence)} — respond before it expires.`;
 }
@@ -45,6 +40,3 @@ export const DRIVER_ACCEPTED_COUNTER_BODY = 'Driver accepted your counter offer.
 export const FINDING_ANOTHER_DRIVER_UPDATED_FARE_BODY =
   "We're finding another driver at your updated fare.";
 
-export const NEGOTIATION_OFFER_EXPIRED_TITLE = 'Fare offer expired';
-export const NEGOTIATION_OFFER_EXPIRED_BODY =
-  'The fare offer timed out. Waiting for the next update.';

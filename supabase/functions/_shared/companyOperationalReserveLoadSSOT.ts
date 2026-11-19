@@ -97,25 +97,3 @@ export async function resolveLoadedOperationalReserve(
   };
 }
 
-/** List recent policies for admin settings (all statuses). */
-export async function listOperationalReservePolicies(
-  supabase: SupabaseClient,
-  args: { service_area_id?: string | null; currency?: string | null; limit?: number } = {},
-): Promise<CompanyOperationalReservePolicy[]> {
-  let q = supabase
-    .from("company_operational_refund_reserves")
-    .select("*")
-    .order("updated_at", { ascending: false })
-    .limit(args.limit ?? 20);
-  if (args.service_area_id) {
-    q = q.or(`service_area_id.eq.${args.service_area_id},service_area_id.is.null`);
-  }
-  if (args.currency) {
-    q = q.ilike("currency", String(args.currency).trim());
-  }
-  const { data, error } = await q;
-  if (error) return [];
-  return (data ?? [])
-    .map((row) => parsePolicyRow(row))
-    .filter((p): p is CompanyOperationalReservePolicy => p != null);
-}

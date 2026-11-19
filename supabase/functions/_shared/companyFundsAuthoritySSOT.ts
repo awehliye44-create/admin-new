@@ -1,18 +1,9 @@
-/**
- * Company funds authority SSOT — who may read/mutate transfers and reserve policy.
- * Does not change balance formulas.
- */
-
-export const COMPANY_FUNDS_FINANCE_PAGE_SLUG = "payout-ledger" as const;
-
 /** Roles allowed to execute company-funds mutations (must match adminPaymentGate). */
 export const COMPANY_FUNDS_EXECUTION_ROLES = [
   "super_admin",
   "admin",
   "finance_manager",
 ] as const;
-
-export type CompanyFundsExecutionRole = (typeof COMPANY_FUNDS_EXECUTION_ROLES)[number];
 
 /** Staff roles that must never mutate company funds. */
 export const COMPANY_FUNDS_REJECTED_STAFF_ROLES = [
@@ -35,8 +26,6 @@ export const COMPANY_TRANSFER_MUTATION_ACTIONS = [
   "mark_paid",
   "retry",
 ] as const;
-
-export type CompanyTransferMutationAction = (typeof COMPANY_TRANSFER_MUTATION_ACTIONS)[number];
 
 export const COMPANY_TRANSFER_READ_ONLY_ACTIONS = [
   "view_evidence",

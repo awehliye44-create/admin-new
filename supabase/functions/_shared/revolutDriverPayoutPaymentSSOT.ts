@@ -19,11 +19,7 @@ export {
 };
 
 export const REVOLUT_BUSINESS_PAY_ENDPOINT = "POST https://b2b.revolut.com/api/1.0/pay";
-export const REVOLUT_BUSINESS_PAY_PATH = "/pay";
 export const REVOLUT_BUSINESS_PAY_OAUTH_SCOPE = "PAY";
-
-/** Official docs: request_id provides idempotency (UUID recommended). No Idempotency-Key header required. */
-export const REVOLUT_PAY_IDEMPOTENCY_FIELD = "request_id";
 
 /** Transaction states from Revolut Business bank-transfer docs + Create a transfer API. */
 export const REVOLUT_PAY_PROVIDER_STATES = [
@@ -55,12 +51,6 @@ export const PAYMENT_EXECUTION_STATUS = {
 
 export type PaymentExecutionStatus =
   (typeof PAYMENT_EXECUTION_STATUS)[keyof typeof PAYMENT_EXECUTION_STATUS];
-
-/** Slice 4 may only persist these. */
-export const SLICE4_ALLOWED_STATUSES = new Set<PaymentExecutionStatus>([
-  PAYMENT_EXECUTION_STATUS.VALIDATED,
-  PAYMENT_EXECUTION_STATUS.BLOCKED,
-]);
 
 export const APPROVED_PAYMENT_FIELDS = [
   "payout_item_id",

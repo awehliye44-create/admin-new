@@ -184,16 +184,6 @@ export type AdminPaymentSessionsListRow = {
   remaining_authorised_pence?: number | null;
 };
 
-/** @deprecated Driver Wallet / FR fields — never populated by Payment Sessions list. */
-export type AdminPaymentSessionsDriverCreditFieldsDeprecated = {
-  driver_credit_display?: string | null;
-  driver_credit_health?: string | null;
-  expected_driver_credit_pence?: number | null;
-  actual_driver_credit_pence?: number | null;
-  credit_difference_pence?: number | null;
-  credit_eligibility_at?: string | null;
-};
-
 /** Completed Trips Paid — one row = one completed trip (fare from trip SSOT, not React). */
 export type AdminPaymentSessionsCompletedTripRow = {
   id: string;

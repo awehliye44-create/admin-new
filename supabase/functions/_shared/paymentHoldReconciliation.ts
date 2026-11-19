@@ -71,26 +71,6 @@ export type PaymentHoldReconciliationRow = {
   orphan_evidence_id?: string | null;
 };
 
-export type AdminPaymentHoldsReconciliationResponse = {
-  success: boolean;
-  payment_holds_requiring_attention: PaymentHoldReconciliationRow[];
-  payment_holds_history?: PaymentHoldReconciliationRow[];
-  summary: {
-    total: number;
-    green: number;
-    amber: number;
-    red: number;
-    resolved?: number;
-    total_hold_pence: number;
-    active_hold_count?: number;
-    active_hold_amount_pence?: number;
-    resolved_count?: number;
-    resolved_amount_pence?: number;
-    unknown_count?: number;
-  };
-  error?: string;
-};
-
 export type AdminHoldActionRequest = {
   payment_session_id?: string;
   provider_order_id?: string;
@@ -99,4 +79,3 @@ export type AdminHoldActionRequest = {
 };
 
 export const ADMIN_HOLD_ACTION_FN = "admin-hold-action";
-export const ADMIN_PAYMENT_HOLDS_RECONCILIATION_FN = "admin-payment-holds-reconciliation";

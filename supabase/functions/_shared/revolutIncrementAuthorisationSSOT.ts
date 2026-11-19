@@ -67,26 +67,6 @@ export function buildCaptureBusinessKey(args: {
   ].join(":");
 }
 
-export function requiredIncrementPence(
-  newRequiredTotalPence: number,
-  providerConfirmedAuthorisedTotalPence: number,
-): number {
-  const need = Math.max(0, Math.round(Number(newRequiredTotalPence)));
-  const have = Math.max(0, Math.round(Number(providerConfirmedAuthorisedTotalPence)));
-  return Math.max(0, need - have);
-}
-
-export function remainingAuthorisedCapacityPence(args: {
-  totalAuthorisedAmountPence: number;
-  capturedAmountPence?: number | null;
-  releasedAmountPence?: number | null;
-}): number {
-  const total = Math.max(0, Math.round(Number(args.totalAuthorisedAmountPence)));
-  const captured = Math.max(0, Math.round(Number(args.capturedAmountPence ?? 0)));
-  const released = Math.max(0, Math.round(Number(args.releasedAmountPence ?? 0)));
-  return Math.max(0, total - captured - released);
-}
-
 function paymentMethodTypeFromOrder(order: RevolutOrder): string | null {
   const payments = Array.isArray(order.payments) ? order.payments : [];
   for (const p of payments) {

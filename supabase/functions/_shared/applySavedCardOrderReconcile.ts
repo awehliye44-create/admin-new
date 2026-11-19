@@ -473,24 +473,3 @@ export async function retrieveAndReconcileSavedCardSession(
   return { ok: true, result };
 }
 
-/** Customer-facing copy keys aligned with client_state (no spinner wording). */
-export function customerCopyKeyForReconcileState(
-  state: SavedCardReconcileClientState,
-): string {
-  switch (state) {
-    case "AUTHORISED":
-      return "authorised";
-    case "CUSTOMER_ACTION_REQUIRED":
-      return "bank_approval_required";
-    case "PAYMENT_PROCESSING":
-      return "processing";
-    case "PAYMENT_FAILED":
-      return "payment_failed_technical";
-    case "DECLINED":
-      return "declined";
-    case "CANCELLED":
-      return "cancelled";
-    default:
-      return "uncertain";
-  }
-}

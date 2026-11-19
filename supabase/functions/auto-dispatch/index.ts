@@ -39,7 +39,7 @@ import {
 import {
   EXCEEDS_FLEET_MAX_PICKUP_DISTANCE,
   exceedsFleetMaxPickupDistance,
-} from "../../../shared/fleetMaxPickupDistanceSSOT.ts";
+} from "../_shared/fleetMaxPickupDistanceSSOT.ts";
 import {
   computeScheduledDirectionalScoreBoost,
   compareWithDirectionalBoost,

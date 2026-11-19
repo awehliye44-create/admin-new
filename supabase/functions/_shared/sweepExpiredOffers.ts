@@ -58,19 +58,6 @@ export type StaleTripRebroadcastCandidate = {
 };
 
 /**
- * After NO_DRIVERS_WAIT_NEXT_ROUND (round < max), keep dispatch_status=broadcasting so
- * expire-offers stale scan can invoke auto-dispatch with force_rebroadcast.
- */
-export function dispatchStatusAfterNoDriversWaitNextRound(
-  currentRound: number,
-  maxRounds: number,
-): typeof STALE_TRIP_REBROADCAST_DISPATCH_STATUS | "searching" {
-  return currentRound < maxRounds
-    ? STALE_TRIP_REBROADCAST_DISPATCH_STATUS
-    : "searching";
-}
-
-/**
  * Default max absolute sequences when trip stamp is missing.
  * Admin Max Dispatch Rounds default 3 cycles × 3 waves = 9 sequences.
  */

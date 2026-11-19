@@ -50,18 +50,6 @@ function nonNeg(n: unknown): number {
   return Number.isFinite(v) && v > 0 ? v : 0;
 }
 
-/** True when any plan component / target / key is populated. */
-export function sessionHasPopulatedCapturePlan(session: Record<string, unknown> | null | undefined): boolean {
-  if (!session) return false;
-  const key = String(session.capture_idempotency_key ?? "").trim();
-  const target = session.provider_capture_target_pence;
-  const frozenAt = session.capture_composition_frozen_at
-    ?? (session.metadata && typeof session.metadata === "object"
-      ? (session.metadata as Record<string, unknown>).capture_composition_frozen_at
-      : null);
-  return Boolean(key) || target != null || frozenAt != null;
-}
-
 /**
  * Read an immutable frozen plan from session columns/metadata.
  * Returns null if no frozen plan.
@@ -334,27 +322,6 @@ export function rejectPlanMutationAfterFreeze(args: {
     return { ok: false, code: CAPTURE_COMPOSITION_ERROR.CAPTURE_COMPOSITION_FROZEN_IMMUTABLE };
   }
   return { ok: true };
-}
-
-export function frozenPlanToCaptureCompositionPlan(f: FrozenCapturePlan): CaptureCompositionPlan {
-  return {
-    ok: true,
-    trip_fare_component_pence: f.trip_fare_component_pence,
-    tip_component_pence: f.tip_component_pence,
-    receivable_component_pence: f.receivable_component_pence,
-    preauth_buffer_component_pence: f.preauth_buffer_component_pence,
-    provider_capture_target_pence: f.provider_capture_target_pence,
-    provider_authorisation_target_pence:
-      f.trip_fare_component_pence + f.receivable_component_pence + f.preauth_buffer_component_pence,
-    provider_release_amount_pence: f.preauth_buffer_component_pence,
-    displayed_customer_total_pence: f.trip_fare_component_pence + f.receivable_component_pence,
-    authorised_total_pence: 0,
-    payment_session_id: f.payment_session_id,
-    provider_order_id: f.provider_order_id,
-    capture_idempotency_key: f.capture_idempotency_key,
-    composition_version: CAPTURE_COMPOSITION_VERSION,
-    reserved_allocation_ids: [],
-  };
 }
 
 // Keep planCaptureComposition referenced for source locks that import this module.

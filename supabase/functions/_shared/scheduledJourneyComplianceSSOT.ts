@@ -62,20 +62,6 @@ export function resolveScheduledJourneyEndIso(input: {
   return new Date(pickupMs + minutes * 60_000).toISOString();
 }
 
-/**
- * Capture-coverage helper includes a safety margin — compliance uses journey end
- * only (no extra buffer) so we do not invent a second horizon.
- */
-export function resolveScheduledJourneyEndMs(input: {
-  scheduledAtIso: string;
-  estimatedDurationMinutes?: number | null;
-}): number | null {
-  const iso = resolveScheduledJourneyEndIso(input);
-  if (!iso) return null;
-  const ms = Date.parse(iso);
-  return Number.isFinite(ms) ? ms : null;
-}
-
 export function evaluateScheduledAccountEligible(
   account: ScheduledAccountSnapshot | null | undefined,
 ): boolean {
@@ -304,13 +290,3 @@ export function shouldUseUrgentRescueForComplianceRelease(input: {
   return minutesToPickup <= trigger;
 }
 
-/** Sanity: capture coverage helper still available for payment (unchanged). */
-export function captureCoverageHorizonMs(input: {
-  scheduledAtIso: string;
-  estimatedDurationMinutes?: number | null;
-}): number | null {
-  return computeRequiredCaptureCoverageUntilMs({
-    scheduledAtIso: input.scheduledAtIso,
-    estimatedDurationMinutes: input.estimatedDurationMinutes,
-  });
-}

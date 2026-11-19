@@ -320,28 +320,6 @@ export async function createOrReuseVoipSession(
   return { ok: true, session, created: true, roomName };
 }
 
-/** @deprecated Prefer createOrReuseVoipSession — kept for any legacy imports. */
-export async function startVoipCallLog(
-  client: SupabaseClient,
-  row: {
-    trip_id: string;
-    service_area_id: string | null;
-    driver_id: string | null;
-    customer_id: string | null;
-  },
-): Promise<string | null> {
-  const result = await createOrReuseVoipSession(client, {
-    tripId: row.trip_id,
-    serviceAreaId: row.service_area_id,
-    driverId: row.driver_id,
-    customerId: row.customer_id,
-    initiatorUserId: "00000000-0000-0000-0000-000000000000",
-    initiatorRole: "driver",
-    idempotencyKey: `legacy-${crypto.randomUUID()}`,
-  });
-  return result.ok ? result.session.callId : null;
-}
-
 export async function markVoipIncomingPushSent(
   client: SupabaseClient,
   callId: string,

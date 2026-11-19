@@ -47,14 +47,6 @@ function isRoutePricingBreakdown(fb: Record<string, unknown>): boolean {
   );
 }
 
-/** @deprecated Prefer parseVisibleFarePenceFromBreakdown â kept for callers/tests. */
-export function parseFareBreakdownTripFarePence(fareBreakdown: unknown): number | null {
-  if (!fareBreakdown || typeof fareBreakdown !== "object") return null;
-  const fb = fareBreakdown as Record<string, unknown>;
-  const tripFare = fb.tripFare ?? fb.trip_fare;
-  return moneyToPence(tripFare);
-}
-
 /** Visible card fare from fare_breakdown (final/total, or trip + airport for route). */
 export function parseVisibleFarePenceFromBreakdown(fareBreakdown: unknown): number | null {
   if (!fareBreakdown || typeof fareBreakdown !== "object") return null;

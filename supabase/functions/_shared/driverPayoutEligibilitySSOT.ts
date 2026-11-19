@@ -46,10 +46,6 @@ export const ADMIN_WALLET_PAYOUT_ELIGIBLE_LEDGER_TYPES = new Set([
   "ADMIN_WALLET_CREDIT",
 ]);
 
-export const DES_SOURCE_WALLET_CREDIT = "REVOLUT_WALLET_CREDIT";
-export const DES_SOURCE_PHASE1_BACKFILL = "REVOLUT_PHASE1_BACKFILL";
-export const DES_FORMULA_VERSION = "payout_eligibility_v2";
-
 /** Backend-owned fallback when Revolut does not expose a merchant-clearing event. */
 export const DEFAULT_PAYOUT_CLEARING_DELAY_HOURS = 27;
 
@@ -753,11 +749,6 @@ export function shouldBlockZeroValuePayoutBatch(args: {
   }
   return { block: false, error_code: null };
 }
-
-export const ZERO_BATCH_FAILURE_CODES = {
-  INVALID_ZERO_VALUE_BATCH: "INVALID_ZERO_VALUE_BATCH",
-  BLOCKED_NO_ELIGIBLE_PAYOUTS: "BLOCKED_NO_ELIGIBLE_PAYOUTS",
-} as const;
 
 /** Idempotency key for DES companion / backfill rows. */
 export function desCompanionIdempotencyKey(ledgerEntryId: string, source: string): string {

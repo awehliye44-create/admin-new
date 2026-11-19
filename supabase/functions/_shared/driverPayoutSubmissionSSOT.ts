@@ -1,11 +1,3 @@
-/**
- * Slice 7 — controlled Revolut Business provider submission for RESERVED payout items.
- * Transport may call validated /pay; LIVE_PAYOUT_EXECUTION_ENABLED stays false
- * (no automatic Tuesday scheduler execution). Wallet reservation stays ACTIVE until Slice 8.
- */
-
-export const SLICE7 = 7 as const;
-
 export const SUBMISSION_ERROR = {
   PAYMENT_TRANSPORT_DISABLED: "PAYMENT_TRANSPORT_DISABLED",
   LIVE_AUTOMATIC_EXECUTION_FORBIDDEN: "LIVE_AUTOMATIC_EXECUTION_FORBIDDEN",
@@ -35,30 +27,6 @@ export const SUBMISSION_ERROR = {
 export type SubmissionErrorCode =
   (typeof SUBMISSION_ERROR)[keyof typeof SUBMISSION_ERROR];
 
-export const SLICE7_ITEM_STATUS = {
-  RESERVED: "RESERVED",
-  SUBMITTING: "SUBMITTING",
-  SUBMITTED: "SUBMITTED",
-  FAILED: "FAILED",
-  DECLINED: "DECLINED",
-  UNKNOWN: "UNKNOWN",
-} as const;
-
-export const SLICE7_BATCH_STATUS = {
-  FUNDS_RESERVED_EXECUTION_DISABLED: "FUNDS_RESERVED_EXECUTION_DISABLED",
-  PROVIDER_SUBMISSION_PARTIAL: "PROVIDER_SUBMISSION_PARTIAL",
-  PROVIDER_SUBMISSION_IN_PROGRESS: "PROVIDER_SUBMISSION_IN_PROGRESS",
-} as const;
-
-export const SLICE7_INTENT_STATUS = {
-  READY: "READY",
-  SUBMITTING: "SUBMITTING",
-  SUBMITTED: "SUBMITTED",
-  FAILED: "FAILED",
-  DECLINED: "DECLINED",
-  UNKNOWN: "UNKNOWN",
-} as const;
-
 /** Admin labels — never "Paid" for Slice 7 submission success. */
 export const ADMIN_SLICE7_LABELS = {
   RESERVED: "Reserved",
@@ -84,18 +52,6 @@ export const SLICE7_PROOF_DRIVERS = {
   OCCURRENCE_KEY: "weekly-payout:milton-keynes:2026-07-14T12:00:00+01:00",
   BATCH_ID_HINT: "94baa4ed-2de7-41cb-a3bd-a648c20d5036",
 } as const;
-
-/** Slice 7 may call validated transport when TRANSPORT=true and LIVE=false. */
-export function maySubmitReservedDriverPayoutViaTransport(
-  env: { get(key: string): string | undefined } = typeof Deno !== "undefined"
-    ? Deno.env
-    : { get: () => undefined },
-): boolean {
-  const live = (env.get("LIVE_PAYOUT_EXECUTION_ENABLED") ?? "false").trim().toLowerCase() === "true";
-  const transport =
-    (env.get("REVOLUT_PAYMENT_TRANSPORT_ENABLED") ?? "false").trim().toLowerCase() === "true";
-  return transport && !live;
-}
 
 /**
  * Admin Slice 7 submit gate — LIVE must stay false (no automatic weekly execution).
@@ -211,85 +167,6 @@ export function evaluateSourceAccountGate(args: {
     };
   }
   return { ok: true, source_account_id: sourceId };
-}
-
-export function evaluateSubmissionEligibility(args: {
-  item_status: string | null | undefined;
-  reservation_status: string | null | undefined;
-  reservation_amount_pence: number | null | undefined;
-  item_amount_pence: number;
-  destination_active?: boolean | null;
-  provider_link_verified?: boolean | null;
-  existing_intent_status?: string | null;
-}): { ok: true } | { ok: false; code: SubmissionErrorCode; message: string } {
-  const itemStatus = String(args.item_status ?? "").toUpperCase();
-  if (itemStatus === "SUBMITTED") {
-    return { ok: false, code: SUBMISSION_ERROR.ALREADY_SUBMITTED, message: "Item already submitted" };
-  }
-  if (itemStatus === "SUBMITTING") {
-    return {
-      ok: false,
-      code: SUBMISSION_ERROR.SUBMISSION_IN_FLIGHT,
-      message: "Item submission already in flight",
-    };
-  }
-  if (itemStatus !== "RESERVED") {
-    return {
-      ok: false,
-      code: SUBMISSION_ERROR.PAYOUT_ITEM_NOT_RESERVED,
-      message: `Item status ${itemStatus || "null"} is not RESERVED`,
-    };
-  }
-  const reservationStatus = String(args.reservation_status ?? "").toUpperCase();
-  if (reservationStatus !== "ACTIVE") {
-    return {
-      ok: false,
-      code: SUBMISSION_ERROR.RESERVATION_NOT_ACTIVE,
-      message: "ACTIVE reservation required",
-    };
-  }
-  const reserved = Math.round(Number(args.reservation_amount_pence ?? 0));
-  const amount = Math.round(Number(args.item_amount_pence ?? 0));
-  if (reserved !== amount || amount <= 0) {
-    return {
-      ok: false,
-      code: SUBMISSION_ERROR.AMOUNT_MISMATCH,
-      message: "Reservation amount must match payout item amount",
-    };
-  }
-  if (args.destination_active === false) {
-    return {
-      ok: false,
-      code: SUBMISSION_ERROR.DESTINATION_NOT_ACTIVE,
-      message: "Payout destination inactive",
-    };
-  }
-  if (args.provider_link_verified === false) {
-    return {
-      ok: false,
-      code: SUBMISSION_ERROR.PROVIDER_LINK_NOT_VERIFIED,
-      message: "Destination provider linkage not verified",
-    };
-  }
-  const intent = String(args.existing_intent_status ?? "").toUpperCase();
-  if (intent === "SUBMITTED" || intent === "COMPLETED") {
-    return { ok: false, code: SUBMISSION_ERROR.ALREADY_SUBMITTED, message: "Payment intent already submitted" };
-  }
-  if (intent === "SUBMITTING") {
-    return {
-      ok: false,
-      code: SUBMISSION_ERROR.SUBMISSION_IN_FLIGHT,
-      message: "Payment intent submission in flight",
-    };
-  }
-  if (intent === "UNKNOWN") {
-    return {
-      ok: false,
-      code: SUBMISSION_ERROR.UNKNOWN_NO_BLIND_RETRY,
-      message: "Prior submission UNKNOWN — no blind retry",
-    };
-  }
-  return { ok: true };
 }
 
 /**
@@ -461,46 +338,6 @@ export function redactProviderEvidence(args: {
     provider_created_at: args.created_at ?? null,
     failure_code: args.failure_code ?? null,
     sensitive_payload_stored: false,
-  };
-}
-
-export function adminItemSubmissionDisplay(args: {
-  item_status: string;
-  provider_state?: string | null;
-  provider_payment_id?: string | null;
-  reservation_active?: boolean;
-}): {
-  reserved_label: string;
-  provider_submission_status: string;
-  provider_state: string | null;
-  provider_payment_id_masked: string | null;
-  paid_label: string;
-  wallet_debit_label: string;
-} {
-  const status = String(args.item_status ?? "").toUpperCase();
-  const reserved = args.reservation_active !== false
-    && !["FAILED", "DECLINED", "RELEASED", "CANCELLED"].includes(status);
-  let providerStatus: string = ADMIN_SLICE7_LABELS.RESERVED;
-  if (status === "SUBMITTED") {
-    providerStatus = String(args.provider_state ?? "").toLowerCase() === "pending"
-      ? ADMIN_SLICE7_LABELS.PROVIDER_PENDING
-      : ADMIN_SLICE7_LABELS.PROVIDER_SUBMITTED;
-  } else if (status === "SUBMITTING") {
-    providerStatus = "Submitting to provider";
-  } else if (status === "UNKNOWN") {
-    providerStatus = ADMIN_SLICE7_LABELS.PROVIDER_UNKNOWN;
-  } else if (status === "FAILED") {
-    providerStatus = ADMIN_SLICE7_LABELS.PROVIDER_FAILED;
-  } else if (status === "DECLINED") {
-    providerStatus = ADMIN_SLICE7_LABELS.PROVIDER_DECLINED;
-  }
-  return {
-    reserved_label: reserved ? ADMIN_SLICE7_LABELS.RESERVED : "Not reserved",
-    provider_submission_status: providerStatus,
-    provider_state: args.provider_state ?? null,
-    provider_payment_id_masked: maskProviderId(args.provider_payment_id),
-    paid_label: ADMIN_SLICE7_LABELS.NOT_PAID,
-    wallet_debit_label: ADMIN_SLICE7_LABELS.WALLET_DEBIT_NOT_APPLIED,
   };
 }
 

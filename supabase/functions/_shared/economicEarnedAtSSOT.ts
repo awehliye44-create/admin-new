@@ -23,9 +23,6 @@ export const ECONOMIC_DATE_STATUS = {
   CAPTURE_NOT_VERIFIED: "CAPTURE_NOT_VERIFIED",
 } as const;
 
-export type EconomicDateStatus =
-  (typeof ECONOMIC_DATE_STATUS)[keyof typeof ECONOMIC_DATE_STATUS];
-
 export const ECONOMIC_EARNED_AT_CREATED_AT_LOOKAROUND_MS =
   45 * 24 * 60 * 60 * 1000;
 
@@ -52,11 +49,6 @@ function parseIsoMs(iso: string | null | undefined): number | null {
   if (!iso) return null;
   const ms = Date.parse(iso);
   return Number.isFinite(ms) ? ms : null;
-}
-
-export function isUnresolvedEconomicDate(status: string | null | undefined): boolean {
-  const s = upper(status);
-  return s !== ECONOMIC_DATE_STATUS.RESOLVED && s !== ECONOMIC_DATE_STATUS.POSTING_CREATED_AT && s !== "";
 }
 
 /** Inclusive start, exclusive end. */
@@ -94,19 +86,6 @@ export function londonCivilDateKey(iso: string | null | undefined): string | nul
     month: "2-digit",
     day: "2-digit",
   }).format(new Date(ms));
-}
-
-export function padCreatedAtLookaround(
-  startIso: string,
-  endIso: string,
-  lookaroundMs: number = ECONOMIC_EARNED_AT_CREATED_AT_LOOKAROUND_MS,
-): { fetchStartIso: string; fetchEndIso: string } {
-  const start = parseIsoMs(startIso) ?? 0;
-  const end = parseIsoMs(endIso) ?? 0;
-  return {
-    fetchStartIso: new Date(start - lookaroundMs).toISOString(),
-    fetchEndIso: new Date(end + lookaroundMs).toISOString(),
-  };
 }
 
 /**
@@ -148,24 +127,6 @@ export function mergeBackendEconomicFields<T extends { id?: string | null }>(
     captured_at: capturedSafe,
     eligible_at: fields.eligible_at ?? null,
     clearing_status: fields.clearing_status ?? null,
-  };
-}
-
-export function parseOwnWalletEarningRow(raw: Record<string, unknown>): BackendEconomicFields {
-  const status = typeof raw.economic_date_status === "string" ? raw.economic_date_status : null;
-  const resolved = status === ECONOMIC_DATE_STATUS.RESOLVED;
-  return {
-    ledger_entry_id: typeof raw.ledger_entry_id === "string" ? raw.ledger_entry_id : null,
-    related_trip_id: typeof raw.related_trip_id === "string" ? raw.related_trip_id : null,
-    amount_pence: typeof raw.amount_pence === "number" ? raw.amount_pence : Number(raw.amount_pence ?? 0),
-    type: typeof raw.type === "string" ? raw.type : null,
-    description: typeof raw.description === "string" ? raw.description : null,
-    posting_created_at: typeof raw.posting_created_at === "string" ? raw.posting_created_at : null,
-    economic_earned_at: typeof raw.economic_earned_at === "string" ? raw.economic_earned_at : null,
-    economic_date_status: status,
-    captured_at: resolved && typeof raw.captured_at === "string" ? raw.captured_at : null,
-    eligible_at: typeof raw.eligible_at === "string" ? raw.eligible_at : null,
-    clearing_status: typeof raw.clearing_status === "string" ? raw.clearing_status : null,
   };
 }
 

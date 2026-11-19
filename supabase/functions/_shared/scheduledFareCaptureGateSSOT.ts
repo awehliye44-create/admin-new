@@ -15,46 +15,6 @@ export type FareCaptureGateResult =
   | { ok: true }
   | { ok: false; code: string; error: string };
 
-/** Live / pre-completion statuses that must never fare-capture. */
-export const FARE_CAPTURE_BLOCKED_TRIP_STATUSES = new Set([
-  "scheduled",
-  "pending",
-  "payment_pending",
-  "searching",
-  "searching_new_driver",
-  "offered",
-  "offering",
-  "broadcasting",
-  "negotiating",
-  "queued",
-  "scheduled_committed",
-  "accepted",
-  "confirmed",
-  "driver_assigned",
-  "assigned",
-  "en_route",
-  "en_route_to_pickup",
-  "enroute_to_pickup",
-  "driver_en_route",
-  "driver_arriving",
-  "arrived",
-  "arrived_pickup",
-  "arrived_at_pickup",
-  "at_pickup",
-  "pickup_waiting",
-  "waiting",
-  "waiting_at_pickup",
-  "in_progress",
-  "started",
-  "on_trip",
-  "ongoing",
-  "trip_started",
-  "completing",
-  "arrived_at_stop",
-  "drive_to_next_stop",
-  "admin_held",
-]);
-
 /** Terminal statuses where cancel/no-show fee partial capture is allowed. */
 export const TERMINAL_FEE_CAPTURE_TRIP_STATUSES = new Set([
   "cancelled",

@@ -48,45 +48,6 @@ export function parseDriverPushPlatform(
   return null;
 }
 
-/** Provider / FCM error signals that mean the token must stop receiving. */
-export function isInvalidProviderTokenError(input: {
-  errCode?: string | number | null;
-  errMessage?: string | null;
-  httpStatus?: number | null;
-}): boolean {
-  const code = String(input.errCode ?? "").toUpperCase();
-  const message = String(input.errMessage ?? "").toLowerCase();
-  const status = input.httpStatus ?? 0;
-
-  if (
-    code === "UNREGISTERED" ||
-    code === "NOT_FOUND" ||
-    code === "INVALID_ARGUMENT" ||
-    code === "TOKEN_INVALID" ||
-    code === "MESSAGING/INVALID-REGISTRATION-TOKEN" ||
-    code === "MESSAGING/REGISTRATION-TOKEN-NOT-REGISTERED"
-  ) {
-    return true;
-  }
-
-  if (status === 404) return true;
-
-  if (
-    message.includes("not a valid fcm registration token") ||
-    message.includes("requested entity was not found") ||
-    message.includes("unregistered") ||
-    message.includes("bad device token") ||
-    message.includes("baddevicetoken") ||
-    message.includes("invalid registration") ||
-    message.includes("not registered") ||
-    message.includes("token mismatch")
-  ) {
-    return true;
-  }
-
-  return false;
-}
-
 export function buildTokenDeactivatePatch(reason: string): {
   is_active: false;
   last_failure_at: string;

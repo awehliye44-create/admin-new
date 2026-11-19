@@ -245,5 +245,3 @@ export async function prepareRevolutModificationAuthorisation(args: {
   };
 }
 
-/** @deprecated Prefer prepareRevolutModificationAuthorisation */
-export const prepareRevolutModificationTopUp = prepareRevolutModificationAuthorisation;

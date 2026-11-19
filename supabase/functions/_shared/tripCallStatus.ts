@@ -18,10 +18,6 @@ export function isTerminalCallStatus(status: TripCommunicationCallStatus): boole
   return TERMINAL.has(status);
 }
 
-export function isActiveCallStatus(status: TripCommunicationCallStatus): boolean {
-  return TRIP_COMMUNICATION_ACTIVE_STATUSES.has(status);
-}
-
 /** Map voip_call_logs.status (+ end_reason hints) → neutral status. */
 export function mapVoipLogStatus(
   status: string,

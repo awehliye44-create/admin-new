@@ -8,21 +8,6 @@ export function timestampFresh(ts: string | null | undefined, cutoffIso: string)
   return new Date(ts).getTime() >= new Date(cutoffIso).getTime();
 }
 
-export function idleRepairCandidate(args: {
-  currentTripId: string | null;
-  presenceStatus: string;
-  heartbeatOk: boolean;
-  locationOk: boolean;
-  hasLatLng: boolean;
-  isOnlineFlag: boolean;
-}): boolean {
-  if (args.currentTripId) return false;
-  if (!args.heartbeatOk || !args.locationOk || !args.hasLatLng) return false;
-  const statusBad = args.presenceStatus !== "online";
-  const onlineFlagBad = args.isOnlineFlag !== true;
-  return statusBad || onlineFlagBad;
-}
-
 export function realtimeFresh(
   presence: {
     socket_connected?: boolean | null;
@@ -48,31 +33,6 @@ export type DriverOfferReachability = {
   hasRealtimeFresh: boolean;
   hasRegisteredPushToken: boolean;
 };
-
-/**
- * Driver can receive an offer when Supabase Realtime is live OR a registered
- * native push token exists. Online-without-either is "false reachable".
- */
-export function driverOfferReachable(args: {
-  presence: {
-    socket_connected?: boolean | null;
-    last_socket_pong_at?: string | null;
-    last_realtime_seen_at?: string | null;
-    updated_at?: string | null;
-  };
-  hasRegisteredPushToken: boolean;
-  realtimeCutoffIso: string;
-}): DriverOfferReachability {
-  const hasRealtimeFresh = realtimeFresh(args.presence, args.realtimeCutoffIso);
-  const hasRegisteredPushToken = args.hasRegisteredPushToken === true;
-  const reachable = hasRealtimeFresh || hasRegisteredPushToken;
-  return {
-    reachable,
-    rejectReason: reachable ? null : "no_socket_no_push",
-    hasRealtimeFresh,
-    hasRegisteredPushToken,
-  };
-}
 
 /** Wave sizes / TTLs occasionally arrive as numeric strings â parse safely (>0 only). */
 export function coercePositiveInt(raw: unknown): number | null {

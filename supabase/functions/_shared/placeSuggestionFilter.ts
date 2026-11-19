@@ -203,14 +203,6 @@ export function filterPlaceSuggestions<T extends FilterablePlaceSuggestion>(
   return sorted.slice(0, max);
 }
 
-export function mergePlaceSuggestions<T extends FilterablePlaceSuggestion>(
-  primary: T[],
-  secondary: T[],
-  options?: { isPostcodeQuery?: boolean; maxResults?: number },
-): T[] {
-  return filterPlaceSuggestions([...primary, ...secondary], options);
-}
-
 /** Haversine distance in metres (for ranking nearby results). */
 export function distanceMeters(
   lat1: number,
@@ -298,15 +290,3 @@ export function mapMapboxSuggestToRow(f: {
   };
 }
 
-export function formatPlaceSuggestionDisplay(name: string, address: string): { name: string; address: string } {
-  const main = name.trim();
-  const secondary = address.trim();
-  if (!main) return { name: secondary, address: "" };
-  if (!secondary || secondary.toLowerCase().startsWith(main.toLowerCase())) {
-    return { name: main, address: secondary };
-  }
-  if (secondary.toLowerCase().includes(main.toLowerCase()) && secondary.length > main.length) {
-    return { name: main, address: secondary };
-  }
-  return { name: main, address: secondary };
-}

@@ -95,20 +95,3 @@ export type DriverFleetDisplayStatusInput = DriverLocationStateInput & {
   isOnline: boolean | null | undefined;
 };
 
-export function resolveDriverFleetDisplayStatus(
-  input: DriverFleetDisplayStatusInput,
-): DriverFleetDisplayStatus {
-  if (!input.isOnline) return "Offline";
-  switch (computeDriverLocationState(input)) {
-    case "location_live":
-      return "Live";
-    case "location_stationary":
-      return "Stationary";
-    case "location_frozen":
-      return "Frozen";
-    case "location_stale":
-    case "location_unavailable":
-    default:
-      return "Delayed";
-  }
-}

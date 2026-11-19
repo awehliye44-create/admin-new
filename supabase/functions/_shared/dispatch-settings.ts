@@ -11,12 +11,12 @@ import {
   bookingDispatchRadiusForWave,
   bookingDispatchWaveRadiiFromRow,
   type BookingDispatchWaveRadiiMeters,
-} from "../../../shared/bookingDispatchRadiusSSOT.ts";
+} from "./bookingDispatchRadiusSSOT.ts";
 import {
   FLEET_MAX_PICKUP_DISTANCE_MILES_FAILSAFE,
   fleetMaxPickupMetersFromDispatchRow,
   resolveFleetMaxPickupDistanceMiles,
-} from "../../../shared/fleetMaxPickupDistanceSSOT.ts";
+} from "./fleetMaxPickupDistanceSSOT.ts";
 
 /**
  * Mirrors Postgres NOT NULL DEFAULT values on public.dispatch_settings (20260601100000).
@@ -93,11 +93,6 @@ export function mergeDispatchRow(
     }
   }
   return out as ResolvedDispatchSettings;
-}
-
-export function kmToMeters(km: unknown, fallbackKm: number): number {
-  const n = coerceNonNegativeNumber(km, fallbackKm);
-  return Math.round(n * 1000);
 }
 
 /**
@@ -311,18 +306,6 @@ export function customerSearchWindowMs(settings: Record<string, unknown>): numbe
     coercePositiveInt(settings.global_timeout_minutes) ??
     3;
   return minutes * 60 * 1000;
-}
-
-/** @deprecated Use customerSearchWindowMs(loadDispatchSettings(...)) — rematch uses admin max search time. */
-export const DRIVER_CANCEL_REMATCH_SEARCH_WINDOW_MS =
-  customerSearchWindowMs(DISPATCH_SETTINGS_SCHEMA_DEFAULTS);
-
-/** Driver-cancel rematch search window — same SSOT as initial booking (max_driver_find_time_minutes). */
-export function driverCancelRematchSearchExpiresAtIso(
-  settings: Record<string, unknown>,
-  fromMs: number = Date.now(),
-): string {
-  return customerSearchExpiresAtIso(settings, fromMs);
 }
 
 export function customerSearchExpiresAtIso(
@@ -566,14 +549,6 @@ export function fleetMaxPickupMetersFromSettings(
   settings: Record<string, unknown> | null | undefined,
 ): number {
   return fleetMaxPickupMetersFromDispatchRow(settings ?? null);
-}
-
-export function fleetMaxPickupMilesFromSettings(
-  settings: Record<string, unknown> | null | undefined,
-): number {
-  return resolveFleetMaxPickupDistanceMiles(
-    settings?.fleet_max_pickup_distance_miles ?? FLEET_MAX_PICKUP_DISTANCE_MILES_FAILSAFE,
-  );
 }
 
 async function loadGlobalDispatchSettingsRow(

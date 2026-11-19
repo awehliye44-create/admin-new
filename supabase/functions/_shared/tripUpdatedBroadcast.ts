@@ -378,33 +378,3 @@ export async function broadcastTripUpdated(
   });
 }
 
-/** After stop-workflow lifecycle writes — push status SSOT on existing trip_updated channel. */
-export async function broadcastTripLifecycleUpdated(
-  supabase: SupabaseClient,
-  tripId: string,
-): Promise<void> {
-  if (!tripId) return;
-  const { data: trip, error: tripErr } = await supabase
-    .from("trips")
-    .select("*")
-    .eq("id", tripId)
-    .maybeSingle();
-  if (tripErr || !trip) {
-    console.warn("[tripUpdatedBroadcast] lifecycle fetch failed", { tripId, error: tripErr?.message });
-    return;
-  }
-  const { data: stops } = await supabase
-    .from("trip_stops")
-    .select("*")
-    .eq("trip_id", tripId)
-    .order("stop_index", { ascending: true });
-  const payload = normalizeTripUpdatedPayload(trip as Record<string, unknown>, {
-    stops: stops ?? [],
-  });
-  await broadcastTripUpdated(supabase, payload);
-  console.log("[tripUpdatedBroadcast] lifecycle", {
-    tripId,
-    status: payload.status ?? null,
-    updatedAt: payload.updatedAt ?? null,
-  });
-}

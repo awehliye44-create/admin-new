@@ -74,35 +74,6 @@ export function majorFareUnitFromTrip(trip: Record<string, unknown>): number | n
   return major;
 }
 
-export function fareDisplayForRideOfferPush(
-  currencyCode: string | null | undefined,
-  major: number | null,
-): string {
-  const ccy = String(currencyCode ?? '').trim().toUpperCase();
-  if (!ccy) return '\u2014';
-  const sym = getCurrencySymbol(ccy) || `${ccy} `;
-  if (major == null || !Number.isFinite(major)) return '\u2014';
-  const x = Number(major.toFixed(2));
-  const s = x.toFixed(2);
-  return `${sym}${s}`;
-}
-
-/** Approved OS alert body (no fare / address). */
-export function rideOfferAlertPushBody(_trip?: Record<string, unknown>): string {
-  return DRIVER_NEW_RIDE_OFFER_BODY;
-}
-
-/** Approved OS alert title. */
-export function rideOfferAlertPushTitle(): string {
-  return DRIVER_NEW_RIDE_OFFER_TITLE;
-}
-
-export function fareAmountPlainStringFromTrip(trip: Record<string, unknown>): string {
-  const major = majorFareUnitFromTrip(trip);
-  if (major == null || !Number.isFinite(major)) return '';
-  return major.toFixed(2);
-}
-
 export function tripReferenceForRideOfferPush(trip: Record<string, unknown>): string {
   const tn =
     typeof trip.trip_number === 'string'

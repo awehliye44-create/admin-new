@@ -808,29 +808,3 @@ export async function assertPlatformCollectedCompletionPaymentGate(
   };
 }
 
-/** @deprecated Prefer assertPlatformCollectedCompletionPaymentGate */
-export async function assertNoUnresolvedFareIncreaseModification(
-  supabase: SupabaseClient,
-  tripId: string,
-): Promise<{ ok: true } | { ok: false; code: string; message: string }> {
-  const { data: unresolved, error } = await supabase.rpc(
-    "trip_has_unresolved_fare_increase_modification",
-    { p_trip_id: tripId },
-  );
-  if (error) {
-    return {
-      ok: false,
-      code: "UNRESOLVED_MODIFICATION_CHECK_FAILED",
-      message: "Unable to verify trip modifications before completion",
-    };
-  }
-  if (unresolved === true) {
-    return {
-      ok: false,
-      code: CUSTOMER_PAYMENT_INCREMENT_UNRESOLVED,
-      message:
-        "Trip has an unresolved customer payment increment; completion is blocked",
-    };
-  }
-  return { ok: true };
-}

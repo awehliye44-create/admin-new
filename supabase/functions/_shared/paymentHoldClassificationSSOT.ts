@@ -1,10 +1,3 @@
-/**
- * Payment Holds Attention SSOT — classification, provider mapping, money-at-risk.
- * Shared by edge functions and unit tests. No Deno-only imports.
- */
-
-export type PaymentHoldTrafficLight = "GREEN" | "AMBER" | "RED" | "RESOLVED";
-
 export type PaymentHoldAttentionClass =
   | "ACTIVE_AUTHORISED_HOLD"
   | "RECOVERY_PENDING"
@@ -67,18 +60,6 @@ export function mapRevolutProviderHoldState(
     default:
       return "UNKNOWN";
   }
-}
-
-export function isTerminalResolvedProviderState(
-  state: CanonicalProviderHoldState,
-): boolean {
-  return (
-    state === "CANCELLED"
-    || state === "REVERTED"
-    || state === "CAPTURED"
-    || state === "REFUNDED"
-    || state === "FAILED"
-  );
 }
 
 export function providerTerminalReason(

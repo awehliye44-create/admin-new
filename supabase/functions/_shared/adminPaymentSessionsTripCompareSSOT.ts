@@ -630,14 +630,6 @@ export function buildPsOnlyCompareSummary(
   return emptyCompareSummary(providerRows);
 }
 
-export function filterMatchStatus(
-  status: PaymentTripMatchStatus | null | undefined,
-  rows: AdminPaymentSessionsMatchingRow[],
-): AdminPaymentSessionsMatchingRow[] {
-  if (!status) return rows;
-  return rows.filter((r) => rowMatchesOwnedFieldFilter(status, r));
-}
-
 /**
  * Tab filter only.
  * Amount MATCHED / SHORTFALL / OVERCAPTURE are FR-owned — never invent from local variance.

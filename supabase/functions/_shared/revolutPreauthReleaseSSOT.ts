@@ -343,11 +343,6 @@ async function auditRevolutHoldAction(
   });
 }
 
-export function tripAllowsRevolutHoldRelease(tripStatus: string | undefined | null): boolean {
-  const status = String(tripStatus ?? "").toLowerCase();
-  return TERMINAL_TRIP_STATUSES.has(status) || status === "searching" || status === "pending";
-}
-
 export function resolveRevolutOrderIdFromTrip(trip: Record<string, unknown>): string | null {
   const providerOrderId = String(trip.provider_order_id ?? "").trim();
   return providerOrderId || null;

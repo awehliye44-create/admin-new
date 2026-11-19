@@ -49,18 +49,6 @@ export function classifyRevolutOrderForBookingRetry(
   return "reuse_unresolved";
 }
 
-export function isRevolutBookingTerminalBlockState(
-  state: string | null | undefined,
-): boolean {
-  return classifyRevolutOrderForBookingRetry(state) === "terminal_block";
-}
-
-export function isRevolutBookingUnresolvedState(
-  state: string | null | undefined,
-): boolean {
-  return classifyRevolutOrderForBookingRetry(state) === "reuse_unresolved";
-}
-
 /** Exact amount + currency match before treating an authorised hold as booking-ready. */
 export function authorisedHoldMatchesBooking(args: {
   orderAmountMinor: number | null | undefined;

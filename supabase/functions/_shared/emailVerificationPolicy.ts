@@ -15,8 +15,6 @@ export const EMAIL_VERIFICATION_AUDIT = {
   INVALID_TOKEN: "EMAIL_VERIFICATION_INVALID_TOKEN",
 } as const;
 
-export type VerificationFailureCode = "expired_token" | "invalid_token";
-
 type VerificationTokenRowRef = {
   id: string;
   user_id: string;

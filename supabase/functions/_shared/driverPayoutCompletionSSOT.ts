@@ -1,10 +1,3 @@
-/**
- * Edge copy of shared/driverPayoutCompletionSSOT.ts (Slice 8).
- * Keep in sync with shared/driverPayoutCompletionSSOT.ts.
- */
-
-export const SLICE8 = 8 as const;
-
 export const COMPLETION_ERROR = {
   PROVIDER_NOT_COMPLETED: "PROVIDER_NOT_COMPLETED",
   PROVIDER_STATE_FORBIDDEN: "PROVIDER_STATE_FORBIDDEN",
@@ -96,13 +89,6 @@ export function evaluateSlice8FlagGate(_env: {
   get(key: string): string | undefined;
 }): { ok: true } | { ok: false; code: CompletionErrorCode; message: string } {
   return { ok: true };
-}
-
-export function ledgerTypeForCompletionBatchKind(kind: string | null | undefined): string {
-  const k = String(kind ?? "").trim().toUpperCase();
-  if (k === "EARLY_CASHOUT") return "EARLY_CASHOUT";
-  if (k === "MANUAL_ADMIN" || k === "MANUAL") return "MANUAL_PAYOUT";
-  return SLICE8_LEDGER_DEBIT_TYPE;
 }
 
 export function completionDebitIdempotencyKey(providerPaymentId: string): string {

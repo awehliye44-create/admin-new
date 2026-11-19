@@ -210,20 +210,6 @@ export function driverNetFromCustomerTotal(input: {
   return { commissionablePence, commissionPence, driverNetPence };
 }
 
-export function driverNetFromActiveWave(input: {
-  customerPence: number;
-  airportPence: number;
-  otherPassThroughPence?: number;
-  wave: WaveCommissionRate;
-}): DriverNetSplit {
-  return driverNetFromCustomerTotal({
-    customerPence: input.customerPence,
-    airportPence: input.airportPence,
-    otherPassThroughPence: input.otherPassThroughPence,
-    commissionPercent: commissionPercentFromActiveWave(input.wave),
-  });
-}
-
 export function buildAirportRouteExtraItems(airportPence: number): RouteExtraItem[] {
   const amount = Math.max(0, Math.round(Number(airportPence) || 0));
   if (amount <= 0) return [];

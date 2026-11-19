@@ -431,22 +431,6 @@ export function buildPaymentSessionsDisplay(
   };
 }
 
-/** Operator-facing evidence badge — never show vague INCOMPLETE. */
-export function formatPaymentSessionsEvidenceStatus(
-  status: string | null | undefined,
-  label?: string | null,
-): string {
-  const s = String(status ?? "").toUpperCase();
-  if (!s || s === "—" ) return "—";
-  if (s === "INCOMPLETE" || s === "DATA_BACKFILL_REQUIRED") {
-    return "LOCAL_BACKFILL_REQUIRED";
-  }
-  if (label && !/incomplete/i.test(label) && s === "LOCAL_BACKFILL_REQUIRED") {
-    return label;
-  }
-  return s;
-}
-
 /**
  * Tab membership — Captured = confirmed captures only.
  * A zero captured amount is a lifecycle stamp artefact (release / cancel), never a capture,

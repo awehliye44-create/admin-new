@@ -10,9 +10,6 @@
 
 export const SLICE10 = 10 as const;
 
-export const OPERATIONAL_RESERVE_SETTING_KEY_LEGACY =
-  "company_operational_refund_reserve" as const;
-
 export const RESERVE_MODE = {
   FIXED_AMOUNT: "FIXED_AMOUNT",
   PERCENTAGE: "PERCENTAGE",

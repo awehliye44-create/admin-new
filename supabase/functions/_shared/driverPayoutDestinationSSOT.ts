@@ -96,10 +96,6 @@ export function destinationLast4(identifier: string): string {
   return trimmed.slice(-4);
 }
 
-export function maskDestinationIdentifier(identifier: string): string {
-  return `****${destinationLast4(identifier)}`;
-}
-
 export function buildMaskedDestinationLabel(args: {
   provider: string;
   destinationType: string;

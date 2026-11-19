@@ -136,55 +136,6 @@ export async function markRevolutAuthLedgerFailed(
   }
 }
 
-export async function retrieveRevolutOrderWithRetry(
-  environment: ProviderEnvironment,
-  secretKey: string,
-  orderId: string,
-  options?: { maxAttempts?: number; delayMs?: number },
-): Promise<RevolutOrder> {
-  const maxAttempts = options?.maxAttempts ?? 8;
-  const delayMs = options?.delayMs ?? 500;
-  let last: RevolutOrder | null = null;
-
-  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-    last = await retrieveRevolutOrder(environment, secretKey, orderId);
-    if (isRevolutAuthorisedState(last.state)) return last;
-    if (!isRevolutInFlightState(last.state)) return last;
-    if (attempt < maxAttempts) {
-      await new Promise((r) => setTimeout(r, delayMs));
-    }
-  }
-
-  return last!;
-}
-
-export async function waitForRevolutWebhookAuthConfirmation(
-  supabase: SupabaseClient,
-  orderId: string,
-  options?: { maxWaitMs?: number; pollIntervalMs?: number },
-): Promise<boolean> {
-  const maxWaitMs = options?.maxWaitMs ?? 15_000;
-  const pollIntervalMs = options?.pollIntervalMs ?? 400;
-  const deadline = Date.now() + maxWaitMs;
-
-  while (Date.now() < deadline) {
-    if (await isRevolutAuthLedgerConfirmed(supabase, orderId)) {
-      return true;
-    }
-    const { data: processed } = await supabase
-      .from("processed_revolut_events")
-      .select("id")
-      .eq("order_id", orderId)
-      .in("event_type", ["ORDER_AUTHORISED", "ORDER_PAYMENT_AUTHENTICATED"])
-      .limit(1)
-      .maybeSingle();
-    if (processed?.id) return true;
-    await new Promise((r) => setTimeout(r, pollIntervalMs));
-  }
-
-  return isRevolutAuthLedgerConfirmed(supabase, orderId);
-}
-
 export async function verifyRevolutOrderConfirmedForBooking(
   supabase: SupabaseClient,
   environment: ProviderEnvironment,

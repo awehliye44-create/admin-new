@@ -87,13 +87,6 @@ export function resolveFinancialModelScope(
   return { ok: true, requiredModel, allowedServiceAreaIds: allowed, serviceAreaId: null };
 }
 
-export function tripRowMatchesFinancialModel(
-  tripFinancialModel: unknown,
-  requiredModel: Exclude<FinancialModel, 'FINANCIAL_MODEL_UNKNOWN'>,
-): boolean {
-  return resolveFinancialModelStamp(tripFinancialModel) === requiredModel;
-}
-
 export function isDriverCollectedFinancialModel(value: unknown): boolean {
   return resolveFinancialModelStamp(value) === FINANCIAL_MODEL.DRIVER_COLLECTED_COMMISSION_WALLET;
 }
@@ -178,14 +171,6 @@ export function paymentSessionIncludedOnPlatformCollectedAdminPage(
     financial_model: row.trip_financial_model,
     commission_wallet_enabled: row.trip_commission_wallet_enabled,
   }).includeOnPlatformPage;
-}
-
-export function resolvePlatformCollectedServiceAreaFilter(args: {
-  serviceAreaId?: string | null;
-  allowedServiceAreaIds: readonly string[];
-}): string[] {
-  if (args.serviceAreaId) return [args.serviceAreaId];
-  return [...args.allowedServiceAreaIds];
 }
 
 /** Admin issue counter bucket for unknown/null financial_model stamps. */

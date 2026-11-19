@@ -17,15 +17,6 @@ export type PaymentProviderId =
 
 export type ProviderEnvironment = "test" | "live";
 
-export type ProviderStatus =
-  | "not_configured"
-  | "connected"
-  | "error"
-  | "live"
-  | "test";
-
-export type WebhookHealthStatus = "healthy" | "failing" | "not_configured";
-
 export interface ProviderSecrets {
   publishable_key?: string;
   secret_key?: string;
@@ -103,7 +94,6 @@ export interface PaymentProviderAdapter {
   handleWebhookEvent(event: unknown): Promise<{ handled: boolean; message?: string }>;
   testConnection(): Promise<ConnectionTestResult>;
 }
-
 
 export const PROVIDER_ENV_SECRET_MAP: Record<
   PaymentProviderId,

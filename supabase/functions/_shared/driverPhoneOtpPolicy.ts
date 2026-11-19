@@ -18,9 +18,6 @@ export const DRIVER_PHONE_OTP_BLOCK = {
   NO_PROFILE: "NO_PROFILE",
 } as const;
 
-export type DriverPhoneOtpBlockCode =
-  typeof DRIVER_PHONE_OTP_BLOCK[keyof typeof DRIVER_PHONE_OTP_BLOCK];
-
 export type DriverPhoneOtpGuardResult =
   | { ok: true; normalizedPhone: string }
   | { ok: false; code: string; message: string; httpStatus: number };

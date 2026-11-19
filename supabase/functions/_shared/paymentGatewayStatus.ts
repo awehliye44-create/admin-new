@@ -166,21 +166,6 @@ async function loadProviderCredentials(
   );
 }
 
-/** Internal handler bugs (schema, missing columns) are not provider outages. */
-export function isInternalWebhookProcessingError(message: string | null | undefined): boolean {
-  if (!message) return false;
-  const m = message.toLowerCase();
-  return (
-    m.includes("does not exist")
-    || m.includes("fare_pence")
-    || m.includes("column")
-    || m.includes("trip lookup failed")
-    || m.includes("schema cache")
-    || m.includes("pgrst")
-    || m.includes("undefined column")
-  );
-}
-
 /** Never read retired Edge env secrets for test-mode inference. */
 function secretLooksTestMode(_secretKeyPresent: boolean, _provider: string): boolean {
   return false;

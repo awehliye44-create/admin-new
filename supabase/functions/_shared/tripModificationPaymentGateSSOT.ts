@@ -14,13 +14,6 @@ import {
 } from "./revolutOrders.ts";
 import { findBankDeclineReason } from "./revolutCustomerError.ts";
 
-export type ModificationPaymentPhase =
-  | "MODIFICATION_REQUESTED"
-  | "PAYMENT_PENDING"
-  | "PROVIDER_CONFIRMED"
-  | "MODIFICATION_APPLIED"
-  | "PAYMENT_FAILED";
-
 export type ModificationPaymentGateDecision =
   | {
     phase: "PROVIDER_CONFIRMED";

@@ -14,20 +14,6 @@
 
 export const PHASE5_DEPARTURE_ACK_COUNTDOWN_SECONDS = 45 as const;
 
-/**
- * @deprecated Not applied to canAcknowledgeDeparture / isDepartureAckTimedOut.
- * Retained for column compat only. Driver window is exactly 45s.
- */
-export const PHASE5_DEPARTURE_ACK_GRACE_SECONDS_DEFAULT = 0 as const;
-
-export type ScheduledAckStatus =
-  | "pending"
-  | "acknowledged"
-  | "timed_out"
-  | "cancelled"
-  | "declined"
-  | "superseded";
-
 export const SCHEDULED_DEPARTURE_ACK_REASON = {
   acknowledgementTimeout: "acknowledgement_timeout",
   cancelledByDriver: "departure_ack_cancelled_by_driver",
@@ -159,38 +145,6 @@ export function buildDepartureAckAcknowledgedFields(input: {
     scheduled_ack_acknowledged_at: input.nowIso,
     scheduled_ack_resolved_at: input.nowIso,
     scheduled_ack_resolution_reason: "heading_to_pickup",
-  };
-}
-
-export function buildDepartureAckTimeoutFields(input: {
-  nowIso: string;
-  reason?: string;
-}): {
-  scheduled_ack_status: "timed_out";
-  scheduled_ack_resolved_at: string;
-  scheduled_ack_resolution_reason: string;
-} {
-  return {
-    scheduled_ack_status: "timed_out",
-    scheduled_ack_resolved_at: input.nowIso,
-    scheduled_ack_resolution_reason:
-      input.reason ?? SCHEDULED_DEPARTURE_ACK_REASON.acknowledgementTimeout,
-  };
-}
-
-export function buildDepartureAckCancelledFields(input: {
-  nowIso: string;
-  reason?: string;
-}): {
-  scheduled_ack_status: "cancelled";
-  scheduled_ack_resolved_at: string;
-  scheduled_ack_resolution_reason: string;
-} {
-  return {
-    scheduled_ack_status: "cancelled",
-    scheduled_ack_resolved_at: input.nowIso,
-    scheduled_ack_resolution_reason:
-      input.reason ?? SCHEDULED_DEPARTURE_ACK_REASON.cancelledByDriver,
   };
 }
 

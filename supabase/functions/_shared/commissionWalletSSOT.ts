@@ -40,9 +40,6 @@ export const COMMISSION_WALLET_ENTRY_TYPE = {
   ADMIN_CORRECTION: "ADMIN_CORRECTION",
 } as const;
 
-export type CommissionWalletEntryType =
-  typeof COMMISSION_WALLET_ENTRY_TYPE[keyof typeof COMMISSION_WALLET_ENTRY_TYPE];
-
 /**
  * Entries a Driver may see in Commission Wallet history. Commission deductions,
  * reservations, subsidies and corrections stay internal (driver privacy).
@@ -1970,12 +1967,6 @@ export function buildCommissionWalletDeductionIdempotencyKey(tripId: string): st
   return `cw_deduction_${String(tripId).trim()}`.slice(0, 180);
 }
 
-export function buildCommissionWalletReserveConvertReleaseIdempotencyKey(
-  reserveId: string,
-): string {
-  return `cw_reserve_convert_release_${String(reserveId).trim()}`.slice(0, 180);
-}
-
 /**
  * Trip uses Commission Wallet completion path from the immutable trip stamp only.
  * Live service-area config is ignored — SA cannot reclassify an existing trip.
@@ -2417,9 +2408,6 @@ export const COMMISSION_WALLET_ACCOUNT_SOURCE = {
   SA_MOVE: "sa_move",
   ADMIN_REPAIR: "admin_repair",
 } as const;
-
-export type CommissionWalletAccountSource =
-  typeof COMMISSION_WALLET_ACCOUNT_SOURCE[keyof typeof COMMISSION_WALLET_ACCOUNT_SOURCE];
 
 export const COMMISSION_WALLET_SETUP_ERROR = {
   MISSING_ACCOUNT: "MISSING_ACCOUNT",

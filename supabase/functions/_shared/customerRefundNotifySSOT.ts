@@ -57,6 +57,3 @@ export function shouldNotifyCustomerRefund(args: {
   return true;
 }
 
-export function refundNotifyClaimKey(providerRefundId: string, channel: RefundNotifyChannel): string {
-  return `${String(providerRefundId).trim()}:${channel}`;
-}

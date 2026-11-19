@@ -398,11 +398,6 @@ export function isPendingSavedCardProviderState(state: unknown): boolean {
   return s != null && PENDING_SAVED_CARD_STATES.has(s.toUpperCase());
 }
 
-export function isConfirmedSavedCardProviderState(state: unknown): boolean {
-  const s = asNonEmptyString(state);
-  return s != null && CONFIRMED_SAVED_CARD_STATES.has(s.toUpperCase());
-}
-
 export function readSavedCardAttemptFromSessionMetadata(
   metadata: unknown,
 ): SavedCardAttemptFromMetadata {

@@ -8,9 +8,6 @@ export const TIP_WINDOW_STATUS = {
   EXPIRED: "expired",
 } as const;
 
-export type TipWindowStatus =
-  (typeof TIP_WINDOW_STATUS)[keyof typeof TIP_WINDOW_STATUS];
-
 /** Exactly one of these may own tip-window finalisation. */
 export const TIP_WINDOW_TRIGGER = {
   CUSTOMER_SKIP: "CUSTOMER_SKIP",

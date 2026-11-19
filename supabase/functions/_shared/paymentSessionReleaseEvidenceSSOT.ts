@@ -22,10 +22,6 @@ export const RELEASE_EVIDENCE_SOURCE = {
   ADMIN_REFRESH: "admin_refresh",
 } as const;
 
-export type ReleaseEvidenceSource =
-  typeof RELEASE_EVIDENCE_SOURCE[keyof typeof RELEASE_EVIDENCE_SOURCE]
-  | string;
-
 /** Audit expectation only — never write as confirmed release without provider proof. */
 export function expectedReleasePence(args: {
   totalAuthorisedPence: number | null | undefined;
@@ -247,25 +243,6 @@ export function classifyPostCaptureResidualReleaseEvidence(args: {
     residual_actively_held: true,
     reason: "unrecognised_provider_state",
   };
-}
-
-/** Whether FR Missing Releases should treat this as an actionable missing release. */
-export function isActionableMissingRelease(args: {
-  release_evidence_status?: string | null;
-  released_pence: number | null;
-  expected_release_pence: number;
-}): boolean {
-  if (args.expected_release_pence <= 0) return false;
-  const status = String(args.release_evidence_status ?? "").toUpperCase();
-  if (
-    status === RELEASE_EVIDENCE_STATUS.NOT_REQUIRED
-    || status === RELEASE_EVIDENCE_STATUS.CONFIRMED
-    || status === RELEASE_EVIDENCE_STATUS.AMOUNT_UNCONFIRMED
-  ) {
-    return false;
-  }
-  if (args.released_pence != null && args.released_pence >= 0) return false;
-  return true;
 }
 
 export function buildResidualReleaseIdempotencyKey(args: {

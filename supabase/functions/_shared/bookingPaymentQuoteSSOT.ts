@@ -221,9 +221,6 @@ export function bookingPaymentQuoteErrorPayload(
   };
 }
 
-/** @deprecated alias — use bookingPaymentQuoteErrorPayload */
-export const bookingPaymentQuoteErrorResponse = bookingPaymentQuoteErrorPayload;
-
 /** Map RPC / validation notes to typed codes. Trip-fare ≠ outstanding. */
 export function mapBookingQuoteFailureNote(
   note: string | null | undefined,

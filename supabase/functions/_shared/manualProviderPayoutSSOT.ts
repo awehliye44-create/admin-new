@@ -12,11 +12,6 @@ export function isManualBankPayoutProvider(provider: string | null | undefined):
   return MANUAL_BANK_PAYOUT_PROVIDERS.has(provider.trim().toLowerCase());
 }
 
-export function isLiveDriverPayoutProvider(provider: string | null | undefined): boolean {
-  // provider is retired from active payouts — only Revolut / manual bank are live.
-  return Boolean(provider && ["revolut"].includes(provider.trim().toLowerCase()));
-}
-
 /** Wallet-ledger eligibility for manual provider payouts (no provider Connect allocation). */
 export function manualProviderEligiblePence(args: {
   walletUnpaidPence: number;

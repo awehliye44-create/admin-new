@@ -138,18 +138,3 @@ export function createBookingWaterfallCollector(input?: {
   };
 }
 
-export function bookingWaterfallRecordsFromFragment(
-  fragment: { booking_waterfall?: BookingWaterfallServerStepInput[] } | null | undefined,
-) {
-  if (!fragment?.booking_waterfall?.length) return [];
-  return fragment.booking_waterfall.map((step) =>
-    buildBookingWaterfallStepRecord({
-      step: step.step,
-      start_time_ms: step.start_time_ms,
-      finish_time_ms: step.finish_time_ms,
-      source: step.source,
-      blocking_dependency: step.blocking_dependency ?? null,
-      metadata: step.metadata,
-    }),
-  );
-}

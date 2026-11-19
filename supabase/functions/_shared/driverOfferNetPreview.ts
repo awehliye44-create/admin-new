@@ -9,19 +9,6 @@ import {
   resolveQuoteAirportChargePence,
 } from "./airportChargeFareSplitSSOT.ts";
 
-export function computeDriverNetPreviewPence(
-  grossFarePence: number,
-  commissionPercent: number,
-  airportChargePence = 0,
-): number {
-  if (grossFarePence <= 0) return 0;
-  return driverNetFromCustomerTotal({
-    customerPence: grossFarePence,
-    airportPence: airportChargePence,
-    commissionPercent,
-  }).driverNetPence;
-}
-
 export function enrichOfferSnapshotDriverNet(
   snapshot: Record<string, unknown> | null,
   _driver: { driver_categories?: { name?: string } | { name?: string }[] | null },
@@ -137,13 +124,3 @@ export function enrichOfferSnapshotDriverNet(
   return base;
 }
 
-/** Read canonical driver net from offer snapshot (server SSOT). */
-export function readOfferDriverNetFarePence(
-  snapshot: Record<string, unknown> | null | undefined,
-): number {
-  if (!snapshot) return 0;
-  const canonical = Number(snapshot.driver_net_fare_pence ?? 0);
-  if (Number.isFinite(canonical) && canonical > 0) return Math.round(canonical);
-  const legacy = Number(snapshot.driver_net_preview_pence ?? snapshot.driver_earnings_pence ?? 0);
-  return Number.isFinite(legacy) && legacy > 0 ? Math.round(legacy) : 0;
-}

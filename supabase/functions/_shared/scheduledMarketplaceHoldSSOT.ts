@@ -193,8 +193,3 @@ export function classifyAuthoritativeHold(input: {
   return { class: "clear", autoPublishEligible: false, proposedAction: "already_ok" };
 }
 
-export function buildHoldReasonPatch(
-  reason: ScheduledHoldReason | null,
-): { scheduled_hold_reason: ScheduledHoldReason | null } {
-  return { scheduled_hold_reason: reason };
-}

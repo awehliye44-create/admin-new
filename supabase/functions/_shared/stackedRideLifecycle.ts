@@ -637,42 +637,6 @@ async function relinkParentToNextQueued(
   return nextId;
 }
 
-/** Customer cancelled queued Trip B — unlink from parent Trip A; keep remaining queue linked. */
-export async function handleQueuedTripCustomerCancel(
-  supabase: SupabaseClient,
-  queuedTripId: string,
-): Promise<LifecycleResult> {
-  const { data: parents } = await supabase
-    .from("trips")
-    .select("id, driver_id, confirmed_driver_id")
-    .eq("stacked_trip_id", queuedTripId);
-
-  if (!parents?.length) {
-    return { handled: false, action: "skipped", detail: "no_parent_link" };
-  }
-
-  await clearStackedTripLinks(supabase, {
-    queuedTripId,
-    reason: "customer_cancel_queued_unlink",
-  });
-
-  for (const parent of parents) {
-    const driverId =
-      (typeof parent.driver_id === "string" && parent.driver_id) ||
-      (typeof parent.confirmed_driver_id === "string" && parent.confirmed_driver_id) ||
-      null;
-    await relinkParentToNextQueued(supabase, parent.id, driverId, queuedTripId);
-  }
-
-  logLifecycle(STACKED_RIDE_ORPHAN_PREVENTED, {
-    queued_trip_id: queuedTripId,
-    parent_trip_ids: parents.map((p) => p.id),
-    action: "customer_cancel_unlinked",
-  });
-
-  return { handled: true, queued_trip_id: queuedTripId, action: "unlinked" };
-}
-
 /**
  * Driver went offline while Trip A is active with queued Trip B.
  * Re-dispatch Trip B — driver fault; Trip A lifecycle is handled elsewhere.

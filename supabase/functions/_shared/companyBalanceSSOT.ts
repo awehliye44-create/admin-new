@@ -64,49 +64,6 @@ export const COMPANY_BALANCE_LABELS = {
   FUNDING_GAP: "Funding Gap",
 } as const;
 
-export const COMPANY_BALANCE_TOOLTIPS = {
-  REVOLUT_SOURCE_ACCOUNT_BALANCE:
-    "Total available cash in the selected Revolut Business account. This includes protected driver and company liabilities.",
-  ONECAB_AVAILABLE_COMPANY_FUNDS:
-    "Spendable company transfer budget from live Revolut liquidity after protected driver liabilities, approved payables, and operational/refund reserve. Always capped by live Revolut source balance and ONECAB funds before reserve. Never includes Payment Sessions commission totals. When the reserve is NOT_CONFIGURED, real available funds stay UNAVAILABLE (not silent £0).",
-  ONECAB_AVAILABLE_BEFORE_OPERATIONAL_RESERVE:
-    "ONECAB-owned liquidity before operational reserve: Revolut source − protected driver liabilities − approved company payables (− customer refund reserve when configured). Not all of this amount is current-period commission.",
-  APPROVED_COMPANY_PAYABLES:
-    "Approved or awaiting-approval company outgoing transfers — deducted from company funds before reserve (not driver wallet money).",
-  PROTECTED_DRIVER_LIABILITIES:
-    "Driver money protected from company use: live wallet, pending clearing entitlement, active payout reservations, in-flight provider transfers, terminal-fee compensation owed, and unresolved payout obligations. A £0.00 figure on an older deploy may omit pending-clearing entitlements until company-funds gap closure is live.",
-  ONECAB_NET_COMMISSION_AVAILABLE:
-    "Recognised commission can be higher than current Revolut balance because cash may already have been paid out, reserved, refunded, transferred, or classified historically. It is not a spendable balance.",
-  OTHER_COMPANY_OWNED_CASH:
-    "Unclassified residual company-owned cash after recognised Payment Sessions net commission. Never commission; status RECONCILIATION_REQUIRED until classified. Not silently transferable.",
-  UNCLASSIFIED_COMPANY_CASH:
-    "Unclassified residual company-owned cash after recognised Payment Sessions net commission. Never commission; status RECONCILIATION_REQUIRED until classified. Not silently transferable.",
-  RESERVED_DRIVER_PAYOUTS:
-    "Display-only: ACTIVE driver_payout_reservations. Included in Protected Driver Liabilities when computing company funds — shown separately for operational visibility.",
-} as const;
-
-/** Payout Ledger company-funding section headings (display only). */
-export const COMPANY_FUNDING_SECTIONS = {
-  LIQUIDITY_AND_PROTECTION: "Liquidity & protection",
-  /** @deprecated Prefer LIQUIDITY_AND_PROTECTION */
-  TRANSFERABLE_FUNDS: "Liquidity & protection",
-  ACCOUNTING_DIAGNOSTICS: "Accounting diagnostics",
-  /** @deprecated Prefer ACCOUNTING_DIAGNOSTICS */
-  ACCOUNTING_CLASSIFICATION: "Accounting diagnostics",
-  /** @deprecated Reserved payouts moved into main liquidity grid */
-  OPERATIONAL_VISIBILITY: "Operational visibility",
-} as const;
-
-export const COMPANY_BALANCE_COMMISSION_SUBTITLE =
-  "Accounting total from Payment Sessions. Not cash availability.";
-
-export const COMPANY_BALANCE_LABELS_EXTENDED = {
-  ONECAB_AVAILABLE_BEFORE_OPERATIONAL_RESERVE:
-    "ONECAB Available Before Operational Reserve",
-  COMPLETED_DRIVER_PAYOUTS_THIS_MONTH: "Completed Driver Payouts This Month",
-  COMPLETED_COMPANY_TRANSFERS_THIS_MONTH: "Completed Company Transfers This Month",
-} as const;
-
 export type DriverPayoutFundingStatus = "FULLY_FUNDED" | "UNDERFUNDED" | "UNAVAILABLE";
 
 export type CompanyBalanceSectionStatus =
@@ -393,15 +350,6 @@ export function computeDriverPayoutFunding(args: {
     status: gap === 0 ? "FULLY_FUNDED" : "UNDERFUNDED",
     gap_pence: gap,
   };
-}
-
-/** Configured operational + refund reserves for display (unknown → 0 when provider live). */
-export function computeOperationalRefundReservePence(args: {
-  operational_reserve_pence?: number | null;
-  customer_refund_reserved_pence?: number | null;
-}): number {
-  return Math.max(0, Number(args.operational_reserve_pence ?? 0))
-    + Math.max(0, Number(args.customer_refund_reserved_pence ?? 0));
 }
 
 function sectionAmount(

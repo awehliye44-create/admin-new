@@ -35,8 +35,6 @@ export const REVOLUT_CARD_DECLINED_CUSTOMER_MESSAGE =
 export const TRIP_CHANGE_BANK_DECLINED_CUSTOMER_MESSAGE =
   "Your bank declined the additional payment. Your original trip and fare remain unchanged.";
 
-export const TRIP_CHANGE_BANK_DECLINED_TITLE = "Payment declined";
-
 export const REVOLUT_PAYMENT_NOT_AUTHORISED_CUSTOMER_MESSAGE =
   "We couldn't authorise the payment. Please try again or use another payment method.";
 
@@ -215,5 +213,3 @@ export function humanizeRevolutBookingCustomerError(raw: string | null | undefin
   return msg;
 }
 
-export const REVOLUT_BOOKING_FAILED_MESSAGE =
-  "Payment received. We're recovering your booking.";

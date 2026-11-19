@@ -216,13 +216,6 @@ export function nativeAppHandoffHtml(args: {
 </html>`;
 }
 
-export function shouldServeNativeAppHandoffHtml(
-  userAgent: string | null | undefined,
-): boolean {
-  if (isAndroidUserAgent(userAgent)) return false;
-  return isIosSafariUserAgent(userAgent) || /iPhone|iPad|iPod/i.test(String(userAgent ?? ""));
-}
-
 /** Supabase edge bridge: HTTPS email button that hands off to the native app. */
 export function accountEmailVerificationBridgeUrl(
   supabaseUrl: string,
@@ -254,15 +247,3 @@ export function accountEmailChangeDeepLink(
   return `${scheme}://auth/verify-email-change?${query}`;
 }
 
-export function accountEmailChangeAndroidIntentUrl(
-  appType: VerificationAppType,
-  token: string,
-  error?: string,
-): string | null {
-  return androidIntentUrl({
-    appType,
-    path: "auth/verify-email-change",
-    token,
-    error,
-  });
-}

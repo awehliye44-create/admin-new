@@ -36,8 +36,6 @@ export const PAYMENT_LINK_STATE = {
   FAILED: "FAILED",
 } as const;
 
-export type PaymentLinkState = typeof PAYMENT_LINK_STATE[keyof typeof PAYMENT_LINK_STATE];
-
 const TOLERANCE_PENCE = 1;
 
 function upper(v: string | null | undefined): string {
@@ -425,11 +423,6 @@ export function collectOutstandingActionLabel(outstandingPence: number): string 
 export function sendPaymentLinkActionLabel(outstandingPence: number): string {
   const major = (Math.round(outstandingPence) / 100).toFixed(2);
   return `Send Payment Link £${major}`;
-}
-
-export function refundDifferenceActionLabel(overcapturePence: number): string {
-  const major = (Math.round(overcapturePence) / 100).toFixed(2);
-  return `Refund Difference £${major}`;
 }
 
 /** Admin action safety gates (pure). */

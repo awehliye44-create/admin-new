@@ -18,12 +18,6 @@ export type TerminalOutcomeKindInput = {
   no_show_charge_pence?: number | null;
 };
 
-export const CHARGEABLE_TERMINAL_OUTCOMES = new Set<TerminalOutcomeKind>([
-  "NO_SHOW",
-  "LATE_PASSENGER_CANCELLATION",
-  "ARRIVAL_CANCELLATION",
-]);
-
 function pence(v: unknown): number {
   const n = Math.round(Number(v ?? 0));
   return Number.isFinite(n) ? n : 0;

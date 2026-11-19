@@ -1,15 +1,3 @@
-/**
- * Negotiation metadata for driver FCM data payloads (Android OfferStateStore).
- */
-
-export type RideOfferNegotiationPushFields = {
-  negotiation_status?: string;
-  negotiation_expires_at?: string;
-  customer_counter_fare?: string;
-  preset_options_count?: string;
-  preset_fares_pence?: string;
-};
-
 function countPresetOptions(snapshot: unknown): number {
   if (!snapshot || typeof snapshot !== "object") return 0;
   const raw = (snapshot as { preset_options?: unknown }).preset_options;
@@ -95,23 +83,3 @@ export function buildDriverNegotiationPushData(input: {
   return data;
 }
 
-export function appendNegotiationFieldsToRideOfferData(
-  data: Record<string, string>,
-  input: {
-    negotiation_status?: string | null;
-    negotiation_expires_at?: string | null;
-    customer_counter_fare?: number | null;
-    offer_snapshot?: unknown;
-  },
-): Record<string, string> {
-  const extra = buildDriverNegotiationPushData({
-    offer_id: data.offer_id ?? data.offerId ?? "",
-    trip_id: data.trip_id ?? data.tripId ?? "",
-    negotiation_status: input.negotiation_status,
-    negotiation_expires_at: input.negotiation_expires_at,
-    customer_counter_fare: input.customer_counter_fare,
-    offer_snapshot: input.offer_snapshot,
-    notificationType: data.notificationType,
-  });
-  return { ...data, ...extra };
-}

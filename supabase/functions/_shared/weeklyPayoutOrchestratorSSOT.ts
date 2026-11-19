@@ -59,9 +59,6 @@ export const ORCHESTRATOR_CLAIM_ERROR = {
   OCCURRENCE_CLAIM_FAILED: "OCCURRENCE_CLAIM_FAILED",
 } as const;
 
-export type OrchestratorClaimErrorCode =
-  (typeof ORCHESTRATOR_CLAIM_ERROR)[keyof typeof ORCHESTRATOR_CLAIM_ERROR];
-
 export function classifyWeeklyOccurrenceClaimFailure(input: {
   message?: string | null;
   code?: string | null;
@@ -260,22 +257,6 @@ export function classifyPayoutReversalProviderState(
   if (s === "reverted" || s === "reversed" || s === "returned" || s === "refunded") return "REVERSED";
   if (s === "failed" || s === "declined" || s === "cancelled" || s === "canceled") return "FAILED";
   return null;
-}
-
-export function mayOrchestratorMoveMoney(env: {
-  get(key: string): string | undefined;
-}): { ok: true } | { ok: false; blocker_code: OrchestratorBlockerCode } {
-  const live =
-    (env.get("LIVE_PAYOUT_EXECUTION_ENABLED") ?? "false").trim().toLowerCase() === "true";
-  const transport =
-    (env.get("REVOLUT_PAYMENT_TRANSPORT_ENABLED") ?? "false").trim().toLowerCase() === "true";
-  if (!live) {
-    return { ok: false, blocker_code: ORCHESTRATOR_BLOCKER.LIVE_PAYOUT_ROLLOUT_DISABLED };
-  }
-  if (!transport) {
-    return { ok: false, blocker_code: ORCHESTRATOR_BLOCKER.PAYMENT_TRANSPORT_DISABLED };
-  }
-  return { ok: true };
 }
 
 export function orchestratorIdempotencyKey(args: {
@@ -697,26 +678,3 @@ export function buildOrchestratorPlanSnapshot(args: {
   };
 }
 
-/** Admin pre-run summary copy helpers. */
-export function formatOrchestratorScheduleSummary(args: {
-  scheduled_local_label: string;
-  eligible_driver_count: number;
-  required_batch_pence: number;
-  funding_result: FundingResult;
-}): {
-  headline: string;
-  expected_drivers_label: string;
-  expected_amount_pence: number;
-  funding_label: string;
-} {
-  return {
-    headline: `Scheduled for ${args.scheduled_local_label}`,
-    expected_drivers_label: `Expected drivers: ${args.eligible_driver_count}`,
-    expected_amount_pence: args.required_batch_pence,
-    funding_label: args.funding_result === FUNDING_RESULT.SUFFICIENT
-      ? "Funding: Ready"
-      : args.funding_result === FUNDING_RESULT.INSUFFICIENT
-      ? "Funding: Insufficient"
-      : "Funding: Unavailable",
-  };
-}

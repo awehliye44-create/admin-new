@@ -48,11 +48,6 @@ export function buildDispatchWaveSnapshotRpcArgs(
   };
 }
 
-/** Pure helper for tests â validates stage is in the pipeline. */
-export function isDispatchWaveSnapshotStage(value: string): value is DispatchWaveSnapshotStage {
-  return (DISPATCH_WAVE_SNAPSHOT_STAGES as readonly string[]).includes(value);
-}
-
 /**
  * Record one wave snapshot stage. Idempotent at DB layer (ON CONFLICT DO NOTHING).
  * When auditPromises is provided, the RPC is queued like other dispatch audit writes.

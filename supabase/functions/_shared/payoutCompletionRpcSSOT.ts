@@ -230,20 +230,3 @@ export async function invokeManualExternalPayoutCompletion(
   return mapRpcResult((finalized ?? {}) as Record<string, unknown>);
 }
 
-/** @deprecated Use invokeAutomatedPayoutCompletion or invokeManualExternalPayoutCompletion. */
-export async function invokeFinalizeDriverPayoutCompletion(args: {
-  supabase: SupabaseClient;
-  payoutItemId: string;
-  providerPaymentId: string;
-  providerCompletedAt?: string | null;
-  evidence?: Record<string, unknown>;
-}): Promise<InvokeFinalizePayoutCompletionResult> {
-  return invokeAutomatedPayoutCompletion({
-    supabase: args.supabase,
-    payoutItemId: args.payoutItemId,
-    providerPaymentId: args.providerPaymentId,
-    providerState: "completed",
-    providerCompletedAt: args.providerCompletedAt,
-    evidence: args.evidence,
-  });
-}

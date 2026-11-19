@@ -155,91 +155,6 @@ export type VeriffSessionCreateResult =
     }
   | { ok: false; code: string; message: string };
 
-export async function createVeriffSession(input: {
-  firstName: string;
-  lastName: string;
-  vendorData: string;
-  callbackUrl?: string | null;
-}): Promise<VeriffSessionCreateResult> {
-  const apiKey = veriffApiKey();
-  const secret = veriffSharedSecret();
-  if (!apiKey || !secret) {
-    return {
-      ok: false,
-      code: "IDENTITY_REFERENCE_UNAVAILABLE",
-      message: "Identity verification is temporarily unavailable.",
-    };
-  }
-
-  const bodyObj = {
-    verification: {
-      callback: input.callbackUrl || undefined,
-      person: {
-        firstName: input.firstName || undefined,
-        lastName: input.lastName || undefined,
-      },
-      vendorData: input.vendorData,
-      timestamp: new Date().toISOString(),
-    },
-  };
-  const body = JSON.stringify(bodyObj);
-  const signature = await veriffHmacHex(body, secret);
-  const url = `${veriffBaseUrl().replace(/\/$/, "")}/v1/sessions`;
-
-  let resp: Response;
-  try {
-    resp = await fetch(url, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "X-AUTH-CLIENT": apiKey,
-        "X-HMAC-SIGNATURE": signature,
-      },
-      body,
-    });
-  } catch (e) {
-    return {
-      ok: false,
-      code: "NETWORK_ERROR",
-      message: e instanceof Error ? e.message : "veriff_network_error",
-    };
-  }
-
-  const json = (await resp.json().catch(() => ({}))) as Record<string, unknown>;
-  if (!resp.ok) {
-    console.warn("[customer-identity] veriff session create failed", {
-      status: resp.status,
-      body: json,
-    });
-    return {
-      ok: false,
-      code: "IDENTITY_REFERENCE_UNAVAILABLE",
-      message: "Could not start identity verification. Try again later.",
-    };
-  }
-
-  const verification = (json.verification ?? json) as Record<string, unknown>;
-  const sessionId =
-    (typeof verification.id === "string" && verification.id) ||
-    (typeof json.id === "string" && json.id) ||
-    null;
-  const sessionUrl =
-    (typeof verification.url === "string" && verification.url) ||
-    (typeof verification.sessionUrl === "string" && verification.sessionUrl) ||
-    (typeof json.url === "string" && json.url) ||
-    null;
-
-  if (!sessionId || !sessionUrl) {
-    return {
-      ok: false,
-      code: "IDENTITY_REFERENCE_UNAVAILABLE",
-      message: "Identity provider returned an incomplete session.",
-    };
-  }
-
-  return { ok: true, sessionId, sessionUrl, raw: json };
-}
-
 export function mapVeriffDecisionStatus(
   raw: string | null | undefined,
 ): "approved" | "declined" | "resubmission_requested" | "expired" | "processing" {
@@ -251,36 +166,6 @@ export function mapVeriffDecisionStatus(
   }
   if (s === "expired" || s === "abandoned") return "expired";
   return "processing";
-}
-
-export function extractVeriffPersonNames(payload: Record<string, unknown>): {
-  firstName: string | null;
-  lastName: string | null;
-} {
-  const verification = (payload.verification ?? payload) as Record<
-    string,
-    unknown
-  >;
-  const person = (verification.person ?? payload.person ?? {}) as Record<
-    string,
-    unknown
-  >;
-  const first =
-    typeof person.firstName === "string"
-      ? person.firstName.trim()
-      : typeof person.first_name === "string"
-      ? person.first_name.trim()
-      : null;
-  const last =
-    typeof person.lastName === "string"
-      ? person.lastName.trim()
-      : typeof person.last_name === "string"
-      ? person.last_name.trim()
-      : null;
-  return {
-    firstName: first && first.length >= 1 ? first : null,
-    lastName: last && last.length >= 1 ? last : null,
-  };
 }
 
 /**

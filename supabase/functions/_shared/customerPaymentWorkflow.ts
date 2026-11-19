@@ -205,28 +205,3 @@ export function buildServiceAreaPaymentMethodFlags(
   };
 }
 
-/** Mobile-wallet booking edges — adapter must be live. */
-export function assertMobileWalletBookingExecutable(
-  check: GatewayCheckResult,
-): GatewayCheckResult {
-  if (!check.ok) return check;
-  if (!isMobileWalletCollectProvider(check.provider)) {
-    return {
-      ok: false,
-      code: PROVIDER_NOT_IMPLEMENTED,
-      role: "customer",
-      provider: check.provider,
-      reason: "Service area does not use a mobile wallet payment gateway",
-    };
-  }
-  if (!isCustomerBookingAdapterLive(check.provider)) {
-    return {
-      ok: false,
-      code: PROVIDER_NOT_IMPLEMENTED,
-      role: "customer",
-      provider: check.provider,
-      reason: `${check.display_name} is registered but not yet enabled for live booking`,
-    };
-  }
-  return check;
-}

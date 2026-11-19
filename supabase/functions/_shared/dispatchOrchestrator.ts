@@ -20,8 +20,6 @@ export const DISPATCH_SOURCE_TAGS = [
   "driver_cancel_before_pickup",
 ] as const;
 
-export type DispatchSourceTag = (typeof DISPATCH_SOURCE_TAGS)[number];
-
 export type AutoDispatchInvokeBody = {
   trip_id: string;
   force_rebroadcast?: boolean;
@@ -64,21 +62,6 @@ export async function invokeAutoDispatch(
     const message = e instanceof Error ? e.message : String(e);
     return { ok: false, path: "auto_dispatch", error: message };
   }
-}
-
-/**
- * Retry auto-dispatch once after failure (expire-offers). No SQL fallback when flag is off.
- */
-export async function invokeAutoDispatchWithRetry(
-  supabase: InvokeClient,
-  body: AutoDispatchInvokeBody,
-  retries = 1,
-): Promise<DispatchOrchestratorResult> {
-  let last = await invokeAutoDispatch(supabase, body);
-  for (let i = 0; i < retries && !last.ok; i++) {
-    last = await invokeAutoDispatch(supabase, body);
-  }
-  return last;
 }
 
 /**

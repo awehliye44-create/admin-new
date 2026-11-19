@@ -15,8 +15,6 @@ export const PAYOUT_LIFECYCLE = [
   "PAID",
 ] as const;
 
-export type PayoutLifecycleStage = (typeof PAYOUT_LIFECYCLE)[number];
-
 export type DriverWalletPayoutSnapshotInput = {
   /** Σ driver_wallet_ledger (excl. reporting-only types). Signed. */
   wallet_balance_pence: number;

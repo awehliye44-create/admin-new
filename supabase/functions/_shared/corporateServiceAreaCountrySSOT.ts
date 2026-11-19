@@ -46,11 +46,3 @@ export function assertServiceAreaCountryMatch(
   }
 }
 
-export type CorporateServiceAreaOption = {
-  id: string;
-  name: string;
-  code: string | null;
-  country_code: string;
-  currency_code: string | null;
-  sort_distance_m: number | null;
-};

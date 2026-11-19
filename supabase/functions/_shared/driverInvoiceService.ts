@@ -1337,9 +1337,3 @@ export async function handleDriverInvoiceAction(
   }
 }
 
-export async function getDriverInvoiceUrls(
-  supabase: SupabaseClient,
-  invoiceId: string,
-): Promise<DriverInvoiceResponse> {
-  return handleDriverInvoiceAction(supabase, { invoice_id: invoiceId }, "download");
-}

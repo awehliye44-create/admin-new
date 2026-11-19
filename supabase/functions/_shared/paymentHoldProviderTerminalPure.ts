@@ -249,13 +249,3 @@ export function evaluateStaleHoldAction(args: {
   return { allow: true, already_resolved: false, reject_reason: null };
 }
 
-export function canRefundCapturedHold(args: {
-  attentionClass: string;
-  capturedAt: string | null;
-  fullyRefunded?: boolean;
-}): boolean {
-  if (args.attentionClass !== "CAPTURED") return false;
-  if (!args.capturedAt) return false;
-  if (args.fullyRefunded) return false;
-  return true;
-}

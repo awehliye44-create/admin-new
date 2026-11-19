@@ -250,23 +250,3 @@ export function logPassengerBookingBlocked(
   }));
 }
 
-/** Exported for tests — maps block code without async guard. */
-export function blockCodeToBlockedReasons(
-  blockCode: OnboardingLoginBlockCode | null,
-): PassengerBlockedReason[] {
-  switch (blockCode) {
-    case ONBOARDING_LOGIN_BLOCK.EMAIL_NOT_VERIFIED:
-      return [PASSENGER_BLOCKED_REASON.EMAIL_UNVERIFIED];
-    case ONBOARDING_LOGIN_BLOCK.PHONE_NOT_VERIFIED:
-      return [PASSENGER_BLOCKED_REASON.PHONE_UNVERIFIED];
-    case ONBOARDING_LOGIN_BLOCK.NO_PROFILE:
-      return [
-        PASSENGER_BLOCKED_REASON.CUSTOMER_PROFILE_MISSING,
-        PASSENGER_BLOCKED_REASON.ONBOARDING_INCOMPLETE,
-      ];
-    case ONBOARDING_LOGIN_BLOCK.ACCOUNT_NOT_ACTIVE:
-      return [PASSENGER_BLOCKED_REASON.ONBOARDING_INCOMPLETE];
-    default:
-      return [PASSENGER_BLOCKED_REASON.ONBOARDING_INCOMPLETE];
-  }
-}

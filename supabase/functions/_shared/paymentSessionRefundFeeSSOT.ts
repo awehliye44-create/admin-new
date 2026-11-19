@@ -108,29 +108,6 @@ export function classifyFeeStatus(args: {
   };
 }
 
-/** ONECAB net after fee — fee never touches driver net. */
-export function onecabNetAfterProviderFee(args: {
-  grossCommissionPence: number | null | undefined;
-  providerFeePence: number | null | undefined;
-}): number | null {
-  if (args.grossCommissionPence == null || !Number.isFinite(Number(args.grossCommissionPence))) {
-    return null;
-  }
-  if (args.providerFeePence == null || !Number.isFinite(Number(args.providerFeePence))) {
-    return null;
-  }
-  const gross = Math.max(0, Math.round(Number(args.grossCommissionPence)));
-  const fee = Math.max(0, Math.round(Number(args.providerFeePence)));
-  return Math.max(0, gross - fee);
-}
-
-export function buildRefundIdempotencyKey(args: {
-  paymentProvider: string;
-  providerRefundId: string;
-}): string {
-  return `ps_refund:${args.paymentProvider}:${args.providerRefundId}`;
-}
-
 /** Provider-confirmed refund amount only — never use cancelled/released fields. */
 export function extractConfirmedRefundAmountPence(
   providerPayload: Record<string, unknown> | null | undefined,

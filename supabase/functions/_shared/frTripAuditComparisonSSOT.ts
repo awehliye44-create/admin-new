@@ -254,22 +254,6 @@ export function classifyPayoutReconciliation(args: {
   return "PAYOUT_NOT_DUE";
 }
 
-/** Sum TRIP_EARNING_NET credits for a trip — actual wallet credit from Driver Wallet Ledger. */
-export function sumTripWalletEarningCreditPence(
-  ledger: Array<{ type: string; amount_pence: number }>,
-): { credit_pence: number | null; entry_count: number } {
-  let total = 0;
-  let count = 0;
-  for (const entry of ledger) {
-    if (entry.type !== "TRIP_EARNING_NET") continue;
-    if (entry.amount_pence < 0) continue;
-    total += entry.amount_pence;
-    count += 1;
-  }
-  if (count === 0) return { credit_pence: null, entry_count: 0 };
-  return { credit_pence: total, entry_count: count };
-}
-
 export function onecabNetFromSessionFee(args: {
   gross_commission_pence: number;
   provider_processing_fee_pence: number | null;

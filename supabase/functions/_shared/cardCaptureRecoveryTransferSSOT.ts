@@ -52,36 +52,3 @@ export function computeDriverProviderTransferAmountPence(args: {
   return Math.max(0, driverNet - outstanding);
 }
 
-export function computeCardCaptureRecoveryTransfer(args: {
-  finalFarePence: number;
-  commissionPence: number;
-  outstandingRecoveryDebtPence: number;
-  passThroughPence?: number;
-  tipPence?: number;
-}): CardCaptureRecoveryTransferResult {
-  const driverNetPence = computeCardDriverNetPence(args.finalFarePence, args.commissionPence);
-  const debtRecoveryPence = computePerTripDebtRecoveryPence({
-    outstandingRecoveryDebtPence: args.outstandingRecoveryDebtPence,
-    driverNetPence,
-  });
-  const remainingRecoveryDebtPence = computeRemainingRecoveryDebtPence({
-    outstandingRecoveryDebtPence: args.outstandingRecoveryDebtPence,
-    driverNetPence,
-  });
-  const driverProviderTransferNetPence = computeDriverProviderTransferAmountPence({
-    driverNetPence,
-    outstandingRecoveryDebtPence: args.outstandingRecoveryDebtPence,
-  });
-  const passThroughPence = Math.max(0, Math.round(args.passThroughPence ?? 0));
-  const tipPence = Math.max(0, Math.round(args.tipPence ?? 0));
-  const driverProviderTransferTotalPence =
-    driverProviderTransferNetPence + passThroughPence + tipPence;
-
-  return {
-    driver_net_pence: driverNetPence,
-    debt_recovery_pence: debtRecoveryPence,
-    remaining_recovery_debt_pence: remainingRecoveryDebtPence,
-    driver_provider_transfer_net_pence: driverProviderTransferNetPence,
-    driver_provider_transfer_total_pence: driverProviderTransferTotalPence,
-  };
-}
