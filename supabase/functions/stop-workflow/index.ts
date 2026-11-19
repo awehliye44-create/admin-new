@@ -79,6 +79,10 @@ import {
   TIP_WINDOW_MS,
   TIP_WINDOW_STATUS,
 } from "../_shared/tipWindowConstants.ts";
+import {
+  evaluateFarFromLocationGate,
+  type FarFromLocationKind,
+} from "../_shared/farFromLocationGate.ts";
 import { invoiceTipPenceFromConfirmedCapture, isFareCapturedBlockingTipWindow } from "../_shared/tripPaymentFinalised.ts";
 import {
   isTipWindowProcessing,
@@ -619,6 +623,11 @@ interface WorkflowRequest {
   cancel_reason?: string;
   driver_lat?: number;
   driver_lng?: number;
+  /** Explicit Yes from Driver far-from confirmation modal. */
+  far_confirm?: boolean;
+  location_accuracy_m?: number;
+  location_timestamp?: string;
+  stop_id?: string;
   /** Client tap correlation id — folded into Edge stages / ops_logs. */
   perf_id?: string;
 }
@@ -2075,6 +2084,45 @@ Deno.serve(async (req) => {
 
     const body: WorkflowRequest = await req.json();
     const { trip_id, driver_id: requestedDriverId, action, driver_lat, driver_lng, cancel_reason } = body;
+    const farConfirm = body.far_confirm === true;
+    const locationAccuracyM =
+      typeof body.location_accuracy_m === "number" && Number.isFinite(body.location_accuracy_m)
+        ? body.location_accuracy_m
+        : null;
+    const locationTimestampIso =
+      typeof body.location_timestamp === "string" && body.location_timestamp.trim()
+        ? body.location_timestamp.trim()
+        : null;
+    const assertFarFromLocation = (
+      kind: FarFromLocationKind,
+      targetLat: number | null | undefined,
+      targetLng: number | null | undefined,
+    ) => {
+      const gate = evaluateFarFromLocationGate({
+        kind,
+        driverLat: typeof driver_lat === "number" ? driver_lat : null,
+        driverLng: typeof driver_lng === "number" ? driver_lng : null,
+        targetLat,
+        targetLng,
+        farConfirm,
+        locationAccuracyM,
+        locationTimestampIso,
+      });
+      if (!gate.ok) {
+        return errorResponse(
+          gate.code,
+          gate.message,
+          409,
+          {
+            code: gate.code,
+            error_code: gate.code,
+            distance_metres: gate.distanceMeters,
+            far_confirm_required: true,
+          },
+        );
+      }
+      return null;
+    };
     const perfId = normalizeLifecyclePerfId(body.perf_id);
     const lifecycleActions = new Set([
       "arrive_pickup",
@@ -2698,6 +2746,11 @@ Deno.serve(async (req) => {
         const pickupLng = pickupStop.lng ?? trip.pickup_longitude ?? null;
         const pickupDriverLat = typeof driver_lat === 'number' ? driver_lat : undefined;
         const pickupDriverLng = typeof driver_lng === 'number' ? driver_lng : undefined;
+
+        if (!(stopAlreadyArrived && tripAlreadyArrived)) {
+          const farPickup = assertFarFromLocation("pickup", pickupLat, pickupLng);
+          if (farPickup) return farPickup;
+        }
 
         // Idempotent: stop and trip both reflect arrival — ensure waiting started once
         if (stopAlreadyArrived && tripAlreadyArrived) {
@@ -3439,6 +3492,17 @@ Deno.serve(async (req) => {
         const stopDriverLat = typeof driver_lat === 'number' ? driver_lat : undefined;
         const stopDriverLng = typeof driver_lng === 'number' ? driver_lng : undefined;
 
+        const stopAlreadyArrivedFar =
+          currentStop.status === 'current' && !!currentStop.arrived_at;
+        if (!stopAlreadyArrivedFar) {
+          const farStop = assertFarFromLocation(
+            "stop",
+            currentStop.lat ?? null,
+            currentStop.lng ?? null,
+          );
+          if (farStop) return farStop;
+        }
+
         // Idempotency: already arrived — try waiting start when inside radius
         if (currentStop.status === 'current' && currentStop.arrived_at) {
           lifecyclePerf?.mark("waiting_ssot_start");
@@ -4136,6 +4200,18 @@ Deno.serve(async (req) => {
         const finalStop = stops?.find(s => s.type === 'dropoff');
         if (!finalStop) {
           return errorResponse("NO_DROPOFF", "Final stop not found", 400);
+        }
+
+        // Far-from destination Yes/No — UX already shows the modal; Edge enforces.
+        // Missing GPS fail-open (matches Driver resolveFarFromLocationCheck).
+        // Runs after idempotent completed short-circuit so Rate-path retries never 409.
+        {
+          const farComplete = assertFarFromLocation(
+            "destination",
+            finalStop.lat ?? trip.dropoff_latitude ?? null,
+            finalStop.lng ?? trip.dropoff_longitude ?? null,
+          );
+          if (farComplete) return farComplete;
         }
 
         // MK-261114-006: refuse Complete while intermediate vias remain.

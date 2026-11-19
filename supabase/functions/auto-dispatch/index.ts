@@ -37,6 +37,10 @@ import {
   waveOfferExpirySeconds,
 } from "../_shared/dispatch-settings.ts";
 import {
+  buildTowardsDestinationMap,
+  isValidTowardsDestinationCoord,
+} from "../_shared/towardsDestinationDispatchFilter.ts";
+import {
   EXCEEDS_FLEET_MAX_PICKUP_DISTANCE,
   exceedsFleetMaxPickupDistance,
 } from "../_shared/fleetMaxPickupDistanceSSOT.ts";
@@ -2207,14 +2211,10 @@ Deno.serve(async (req) => {
     }
     const { data: allDriverSettings } = await supabase
       .from("driver_settings")
-      .select("driver_id, towards_destination_active, towards_destination_lat, towards_destination_lng, auto_accept, max_pickup_distance_miles, accept_cash, accept_delivery_jobs, delivery_category_preferences")
+      .select("driver_id, towards_destination_active, towards_destination_lat, towards_destination_lng, towards_destination_expires_at, auto_accept, max_pickup_distance_miles, accept_cash, accept_delivery_jobs, delivery_category_preferences")
       .in("driver_id", allRelevantDriverIds.length > 0 ? allRelevantDriverIds : ["__none__"]);
 
-    const destinationMap = new Map(
-      (allDriverSettings || [])
-        .filter(ds => ds.towards_destination_active && ds.towards_destination_lat != null && ds.towards_destination_lng != null)
-        .map(ds => [ds.driver_id, { lat: ds.towards_destination_lat!, lng: ds.towards_destination_lng! }])
-    );
+    const destinationMap = buildTowardsDestinationMap(allDriverSettings || []);
 
 
     // Fleet-wide max pickup (global_dispatch_settings) — applies to every driver,
@@ -2349,9 +2349,14 @@ Deno.serve(async (req) => {
       .filter(d => !(isMarketplaceDeliveryTrip && deliveryCategoryOptOutDriverIds.has(d.id)))
       .filter(d => d.current_lat && d.current_lng)
       .filter(d => {
-        // If driver has towards_destination active, only include if trip dropoff is near their destination
+        // Towards Destination: exclude expired sessions (buildTowardsDestinationMap).
+        // Invalid trip dropoff → fail-closed for TD drivers (do not match Null Island).
         const dest = destinationMap.get(d.id);
         if (dest) {
+          if (!isValidTowardsDestinationCoord(dropoffLat, dropoffLng)) {
+            console.log(`[auto-dispatch] Skipping driver ${d.id} - towards destination active but trip dropoff coords invalid`);
+            return false;
+          }
           const distToDestination = calculateDistance(dropoffLat, dropoffLng, dest.lat, dest.lng);
           if (distToDestination > destinationMatchRadiusM) {
             console.log(`[auto-dispatch] Skipping driver ${d.id} - towards destination active but dropoff ${Math.round(distToDestination)}m from their destination (max ${destinationMatchRadiusM}m)`);
@@ -2496,9 +2501,16 @@ Deno.serve(async (req) => {
           });
           return false;
         }
-        // Towards-destination filter
+        // Towards-destination filter (expired sessions excluded upstream)
         const dest = destinationMap.get(d.id);
         if (dest) {
+          if (!isValidTowardsDestinationCoord(dropoffLat, dropoffLng)) {
+            logEligibility(d.id, false, "stacked_towards_destination_mismatch", {
+              stacked_gate: true,
+              dropoff_coords_invalid: true,
+            });
+            return false;
+          }
           const distToDestination = calculateDistance(dropoffLat, dropoffLng, dest.lat, dest.lng);
           if (distToDestination > destinationMatchRadiusM) {
             logEligibility(d.id, false, "stacked_towards_destination_mismatch", {
