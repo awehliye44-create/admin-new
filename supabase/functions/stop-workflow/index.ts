@@ -27,7 +27,7 @@ import {
   rateLimitResponse,
   handleCORSPreflight,
   successResponse,
-  errorResponse,
+  errorResponse as baseErrorResponse,
   isValidUUID,
   isValidAction,
   validationErrorResponse,
@@ -105,6 +105,33 @@ const RATE_LIMIT_CONFIG = {
   windowMs: 60000,
   keyPrefix: 'stop-workflow'
 };
+
+/**
+ * Bug #48: feed ops_detect_5xx_spikes / edge failure alerts on application 500s.
+ * Boot-time import failures never reach this path — CI import locks cover those.
+ */
+let stopWorkflowRequestStartedAtMs = Date.now();
+let stopWorkflowRequestTripId: string | null = null;
+let stopWorkflowRequestAction: string | null = null;
+let stopWorkflowRequestId: string | null = null;
+let stopWorkflowErrorLogged = false;
+
+function errorResponse(
+  ...args: Parameters<typeof baseErrorResponse>
+): Response {
+  const res = baseErrorResponse(...args);
+  if (res.status >= 500 && !stopWorkflowErrorLogged) {
+    stopWorkflowErrorLogged = true;
+    finishEdgeRequestLog("stop-workflow", Date.now() - stopWorkflowRequestStartedAtMs, {
+      http_status: res.status,
+      trip_id: stopWorkflowRequestTripId,
+      action: stopWorkflowRequestAction,
+      ...(stopWorkflowRequestId ? { request_id: stopWorkflowRequestId } : {}),
+      success: false,
+    });
+  }
+  return res;
+}
 
 const nonNegInt = (value: unknown): number => {
   const n = Number(value);
@@ -2015,6 +2042,11 @@ async function clearStaleStopWaitingOutsideRadius(
 Deno.serve(async (req) => {
   const elapsed = startRequestTimer();
   const requestId = createRequestId();
+  stopWorkflowRequestStartedAtMs = Date.now();
+  stopWorkflowRequestTripId = null;
+  stopWorkflowRequestAction = null;
+  stopWorkflowRequestId = requestId;
+  stopWorkflowErrorLogged = false;
   console.log("[stop-workflow] Request received:", req.method);
 
   // Handle CORS preflight
@@ -2140,6 +2172,8 @@ Deno.serve(async (req) => {
         request_id: requestId,
         action,
         trip_id,
+        http_status: 200,
+        success: true,
         ...(perfId ? { perf_id: perfId } : {}),
         ...(stagesPayload ? { stages_ms: stagesPayload } : {}),
         ...(lifecycleDurationsMs ? { lifecycle_durations_ms: lifecycleDurationsMs } : {}),
@@ -2173,6 +2207,8 @@ Deno.serve(async (req) => {
       );
     };
 
+    stopWorkflowRequestAction = typeof action === "string" ? action : null;
+    stopWorkflowRequestTripId = typeof trip_id === "string" ? trip_id : null;
     console.log("[stop-workflow] Action:", action, "Trip:", trip_id, "Driver:", requestedDriverId);
     if (action === "arrive_pickup") {
       console.log("[stop-workflow] ARRIVED_TRANSITION_REQUEST", {

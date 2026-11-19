@@ -139,7 +139,23 @@ export function finishEdgeRequestLog(
   durationMs: number,
   fields?: Record<string, unknown>,
 ): void {
-  const success = fields?.http_status == null || Number(fields.http_status) < 500;
+  // Bug #48: http_status must feed ops_detect_5xx_spikes / edge failure alerts.
+  // Missing status previously forced success=true and level=info, so sustained
+  // stop-workflow 500s never alerted Admin.
+  const httpStatusRaw = fields?.http_status;
+  const httpStatus =
+    typeof httpStatusRaw === "number" && Number.isFinite(httpStatusRaw)
+      ? httpStatusRaw
+      : typeof httpStatusRaw === "string" && httpStatusRaw.trim() &&
+          Number.isFinite(Number(httpStatusRaw))
+        ? Number(httpStatusRaw)
+        : null;
+  const success =
+    fields?.success === false
+      ? false
+      : httpStatus != null
+        ? httpStatus < 500
+        : true;
   const requestId = typeof fields?.request_id === "string" ? fields.request_id : createRequestId();
   const perf = resolveEdgePerformance(source, durationMs, success, requestId);
   if (!perf) return;
@@ -151,11 +167,18 @@ export function finishEdgeRequestLog(
   const client = createClient(supabaseUrl, supabaseKey, { auth: { persistSession: false } });
 
   void opsLog(client, {
-    level: perf.performance_status !== "OK" && perf.performance_status !== "FAILED" ? "warn" : "info",
+    level: success
+      ? perf.performance_status !== "OK" && perf.performance_status !== "FAILED"
+        ? "warn"
+        : "info"
+      : "error",
     source,
     app: "driver_app",
-    message: `${source} completed in ${durationMs}ms`,
+    message: success
+      ? `${source} completed in ${durationMs}ms`
+      : `${source} failed with HTTP ${httpStatus ?? 500} in ${durationMs}ms`,
     duration_ms: durationMs,
+    http_status: httpStatus ?? (success ? 200 : 500),
     trip_id: typeof fields?.trip_id === "string" ? fields.trip_id : null,
     error_code: perf.performance_status,
     metadata: {
