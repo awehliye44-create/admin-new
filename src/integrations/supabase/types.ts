@@ -14,6 +14,24 @@ export type Database = {
   }
   public: {
     Tables: {
+      _tmp_sw_tb_chunks: {
+        Row: {
+          b64: string
+          i: number
+          updated_at: string
+        }
+        Insert: {
+          b64: string
+          i: number
+          updated_at?: string
+        }
+        Update: {
+          b64?: string
+          i?: number
+          updated_at?: string
+        }
+        Relationships: []
+      }
       account_email_change_requests: {
         Row: {
           account_id: string | null
@@ -12213,6 +12231,513 @@ export type Database = {
             isOneToOne: true
             referencedRelation: "v_finance_era_legacy_cash"
             referencedColumns: ["id"]
+          },
+        ]
+      }
+      driver_trip_bonus_campaign_progress: {
+        Row: {
+          campaign_id: string
+          completed_count: number
+          created_at: string
+          credited_at: string | null
+          driver_id: string
+          last_trip_id: string | null
+          ledger_entry_id: string | null
+          updated_at: string
+        }
+        Insert: {
+          campaign_id: string
+          completed_count?: number
+          created_at?: string
+          credited_at?: string | null
+          driver_id: string
+          last_trip_id?: string | null
+          ledger_entry_id?: string | null
+          updated_at?: string
+        }
+        Update: {
+          campaign_id?: string
+          completed_count?: number
+          created_at?: string
+          credited_at?: string | null
+          driver_id?: string
+          last_trip_id?: string | null
+          ledger_entry_id?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "driver_trip_bonus_campaign_progress_campaign_id_fkey"
+            columns: ["campaign_id"]
+            isOneToOne: false
+            referencedRelation: "driver_trip_bonus_campaigns"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "driver_trip_bonus_campaign_progress_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "admin_driver_fleet_status"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "driver_trip_bonus_campaign_progress_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "admin_driver_online_snapshot"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "driver_trip_bonus_campaign_progress_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "commission_wallet_driver_financial_summary"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "driver_trip_bonus_campaign_progress_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "dispatchable_drivers"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "driver_trip_bonus_campaign_progress_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "driver_document_compliance_ssot"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "driver_trip_bonus_campaign_progress_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "driver_document_status"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "driver_trip_bonus_campaign_progress_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "driver_financial_summary"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "driver_trip_bonus_campaign_progress_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "driver_passenger_profile"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "driver_trip_bonus_campaign_progress_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "drivers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "driver_trip_bonus_campaign_progress_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "drivers_public_safe"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "driver_trip_bonus_campaign_progress_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "platform_collected_driver_financial_summary"
+            referencedColumns: ["driver_id"]
+          },
+        ]
+      }
+      driver_trip_bonus_campaign_service_areas: {
+        Row: {
+          campaign_id: string
+          service_area_id: string
+        }
+        Insert: {
+          campaign_id: string
+          service_area_id: string
+        }
+        Update: {
+          campaign_id?: string
+          service_area_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "driver_trip_bonus_campaign_service_areas_campaign_id_fkey"
+            columns: ["campaign_id"]
+            isOneToOne: false
+            referencedRelation: "driver_trip_bonus_campaigns"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "driver_trip_bonus_campaign_service_areas_service_area_id_fkey"
+            columns: ["service_area_id"]
+            isOneToOne: false
+            referencedRelation: "service_areas"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      driver_trip_bonus_campaign_trip_events: {
+        Row: {
+          campaign_id: string
+          counted_at: string
+          driver_id: string
+          trip_id: string
+        }
+        Insert: {
+          campaign_id: string
+          counted_at?: string
+          driver_id: string
+          trip_id: string
+        }
+        Update: {
+          campaign_id?: string
+          counted_at?: string
+          driver_id?: string
+          trip_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "driver_trip_bonus_campaign_trip_events_campaign_id_fkey"
+            columns: ["campaign_id"]
+            isOneToOne: false
+            referencedRelation: "driver_trip_bonus_campaigns"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "driver_trip_bonus_campaign_trip_events_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "admin_driver_fleet_status"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "driver_trip_bonus_campaign_trip_events_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "admin_driver_online_snapshot"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "driver_trip_bonus_campaign_trip_events_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "commission_wallet_driver_financial_summary"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "driver_trip_bonus_campaign_trip_events_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "dispatchable_drivers"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "driver_trip_bonus_campaign_trip_events_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "driver_document_compliance_ssot"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "driver_trip_bonus_campaign_trip_events_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "driver_document_status"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "driver_trip_bonus_campaign_trip_events_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "driver_financial_summary"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "driver_trip_bonus_campaign_trip_events_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "driver_passenger_profile"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "driver_trip_bonus_campaign_trip_events_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "drivers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "driver_trip_bonus_campaign_trip_events_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "drivers_public_safe"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "driver_trip_bonus_campaign_trip_events_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "platform_collected_driver_financial_summary"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "driver_trip_bonus_campaign_trip_events_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "admin_trip_lifecycle_fees"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "driver_trip_bonus_campaign_trip_events_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "available_scheduled_jobs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "driver_trip_bonus_campaign_trip_events_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "trips"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "driver_trip_bonus_campaign_trip_events_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "v_payment_lifecycle_audit"
+            referencedColumns: ["trip_id"]
+          },
+        ]
+      }
+      driver_trip_bonus_campaigns: {
+        Row: {
+          bonus_amount_pence: number
+          card_body: string | null
+          card_headline: string
+          created_at: string
+          created_by: string | null
+          display_priority: number
+          ends_at: string | null
+          id: string
+          is_active: boolean
+          region_id: string | null
+          scope_type: string
+          starts_at: string | null
+          status: string
+          title: string
+          trip_target: number
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          bonus_amount_pence: number
+          card_body?: string | null
+          card_headline: string
+          created_at?: string
+          created_by?: string | null
+          display_priority?: number
+          ends_at?: string | null
+          id?: string
+          is_active?: boolean
+          region_id?: string | null
+          scope_type?: string
+          starts_at?: string | null
+          status?: string
+          title: string
+          trip_target: number
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          bonus_amount_pence?: number
+          card_body?: string | null
+          card_headline?: string
+          created_at?: string
+          created_by?: string | null
+          display_priority?: number
+          ends_at?: string | null
+          id?: string
+          is_active?: boolean
+          region_id?: string | null
+          scope_type?: string
+          starts_at?: string | null
+          status?: string
+          title?: string
+          trip_target?: number
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "driver_trip_bonus_campaigns_region_id_fkey"
+            columns: ["region_id"]
+            isOneToOne: false
+            referencedRelation: "regions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      driver_trip_bonus_progress_outbox: {
+        Row: {
+          attempt_count: number
+          completed_at: string
+          created_at: string
+          driver_id: string
+          id: string
+          last_error: string | null
+          next_attempt_at: string
+          processed_at: string | null
+          region_id: string | null
+          result: Json | null
+          service_area_id: string | null
+          status: string
+          trip_id: string
+          updated_at: string
+        }
+        Insert: {
+          attempt_count?: number
+          completed_at?: string
+          created_at?: string
+          driver_id: string
+          id?: string
+          last_error?: string | null
+          next_attempt_at?: string
+          processed_at?: string | null
+          region_id?: string | null
+          result?: Json | null
+          service_area_id?: string | null
+          status?: string
+          trip_id: string
+          updated_at?: string
+        }
+        Update: {
+          attempt_count?: number
+          completed_at?: string
+          created_at?: string
+          driver_id?: string
+          id?: string
+          last_error?: string | null
+          next_attempt_at?: string
+          processed_at?: string | null
+          region_id?: string | null
+          result?: Json | null
+          service_area_id?: string | null
+          status?: string
+          trip_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "driver_trip_bonus_progress_outbox_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "admin_driver_fleet_status"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "driver_trip_bonus_progress_outbox_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "admin_driver_online_snapshot"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "driver_trip_bonus_progress_outbox_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "commission_wallet_driver_financial_summary"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "driver_trip_bonus_progress_outbox_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "dispatchable_drivers"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "driver_trip_bonus_progress_outbox_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "driver_document_compliance_ssot"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "driver_trip_bonus_progress_outbox_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "driver_document_status"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "driver_trip_bonus_progress_outbox_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "driver_financial_summary"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "driver_trip_bonus_progress_outbox_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "driver_passenger_profile"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "driver_trip_bonus_progress_outbox_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "drivers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "driver_trip_bonus_progress_outbox_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "drivers_public_safe"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "driver_trip_bonus_progress_outbox_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "platform_collected_driver_financial_summary"
+            referencedColumns: ["driver_id"]
+          },
+          {
+            foreignKeyName: "driver_trip_bonus_progress_outbox_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: true
+            referencedRelation: "admin_trip_lifecycle_fees"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "driver_trip_bonus_progress_outbox_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: true
+            referencedRelation: "available_scheduled_jobs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "driver_trip_bonus_progress_outbox_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: true
+            referencedRelation: "trips"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "driver_trip_bonus_progress_outbox_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: true
+            referencedRelation: "v_payment_lifecycle_audit"
+            referencedColumns: ["trip_id"]
           },
         ]
       }
@@ -30492,6 +31017,21 @@ export type Database = {
           waived_at: string
         }[]
       }
+      admin_list_dead_driver_trip_bonus_progress_outbox: {
+        Args: never
+        Returns: {
+          attempt_count: number
+          completed_at: string
+          created_at: string
+          driver_id: string
+          id: string
+          last_error: string
+          region_id: string
+          service_area_id: string
+          trip_id: string
+          updated_at: string
+        }[]
+      }
       admin_list_drivers: {
         Args: never
         Returns: {
@@ -30625,6 +31165,10 @@ export type Database = {
         Args: { p_args?: Json; p_page_slug: string; p_table: string }
         Returns: Json
       }
+      admin_reenqueue_dead_driver_trip_bonus_progress_outbox: {
+        Args: { p_ids?: string[] }
+        Returns: Json
+      }
       admin_remove_corporate_account: {
         Args: { p_account_id: string }
         Returns: Json
@@ -30663,6 +31207,10 @@ export type Database = {
       }
       admin_save_driver_special_offer: {
         Args: { p_offer: Json; p_service_area_ids?: string[] }
+        Returns: string
+      }
+      admin_save_driver_trip_bonus_campaign: {
+        Args: { p_campaign: Json; p_service_area_ids?: string[] }
         Returns: string
       }
       admin_save_staff_role: {
@@ -30734,6 +31282,20 @@ export type Database = {
         Returns: undefined
       }
       admin_sidebar_badge_counts: { Args: never; Returns: Json }
+      admin_submit_driver_document: {
+        Args: {
+          p_document_type_id: string
+          p_driver_id: string
+          p_expiry_date?: string
+          p_file_size_bytes?: number
+          p_idempotency_key?: string
+          p_mime_type?: string
+          p_original_filename?: string
+          p_side?: string
+          p_storage_path: string
+        }
+        Returns: Json
+      }
       admin_unlock_customer_name_edit: {
         Args: { p_customer_id: string }
         Returns: Json
@@ -31537,6 +32099,10 @@ export type Database = {
         }
         Returns: boolean
       }
+      drain_driver_trip_bonus_progress_outbox: {
+        Args: { p_limit?: number }
+        Returns: Json
+      }
       driver_accept_counter_offer: {
         Args: { p_driver_id: string; p_offer_id: string }
         Returns: Json
@@ -31686,6 +32252,10 @@ export type Database = {
         Returns: string
       }
       driver_has_accepted_active_or_stacked_work: {
+        Args: { p_driver_id: string }
+        Returns: boolean
+      }
+      driver_has_completed_registration_verification: {
         Args: { p_driver_id: string }
         Returns: boolean
       }
@@ -31878,6 +32448,26 @@ export type Database = {
           trip_id: string
         }[]
       }
+      driver_trip_bonus_campaign_scopes_overlap: {
+        Args: {
+          p_areas_a: string[]
+          p_areas_b: string[]
+          p_region_a: string
+          p_region_b: string
+          p_scope_a: string
+          p_scope_b: string
+        }
+        Returns: boolean
+      }
+      driver_trip_bonus_campaign_windows_overlap: {
+        Args: {
+          p_ends_a: string
+          p_ends_b: string
+          p_starts_a: string
+          p_starts_b: string
+        }
+        Returns: boolean
+      }
       driver_vehicle_category_reject_reason: {
         Args: { p_driver_id: string; p_trip_id: string }
         Returns: string
@@ -31973,6 +32563,16 @@ export type Database = {
       driver_wallet_trip_earnings_in_range_pence: {
         Args: { p_driver_id: string; p_end: string; p_start: string }
         Returns: number
+      }
+      enqueue_driver_trip_bonus_progress: {
+        Args: {
+          p_completed_at?: string
+          p_driver_id: string
+          p_region_id?: string
+          p_service_area_id?: string
+          p_trip_id: string
+        }
+        Returns: string
       }
       enrich_ride_offer_presets: { Args: { p_trip_id: string }; Returns: Json }
       ensure_driver_commission_wallet_account: {
@@ -33589,6 +34189,10 @@ export type Database = {
         Args: { point_lat: number; point_lng: number; polygon_geojson: Json }
         Returns: boolean
       }
+      process_driver_trip_bonus_progress_outbox_trip: {
+        Args: { p_trip_id: string }
+        Returns: Json
+      }
       process_ride_offer_ack_timeouts: {
         Args: never
         Returns: {
@@ -33749,6 +34353,16 @@ export type Database = {
           p_trip_mirrored?: boolean
         }
         Returns: string
+      }
+      record_driver_trip_bonus_progress: {
+        Args: {
+          p_completed_at?: string
+          p_driver_id: string
+          p_region_id?: string
+          p_service_area_id?: string
+          p_trip_id: string
+        }
+        Returns: Json
       }
       record_offer_alert_event: {
         Args: { p_detail?: Json; p_offer_id: string; p_phase: string }
@@ -34293,24 +34907,6 @@ export type Database = {
         Returns: undefined
       }
       stop_stop_waiting: { Args: { p_waiting_id: string }; Returns: Json }
-      admin_submit_driver_document: {
-        Args: {
-          p_driver_id: string
-          p_document_type_id: string
-          p_storage_path: string
-          p_side?: string
-          p_expiry_date?: string
-          p_mime_type?: string
-          p_original_filename?: string
-          p_file_size_bytes?: number
-          p_idempotency_key?: string
-        }
-        Returns: Json
-      }
-      driver_has_completed_registration_verification: {
-        Args: { p_driver_id: string }
-        Returns: boolean
-      }
       submit_driver_document: {
         Args: {
           p_document_type_id: string
@@ -34359,6 +34955,10 @@ export type Database = {
       }
       suspend_corporate_request: {
         Args: { p_request_id: string; p_reviewed_by?: string }
+        Returns: undefined
+      }
+      sweep_driver_trip_bonus_progress_outbox: {
+        Args: never
         Returns: undefined
       }
       sweep_revolut_stale_holds: { Args: never; Returns: undefined }
