@@ -37,14 +37,13 @@ Deno.serve(async (req) => {
       });
     }
 
-    // Verify admin
-    const { data: profile } = await sb
-      .from("profiles")
-      .select("role")
-      .eq("user_id", user.id)
-      .single();
-    if (!profile || profile.role !== "admin") {
-      return new Response(JSON.stringify({ error: "Admin only" }), {
+    // Verify staff access to the Lost Property page (same gate as the page itself).
+    const { data: canAccess, error: accessErr } = await userClient.rpc(
+      "staff_has_page_access",
+      { p_page_slug: "lost-property" },
+    );
+    if (accessErr || canAccess !== true) {
+      return new Response(JSON.stringify({ error: "Lost Property access required" }), {
         status: 403,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
