@@ -97,10 +97,13 @@ export function useSaveDriverTripBonusCampaign() {
     onError: (err: Error) => {
       const raw = err.message || 'Failed to save campaign';
       const overlap = raw.match(/trip_bonus_campaign_overlap:(.+)$/i);
+      const frozen = raw.match(/trip_bonus_terms_frozen:([a-z_]+)/i);
       toast.error(
         overlap
           ? `Cannot save published campaign: overlaps “${overlap[1].trim()}”.`
-          : raw,
+          : frozen
+            ? `Campaign financial terms are frozen (${frozen[1]}). Participants keep their entitled reward.`
+            : raw,
       );
     },
   });
@@ -232,9 +235,72 @@ export function useReenqueueDeadTripBonusProgressOutbox() {
         `Re-queued ${Number(data?.requeued ?? 0)} trip-bonus progress job(s)`,
       );
       qc.invalidateQueries({ queryKey: ['driver-trip-bonus-outbox-dead'] });
+      qc.invalidateQueries({ queryKey: ['driver-trip-bonus-finance'] });
     },
     onError: (err: Error) => {
       toast.error(err.message || 'Failed to re-enqueue progress jobs');
     },
+  });
+}
+
+export type TripBonusFinanceSummaryRow = {
+  campaign_id: string;
+  title: string;
+  trip_target: number;
+  bonus_amount_pence: number;
+  participants: number;
+  in_progress: number;
+  qualified_credit_pending: number;
+  credited: number;
+  recovery_required: number;
+  expected_liability_pence: number;
+  credited_total_pence: number;
+};
+
+export function useDriverTripBonusFinanceSummary() {
+  return useQuery({
+    queryKey: ['driver-trip-bonus-finance'],
+    queryFn: async (): Promise<TripBonusFinanceSummaryRow[]> => {
+      const { data, error } = await db.rpc(
+        'admin_driver_trip_bonus_campaign_finance_summary',
+        { p_campaign_id: null },
+      );
+      if (error) {
+        if (/function|does not exist|404|PGRST/i.test(error.message)) return [];
+        throw error;
+      }
+      return (data ?? []) as TripBonusFinanceSummaryRow[];
+    },
+    staleTime: 15_000,
+    refetchInterval: 60_000,
+  });
+}
+
+export type TripBonusProgressAdminRow = {
+  campaign_id: string;
+  driver_id: string;
+  completed_count: number;
+  entitled_trip_target: number;
+  entitled_bonus_amount_pence: number;
+  credited_at: string | null;
+  ledger_entry_id: string | null;
+  participant_status: string;
+};
+
+export function useDriverTripBonusProgressAdmin(campaignId: string | null) {
+  return useQuery({
+    queryKey: ['driver-trip-bonus-progress', campaignId],
+    enabled: Boolean(campaignId),
+    queryFn: async (): Promise<TripBonusProgressAdminRow[]> => {
+      const { data, error } = await db.rpc('admin_list_driver_trip_bonus_progress', {
+        p_campaign_id: campaignId,
+      });
+      if (error) {
+        if (/function|does not exist|404|PGRST/i.test(error.message)) return [];
+        throw error;
+      }
+      return (data ?? []) as TripBonusProgressAdminRow[];
+    },
+    staleTime: 15_000,
   });
 }

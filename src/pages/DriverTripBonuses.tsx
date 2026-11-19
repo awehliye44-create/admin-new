@@ -35,6 +35,8 @@ import {
   useArchiveDriverTripBonusCampaign,
   useDeadTripBonusProgressOutbox,
   useDriverTripBonusCampaignsAdmin,
+  useDriverTripBonusFinanceSummary,
+  useDriverTripBonusProgressAdmin,
   usePublishDriverTripBonusCampaign,
   useReenqueueDeadTripBonusProgressOutbox,
   useSaveDriverTripBonusCampaign,
@@ -132,6 +134,9 @@ export default function DriverTripBonuses() {
   const publish = usePublishDriverTripBonusCampaign();
   const { data: deadOutbox = [] } = useDeadTripBonusProgressOutbox();
   const reenqueueDead = useReenqueueDeadTripBonusProgressOutbox();
+  const { data: financeRows = [] } = useDriverTripBonusFinanceSummary();
+  const [progressCampaignId, setProgressCampaignId] = useState<string | null>(null);
+  const { data: progressRows = [] } = useDriverTripBonusProgressAdmin(progressCampaignId);
 
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState<Draft>(emptyDraft());
@@ -346,11 +351,126 @@ export default function DriverTripBonuses() {
           </Card>
         ) : null}
 
+        {financeRows.length ? (
+          <Card>
+            <CardHeader>
+              <CardTitle>Financial summary</CardTitle>
+              <CardDescription>
+                Authoritative liability from participant entitlements and wallet BONUS
+                ledger credits (platform-funded; not customer fare revenue).
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Campaign</TableHead>
+                    <TableHead>Participants</TableHead>
+                    <TableHead>In progress</TableHead>
+                    <TableHead>Qualified — pending</TableHead>
+                    <TableHead>Credited</TableHead>
+                    <TableHead>Recovery</TableHead>
+                    <TableHead>Liability</TableHead>
+                    <TableHead>Credited £</TableHead>
+                    <TableHead />
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {financeRows.map((row) => (
+                    <TableRow key={row.campaign_id}>
+                      <TableCell className="font-medium">{row.title}</TableCell>
+                      <TableCell>{row.participants}</TableCell>
+                      <TableCell>{row.in_progress}</TableCell>
+                      <TableCell>{row.qualified_credit_pending}</TableCell>
+                      <TableCell>{row.credited}</TableCell>
+                      <TableCell>{row.recovery_required}</TableCell>
+                      <TableCell>£{penceToPounds(row.expected_liability_pence)}</TableCell>
+                      <TableCell>£{penceToPounds(row.credited_total_pence)}</TableCell>
+                      <TableCell>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => setProgressCampaignId(row.campaign_id)}
+                        >
+                          Participants
+                        </Button>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+              {progressCampaignId ? (
+                <div className="mt-4 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <p className="text-sm font-medium">Participant statuses</p>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => setProgressCampaignId(null)}
+                    >
+                      Close
+                    </Button>
+                  </div>
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Driver</TableHead>
+                        <TableHead>Progress</TableHead>
+                        <TableHead>Entitled</TableHead>
+                        <TableHead>Status</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {progressRows.map((p) => (
+                        <TableRow key={`${p.campaign_id}-${p.driver_id}`}>
+                          <TableCell className="font-mono text-xs">
+                            {p.driver_id.slice(0, 8)}…
+                          </TableCell>
+                          <TableCell>
+                            {p.completed_count}/{p.entitled_trip_target}
+                          </TableCell>
+                          <TableCell>
+                            £{penceToPounds(p.entitled_bonus_amount_pence)}
+                          </TableCell>
+                          <TableCell>
+                            <Badge
+                              variant={
+                                p.participant_status === 'credited'
+                                  ? 'default'
+                                  : p.participant_status === 'qualified_credit_pending'
+                                    ? 'destructive'
+                                    : 'secondary'
+                              }
+                            >
+                              {p.participant_status}
+                            </Badge>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                      {!progressRows.length ? (
+                        <TableRow>
+                          <TableCell
+                            colSpan={4}
+                            className="text-center text-muted-foreground py-6"
+                          >
+                            No participants yet
+                          </TableCell>
+                        </TableRow>
+                      ) : null}
+                    </TableBody>
+                  </Table>
+                </div>
+              ) : null}
+            </CardContent>
+          </Card>
+        ) : null}
+
         <Card>
           <CardHeader>
             <CardTitle>Campaigns</CardTitle>
             <CardDescription>
               Separate from Driver Special Offers (partner content / gold banner).
+              Financial terms freeze after the first participant.
             </CardDescription>
           </CardHeader>
           <CardContent>

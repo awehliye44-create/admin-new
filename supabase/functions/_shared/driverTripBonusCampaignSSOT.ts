@@ -37,6 +37,11 @@ export interface DriverTripBonusGeoContext {
   region_id: string | null;
 }
 
+export type TripBonusSettlementStatus =
+  | "in_progress"
+  | "credit_pending"
+  | "credited";
+
 export interface DriverTripBonusProgressView {
   campaign_id: string;
   title: string;
@@ -47,12 +52,15 @@ export interface DriverTripBonusProgressView {
   remaining_trips: number;
   bonus_amount_pence: number;
   credited: boolean;
+  settlement_status: TripBonusSettlementStatus;
   progress_ratio: number;
 }
 
 export const TRIP_BONUS_PAGE_SLUG = "driver-trip-bonuses";
 export const TRIP_BONUS_LEDGER_TYPE = "BONUS";
 export const TRIP_BONUS_LEDGER_DESCRIPTION_PREFIX = "Trip bonus:";
+export const TRIP_BONUS_LEDGER_SOURCE = "driver_trip_bonus_campaign";
+export const TRIP_BONUS_CREDIT_PENDING_BODY = "Bonus earned — payment pending";
 
 export function isCampaignLive(
   campaign: Pick<
@@ -113,24 +121,56 @@ export function selectHomeCampaign(
   return sorted[0] ?? null;
 }
 
+export function resolveParticipantSettlementStatus(args: {
+  completedCount: number;
+  tripTarget: number;
+  credited: boolean;
+}): TripBonusSettlementStatus {
+  if (args.credited) return "credited";
+  if (args.completedCount >= Math.max(1, Math.floor(args.tripTarget))) {
+    return "credit_pending";
+  }
+  return "in_progress";
+}
+
 export function buildProgressView(
   campaign: DriverTripBonusCampaignRow,
   completedCount: number,
   credited: boolean,
+  entitlement?: {
+    trip_target?: number | null;
+    bonus_amount_pence?: number | null;
+  },
 ): DriverTripBonusProgressView {
-  const target = Math.max(1, Math.floor(campaign.trip_target));
+  const target = Math.max(
+    1,
+    Math.floor(entitlement?.trip_target ?? campaign.trip_target),
+  );
   const completed = Math.max(0, Math.floor(completedCount));
   const remaining = Math.max(0, target - completed);
+  const settlement = resolveParticipantSettlementStatus({
+    completedCount: completed,
+    tripTarget: target,
+    credited,
+  });
+  const bonus = Math.max(
+    0,
+    Math.floor(entitlement?.bonus_amount_pence ?? campaign.bonus_amount_pence),
+  );
   return {
     campaign_id: campaign.id,
     title: campaign.title,
     card_headline: campaign.card_headline,
-    card_body: campaign.card_body,
+    card_body:
+      settlement === "credit_pending"
+        ? TRIP_BONUS_CREDIT_PENDING_BODY
+        : campaign.card_body,
     trip_target: target,
     completed_count: completed,
     remaining_trips: remaining,
-    bonus_amount_pence: Math.max(0, Math.floor(campaign.bonus_amount_pence)),
+    bonus_amount_pence: bonus,
     credited,
+    settlement_status: settlement,
     progress_ratio: Math.min(1, completed / target),
   };
 }
@@ -144,6 +184,33 @@ export function shouldCreditBonus(args: {
   if (args.alreadyCredited) return false;
   if (args.bonusAmountPence <= 0) return false;
   return args.completedCount >= Math.max(1, Math.floor(args.tripTarget));
+}
+
+/** Keep credit-pending cards visible after ends_at; hide only when credited. */
+export function shouldHideTripBonusHomeCard(args: {
+  settlementStatus: TripBonusSettlementStatus;
+  endsAt: string | null | undefined;
+  nowMs?: number;
+}): boolean {
+  if (args.settlementStatus === "credited") return true;
+  if (args.settlementStatus === "credit_pending") return false;
+  if (!args.endsAt) return false;
+  const end = Date.parse(args.endsAt);
+  if (!Number.isFinite(end)) return false;
+  return end <= (args.nowMs ?? Date.now());
+}
+
+export function formatTripBonusCreditHeadsUp(bonusAmountPence: number): {
+  title: string;
+  subtitle: string;
+} {
+  const pounds = (Math.max(0, bonusAmountPence) / 100).toFixed(
+    bonusAmountPence % 100 === 0 ? 0 : 2,
+  );
+  return {
+    title: "Congratulations!",
+    subtitle: `Your £${pounds} bonus has been added to your wallet.`,
+  };
 }
 
 export function bonusLedgerDescription(campaignTitle: string): string {

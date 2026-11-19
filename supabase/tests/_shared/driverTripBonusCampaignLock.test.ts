@@ -136,6 +136,7 @@ Deno.test("progress view remaining and ratio", () => {
   assertEquals(view.remaining_trips, 6);
   assertEquals(view.progress_ratio, 0.4);
   assertEquals(view.credited, false);
+  assertEquals(view.settlement_status, "in_progress");
 });
 
 Deno.test("draft validation + BONUS ledger type lock", async () => {
