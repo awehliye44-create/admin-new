@@ -12239,30 +12239,48 @@ export type Database = {
           campaign_id: string
           completed_count: number
           created_at: string
+          credit_notice_delivered_at: string | null
           credited_at: string | null
           driver_id: string
+          entitled_bonus_amount_pence: number | null
+          entitled_ends_at: string | null
+          entitled_starts_at: string | null
+          entitled_trip_target: number | null
           last_trip_id: string | null
           ledger_entry_id: string | null
+          terms_frozen_at: string | null
           updated_at: string
         }
         Insert: {
           campaign_id: string
           completed_count?: number
           created_at?: string
+          credit_notice_delivered_at?: string | null
           credited_at?: string | null
           driver_id: string
+          entitled_bonus_amount_pence?: number | null
+          entitled_ends_at?: string | null
+          entitled_starts_at?: string | null
+          entitled_trip_target?: number | null
           last_trip_id?: string | null
           ledger_entry_id?: string | null
+          terms_frozen_at?: string | null
           updated_at?: string
         }
         Update: {
           campaign_id?: string
           completed_count?: number
           created_at?: string
+          credit_notice_delivered_at?: string | null
           credited_at?: string | null
           driver_id?: string
+          entitled_bonus_amount_pence?: number | null
+          entitled_ends_at?: string | null
+          entitled_starts_at?: string | null
+          entitled_trip_target?: number | null
           last_trip_id?: string | null
           ledger_entry_id?: string | null
+          terms_frozen_at?: string | null
           updated_at?: string
         }
         Relationships: [
@@ -12525,6 +12543,7 @@ export type Database = {
           created_by: string | null
           display_priority: number
           ends_at: string | null
+          financial_terms_frozen_at: string | null
           id: string
           is_active: boolean
           region_id: string | null
@@ -12544,6 +12563,7 @@ export type Database = {
           created_by?: string | null
           display_priority?: number
           ends_at?: string | null
+          financial_terms_frozen_at?: string | null
           id?: string
           is_active?: boolean
           region_id?: string | null
@@ -12563,6 +12583,7 @@ export type Database = {
           created_by?: string | null
           display_priority?: number
           ends_at?: string | null
+          financial_terms_frozen_at?: string | null
           id?: string
           is_active?: boolean
           region_id?: string | null
@@ -30807,6 +30828,10 @@ export type Database = {
         }
         Returns: Json
       }
+      ack_driver_trip_bonus_credit_notice: {
+        Args: { p_campaign_id: string }
+        Returns: Json
+      }
       ack_offer_delivery: {
         Args: { p_method: string; p_offer_id: string }
         Returns: Json
@@ -30981,6 +31006,22 @@ export type Database = {
           isSetofReturn: true
         }
       }
+      admin_driver_trip_bonus_campaign_finance_summary: {
+        Args: { p_campaign_id?: string }
+        Returns: {
+          bonus_amount_pence: number
+          campaign_id: string
+          credited: number
+          credited_total_pence: number
+          expected_liability_pence: number
+          in_progress: number
+          participants: number
+          qualified_credit_pending: number
+          recovery_required: number
+          title: string
+          trip_target: number
+        }[]
+      }
       admin_driver_wallet_eligibility_balances: {
         Args: { p_driver_ids: string[] }
         Returns: {
@@ -31030,6 +31071,19 @@ export type Database = {
           service_area_id: string
           trip_id: string
           updated_at: string
+        }[]
+      }
+      admin_list_driver_trip_bonus_progress: {
+        Args: { p_campaign_id: string }
+        Returns: {
+          campaign_id: string
+          completed_count: number
+          credited_at: string
+          driver_id: string
+          entitled_bonus_amount_pence: number
+          entitled_trip_target: number
+          ledger_entry_id: string
+          participant_status: string
         }[]
       }
       admin_list_drivers: {
@@ -31504,6 +31558,10 @@ export type Database = {
         Args: { p_phone: string }
         Returns: string
       }
+      auto_reenqueue_dead_driver_trip_bonus_progress_outbox: {
+        Args: { p_limit?: number }
+        Returns: Json
+      }
       backfill_driver_commission_wallet_accounts: { Args: never; Returns: Json }
       bearing_deg: {
         Args: { lat1: number; lat2: number; lng1: number; lng2: number }
@@ -31658,6 +31716,14 @@ export type Database = {
           p_claim_token?: string
           p_payout_item_id: string
           p_source_account_id: string
+        }
+        Returns: Json
+      }
+      claim_or_reconcile_driver_trip_bonus_credit: {
+        Args: {
+          p_campaign_id: string
+          p_driver_id: string
+          p_related_trip_id?: string
         }
         Returns: Json
       }
@@ -34277,6 +34343,10 @@ export type Database = {
         Args: { p_new_claim_token: string; p_now?: string; p_trip_id: string }
         Returns: Json
       }
+      reconcile_driver_trip_bonus_qualified_credits: {
+        Args: { p_limit?: number }
+        Returns: Json
+      }
       reconcile_scheduled_journey_compliance: {
         Args: { p_limit?: number }
         Returns: Json
@@ -34846,6 +34916,10 @@ export type Database = {
         Args: { p_driver_id: string; p_trip_id: string }
         Returns: number
       }
+      snapshot_driver_trip_bonus_entitlement: {
+        Args: { p_campaign_id: string; p_driver_id: string }
+        Returns: undefined
+      }
       staff_can_manage_roles: { Args: { _user_id: string }; Returns: boolean }
       staff_has_action: {
         Args: { _action_key: string; _user_id: string }
@@ -35034,6 +35108,15 @@ export type Database = {
       towards_destination_resolve_config: {
         Args: { p_service_area_id?: string }
         Returns: Json
+      }
+      towards_destination_sql_wave_allows_driver: {
+        Args: {
+          p_driver_id: string
+          p_dropoff_lat: number
+          p_dropoff_lng: number
+          p_now?: string
+        }
+        Returns: boolean
       }
       towards_destination_trip_qualifies: {
         Args: {
