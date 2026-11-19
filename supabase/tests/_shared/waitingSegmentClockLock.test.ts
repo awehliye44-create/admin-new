@@ -428,4 +428,19 @@ Deno.test("lock: scheduled early arrival freezes no-show until scheduled_at (Bug
     after.pickup_waiting_state,
   );
   assertEquals(after.no_show_eligible, true);
+
+  // Bug #52: stale awaiting_scheduled_pickup must not freeze after the floor.
+  const staleAfterFloor = buildPickupWaitingSnapshot({
+    driverArrivedAt: arrived,
+    waitingStatus: "awaiting_scheduled_pickup",
+    config,
+    nowMs: Date.parse("2026-11-16T20:31:00.000Z"),
+    countedInRadiusSeconds: 60,
+    scheduledAtIso: scheduled,
+    isScheduledOrigin: true,
+  });
+  assertEquals(staleAfterFloor.pickup_waiting_state, "free_waiting");
+  assertEquals(staleAfterFloor.pickup_waiting_elapsed_seconds, 60);
+  assertEquals(staleAfterFloor.pickup_waiting_grace_remaining_seconds, 120);
+  assertEquals(staleAfterFloor.no_show_eligible, false);
 });

@@ -561,7 +561,9 @@ export function buildPickupWaitingSnapshot(input: {
   }
 
   // Early arrival: freeze clocks — full free allowance, zero elapsed, no no-show.
-  if (beforeEligible || waitingStatus === "awaiting_scheduled_pickup") {
+  // Bug #52: do NOT keep awaiting_scheduled_pickup after the eligible floor solely
+  // because a stale waitingStatus was passed — only beforeEligible freezes.
+  if (beforeEligible) {
     return {
       driver_arrived_at: driverArrivedAt,
       pickup_waiting_state: "awaiting_scheduled_pickup",
@@ -593,10 +595,23 @@ export function buildPickupWaitingSnapshot(input: {
     hasArrivalForNoShow &&
     (config.no_show_waiting_seconds <= 0 || elapsed >= config.no_show_waiting_seconds);
 
-  let pickupState: PickupWaitingStateSnapshot["pickup_waiting_state"] = waitingStatus;
-  if (waitingStatus === "free_waiting" && elapsed >= config.free_pickup_waiting_seconds && config.pickup_paid_waiting_enabled) {
+  // After the scheduled floor, never echo stale awaiting_scheduled_pickup (Bug #52).
+  let effectiveStatus = waitingStatus;
+  if (waitingStatus === "awaiting_scheduled_pickup") {
+    effectiveStatus = "free_waiting";
+  }
+
+  let pickupState: PickupWaitingStateSnapshot["pickup_waiting_state"] = effectiveStatus;
+  if (
+    effectiveStatus === "free_waiting" &&
+    elapsed >= config.free_pickup_waiting_seconds &&
+    config.pickup_paid_waiting_enabled
+  ) {
     pickupState = "paid_waiting";
-  } else if (waitingStatus === "free_waiting" && elapsed < config.free_pickup_waiting_seconds) {
+  } else if (
+    effectiveStatus === "free_waiting" &&
+    elapsed < config.free_pickup_waiting_seconds
+  ) {
     pickupState = "free_waiting";
   }
 
