@@ -72,3 +72,17 @@ Deno.test("auto-dispatch uses buildTowardsDestinationMap + expires_at select", (
   assertEquals(src.includes("towards_destination_expires_at"), true);
   assertEquals(src.includes("isValidTowardsDestinationCoord"), true);
 });
+
+Deno.test("SQL Wave-1 migration gates TD via helper + dispatch_trip_offers reject_reason", () => {
+  const migRoot = fromFileUrl(new URL("../../migrations", import.meta.url));
+  const files = Array.from(Deno.readDirSync(migRoot))
+    .map((e) => e.name)
+    .filter((n) => n.includes("sql_wave_towards_destination_filter"));
+  assertEquals(files.length >= 1, true);
+  const sql = Deno.readTextFileSync(`${migRoot}/${files[0]}`);
+  assertEquals(sql.includes("towards_destination_sql_wave_allows_driver"), true);
+  assertEquals(sql.includes("towards_destination_mismatch"), true);
+  assertEquals(sql.includes("dispatch_trip_offers"), true);
+  // Expired sessions must not hard-filter (Edge parity).
+  assertEquals(sql.includes("v_expires <= p_now"), true);
+});
