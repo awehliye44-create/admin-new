@@ -124,6 +124,8 @@ Deno.serve(async (req) => {
         remaining_trips: view.remaining_trips,
         bonus_amount_pence: view.bonus_amount_pence,
         progress_ratio: view.progress_ratio,
+        // Sticky Home card: Driver hides locally after ends_at while offline.
+        ends_at: home.ends_at ?? null,
       },
     });
   } catch (e) {

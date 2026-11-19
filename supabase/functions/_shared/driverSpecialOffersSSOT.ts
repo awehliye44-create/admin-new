@@ -169,6 +169,7 @@ export interface DriverOffersBanner {
   headline: string;
   button_label: string;
   offer_id: string;
+  ends_at?: string | null;
 }
 
 /**
@@ -186,6 +187,7 @@ export function buildDriverOffersBanner(eligible: DriverSpecialOfferRow[]): Driv
     headline: source.banner_headline?.trim() || 'Special offers just for you!',
     button_label: source.banner_button_label?.trim() || DEFAULT_BANNER_BUTTON_LABEL,
     offer_id: source.id,
+    ends_at: source.ends_at ?? null,
   };
 }
 
@@ -228,6 +230,8 @@ export function sanitiseOfferForApp(o: DriverSpecialOfferRow) {
     email_button_label: o.email_button_label ?? 'Email',
     is_featured: o.is_featured,
     display_order: o.display_order,
+    // Sticky Home/list: Driver hides locally after ends_at while offline.
+    ends_at: o.ends_at ?? null,
   };
 }
 
