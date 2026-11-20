@@ -59,7 +59,9 @@ deno test --no-check --allow-read --allow-env \
   supabase/tests/_shared/farFromLocationGateLock.test.ts \
   supabase/tests/_shared/towardsDestinationDispatchFilterLock.test.ts \
   supabase/functions/_shared/cancelTripCallerAuthSSOT.test.ts \
-  supabase/functions/_shared/bookingOwnershipRoleIsolationLock.test.ts
+  supabase/functions/_shared/bookingOwnershipRoleIsolationLock.test.ts \
+  supabase/functions/_shared/sessionAccessRoleSSOT.test.ts \
+  supabase/functions/_shared/bookingSessionRoleIsolationLock.test.ts
 
 echo
 echo "=== [3/3] postgres harness (local DB only) ==="

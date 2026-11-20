@@ -80,7 +80,7 @@ Deno.test("#57 lock: bind-onecab-access-role Edge exists", async () => {
   const src = await Deno.readTextFile(
     new URL("../bind-onecab-access-role/index.ts", import.meta.url),
   );
-  assertStringIncludes(src, 'onecab_access');
-  assertStringIncludes(src, '"customer"');
-  assertStringIncludes(src, '"driver"');
+  assertStringIncludes(src, "onecab_auth_session_roles");
+  assertStringIncludes(src, "customer");
+  assertStringIncludes(src, "driver");
 });
