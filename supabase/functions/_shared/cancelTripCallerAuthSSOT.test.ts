@@ -87,6 +87,27 @@ Deno.test("#57 true passenger cancels with rider claim", () => {
   });
 });
 
+Deno.test("#57 dual-role passenger (also a driver) cancels own trip as rider", () => {
+  // MK-261120-004 class: WhatsApp guest whose auth user also has a drivers row.
+  // Rider claim must succeed when customerId matches trip passenger — driver
+  // assignment on a different trip must not poison this decision.
+  const ok = resolveCancelTripCallerAuthority({
+    claimedCancelledBy: "rider",
+    isAdmin: false,
+    callerUserId: USER,
+    customerId: PASSENGER,
+    driverId: OTHER_DRV,
+    tripPassengerId: PASSENGER,
+    tripDriverId: DRIVER,
+    tripConfirmedDriverId: DRIVER,
+  });
+  assertEquals(ok, {
+    ok: true,
+    cancelledBy: "rider",
+    cancelledById: PASSENGER,
+  });
+});
+
 Deno.test("#57 forged admin claim from non-admin is forbidden", () => {
   const denied = resolveCancelTripCallerAuthority({
     claimedCancelledBy: "admin",

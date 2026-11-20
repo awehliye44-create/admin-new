@@ -166,15 +166,22 @@ serve(async (req) => {
       .in("role", ["admin", "super_admin"])
       .maybeSingle();
 
+    // Dual-role accounts (Customer + Driver) are valid. Prefer passenger
+    // ownership for claimed rider cancels; never use .single() which 406s on
+    // duplicates and would false-deny #57 rider authority.
     const { data: customer } = await supabase
       .from("customers")
       .select("id")
       .eq("user_id", callerUserId)
+      .order("created_at", { ascending: true })
+      .limit(1)
       .maybeSingle();
     const { data: driver } = await supabase
       .from("drivers")
       .select("id")
       .eq("user_id", callerUserId)
+      .order("created_at", { ascending: true })
+      .limit(1)
       .maybeSingle();
 
     const { resolveCancelTripCallerAuthority } = await import(
