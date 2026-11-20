@@ -152,6 +152,9 @@ verify_jwt = false
 [functions.cancel-trip]
 verify_jwt = false
 
+[functions.bind-onecab-access-role]
+verify_jwt = false
+
 [functions.schedule-dispatch]
 verify_jwt = false
 

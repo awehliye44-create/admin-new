@@ -128,9 +128,10 @@ serve(async (req) => {
       return errorResponse("Invalid JSON", 400);
     }
 
-    const { trip_id, cancelled_by, reason, is_no_show } = body;
+    const { trip_id, reason, is_no_show } = body;
+    const claimedCancelledBy = body.cancelled_by;
 
-    if (!trip_id || !cancelled_by) {
+    if (!trip_id || !claimedCancelledBy) {
       return errorResponse("Missing trip_id or cancelled_by", 400);
     }
 
@@ -155,8 +156,9 @@ serve(async (req) => {
       return errorResponse("Trip not found", 404);
     }
 
-    // Verify caller is authorised: admin OR the rider OR the assigned driver of this trip
-    let cancelled_by_id: string | null = null;
+    // #57 — verify authority BEFORE any fee / mutation / payment / notify.
+    // Never fall through failed rider ownership to driver assignment.
+    // Never trust body cancelled_by as proof of authority.
     const { data: adminRole } = await supabase
       .from("user_roles")
       .select("role")
@@ -164,33 +166,36 @@ serve(async (req) => {
       .in("role", ["admin", "super_admin"])
       .maybeSingle();
 
-    if (adminRole) {
-      cancelled_by_id = callerUserId;
-    } else {
-      // Try as rider (customers.user_id)
-      const { data: customer } = await supabase
-        .from("customers")
-        .select("id")
-        .eq("user_id", callerUserId)
-        .maybeSingle();
-      if (customer && trip.passenger_id === customer.id) {
-        cancelled_by_id = customer.id;
-      } else {
-        // Try as driver (drivers.user_id)
-        const { data: driver } = await supabase
-          .from("drivers")
-          .select("id")
-          .eq("user_id", callerUserId)
-          .maybeSingle();
-        if (driver && (trip.driver_id === driver.id || trip.confirmed_driver_id === driver.id)) {
-          cancelled_by_id = driver.id;
-        }
-      }
-    }
+    const { data: customer } = await supabase
+      .from("customers")
+      .select("id")
+      .eq("user_id", callerUserId)
+      .maybeSingle();
+    const { data: driver } = await supabase
+      .from("drivers")
+      .select("id")
+      .eq("user_id", callerUserId)
+      .maybeSingle();
 
-    if (!cancelled_by_id) {
-      return errorResponse("Forbidden: caller not authorised to cancel this trip", 403);
+    const { resolveCancelTripCallerAuthority } = await import(
+      "../_shared/cancelTripCallerAuthSSOT.ts"
+    );
+    const authz = resolveCancelTripCallerAuthority({
+      claimedCancelledBy,
+      isAdmin: Boolean(adminRole),
+      callerUserId,
+      customerId: customer?.id ?? null,
+      driverId: driver?.id ?? null,
+      tripPassengerId: trip.passenger_id ?? null,
+      tripDriverId: trip.driver_id ?? null,
+      tripConfirmedDriverId: trip.confirmed_driver_id ?? null,
+    });
+    if (!authz.ok) {
+      return errorResponse(authz.error, authz.status);
     }
+    const cancelled_by_id = authz.cancelledById;
+    // Authoritative workflow role — never the raw body after this point.
+    const cancelled_by = authz.cancelledBy;
 
     const terminalStatuses = ["completed", "cancelled", "no_show"];
     if (terminalStatuses.includes(trip.status)) {
