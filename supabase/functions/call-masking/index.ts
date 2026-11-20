@@ -521,19 +521,47 @@ async function handleCallReport(
     logId = crqid.slice("onecab:".length);
   }
 
-  let logQuery = serviceClient
-    .from("call_masking_call_logs")
-    .select("id, booking_id, session_id, caller_e164, destination_e164, call_start, status, msg91_request_id");
+  const CALL_LOG_COLUMNS =
+    "id, booking_id, session_id, caller_e164, destination_e164, call_start, status, msg91_request_id";
+  const providerRef = typeof uuid === "string" ? uuid.trim() : "";
 
+  let log: {
+    id: string;
+    booking_id: string | null;
+    session_id: string | null;
+    caller_e164: string | null;
+    destination_e164: string | null;
+    call_start: string | null;
+    status: string | null;
+    msg91_request_id: string | null;
+  } | null = null;
   if (logId && isValidUUID(logId)) {
-    logQuery = logQuery.eq("id", logId);
-  } else if (uuid) {
-    logQuery = logQuery.or(`msg91_uuid.eq.${uuid},msg91_request_id.eq.${uuid}`);
+    const { data } = await serviceClient
+      .from("call_masking_call_logs")
+      .select(CALL_LOG_COLUMNS)
+      .eq("id", logId)
+      .maybeSingle();
+    log = data;
+  } else if (providerRef) {
+    if (providerRef.length > 128) {
+      return errorResponse("VALIDATION_ERROR", "Invalid call reference", 400);
+    }
+    // Provider reference is matched as a bound value on each column — never spliced into a filter string.
+    for (const column of ["msg91_uuid", "msg91_request_id"] as const) {
+      const { data } = await serviceClient
+        .from("call_masking_call_logs")
+        .select(CALL_LOG_COLUMNS)
+        .eq(column, providerRef)
+        .maybeSingle();
+      if (data) {
+        log = data;
+        break;
+      }
+    }
   } else {
     return errorResponse("NOT_FOUND", "No call log reference in webhook", 404);
   }
 
-  const { data: log } = await logQuery.maybeSingle();
   if (!log) {
     return errorResponse("NOT_FOUND", "Call log not found", 404);
   }
@@ -544,7 +572,7 @@ async function handleCallReport(
     call_end: endTime,
     duration_seconds: Number.isFinite(durationSec) ? durationSec : null,
     disconnect_reason: disconnectReason,
-    msg91_uuid: uuid ?? null,
+    msg91_uuid: providerRef || null,
     status: disconnectReason === DISCONNECT_REASON.CALL_COMPLETED ? "completed" : "disconnected",
   });
 
@@ -557,7 +585,7 @@ async function handleCallReport(
     call_start: startTime ?? log.call_start,
     call_end: endTime,
     disconnect_reason: disconnectReason,
-    msg91_uuid: uuid ?? null,
+    msg91_uuid: providerRef || null,
     duration_seconds: durationSec,
   });
 

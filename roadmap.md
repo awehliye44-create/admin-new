@@ -8,3 +8,5 @@
 - [ ] Investigate 21 legacy failing tests (docs/stage1-roles-release.md)
 
 - [x] Fix fare display issue shown in user screenshot (image-79)
+- [x] Security batch: call-masking report filter, invoice resend email logging
+- [ ] admin_page_select/mutate findings — awaiting user decision (accept vs move behind backend)

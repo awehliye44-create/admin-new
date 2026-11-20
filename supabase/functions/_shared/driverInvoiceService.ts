@@ -930,7 +930,7 @@ export async function sendDriverInvoiceEmail(
     companyBranding.company.email,
   );
 
-  log("email_sending_started", { invoiceId, to: recipientEmail, invoiceNo: invoice.invoice_number });
+  log("email_sending_started", { invoiceId, invoiceNo: invoice.invoice_number });
   const sendResult = await sendResendEmail({
     to: recipientEmail,
     subject,
@@ -979,7 +979,7 @@ export async function sendDriverInvoiceEmail(
     sent_at: now,
   });
 
-  log("email_sent", { invoiceId, invoiceNo: invoice.invoice_number, to: recipientEmail });
+  log("email_sent", { invoiceId, invoiceNo: invoice.invoice_number });
   return { ok: true };
 }
 
