@@ -1,12 +1,18 @@
 -- #54D: pg_cron → reconcile-stranded-stacked-promotions every 2 minutes.
 -- Apply AFTER the Edge function is deployed. Idempotent if job already exists.
 -- Bearer from Vault at call time. Bounded batch inside the Edge function.
+-- Safe where pg_cron is absent (local / CI Postgres harness): no-op unless cron schema exists.
 
 DO $$
 DECLARE
   v_job_name text := 'reconcile-stranded-stacked-promotions-every-2-min';
   v_existing bigint;
 BEGIN
+  IF to_regclass('cron.job') IS NULL THEN
+    RAISE NOTICE 'pg_cron not installed — skip scheduling %', v_job_name;
+    RETURN;
+  END IF;
+
   SELECT jobid INTO v_existing FROM cron.job WHERE jobname = v_job_name LIMIT 1;
   IF FOUND THEN
     RAISE NOTICE 'pg_cron job % already exists (jobid=%), skipping.', v_job_name, v_existing;
