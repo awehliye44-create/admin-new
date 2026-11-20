@@ -921,6 +921,18 @@ async function enrichArrivalWaitingSnapshot(
       (typeof ctx.trip.free_wait_expires_at === "string" &&
         ctx.trip.free_wait_expires_at.trim().length > 0);
 
+    // Bug #59 / #52: never keep a free_wait stamp earlier than the scheduled floor
+    // (MK-261120-001 stamped arrived+3m while scheduled_at was later).
+    const stampedFreeWaitMs =
+      typeof ctx.trip.free_wait_expires_at === "string"
+        ? Date.parse(ctx.trip.free_wait_expires_at)
+        : NaN;
+    const correctFreeWaitMs =
+      typeof freeWaitExpiresAt === "string" ? Date.parse(freeWaitExpiresAt) : NaN;
+    const freeWaitNeedsFloorCorrection =
+      Number.isFinite(correctFreeWaitMs) &&
+      (!Number.isFinite(stampedFreeWaitMs) || stampedFreeWaitMs < correctFreeWaitMs - 500);
+
     // Always MERGE provenance; never replace a good freeze with a bare snapshot
     // that strips waiting_context / driver_id / frozen_at.
     const frozenConfig: Record<string, unknown> = alreadyFareFrozen
@@ -944,11 +956,13 @@ async function enrichArrivalWaitingSnapshot(
         frozen_at: existingObj.frozen_at ?? new Date().toISOString(),
       };
 
-    // Skip redundant persist when freeze + free_wait_expires_at already durable.
-    if (!alreadyPersisted || !frozenOnly) {
+    // Skip redundant persist when freeze + free_wait already durable — unless
+    // Bug #59 floor correction must rewrite an early-arrival free_wait stamp.
+    if (!alreadyPersisted || !frozenOnly || freeWaitNeedsFloorCorrection) {
       const { error: cfgErr } = await updateTripSafe(supabase, ctx.trip_id, {
         pickup_waiting_admin_config: frozenConfig,
-        ...(freeWaitExpiresAt && !ctx.trip.free_wait_expires_at
+        ...(freeWaitExpiresAt &&
+          (!ctx.trip.free_wait_expires_at || freeWaitNeedsFloorCorrection)
           ? { free_wait_expires_at: freeWaitExpiresAt }
           : freeWaitExpiresAt && !alreadyFareFrozen
           ? { free_wait_expires_at: freeWaitExpiresAt }

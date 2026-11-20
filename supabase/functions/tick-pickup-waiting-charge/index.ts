@@ -254,9 +254,34 @@ Deno.serve(async (req) => {
     const nowIso = new Date(nowMs).toISOString();
     const waitingStartMs = new Date(pickupWaitingStartedAt).getTime();
     const wallElapsedSeconds = Math.max(0, Math.floor((nowMs - waitingStartMs) / 1000));
+    const scheduledAtIso =
+      (trip as { scheduled_at?: string | null }).scheduled_at ?? null;
+    const { eligibleFromMsForPickupTrip } = await import(
+      "../_shared/scheduledPickupWaitingFairnessSSOT.ts"
+    );
+    const eligibleFromMs = eligibleFromMsForPickupTrip(trip as {
+      arrived_at?: string | null;
+      pickup_arrived_at?: string | null;
+      scheduled_at?: string | null;
+      is_scheduled?: boolean | null;
+    });
+    // Bug #59: free-wait expiry anchors on scheduled floor, never early Arrived alone.
+    const freeWaitAnchorMs =
+      eligibleFromMs != null && Number.isFinite(eligibleFromMs)
+        ? eligibleFromMs
+        : waitingStartMs;
+    const correctFreeWaitExpiresAt = new Date(
+      freeWaitAnchorMs + gracePeriodSeconds * 1000,
+    ).toISOString();
+    const stampedFreeWaitMs =
+      typeof trip.free_wait_expires_at === "string"
+        ? Date.parse(trip.free_wait_expires_at)
+        : NaN;
     const freeWaitExpiresAt =
-      trip.free_wait_expires_at ??
-      new Date(waitingStartMs + gracePeriodSeconds * 1000).toISOString();
+      Number.isFinite(stampedFreeWaitMs) &&
+        stampedFreeWaitMs >= freeWaitAnchorMs + gracePeriodSeconds * 1000 - 500
+        ? trip.free_wait_expires_at
+        : correctFreeWaitExpiresAt;
 
     let geofenceStatus: WaitingGeofenceStatus | string =
       trip.waiting_geofence_status ?? "paused";
@@ -264,13 +289,8 @@ Deno.serve(async (req) => {
     let waitingEvidenceComplete = true;
     let waitingPauseReason: string | null = null;
     let waitingInsideRadius: boolean | null = null;
-    const scheduledAtIso =
-      (trip as { scheduled_at?: string | null }).scheduled_at ?? null;
 
     if (trip.pickup_latitude != null && trip.pickup_longitude != null) {
-      const { eligibleFromMsForPickupTrip } = await import(
-        "../_shared/scheduledPickupWaitingFairnessSSOT.ts"
-      );
       const clock = await syncWaitingGeofenceClock(supabase, {
         tripId: trip_id,
         driverId: driver.id,
@@ -287,12 +307,7 @@ Deno.serve(async (req) => {
         bodyLat: typeof driver_lat === "number" ? driver_lat : null,
         bodyLng: typeof driver_lng === "number" ? driver_lng : null,
         nowIso,
-        eligibleFromMs: eligibleFromMsForPickupTrip(trip as {
-          arrived_at?: string | null;
-          pickup_arrived_at?: string | null;
-          scheduled_at?: string | null;
-          is_scheduled?: boolean | null;
-        }),
+        eligibleFromMs,
       });
       geofenceStatus = clock.status;
       countedSeconds = clock.countedSeconds;
