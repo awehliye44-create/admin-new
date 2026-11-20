@@ -37,6 +37,7 @@ import {
   errorResponse,
 } from "../_shared/security.ts";
 import { notifyCustomerTripLifecycle } from "../_shared/customerTripLifecycleNotify.ts";
+import { scheduleEdgeBackground } from "../_shared/scheduleEdgeBackground.ts";
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return handleCORSPreflight();
@@ -327,23 +328,6 @@ Deno.serve(async (req) => {
       );
     }
 
-    // Rematch must not let the next driver inherit the cancelled driver's pickup
-    // waiting clock (open segment / arrived_at). scheduled_at is NOT touched, so
-    // the D4 eligible floor still applies to the replacement driver's Arrived.
-    // Best-effort, after the ownership CAS: a reset failure never blocks the rematch.
-    if (arrivedBeforeStartStatuses.has(rawStatus) || trip.pickup_waiting_started_at) {
-      await closeAllOpenWaitingSegmentsForTrip(supabase, body.tripId, nowIso);
-      const { error: waitResetErr } = await supabase
-        .from("trips")
-        .update(buildRematchPickupWaitingResetPatch(nowIso))
-        .eq("id", body.tripId)
-        .is("driver_id", null)
-        .is("started_at", null);
-      if (waitResetErr) {
-        console.warn("[driver-cancel-before-pickup] rematch waiting reset failed", waitResetErr.message);
-      }
-    }
-
     console.log("DRIVER_CANCEL_NEW_SEARCH_CYCLE_CREATED", JSON.stringify({
       trip_id: body.tripId,
       search_cycle_id: searchCycleId,
@@ -364,79 +348,119 @@ Deno.serve(async (req) => {
       driver_id: driver.id,
     }));
 
+    // Authoritative ownership clear — Driver UI may dismiss after this returns.
     await supabase.from("drivers").update({ current_trip_id: null }).eq("id", driver.id).eq(
       "current_trip_id",
       body.tripId,
     );
 
-    if (trip.passenger_id) {
-      await supabase
-        .from("customers")
-        .update({ active_trip_id: body.tripId })
-        .eq("id", trip.passenger_id);
-    }
+    // #55B — rematch dispatch / notify / waiting reset / stacked follow-up must
+    // NOT block the Driver cancel acknowledgement. CAS + ownership clear is the
+    // commit; rematch continues in the background.
+    const needsWaitingReset =
+      arrivedBeforeStartStatuses.has(rawStatus) || Boolean(trip.pickup_waiting_started_at);
+    const passengerId =
+      typeof trip.passenger_id === "string" ? trip.passenger_id : null;
+    const stackedTripId =
+      typeof trip.stacked_trip_id === "string" ? trip.stacked_trip_id : null;
+    const accidentOps = isAccidentOrBreakdownCancelReason(cancelReason);
 
-    void notifyCustomerTripLifecycle(supabase, {
-      passengerId: typeof trip.passenger_id === "string" ? trip.passenger_id : null,
-      tripId: body.tripId,
-      event: "driver_cancelled",
-      title: "ONECAB DRIVER CANCELLED",
-      body: "We're finding another driver for you.",
-      notificationId: `driver_cancelled-${body.tripId}-${searchCycleId}`,
-    }).catch((e) =>
-      console.warn("[driver-cancel-before-pickup] customer driver_cancelled push failed:", e)
-    );
+    scheduleEdgeBackground(async () => {
+      // Rematch must not let the next driver inherit the cancelled driver's pickup
+      // waiting clock (open segment / arrived_at). scheduled_at is NOT touched, so
+      // the D4 eligible floor still applies to the replacement driver's Arrived.
+      if (needsWaitingReset) {
+        await closeAllOpenWaitingSegmentsForTrip(supabase, body.tripId, nowIso);
+        const { error: waitResetErr } = await supabase
+          .from("trips")
+          .update(buildRematchPickupWaitingResetPatch(nowIso))
+          .eq("id", body.tripId)
+          .is("driver_id", null)
+          .is("started_at", null);
+        if (waitResetErr) {
+          console.warn(
+            "[driver-cancel-before-pickup] rematch waiting reset failed",
+            waitResetErr.message,
+          );
+        }
+      }
 
-    if (isAccidentOrBreakdownCancelReason(cancelReason)) {
-      const fingerprint = `driver_cancel_incident:${body.tripId}:${driver.id}`;
-      try {
-        await supabase.from("ops_alerts").upsert(
-          {
-            fingerprint,
-            title: "Driver cancelled — accident/breakdown (pre-start rematch)",
-            related_trip_id: body.tripId,
-            metadata: {
-              trip_id: body.tripId,
-              driver_id: driver.id,
-              cancel_reason: cancelReason,
-              outcome: "rematch",
+      if (passengerId) {
+        await supabase
+          .from("customers")
+          .update({ active_trip_id: body.tripId })
+          .eq("id", passengerId);
+      }
+
+      await notifyCustomerTripLifecycle(supabase, {
+        passengerId,
+        tripId: body.tripId,
+        event: "driver_cancelled",
+        title: "ONECAB DRIVER CANCELLED",
+        body: "We're finding another driver for you.",
+        notificationId: `driver_cancelled-${body.tripId}-${searchCycleId}`,
+      }).catch((e) =>
+        console.warn(
+          "[driver-cancel-before-pickup] customer driver_cancelled push failed:",
+          e,
+        )
+      );
+
+      if (accidentOps) {
+        const fingerprint = `driver_cancel_incident:${body.tripId}:${driver.id}`;
+        try {
+          await supabase.from("ops_alerts").upsert(
+            {
+              fingerprint,
+              title: "Driver cancelled — accident/breakdown (pre-start rematch)",
+              related_trip_id: body.tripId,
+              metadata: {
+                trip_id: body.tripId,
+                driver_id: driver.id,
+                cancel_reason: cancelReason,
+                outcome: "rematch",
+              },
+              status: "open",
+              updated_at: nowIso,
             },
-            status: "open",
-            updated_at: nowIso,
-          },
-          { onConflict: "fingerprint" },
-        );
-      } catch (opsErr) {
-        console.warn("[driver-cancel-before-pickup] ops_alert upsert failed", opsErr);
+            { onConflict: "fingerprint" },
+          );
+        } catch (opsErr) {
+          console.warn("[driver-cancel-before-pickup] ops_alert upsert failed", opsErr);
+        }
       }
-    }
 
-    const dispatchResult = await rebroadcastTripViaAutoDispatch(
-      supabase,
-      body.tripId,
-      "driver_cancel_before_pickup",
-    );
+      const dispatchResult = await rebroadcastTripViaAutoDispatch(
+        supabase,
+        body.tripId,
+        "driver_cancel_before_pickup",
+      );
 
-    console.log("DRIVER_CANCEL_REMATCH_DISPATCH", JSON.stringify({
-      trip_id: body.tripId,
-      ok: dispatchResult.ok,
-      path: dispatchResult.path,
-      error: dispatchResult.error ?? null,
-      dispatch_mode: updatedTrip.dispatch_mode,
-      scheduled_status: updatedTrip.scheduled_status,
-    }));
+      console.log("DRIVER_CANCEL_REMATCH_DISPATCH", JSON.stringify({
+        trip_id: body.tripId,
+        ok: dispatchResult.ok,
+        path: dispatchResult.path,
+        error: dispatchResult.error ?? null,
+        dispatch_mode: updatedTrip.dispatch_mode,
+        scheduled_status: updatedTrip.scheduled_status,
+        deferred: true,
+      }));
 
-    if (trip.stacked_trip_id) {
-      try {
-        await handleQueuedTripAfterCurrentTripFailure(supabase, {
-          tripId: body.tripId,
-          stackedTripId: trip.stacked_trip_id,
-          reason: "driver_cancel_before_pickup",
-        });
-      } catch (stackErr) {
-        console.warn("[driver-cancel-before-pickup] stacked follow-up failed", stackErr);
+      if (stackedTripId) {
+        try {
+          await handleQueuedTripAfterCurrentTripFailure(supabase, {
+            tripId: body.tripId,
+            stackedTripId,
+            reason: "driver_cancel_before_pickup",
+          });
+        } catch (stackErr) {
+          console.warn(
+            "[driver-cancel-before-pickup] stacked follow-up failed",
+            stackErr,
+          );
+        }
       }
-    }
+    }, "driver-cancel-before-pickup-rematch");
 
     return successResponse({
       success: true,
@@ -447,7 +471,7 @@ Deno.serve(async (req) => {
       searching_expires_at: searchingExpiresAt,
       dispatch_mode: updatedTrip.dispatch_mode,
       scheduled_status: updatedTrip.scheduled_status,
-      dispatch: dispatchResult,
+      dispatch: { ok: true, path: "deferred_background", deferred: true },
       cancel_reason: cancelReason,
     });
   } catch (error) {

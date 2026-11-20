@@ -1,6 +1,7 @@
 import { createClient } from "npm:@supabase/supabase-js@2.57.2";
 import { requireAuthenticatedUser } from "../_shared/edgeAuth.ts";
 import { notifyCustomerTripLifecycle } from "../_shared/customerTripLifecycleNotify.ts";
+import { notifyDriverTripStopped } from "../_shared/notifyDriverTripStopped.ts";
 import { disposeTerminalTripPayment } from "../_shared/terminalTripPaymentDisposition.ts";
 
 const corsHeaders: Record<string, string> = {
@@ -92,7 +93,9 @@ Deno.serve(async (req) => {
 
     const { data: current } = await supabase
       .from("trips")
-      .select("status, completed_at")
+      .select(
+        "status, completed_at, driver_id, confirmed_driver_id, previous_driver_id, passenger_id",
+      )
       .eq("id", trip_id)
       .maybeSingle();
     if (!current) return json({ error: "Trip not found" }, 404);
@@ -106,6 +109,15 @@ Deno.serve(async (req) => {
         message: "This trip is completed and cannot be cancelled. Use a refund or adjustment instead.",
       }, 409);
     }
+
+    // Capture assigned Driver before terminal RPC nulls assignment columns.
+    const assignedDriverId =
+      (typeof current.confirmed_driver_id === "string" && current.confirmed_driver_id) ||
+      (typeof current.driver_id === "string" && current.driver_id) ||
+      (typeof current.previous_driver_id === "string" && current.previous_driver_id) ||
+      null;
+    const passengerIdBefore =
+      typeof current.passenger_id === "string" ? current.passenger_id : null;
 
     // 3) Terminal trip state via existing RPC (same as prior Admin cancel).
     const { data: cancelResult, error: cancelErr } = await supabase.rpc(
@@ -141,6 +153,33 @@ Deno.serve(async (req) => {
       }, rpcError === "COMPLETED_TRIP_NOT_CANCELLABLE" ? 409 : 400);
     }
 
+    // #55C — notify Driver immediately after terminal cancel commit (before
+    // payment disposition). Missing RIDE_STOP left Driver on Start Trip for
+    // 6–7s until a slow hydrate (MK-261120-002).
+    if (assignedDriverId) {
+      void notifyDriverTripStopped(supabaseUrl, serviceRoleKey, assignedDriverId, {
+        tripId: trip_id,
+        stopReason: "admin_cancelled",
+        cancelledBy: "admin",
+        body: "Trip cancelled by ONECAB",
+      }).catch((e) =>
+        console.warn("[admin-trip-actions] driver trip_cancelled push failed:", e)
+      );
+    }
+    if (passengerIdBefore) {
+      void notifyCustomerTripLifecycle(supabase, {
+        passengerId: passengerIdBefore,
+        tripId: trip_id,
+        event: "trip_cancelled",
+        body: "Your trip has been cancelled by ONECAB.",
+      }).catch((notifyErr) =>
+        console.warn(
+          "[admin-trip-actions] customer trip_cancelled push failed (non-fatal):",
+          notifyErr,
+        )
+      );
+    }
+
     // 4) SAME dispose path as cancel-trip — void/release current Revolut order.
     // Admin cancel is no-fee full release (forceFeePenceOverride: 0). Idempotent
     // via terminal_disposition_key on the payment session.
@@ -168,31 +207,8 @@ Deno.serve(async (req) => {
       already_terminal: (cancelResult as { already_terminal?: boolean } | null)?.already_terminal === true,
       hold_disposition_outcome: holdDisposition?.outcome ?? null,
       hold_disposition_key: holdDisposition?.disposition_key ?? null,
+      driver_notified: Boolean(assignedDriverId),
     });
-
-    // After terminal cancel succeeds — Customer trip_cancelled lifecycle push.
-    try {
-      const { data: tripRow } = await supabase
-        .from("trips")
-        .select("passenger_id")
-        .eq("id", trip_id)
-        .maybeSingle();
-      const passengerId =
-        typeof tripRow?.passenger_id === "string" ? tripRow.passenger_id : null;
-      if (passengerId) {
-        await notifyCustomerTripLifecycle(supabase, {
-          passengerId,
-          tripId: trip_id,
-          event: "trip_cancelled",
-          body: "Your trip has been cancelled by ONECAB.",
-        });
-      }
-    } catch (notifyErr) {
-      console.warn(
-        "[admin-trip-actions] customer trip_cancelled push failed (non-fatal):",
-        notifyErr,
-      );
-    }
 
     return json({
       success: true,
