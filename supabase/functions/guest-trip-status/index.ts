@@ -763,9 +763,23 @@ Deno.serve(async (req) => {
       ],
     },
     trackingToken: trackingTokenOut,
-    // Broadcast channel name for soft refresh hints. Anon cannot SELECT
-    // trip_driver_live_location; Guest Web still polls location as fallback.
-    realtimeChannel: `trip:${trip.id}`,
+    /**
+     * #60B — Do not advertise a public anon broadcast as the location source.
+     * Guest Web mints a booking-scoped passenger Realtime session via
+     * guest-trip-realtime-session (same RLS as native Customer).
+     * `realtimeChannel` remains null so old clients fall back to soft poll only.
+     */
+    realtimeChannel: null,
+    realtimeSession: terminal || !driver
+      ? null
+      : {
+        endpoint: "guest-trip-realtime-session",
+        tripId: trip.id,
+        /** Native Customer cadence — poll only when Realtime GPS goes stale. */
+        restorePollIntervalMs: 3_500,
+        realtimeGpsStaleMs: 8_000,
+        locationMaxStaleMs: 120_000,
+      },
     serverTimeIso: new Date(nowMs).toISOString(),
   });
 });

@@ -28,6 +28,10 @@ import { notifyDriverTripStopped } from "../_shared/notifyDriverTripStopped.ts";
 import { maybeResumeTerminalFeeSettlementAfterProviderFee } from "../_shared/terminalFeeSettlementResumptionSSOT.ts";
 import { buildCancelledScheduledStatePatch } from "../_shared/tripTerminalDispatch.ts";
 import { broadcastScheduledMarketplaceChanged } from "../_shared/scheduledMarketplaceRealtimeBroadcastSSOT.ts";
+// #60B / MK-261120-004: STATIC import — dynamic import of this SSOT crashed
+// production cancel-trip (ERR_MODULE_NOT_FOUND → HTTP 500 ×4) when the module
+// was missing from the Edge bundle. Static import fails deploy if absent.
+import { resolveCancelTripCallerAuthority } from "../_shared/cancelTripCallerAuthSSOT.ts";
 
 
 /**
@@ -45,6 +49,10 @@ import { broadcastScheduledMarketplaceChanged } from "../_shared/scheduledMarket
  *   - no_show_fee_pence
  *   - no_show_wait_time_minutes
  *   - no_show_apply_after_arrival_only
+ *
+ * Auth: verify_jwt may be false at the gateway; requireUser() still rejects
+ * missing/invalid Bearer JWTs before #57 authority runs. Guest cancel mints a
+ * passenger JWT via guest-trip-action — never trusts body cancelled_by alone.
  */
 
 const RATE_LIMIT_CONFIG = { limit: 30, windowMs: 60 * 1000 };
@@ -184,9 +192,6 @@ serve(async (req) => {
       .limit(1)
       .maybeSingle();
 
-    const { resolveCancelTripCallerAuthority } = await import(
-      "../_shared/cancelTripCallerAuthSSOT.ts"
-    );
     const authz = resolveCancelTripCallerAuthority({
       claimedCancelledBy,
       isAdmin: Boolean(adminRole),

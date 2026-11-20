@@ -16,11 +16,32 @@ Deno.test("#60 guest-trip-status signs driver photos like Customer restore", asy
   assertEquals(src.includes('startsWith("https://")\n    ? driver.profile_photo_url'), false);
 });
 
-Deno.test("#60 guest-trip-status issues realtime channel and stable track tokens", async () => {
+Deno.test("#60/#60B guest-trip-status stable track tokens + booking-scoped realtime session", async () => {
   const src = await Deno.readTextFile(`${ROOT}/guest-trip-status/index.ts`);
-  assertStringIncludes(src, "realtimeChannel: `trip:${trip.id}`");
   assertStringIncludes(src, "reuseTrackToken");
-  assertEquals(src.includes("realtimeChannel: null"), false);
+  assertStringIncludes(src, "guest-trip-realtime-session");
+  assertStringIncludes(src, "realtimeSession");
+  // Must not advertise public trip:{id} as the Guest location channel.
+  assertEquals(src.includes("realtimeChannel: `trip:${trip.id}`"), false);
+});
+
+Deno.test("#60B cancel-trip statically imports #57 SSOT (MK-261120-004)", async () => {
+  const src = await Deno.readTextFile(`${ROOT}/cancel-trip/index.ts`);
+  assertStringIncludes(
+    src,
+    'import { resolveCancelTripCallerAuthority } from "../_shared/cancelTripCallerAuthSSOT.ts"',
+  );
+  assertEquals(src.includes("await import(\n      \"../_shared/cancelTripCallerAuthSSOT.ts\""), false);
+  assertEquals(src.includes('await import("../_shared/cancelTripCallerAuthSSOT.ts")'), false);
+});
+
+Deno.test("#60B guest-trip-realtime-session is booking-scoped (no anon location)", async () => {
+  const src = await Deno.readTextFile(`${ROOT}/guest-trip-realtime-session/index.ts`);
+  assertStringIncludes(src, "mintTripPassengerAccessToken");
+  assertStringIncludes(src, "verifyWhatsAppContinuationToken");
+  assertStringIncludes(src, "phonesExactlyMatch");
+  assertStringIncludes(src, "customer-driver-loc:");
+  assertStringIncludes(src, 'pollMode: "stale_fallback"');
 });
 
 Deno.test("#60 guest-trip-action cancel requires confirm and returns terminal trip", async () => {
