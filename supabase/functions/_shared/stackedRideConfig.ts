@@ -237,6 +237,15 @@ export type StackedCurrentTripContext = {
   stacked_trip_id?: string | null;
   started_at?: string | null;
   estimated_duration_minutes?: number | null;
+  /** Authoritative live remaining ETA (minutes) when recently calculated. */
+  last_eta_minutes?: number | null;
+  last_eta_calculated_at?: string | null;
+  /**
+   * Outstanding intermediate-stop remaining minutes from server fields only
+   * (e.g. active stop waiting already reflected in last_eta, or explicit sum).
+   * Never invent per-stop thresholds.
+   */
+  outstanding_stops_remaining_minutes?: number | null;
   stop_waiting_status?: string | null;
   stop_waiting_started_at?: string | null;
   stop_waiting_paid_started_at?: string | null;
@@ -249,6 +258,79 @@ export type StackedCurrentTripContext = {
 export type StackedEligibilityResult =
   | { eligible: true }
   | { eligible: false; reason: string; details?: Record<string, unknown> };
+
+/**
+ * #54B/C — remaining Trip A minutes for stacked offer window.
+ * Prefer decayed `last_eta_*` when calculated within 90s (live-trip ETA freshness).
+ * Else elapsed-adjusted booked duration (SQL Wave-1 parity). No Directions calls.
+ */
+export const STACKED_LAST_ETA_FRESH_MS = 90_000;
+
+export type StackedRemainingResolution = {
+  remainingMinutes: number | null;
+  source: "last_eta" | "elapsed_booked" | "booked" | "missing";
+};
+
+export function resolveStackedActiveRemainingMinutes(input: {
+  status: string;
+  started_at?: string | null;
+  arrived_at?: string | null;
+  estimated_duration_minutes?: number | null;
+  last_eta_minutes?: number | null;
+  last_eta_calculated_at?: string | null;
+  outstanding_stops_remaining_minutes?: number | null;
+  nowMs?: number;
+}): StackedRemainingResolution {
+  const nowMs = input.nowMs ?? Date.now();
+  const stopsExtra = Math.max(
+    0,
+    Number(input.outstanding_stops_remaining_minutes ?? 0) || 0,
+  );
+
+  const lastEta = Number(input.last_eta_minutes);
+  const lastAt = input.last_eta_calculated_at
+    ? Date.parse(input.last_eta_calculated_at)
+    : NaN;
+  if (
+    Number.isFinite(lastEta) &&
+    Number.isFinite(lastAt) &&
+    nowMs - lastAt <= STACKED_LAST_ETA_FRESH_MS
+  ) {
+    const decayed = Math.max(0, Math.ceil(lastEta - (nowMs - lastAt) / 60_000));
+    return {
+      remainingMinutes: decayed + stopsExtra,
+      source: "last_eta",
+    };
+  }
+
+  const status = String(input.status ?? "").toLowerCase();
+  const anchorIso =
+    status === "in_progress"
+      ? input.started_at
+      : status === "arrived"
+        ? input.arrived_at ?? input.started_at
+        : input.started_at ?? input.arrived_at;
+  const booked = Number(input.estimated_duration_minutes);
+  if (anchorIso && Number.isFinite(booked) && booked > 0) {
+    const anchorMs = Date.parse(anchorIso);
+    if (Number.isFinite(anchorMs)) {
+      const elapsedMin = Math.max(0, (nowMs - anchorMs) / 60_000);
+      return {
+        remainingMinutes: Math.max(0, booked - elapsedMin) + stopsExtra,
+        source: "elapsed_booked",
+      };
+    }
+  }
+
+  if (Number.isFinite(booked) && booked > 0) {
+    return {
+      remainingMinutes: booked + stopsExtra,
+      source: "booked",
+    };
+  }
+
+  return { remainingMinutes: null, source: "missing" };
+}
 
 /** Phase 2 — safe stacked driver eligibility (current trip + new trip policy). */
 export function evaluateStackedDriverEligibility(input: {
@@ -326,21 +408,23 @@ export function evaluateStackedDriverEligibility(input: {
     return { eligible: false, reason: "stacked_stop_waiting_blocked" };
   }
 
-  const tripAnchorIso =
-    status === "in_progress"
-      ? currentTrip.started_at
-      : status === "arrived"
-        ? currentTrip.arrived_at
-        : null;
+  const remaining = resolveStackedActiveRemainingMinutes({
+    status: currentTrip.status,
+    started_at: currentTrip.started_at,
+    arrived_at: currentTrip.arrived_at,
+    estimated_duration_minutes: currentTrip.estimated_duration_minutes,
+    last_eta_minutes: currentTrip.last_eta_minutes,
+    last_eta_calculated_at: currentTrip.last_eta_calculated_at,
+    outstanding_stops_remaining_minutes:
+      currentTrip.outstanding_stops_remaining_minutes,
+    nowMs,
+  });
 
-  if (!tripAnchorIso || !currentTrip.estimated_duration_minutes) {
+  if (remaining.remainingMinutes == null) {
     return { eligible: false, reason: "stacked_missing_trip_timing" };
   }
 
-  const tripStartTime = new Date(tripAnchorIso).getTime();
-  const estimatedEndTime =
-    tripStartTime + currentTrip.estimated_duration_minutes * 60 * 1000;
-  const minutesUntilEnd = (estimatedEndTime - nowMs) / (60 * 1000);
+  const minutesUntilEnd = remaining.remainingMinutes;
 
   if (minutesUntilEnd > config.stackedOfferWindowMinutes) {
     return {
@@ -349,6 +433,7 @@ export function evaluateStackedDriverEligibility(input: {
       details: {
         minutes_until_end: Math.round(minutesUntilEnd),
         offer_window_minutes: config.stackedOfferWindowMinutes,
+        remaining_source: remaining.source,
       },
     };
   }

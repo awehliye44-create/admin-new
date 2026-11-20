@@ -1739,7 +1739,7 @@ Deno.serve(async (req) => {
 
           const { data: currentTrip } = await supabase
             .from("trips")
-            .select("id, status, pickup_latitude, pickup_longitude, dropoff_latitude, dropoff_longitude, stacked_trip_id, started_at, estimated_duration_minutes, service_area_id, region_id, stop_waiting_status, stop_waiting_started_at, stop_waiting_paid_started_at, grace_period_expired_at, pickup_waiting_started_at, pickup_paid_waiting_started_at, arrived_at")
+            .select("id, status, pickup_latitude, pickup_longitude, dropoff_latitude, dropoff_longitude, stacked_trip_id, started_at, estimated_duration_minutes, last_eta_minutes, last_eta_calculated_at, service_area_id, region_id, stop_waiting_status, stop_waiting_started_at, stop_waiting_paid_started_at, grace_period_expired_at, pickup_waiting_started_at, pickup_paid_waiting_started_at, arrived_at")
             .eq("id", driver.current_trip_id)
             .single();
 

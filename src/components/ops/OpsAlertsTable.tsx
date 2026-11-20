@@ -139,6 +139,7 @@ export function OpsAlertsTable({ alerts, loading, categoryFilter, onCategoryChan
                 <SelectItem value="earning">Earning</SelectItem>
                 <SelectItem value="payout">Payout</SelectItem>
                 <SelectItem value="dispatch">Dispatch</SelectItem>
+                <SelectItem value="stacked_promotion">Stacked Promotion</SelectItem>
                 <SelectItem value="guest_booking">Guest Booking</SelectItem>
                 <SelectItem value="corporate_booking">Corporate Booking</SelectItem>
                 <SelectItem value="customer_app">Customer App</SelectItem>

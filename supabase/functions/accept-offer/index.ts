@@ -20,6 +20,7 @@ import {
 import { recordDispatchWaveSnapshot } from "../_shared/recordDispatchWaveSnapshot.ts";
 import {
   STACKED_RIDE_DISABLED_SAFE_GUARD,
+  resolveStackedActiveRemainingMinutes,
 } from "../_shared/stackedRideConfig.ts";
 import { resolveDriverActiveTripId } from "../_shared/activeDriverTripGuard.ts";
 import { STACKED_RIDE_STATES } from "../_shared/stackedRideState.ts";
@@ -324,10 +325,25 @@ Deno.serve(async (req) => {
       if (effectiveIsStacked && effectiveCurrentTripId) {
         const { data: cur } = await supabase
           .from("trips")
-          .select("estimated_duration_minutes, dropoff_latitude, dropoff_longitude")
+          .select(
+            "status, started_at, arrived_at, estimated_duration_minutes, last_eta_minutes, last_eta_calculated_at, dropoff_latitude, dropoff_longitude",
+          )
           .eq("id", effectiveCurrentTripId)
           .maybeSingle();
-        stackedRemaining = Math.max(5, Number(cur?.estimated_duration_minutes) || 20);
+        // #54B/C: live remaining (fresh last_eta) else elapsed booked — never raw booked alone.
+        const resolved = resolveStackedActiveRemainingMinutes({
+          status: String(cur?.status ?? "in_progress"),
+          started_at: (cur?.started_at as string | null) ?? null,
+          arrived_at: (cur?.arrived_at as string | null) ?? null,
+          estimated_duration_minutes: Number(cur?.estimated_duration_minutes) || null,
+          last_eta_minutes: Number(cur?.last_eta_minutes) || null,
+          last_eta_calculated_at:
+            (cur?.last_eta_calculated_at as string | null) ?? null,
+        });
+        stackedRemaining = Math.max(
+          5,
+          resolved.remainingMinutes ?? (Number(cur?.estimated_duration_minutes) || 20),
+        );
         const oLat = Number(cur?.dropoff_latitude);
         const oLng = Number(cur?.dropoff_longitude);
         originLat = Number.isFinite(oLat) ? oLat : null;
