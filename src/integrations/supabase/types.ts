@@ -34727,6 +34727,16 @@ export type Database = {
         Args: { p_service_area_id: string }
         Returns: string
       }
+      resolve_stacked_active_remaining_minutes: {
+        Args: {
+          p_estimated_duration_minutes: number
+          p_last_eta_calculated_at: string
+          p_last_eta_minutes: number
+          p_now: string
+          p_started_at: string
+        }
+        Returns: number
+      }
       resolve_trip_commissionable_fare_pence: {
         Args: {
           p_airport_pence?: number
