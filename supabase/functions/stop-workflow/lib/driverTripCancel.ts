@@ -11,6 +11,7 @@ import {
 import { isTripAtPickupStatus } from "../../_shared/pickupWaiting.ts";
 import { sanitizeString } from "../../_shared/security.ts";
 import { notifyCustomerTripLifecycle } from "../../_shared/customerTripLifecycleNotify.ts";
+import { scheduleEdgeBackground } from "../../_shared/scheduleEdgeBackground.ts";
 import {
   handleQueuedTripAfterCurrentTripFailure,
   handleQueuedTripDriverCancel,
@@ -201,22 +202,13 @@ export async function executeDriverTerminalCancel(
     .update({ current_trip_id: null, updated_at: now })
     .eq("id", driverId);
 
+  // Stacked B must be redispatched/cancelled before Driver ack returns — durable
+  // ownership handoff, not best-effort notify.
   await handleQueuedTripAfterCurrentTripFailure(supabase, {
     currentTripId: tripId,
     driverId,
     failureReason: "driver_cancel_terminal",
   });
-
-  // Terminal driver cancel — dispose payment (no fee for driver-initiated; rematch path is separate).
-  try {
-    const { disposeTerminalTripPayment } = await import("../../_shared/terminalTripPaymentDisposition.ts");
-    await disposeTerminalTripPayment(supabase, {
-      tripId,
-      reason: "driver_cancel_terminal",
-    });
-  } catch (e) {
-    console.error("[driverTripCancel] payment disposition failed (sweep will retry)", e);
-  }
 
   console.log("[driverTripCancel] DRIVER_CANCEL_SUCCESS", JSON.stringify({
     trip_id: tripId,
@@ -227,11 +219,36 @@ export async function executeDriverTerminalCancel(
 
   const passengerId =
     typeof trip.passenger_id === "string" ? trip.passenger_id : null;
-  await notifyCustomerTripLifecycle(supabase, {
-    passengerId,
-    tripId,
-    event: "trip_cancelled",
-  });
 
-  return { ok: true, action: "driver_cancel", detail: { trip_id: tripId } };
+  // #55 remaining — payment dispose + customer notify must not block Driver
+  // cancel sheet ack. Payment sweep retries dispose; notify is noncritical UX.
+  scheduleEdgeBackground(async () => {
+    try {
+      const { disposeTerminalTripPayment } = await import(
+        "../../_shared/terminalTripPaymentDisposition.ts"
+      );
+      await disposeTerminalTripPayment(supabase, {
+        tripId,
+        reason: "driver_cancel_terminal",
+      });
+    } catch (e) {
+      console.error(
+        "[driverTripCancel] payment disposition failed (sweep will retry)",
+        e,
+      );
+    }
+    await notifyCustomerTripLifecycle(supabase, {
+      passengerId,
+      tripId,
+      event: "trip_cancelled",
+    }).catch((e) =>
+      console.warn("[driverTripCancel] customer trip_cancelled push failed:", e)
+    );
+  }, "driver-terminal-cancel-post-commit");
+
+  return {
+    ok: true,
+    action: "driver_cancel",
+    detail: { trip_id: tripId, post_commit: "background_payment_notify" },
+  };
 }
