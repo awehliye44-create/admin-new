@@ -45,6 +45,7 @@ import {
 } from "../_shared/edgeRequestTiming.ts";
 import { scheduleReliableEdgeNotify } from "../_shared/scheduleReliableEdgeNotify.ts";
 import { stampNegotiationViewFromOfferId } from "../_shared/stampCustomerNegotiationView.ts";
+import { enrichOfferSnapshotDriverNet } from "../_shared/driverOfferNetPreview.ts";
 
 const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "https://thazislrdkjpvvghtvzo.supabase.co";
 const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -309,18 +310,35 @@ Deno.serve(async (req) => {
       ),
     );
     let customerRespondBy = customerRespondByDefault;
-    const snapshotForOffer = {
-      ...existingSnap,
+    const commissionPercent = Number(
+      (offer as { effective_commission_percent?: number | null }).effective_commission_percent
+        ?? existingSnap.effective_commission_percent
+        ?? existingSnap.commission_percent
+        ?? 0,
+    );
+    // #67B: ensure every chip carries authoritative driverNetPence (gross retained).
+    const snapshotForOffer = enrichOfferSnapshotDriverNet(
+      {
+        ...existingSnap,
+        baseFarePence,
+        preset_options: presetOptions,
+        selectedOfferKey: selected_offer_key ?? selectedOffer.key,
+        selectedOffer,
+        remainingOptions,
+        negotiationLocked: true,
+        countdown_auto_select: false,
+        countdown_seconds: resolvedCountdown ?? customerRespondSeconds,
+        presetCountdownSeconds: resolvedCountdown ?? customerRespondSeconds,
+      },
+      {},
+      Number.isFinite(commissionPercent) ? commissionPercent : 0,
       baseFarePence,
-      preset_options: presetOptions,
-      selectedOfferKey: selected_offer_key ?? selectedOffer.key,
-      selectedOffer,
-      remainingOptions,
-      negotiationLocked: true,
-      countdown_auto_select: false,
-      countdown_seconds: resolvedCountdown ?? customerRespondSeconds,
-      presetCountdownSeconds: resolvedCountdown ?? customerRespondSeconds,
-    };
+      typeof existingSnap.currency === "string"
+        ? existingSnap.currency
+        : typeof existingSnap.currency_code === "string"
+          ? existingSnap.currency_code
+          : null,
+    );
 
     // Primary path: atomic DB RPC (no strict trip.status filter — avoids CLAIM_FAILED on fresh offers).
     const { data: rpcResult, error: rpcErr } = await supabase.rpc("driver_send_preset_offer", {
