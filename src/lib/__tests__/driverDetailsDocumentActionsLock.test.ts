@@ -18,14 +18,20 @@ describe('Driver Details document actions', () => {
   });
 
   it('offers Approve and Reject only for pending documents, Re-reject only for approved ones', () => {
-    expect(DETAILS).toMatch(/item\.doc\.status === 'pending'[\s\S]{0,1500}Approve[\s\S]{0,800}Reject/);
-    expect(DETAILS).toMatch(/item\.doc\.status === 'approved'[\s\S]{0,700}Re-reject/);
+    expect(DETAILS).toMatch(/!driverRemoved && item\.doc && item\.doc\.status === 'pending'[\s\S]{0,1500}Approve[\s\S]{0,800}Reject/);
+    expect(DETAILS).toMatch(/!driverRemoved && item\.doc && item\.doc\.status === 'approved'[\s\S]{0,700}Re-reject/);
   });
 
   it('offers Add on missing, rejected and expired rows only to staff allowed to upload', () => {
     expect(DETAILS).toMatch(
-      /canAddDocuments && \['missing', 'rejected', 'expired'\]\.includes\(item\.status\)[\s\S]{0,300}setIsAddDocumentsOpen\(true\)/,
+      /canAddDocs && \['missing', 'rejected', 'expired'\]\.includes\(item\.status\)[\s\S]{0,300}setIsAddDocumentsOpen\(true\)/,
     );
+  });
+
+  it('removed drivers get no review or add buttons, same as the Documents page', () => {
+    expect(DETAILS).toMatch(/const driverRemoved = driver\.driver_status === 'deleted' \|\| Boolean\(driver\.deleted_at\)/);
+    expect(DETAILS).toMatch(/const canAddDocs = canAddDocuments && !driverRemoved/);
+    expect(DOCUMENTS_PAGE).toMatch(/!isDeletedDriverDocument\(doc\) && doc\.status === 'pending'/);
   });
 
   it('re-rejecting an approved document clears the file so the driver must re-upload', () => {

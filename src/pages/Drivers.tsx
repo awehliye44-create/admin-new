@@ -1249,7 +1249,7 @@ export default function Drivers() {
                             <Pencil className="mr-2 h-4 w-4" />
                             Edit Profile
                           </DropdownMenuItem>
-                          {canAdminUploadDocuments && (
+                          {canAdminUploadDocuments && driver.driver_status !== 'deleted' && !driver.deleted_at && (
                             <DropdownMenuItem
                               onClick={() => {
                                 setAddDocumentsDriver(driver);

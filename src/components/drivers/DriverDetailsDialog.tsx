@@ -907,6 +907,9 @@ export function DriverDetailsDialog({
                   </div>
                 ) : (() => {
                   const items = getDocComplianceItems();
+                  // Removed drivers: view only, same as the Documents page.
+                  const driverRemoved = driver.driver_status === 'deleted' || Boolean(driver.deleted_at);
+                  const canAddDocs = canAddDocuments && !driverRemoved;
                   const approvedItems = items.filter(i => i.status === 'valid' || i.status === 'expiring_soon');
                   const complianceMeta = documentCompliance as {
                     assignedServiceAreaId?: string | null;
@@ -950,7 +953,7 @@ export function DriverDetailsDialog({
                         </p>
                       </div>
 
-                      {canAddDocuments && (
+                      {canAddDocs && (
                         <div className="flex justify-end">
                           <Button size="sm" onClick={() => setIsAddDocumentsOpen(true)}>
                             <FileUp className="h-4 w-4 mr-2" />
@@ -1034,7 +1037,7 @@ export function DriverDetailsDialog({
                                       View
                                     </Button>
                                   )}
-                                  {item.doc && item.doc.status === 'pending' && (
+                                  {!driverRemoved && item.doc && item.doc.status === 'pending' && (
                                     <>
                                       <Button
                                         variant="ghost"
@@ -1062,7 +1065,7 @@ export function DriverDetailsDialog({
                                       </Button>
                                     </>
                                   )}
-                                  {item.doc && item.doc.status === 'approved' && (
+                                  {!driverRemoved && item.doc && item.doc.status === 'approved' && (
                                     <Button
                                       variant="ghost"
                                       size="sm"
@@ -1076,7 +1079,7 @@ export function DriverDetailsDialog({
                                       Re-reject
                                     </Button>
                                   )}
-                                  {canAddDocuments && ['missing', 'rejected', 'expired'].includes(item.status) && (
+                                  {canAddDocs && ['missing', 'rejected', 'expired'].includes(item.status) && (
                                     <Button
                                       variant="ghost"
                                       size="sm"
