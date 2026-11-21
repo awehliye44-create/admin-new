@@ -25788,6 +25788,7 @@ export type Database = {
           current_stop_id: string | null
           current_stop_index: number | null
           customer_modification_charge_pence: number | null
+          customer_negotiation_view: Json | null
           debt_recovery_pence: number | null
           deferred_payment_method_id: string | null
           delivery_metadata: Json | null
@@ -26115,6 +26116,7 @@ export type Database = {
           current_stop_id?: string | null
           current_stop_index?: number | null
           customer_modification_charge_pence?: number | null
+          customer_negotiation_view?: Json | null
           debt_recovery_pence?: number | null
           deferred_payment_method_id?: string | null
           delivery_metadata?: Json | null
@@ -26442,6 +26444,7 @@ export type Database = {
           current_stop_id?: string | null
           current_stop_index?: number | null
           customer_modification_charge_pence?: number | null
+          customer_negotiation_view?: Json | null
           debt_recovery_pence?: number | null
           deferred_payment_method_id?: string | null
           delivery_metadata?: Json | null
