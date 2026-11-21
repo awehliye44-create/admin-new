@@ -32017,6 +32017,7 @@ export type Database = {
         Returns: string
       }
       cron_edge_auth_token: { Args: never; Returns: string }
+      current_approved_driver_id: { Args: never; Returns: string }
       current_customer_id: { Args: never; Returns: string }
       current_driver_id: { Args: never; Returns: string }
       current_driver_profile_id: { Args: never; Returns: string }
