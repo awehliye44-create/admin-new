@@ -17228,6 +17228,27 @@ export type Database = {
         }
         Relationships: []
       }
+      onecab_auth_session_roles: {
+        Row: {
+          access_role: string
+          session_id: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          access_role: string
+          session_id: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          access_role?: string
+          session_id?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       onecab_document_activity_log: {
         Row: {
           action: string
@@ -32018,6 +32039,7 @@ export type Database = {
         Args: { p_customer_id: string; p_driver_id: string }
         Returns: boolean
       }
+      customer_get_my_trip: { Args: { p_trip_id: string }; Returns: Json }
       customer_list_my_receivables: {
         Args: never
         Returns: {
@@ -32035,6 +32057,7 @@ export type Database = {
           waived_at: string
         }[]
       }
+      customer_list_my_trips: { Args: { p_limit?: number }; Returns: Json }
       customer_live_trip_eta_refresh_sweep: { Args: never; Returns: undefined }
       customer_receivable_record_declined_increment: {
         Args: {
@@ -33990,6 +34013,7 @@ export type Database = {
         Returns: Json
       }
       onecab_internal_notification_http_headers: { Args: never; Returns: Json }
+      onecab_jwt_access_role: { Args: never; Returns: string }
       open_waiting_segment_or_reuse: {
         Args: {
           p_distance_meters?: number
@@ -34707,6 +34731,23 @@ export type Database = {
       resolve_negotiation_rebroadcast_fare: {
         Args: { p_trip_id: string }
         Returns: Json
+      }
+      resolve_pickup_no_show_eligibility: {
+        Args: {
+          p_arrived_at: string
+          p_counted_seconds: number
+          p_is_scheduled: boolean
+          p_no_show_apply_after_arrival: boolean
+          p_no_show_wait_seconds: number
+          p_now?: string
+          p_scheduled_at: string
+        }
+        Returns: {
+          can_mark: boolean
+          eligible_at: string
+          eligible_from_at: string
+          remaining_seconds: number
+        }[]
       }
       resolve_scheduled_overlap_buffer_minutes: {
         Args: { p_service_area_id: string }
