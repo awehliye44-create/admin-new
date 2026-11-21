@@ -9,6 +9,7 @@ import {
   type AssignedNegotiationSnapshot,
 } from "./assignedNegotiationSnapshot.ts";
 import { notifyCustomerTripLifecycle } from "./customerTripLifecycleNotify.ts";
+import { scheduleReliableEdgeNotify } from "./scheduleReliableEdgeNotify.ts";
 
 export type FinalizeRideAssignmentParams = {
   tripId: string;
@@ -17,6 +18,8 @@ export type FinalizeRideAssignmentParams = {
   source: string;
   fareSource?: string | null;
   acceptedVia?: string;
+  /** #69A: defer Customer driver_assigned push off the ack path (durable). */
+  deferCustomerNotify?: boolean;
 };
 
 const ASSIGNED_TRIP_STATUSES = new Set([
@@ -42,7 +45,15 @@ export async function finalizeRideAssignmentSideEffects(
   supabase: SupabaseClient,
   params: FinalizeRideAssignmentParams,
 ): Promise<FinalizeRideAssignmentResult> {
-  const { tripId, offerId, driverId, source, fareSource, acceptedVia } = params;
+  const {
+    tripId,
+    offerId,
+    driverId,
+    source,
+    fareSource,
+    acceptedVia,
+    deferCustomerNotify = false,
+  } = params;
 
   console.log("[ride-assignment] NEGOTIATED_ACCEPT_STARTED", {
     trip_id: tripId,
@@ -103,7 +114,7 @@ export async function finalizeRideAssignmentSideEffects(
     });
   }
 
-  try {
+  const notifyAssigned = async () => {
     const { data: tripRow } = await supabase
       .from("trips")
       .select("passenger_id, fare, final_fare_pence")
@@ -120,26 +131,40 @@ export async function finalizeRideAssignmentSideEffects(
       userId = cust?.user_id ?? tripRow.passenger_id;
     }
 
-    if (userId) {
-      const farePence = tripRow?.final_fare_pence ?? 0;
-      const fareDisplay = farePence > 0
-        ? `£${(farePence / 100).toFixed(2)}`
-        : (typeof tripRow?.fare === "number" ? `£${tripRow.fare.toFixed(2)}` : undefined);
+    if (!userId) return;
+    const farePence = tripRow?.final_fare_pence ?? 0;
+    const fareDisplay = farePence > 0
+      ? `£${(farePence / 100).toFixed(2)}`
+      : (typeof tripRow?.fare === "number" ? `£${tripRow.fare.toFixed(2)}` : undefined);
 
-      await notifyCustomerTripLifecycle(supabase, {
-        userId,
-        tripId,
-        event: "driver_assigned",
-        fareDisplay,
-      });
-      console.log("[ride-assignment] RIDE_ASSIGNED_BROADCASTED", {
-        trip_id: tripId,
-        event: "driver_assigned",
-        user_id: userId,
-      });
+    await notifyCustomerTripLifecycle(supabase, {
+      userId,
+      tripId,
+      event: "driver_assigned",
+      fareDisplay,
+    });
+    console.log("[ride-assignment] RIDE_ASSIGNED_BROADCASTED", {
+      trip_id: tripId,
+      event: "driver_assigned",
+      user_id: userId,
+    });
+  };
+
+  if (deferCustomerNotify) {
+    scheduleReliableEdgeNotify("ride-assignment-customer-notify", async () => {
+      try {
+        await notifyAssigned();
+      } catch (e) {
+        console.warn("[ride-assignment] deferred send-trip-notification failed:", e);
+        throw e;
+      }
+    });
+  } else {
+    try {
+      await notifyAssigned();
+    } catch (e) {
+      console.warn("[ride-assignment] send-trip-notification failed:", e);
     }
-  } catch (e) {
-    console.warn("[ride-assignment] send-trip-notification failed:", e);
   }
 
   let { data: tripAfter, error: tripAfterErr } = await supabase

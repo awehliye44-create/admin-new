@@ -156,11 +156,12 @@ Deno.serve(async (req) => {
     if (!auth.ok) return auth.response;
     const userId = auth.userId;
 
-    // Resolve driver_id + eligibility fields from authenticated user (one SELECT).
+    // Resolve driver_id + eligibility + location/active-trip hint (one SELECT).
+    // #69A: current_trip_id / lat / lng avoid later redundant drivers reads.
     const { data: authDriver, error: authDriverErr } = await supabase
       .from("drivers")
       .select(
-        "id, user_id, approval_status, driver_status, documents_approved, is_online, email_verified, phone_verified, pending_phone_change, pending_phone_change_verified_at, pending_phone_change_requested_at, pending_phone_change_expires_at",
+        "id, user_id, approval_status, driver_status, documents_approved, is_online, email_verified, phone_verified, pending_phone_change, pending_phone_change_verified_at, pending_phone_change_requested_at, pending_phone_change_expires_at, current_trip_id, current_lat, current_lng",
       )
       .eq("user_id", userId)
       .is("deleted_at", null)
@@ -237,27 +238,35 @@ Deno.serve(async (req) => {
       .maybeSingle();
     perf.mark("offer_lookup_end");
 
-    // Pre-hold: another driver must not accept (or stacked-queue) a trip owned
-    // by the negotiating driver. Backend SSOT is trips.negotiation_owner_driver_id.
+    // Pre-hold + candidate geometry in one trips SELECT (#69A: was two reads).
+    // Backend SSOT for hold remains trips.negotiation_owner_driver_id; RPC
+    // revalidates at commit. SQL commitment gate remains the atomic race SSOT.
     let knownPassengerId: string | null = null;
+    type HoldTripRow = {
+      status?: string | null;
+      negotiation_owner_driver_id?: string | null;
+      passenger_id?: string | null;
+      estimated_duration_minutes?: number | null;
+      dropoff_latitude?: number | null;
+      dropoff_longitude?: number | null;
+      pickup_latitude?: number | null;
+      pickup_longitude?: number | null;
+    };
+    let holdTrip: HoldTripRow | null = null;
     if (pendingOffer?.trip_id) {
       perf.mark("lock_idempotency_start");
-      const { data: holdTrip } = await supabase
+      const { data: holdTripRow } = await supabase
         .from("trips")
-        .select("status, negotiation_owner_driver_id, passenger_id")
+        .select(
+          "status, negotiation_owner_driver_id, passenger_id, estimated_duration_minutes, dropoff_latitude, dropoff_longitude, pickup_latitude, pickup_longitude",
+        )
         .eq("id", pendingOffer.trip_id)
         .maybeSingle();
-      const ownerId =
-        (holdTrip as { negotiation_owner_driver_id?: string | null } | null)
-          ?.negotiation_owner_driver_id ?? null;
+      holdTrip = (holdTripRow as HoldTripRow | null) ?? null;
+      const ownerId = holdTrip?.negotiation_owner_driver_id ?? null;
       const tripStatus = String(holdTrip?.status ?? "");
-      if (
-        typeof (holdTrip as { passenger_id?: string | null } | null)?.passenger_id ===
-          "string"
-      ) {
-        knownPassengerId =
-          ((holdTrip as { passenger_id?: string | null }).passenger_id ?? "").trim() ||
-          null;
+      if (typeof holdTrip?.passenger_id === "string") {
+        knownPassengerId = holdTrip.passenger_id.trim() || null;
       }
       if (
         (ownerId && ownerId !== driver_id) ||
@@ -284,18 +293,48 @@ Deno.serve(async (req) => {
     let effectiveIsStacked = Boolean(is_stacked);
     let effectiveCurrentTripId = current_trip_id ?? null;
 
-    const activeTripId = await resolveDriverActiveTripId(supabase, driver_id);
+    // #69A: parallelise independent pre-RPC reads (active trip, siblings, GDS).
+    perf.mark("pre_rpc_parallel_start");
+    const tripIdForAccept =
+      typeof pendingOffer?.trip_id === "string" ? pendingOffer.trip_id : null;
+    const authCurrentTripId =
+      typeof (authDriver as { current_trip_id?: string | null }).current_trip_id ===
+        "string"
+        ? String((authDriver as { current_trip_id?: string | null }).current_trip_id)
+        : null;
+
+    const [activeTripId, siblingOffersResult, dispatchRowResult] = await Promise.all([
+      resolveDriverActiveTripId(supabase, driver_id, authCurrentTripId),
+      tripIdForAccept
+        ? supabase
+            .from("ride_offers")
+            .select("id, driver_id")
+            .eq("trip_id", tripIdForAccept)
+            .neq("id", offer_id)
+            .neq("driver_id", driver_id)
+            .eq("status", "pending")
+        : Promise.resolve({ data: [] as { id: string; driver_id: string }[] }),
+      supabase
+        .from("global_dispatch_settings")
+        .select(
+          "jit_target_early_arrival_minutes, jit_local_safety_buffer_minutes, jit_long_safety_buffer_minutes, jit_long_distance_eta_threshold_minutes, pickup_waiting_grace_period_seconds",
+        )
+        .eq("singleton", true)
+        .maybeSingle(),
+    ]);
+    perf.mark("pre_rpc_parallel_end");
+
     if (
       activeTripId &&
-      pendingOffer?.trip_id &&
-      activeTripId !== pendingOffer.trip_id &&
-      pendingOffer.status === "pending"
+      tripIdForAccept &&
+      activeTripId !== tripIdForAccept &&
+      pendingOffer?.status === "pending"
     ) {
       if (!effectiveIsStacked) {
         console.log("[accept-offer] STACKED_RIDE_AUTO_REDIRECT", {
           driver_id,
           active_trip_id: activeTripId,
-          offer_trip_id: pendingOffer.trip_id,
+          offer_trip_id: tripIdForAccept,
           lifecycle: STACKED_RIDE_STATES.stacked_waiting_current_trip_completion,
         });
         effectiveIsStacked = true;
@@ -303,21 +342,12 @@ Deno.serve(async (req) => {
       }
     }
 
-    // Phase 4 / Bug #44: refuse accept when it would make a confirmed scheduled
-    // commitment infeasible. Same composition + JIT protection as pre-dispatch.
-    // Static import (not dynamic) so Supabase Edge always bundles the SSOT module.
-    // SQL driver_scheduled_commitment_gate remains the atomic race safeguard.
-    if (pendingOffer?.trip_id) {
-      const { data: candidateTrip } = await supabase
-        .from("trips")
-        .select(
-          "id, estimated_duration_minutes, dropoff_latitude, dropoff_longitude, pickup_latitude, pickup_longitude",
-        )
-        .eq("id", pendingOffer.trip_id)
-        .maybeSingle();
+    // Phase 4 / Bug #44: Edge pre-check uses parallelized inputs; SQL gate in
+    // accept_ride_offer remains the authoritative race safeguard.
+    if (tripIdForAccept && holdTrip) {
       const candidateDur = Math.max(
         5,
-        Number(candidateTrip?.estimated_duration_minutes) || 30,
+        Number(holdTrip.estimated_duration_minutes) || 30,
       );
       let stackedRemaining = 0;
       let originLat: number | null = null;
@@ -330,7 +360,6 @@ Deno.serve(async (req) => {
           )
           .eq("id", effectiveCurrentTripId)
           .maybeSingle();
-        // #54B/C: live remaining (fresh last_eta) else elapsed booked — never raw booked alone.
         const resolved = resolveStackedActiveRemainingMinutes({
           status: String(cur?.status ?? "in_progress"),
           started_at: (cur?.started_at as string | null) ?? null,
@@ -349,28 +378,22 @@ Deno.serve(async (req) => {
         originLat = Number.isFinite(oLat) ? oLat : null;
         originLng = Number.isFinite(oLng) ? oLng : null;
       }
-      const { data: locDriver } = await supabase
-        .from("drivers")
-        .select("current_lat, current_lng")
-        .eq("id", driver_id)
-        .maybeSingle();
-      const driverLat = Number(locDriver?.current_lat);
-      const driverLng = Number(locDriver?.current_lng);
+      const driverLat = Number(
+        (authDriver as { current_lat?: number | null }).current_lat,
+      );
+      const driverLng = Number(
+        (authDriver as { current_lng?: number | null }).current_lng,
+      );
       if (originLat == null || originLng == null) {
         originLat = Number.isFinite(driverLat) ? driverLat : null;
         originLng = Number.isFinite(driverLng) ? driverLng : null;
       }
-      const { data: dispatchRow } = await supabase
-        .from("global_dispatch_settings")
-        .select(
-          "jit_target_early_arrival_minutes, jit_local_safety_buffer_minutes, jit_long_safety_buffer_minutes, jit_long_distance_eta_threshold_minutes, pickup_waiting_grace_period_seconds",
-        )
-        .eq("singleton", true)
-        .maybeSingle();
-      const pickLat = Number(candidateTrip?.pickup_latitude);
-      const pickLng = Number(candidateTrip?.pickup_longitude);
-      const dropLat = Number(candidateTrip?.dropoff_latitude);
-      const dropLng = Number(candidateTrip?.dropoff_longitude);
+      const dispatchRow = dispatchRowResult.data;
+      const pickLat = Number(holdTrip.pickup_latitude);
+      const pickLng = Number(holdTrip.pickup_longitude);
+      const dropLat = Number(holdTrip.dropoff_latitude);
+      const dropLng = Number(holdTrip.dropoff_longitude);
+      perf.mark("commitment_gate_start");
       const gate = await evaluateInstantOfferScheduledCommitmentGate({
         supabase,
         driverId: driver_id,
@@ -387,6 +410,7 @@ Deno.serve(async (req) => {
         stackedRemainingMinutes: stackedRemaining,
         globalDispatchSettings: (dispatchRow as Record<string, unknown> | null) ?? null,
       });
+      perf.mark("commitment_gate_end");
       if (!gate.allowed) {
         return businessFailureResponse(
           "SCHEDULED_COMMITMENT_INFEASIBLE",
@@ -395,6 +419,12 @@ Deno.serve(async (req) => {
         );
       }
     }
+
+    let revokedOffers: { id: string; driver_id: string }[] = (
+      siblingOffersResult.data || []
+    ).filter(
+      (o): o is { id: string; driver_id: string } => !!(o?.id && o?.driver_id),
+    );
 
     // Stacked rides queue as next trip only — never activate immediately.
     if (effectiveIsStacked) {
@@ -694,20 +724,8 @@ Deno.serve(async (req) => {
       }
     }
 
-    // Collect other pending offers for this trip BEFORE accept (they'll be revoked by RPC)
-    let revokedOffers: { id: string; driver_id: string }[] = [];
-    if (offerRow?.trip_id) {
-      const { data: pendingOffers } = await supabase
-        .from("ride_offers")
-        .select("id, driver_id")
-        .eq("trip_id", offerRow.trip_id)
-        .neq("id", offer_id)
-        .neq("driver_id", driver_id)
-        .eq("status", "pending");
-      revokedOffers = (pendingOffers || []).filter(
-        (o): o is { id: string; driver_id: string } => !!(o?.id && o?.driver_id),
-      );
-    }
+    // Sibling pending offers already loaded in pre_rpc_parallel (#69A).
+    // RPC still revokes them atomically; this list only feeds deferred RIDE_STOP.
 
     // Hard SSOT: never hijack active trip via regular accept
     if (

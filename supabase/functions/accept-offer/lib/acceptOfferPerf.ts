@@ -20,6 +20,10 @@ export type AcceptOfferStageName =
   | "eligibility_validation_end"
   | "lock_idempotency_start"
   | "lock_idempotency_end"
+  | "pre_rpc_parallel_start"
+  | "pre_rpc_parallel_end"
+  | "commitment_gate_start"
+  | "commitment_gate_end"
   | "accept_rpc_start"
   | "accept_rpc_end"
   | "CANONICAL_ASSIGNMENT_CONFIRMED"
@@ -95,6 +99,21 @@ export function deriveAcceptOfferEdgeDurations(
       )
       : null;
   const edge_lock_ms = span(stages, "lock_idempotency_start", "lock_idempotency_end");
+  const edge_pre_rpc_parallel_ms = span(
+    stages,
+    "pre_rpc_parallel_start",
+    "pre_rpc_parallel_end",
+  );
+  const edge_commitment_gate_ms = span(
+    stages,
+    "commitment_gate_start",
+    "commitment_gate_end",
+  );
+  const edge_pre_rpc_gap_ms =
+    typeof stages.lock_idempotency_end === "number" &&
+      typeof stages.accept_rpc_start === "number"
+      ? Math.max(0, stages.accept_rpc_start - stages.lock_idempotency_end)
+      : null;
   const edge_accept_rpc_ms = span(stages, "accept_rpc_start", "accept_rpc_end");
   const edge_canonical_assignment_ms =
     typeof stages.CANONICAL_ASSIGNMENT_CONFIRMED === "number" &&
@@ -141,6 +160,9 @@ export function deriveAcceptOfferEdgeDurations(
     eligibility_docs_rpc_ms,
     eligibility_local_checks_ms,
     edge_lock_ms,
+    edge_pre_rpc_parallel_ms,
+    edge_commitment_gate_ms,
+    edge_pre_rpc_gap_ms,
     edge_accept_rpc_ms,
     edge_canonical_assignment_ms,
     edge_post_trip_fetch_ms,

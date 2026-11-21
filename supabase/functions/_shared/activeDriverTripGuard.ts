@@ -27,22 +27,38 @@ export function isActiveDriverTripStatus(status: string | null | undefined): boo
   return (ACTIVE_DRIVER_TRIP_STATUSES as readonly string[]).includes(normalized);
 }
 
-/** Resolve the trip the driver is actively serving (never a queued stacked child). */
+/**
+ * Resolve the trip the driver is actively serving (never a queued stacked child).
+ * Pass `currentTripIdHint` from an already-loaded drivers row to skip a redundant
+ * drivers SELECT (#69A accept-offer pre-RPC collapse).
+ */
 export async function resolveDriverActiveTripId(
   supabase: SupabaseClient,
   driverId: string,
+  currentTripIdHint?: string | null,
 ): Promise<string | null> {
-  const { data: driver } = await supabase
-    .from("drivers")
-    .select("current_trip_id")
-    .eq("id", driverId)
-    .maybeSingle();
+  let currentTripId =
+    typeof currentTripIdHint === "string" && currentTripIdHint.trim()
+      ? currentTripIdHint.trim()
+      : null;
 
-  if (driver?.current_trip_id) {
+  if (currentTripId == null) {
+    const { data: driver } = await supabase
+      .from("drivers")
+      .select("current_trip_id")
+      .eq("id", driverId)
+      .maybeSingle();
+    currentTripId =
+      typeof driver?.current_trip_id === "string" && driver.current_trip_id.trim()
+        ? driver.current_trip_id.trim()
+        : null;
+  }
+
+  if (currentTripId) {
     const { data: trip } = await supabase
       .from("trips")
       .select("id, status")
-      .eq("id", driver.current_trip_id)
+      .eq("id", currentTripId)
       .maybeSingle();
 
     if (trip && isActiveDriverTripStatus(trip.status)) {

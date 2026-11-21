@@ -2,6 +2,7 @@ import { type SupabaseClient } from "npm:@supabase/supabase-js@2.57.2";
 import { assertGlobalRebroadcastAllowed } from "./rebroadcastPolicy.ts";
 import { notifyCustomerTripLifecycle } from "./customerTripLifecycleNotify.ts";
 import { FINDING_ANOTHER_DRIVER_UPDATED_FARE_BODY } from "./negotiationPushCopy.ts";
+import { scheduleReliableEdgeNotify } from "./scheduleReliableEdgeNotify.ts";
 
 export type FinalizeNegotiationFailureParams = {
   tripId: string;
@@ -9,6 +10,12 @@ export type FinalizeNegotiationFailureParams = {
   offerId?: string | null;
   offerTerminalStatus?: "expired" | "declined" | "revoked";
   offerNegotiationStatus?: string;
+  /**
+   * #69A: when true, return after finalize_negotiation_failure commit and run
+   * rebroadcast + Customer notify via durable waitUntil recovery (not bare
+   * fire-and-forget). Default false preserves expire-offers blocking behaviour.
+   */
+  deferContinuation?: boolean;
 };
 
 export type FinalizeNegotiationFailureResult = {
@@ -66,19 +73,33 @@ export async function finalizeNegotiationFailureAndRebroadcast(
     offer_terminal_status: params.offerTerminalStatus ?? "expired",
   });
 
-  const allowed = await assertGlobalRebroadcastAllowed(
-    supabase,
-    params.tripId,
-    "finalizeNegotiationFailureAndRebroadcast",
-  );
-  if (allowed) {
-    await rebroadcastSameTrip(supabase, params.tripId);
+  const tripId = row.trip_id ?? params.tripId;
+
+  const runContinuation = async (): Promise<{ rebroadcast_skipped: boolean }> => {
+    const allowed = await assertGlobalRebroadcastAllowed(
+      supabase,
+      params.tripId,
+      "finalizeNegotiationFailureAndRebroadcast",
+    );
+    if (allowed) {
+      await rebroadcastSameTrip(supabase, params.tripId);
+    }
+    await notifyCustomerNegotiationRematch(supabase, tripId);
+    return { rebroadcast_skipped: !allowed };
+  };
+
+  if (params.deferContinuation) {
+    scheduleReliableEdgeNotify(
+      "negotiation-failure-rematch-continuation",
+      async () => {
+        await runContinuation();
+      },
+    );
+    return { success: true, trip_id: tripId, rebroadcast_skipped: false };
   }
 
-  const tripId = row.trip_id ?? params.tripId;
-  await notifyCustomerNegotiationRematch(supabase, tripId);
-
-  return { success: true, trip_id: tripId, rebroadcast_skipped: !allowed };
+  const cont = await runContinuation();
+  return { success: true, trip_id: tripId, ...cont };
 }
 
 /** Customer heads-up after negotiation rematch — not trip_cancelled. */

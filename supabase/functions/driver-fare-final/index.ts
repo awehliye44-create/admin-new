@@ -261,6 +261,7 @@ Deno.serve(async (req) => {
     const rematchSameTrip = async (
       offerTerminalStatus: "expired" | "declined" | "revoked",
       offerNegotiationStatus: string,
+      options?: { deferContinuation?: boolean },
     ) => {
       return finalizeNegotiationFailureAndRebroadcast(supabase, {
         tripId: trip.id,
@@ -268,6 +269,9 @@ Deno.serve(async (req) => {
         offerId: offer_id,
         offerTerminalStatus,
         offerNegotiationStatus,
+        // #69A: Driver DECLINE ack returns after authoritative finalize RPC;
+        // rematch + Customer notify continue via durable waitUntil recovery.
+        deferContinuation: options?.deferContinuation === true,
       });
     };
 
@@ -314,6 +318,9 @@ Deno.serve(async (req) => {
         source: "edge_driver_fare_final",
         fareSource: (acceptResult?.fare_source as string) ?? args.fareSource,
         acceptedVia: "accept_ride_offer",
+        // #69A: Customer push durable-deferred; stops/delivery/snapshot stay blocking
+        // so Driver Heading UI still gets an authoritative negotiation snapshot.
+        deferCustomerNotify: true,
       });
 
       await clearCustomerNegotiationViewOnTrip(supabase, trip.id);
@@ -488,6 +495,7 @@ Deno.serve(async (req) => {
         source: "edge_driver_fare_final",
         fareSource: (acceptResult?.fare_source as string) ?? "customer_counter_offer",
         acceptedVia: "accept_ride_offer",
+        deferCustomerNotify: true,
       });
       const tripAfter = finalize.snapshot;
       console.log("[driver-fare-final] BOOKING_CREATED_WITH_FINAL_FARE", {
@@ -582,7 +590,9 @@ Deno.serve(async (req) => {
 
     // ── DECLINE: driver declines → SECTION 9 lock rule ────────────────────
     if (action === "DECLINE") {
-      const rematch = await rematchSameTrip("declined", "declined_driver");
+      const rematch = await rematchSameTrip("declined", "declined_driver", {
+        deferContinuation: true,
+      });
       await clearCustomerNegotiationViewOnTrip(supabase, trip.id);
 
       scheduleReliableEdgeNotify("driver-fare-final-decline-audit", async () => {
