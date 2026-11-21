@@ -22,6 +22,12 @@ describe('Driver Details document actions', () => {
     expect(DETAILS).toMatch(/item\.doc\.status === 'approved'[\s\S]{0,700}Re-reject/);
   });
 
+  it('offers Add on missing, rejected and expired rows only to staff allowed to upload', () => {
+    expect(DETAILS).toMatch(
+      /canAddDocuments && \['missing', 'rejected', 'expired'\]\.includes\(item\.status\)[\s\S]{0,300}setIsAddDocumentsOpen\(true\)/,
+    );
+  });
+
   it('re-rejecting an approved document clears the file so the driver must re-upload', () => {
     expect(REVIEW).toMatch(/document\?\.status === 'approved' && decision === 'rejected'/);
     expect(REVIEW).toMatch(/updatePayload\.file_url = null/);

@@ -1076,6 +1076,17 @@ export function DriverDetailsDialog({
                                       Re-reject
                                     </Button>
                                   )}
+                                  {canAddDocuments && ['missing', 'rejected', 'expired'].includes(item.status) && (
+                                    <Button
+                                      variant="ghost"
+                                      size="sm"
+                                      className="h-7 px-2 text-xs"
+                                      onClick={() => setIsAddDocumentsOpen(true)}
+                                    >
+                                      <FileUp className="h-3 w-3 mr-1" />
+                                      Add
+                                    </Button>
+                                  )}
                                   <Badge variant="outline" className={statusClass}>
                                     {statusLabel}
                                   </Badge>
