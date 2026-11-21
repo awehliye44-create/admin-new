@@ -3,7 +3,11 @@ import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { formatPence } from '@/hooks/useDriverWallet';
 import type { DriverWalletSsotRow } from '@/hooks/useDriverWalletSsot';
-import { driverWalletTxTypeLabel } from '@/lib/driverWalletTransactionTypes';
+import {
+  CAMPAIGN_BONUS_LABEL,
+  driverWalletTxTypeLabel,
+  isCampaignBonusLedgerRow,
+} from '@/lib/driverWalletTransactionTypes';
 import {
   formatStoredPenceOrUnknown,
   isPositiveStoredPence,
@@ -48,9 +52,21 @@ function buildTimeline(driver: DriverWalletSsotRow): TimelineEvent[] {
       id: `ledger-${String(lr.id)}`,
       at: String(lr.created_at ?? ''),
       kind: 'ledger',
-      label: driverWalletTxTypeLabel(rawType),
+      label: isCampaignBonusLedgerRow({
+        type: rawType,
+        description: lr.description as string | null | undefined,
+        metadata: lr.metadata as Record<string, unknown> | null | undefined,
+      })
+        ? CAMPAIGN_BONUS_LABEL
+        : driverWalletTxTypeLabel(rawType),
       amountPence: Number(lr.amount_pence ?? 0),
-      detail: tripKey
+      detail: isCampaignBonusLedgerRow({
+        type: rawType,
+        description: lr.description as string | null | undefined,
+        metadata: lr.metadata as Record<string, unknown> | null | undefined,
+      }) && lr.description
+        ? String(lr.description)
+        : tripKey
         ? `trip ${tripKey.slice(0, 8)}`
         : lr.provider_transfer_id
           ? `transfer ${String(lr.provider_transfer_id).slice(0, 12)}`

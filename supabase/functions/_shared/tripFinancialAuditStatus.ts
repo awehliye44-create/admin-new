@@ -40,6 +40,12 @@ export type TripAuditLedgerRecord = {
   driver_id?: string | null;
   provider_payout_id?: string | null;
   provider_transfer_id?: string | null;
+  /** #71A — optional; lets credit classifier recognise campaign BONUS rows. */
+  id?: string | null;
+  related_trip_id?: string | null;
+  description?: string | null;
+  currency?: string | null;
+  metadata?: Record<string, unknown> | null;
 };
 
 export type TripAuditStatusTrip = Partial<TripSSOTRow> & {

@@ -1464,6 +1464,11 @@ export function buildTripFinancialAuditContext(args: {
     driver_id?: string | null;
     provider_payout_id?: string | null;
     provider_transfer_id?: string | null;
+    /** #71A — optional enrichment (BONUS is excluded from trip actual by type regardless). */
+    id?: string | null;
+    description?: string | null;
+    currency?: string | null;
+    metadata?: Record<string, unknown> | null;
   }>;
   paymentSessions?: PaymentSessionMoneyRow[];
   currencyCodeByServiceAreaId?: Map<string, string>;
@@ -1516,6 +1521,11 @@ export function buildTripFinancialAuditContext(args: {
       driver_id: entry.driver_id ?? null,
       provider_payout_id: entry.provider_payout_id ?? null,
       provider_transfer_id: entry.provider_transfer_id ?? null,
+      id: entry.id ?? null,
+      related_trip_id: entry.related_trip_id,
+      description: entry.description ?? null,
+      currency: entry.currency ?? null,
+      metadata: entry.metadata ?? null,
     });
     ledgerByTripId.set(entry.related_trip_id, list);
   }

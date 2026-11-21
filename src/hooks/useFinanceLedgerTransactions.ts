@@ -48,6 +48,8 @@ export type FinanceLedgerTransactionRow = {
   adjustment_created_by?: string | null;
   adjustment_approved_by?: string | null;
   related_payout_item_id?: string | null;
+  /** Raw ledger metadata (e.g. source: driver_trip_bonus_campaign) — display classification only. */
+  metadata?: Record<string, unknown> | null;
 };
 
 type LedgerDbRow = {
@@ -161,6 +163,7 @@ function mapLedgerRow(row: LedgerDbRow): FinanceLedgerTransactionRow {
     adjustment_reason_category: adjMeta?.reasonCategoryLabel ?? null,
     adjustment_created_by: adjMeta?.createdByAdminId ?? null,
     adjustment_approved_by: adjMeta?.approvedByAdminId ?? null,
+    metadata: row.metadata ?? null,
   };
 }
 

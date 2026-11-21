@@ -31,6 +31,8 @@ import {
   buildPaymentSessionDriverCreditFields,
   classifyPayoutCreditIntegrity,
   aggregateDriverCreditExceptions,
+  type CampaignBonusProgressEvidence,
+  type DriverCreditLedgerEntry,
   PAYOUT_CREDIT_INTEGRITY,
 } from "../../_shared/driverCreditMonitoringSSOT.ts";
 import { loadDriverCreditPaymentSessionContextByTripId } from "./driverCreditPaymentSessionContextSSOT.ts";
@@ -911,6 +913,10 @@ type DriverCreditTripFields = {
   expected_driver_credit_pence: number | null;
   actual_driver_credit_pence: number | null;
   credit_difference_pence: number | null;
+  authorised_campaign_credit_pence?: number;
+  authorised_other_incentive_pence?: number;
+  total_legitimate_credit_pence?: number;
+  unexplained_credit_variance_pence?: number;
 };
 
 async function loadDriverCreditByTripId(
@@ -931,23 +937,58 @@ async function loadDriverCreditByTripId(
     return out;
   }
 
-  const [{ data: ledgerRows, error: ledgerErr }, sessionContextByTripId] = await Promise.all([
+  const tripDriverIds = [...new Set(
+    (trips ?? [])
+      .map((t) => (t.driver_id == null ? null : String(t.driver_id)))
+      .filter((id): id is string => Boolean(id)),
+  )];
+
+  const [{ data: ledgerRows, error: ledgerErr }, sessionContextByTripId, campaignProgressRes] = await Promise.all([
     supabase
       .from("driver_wallet_ledger")
-      .select("related_trip_id, type, amount_pence, driver_id")
+      .select("id, related_trip_id, type, amount_pence, driver_id, metadata, description, currency")
       .in("related_trip_id", tripIds),
     loadDriverCreditPaymentSessionContextByTripId(supabase, tripIds),
+    tripDriverIds.length > 0
+      ? supabase
+        .from("driver_trip_bonus_campaign_progress")
+        .select("campaign_id, driver_id, ledger_entry_id, entitled_bonus_amount_pence, credited_at")
+        .in("driver_id", tripDriverIds)
+      : Promise.resolve({ data: [] as Array<Record<string, unknown>>, error: null }),
   ]);
 
-  const ledgerByTripId = new Map<string, Array<{ type: string; amount_pence: number; driver_id: string | null }>>();
+  const campaignProgressByDriverId = new Map<string, CampaignBonusProgressEvidence[]>();
+  for (const row of campaignProgressRes.data ?? []) {
+    const driverId = String(row.driver_id ?? "");
+    if (!driverId) continue;
+    const list = campaignProgressByDriverId.get(driverId) ?? [];
+    list.push({
+      campaign_id: String(row.campaign_id),
+      driver_id: driverId,
+      ledger_entry_id: row.ledger_entry_id == null ? null : String(row.ledger_entry_id),
+      entitled_bonus_amount_pence: Math.round(Number(row.entitled_bonus_amount_pence ?? 0)),
+      credited_at: row.credited_at == null ? null : String(row.credited_at),
+    });
+    campaignProgressByDriverId.set(driverId, list);
+  }
+
+  const ledgerByTripId = new Map<string, DriverCreditLedgerEntry[]>();
   for (const entry of ledgerRows ?? []) {
     const tripId = entry.related_trip_id == null ? null : String(entry.related_trip_id);
     if (!tripId) continue;
     const list = ledgerByTripId.get(tripId) ?? [];
+    const rawMetadata = (entry as { metadata?: unknown }).metadata;
     list.push({
+      id: entry.id == null ? null : String(entry.id),
+      related_trip_id: tripId,
       type: String(entry.type),
       amount_pence: Number(entry.amount_pence),
       driver_id: entry.driver_id == null ? null : String(entry.driver_id),
+      metadata: rawMetadata && typeof rawMetadata === "object" && !Array.isArray(rawMetadata)
+        ? rawMetadata as Record<string, unknown>
+        : null,
+      description: (entry as { description?: string | null }).description ?? null,
+      currency: (entry as { currency?: string | null }).currency ?? null,
     });
     ledgerByTripId.set(tripId, list);
   }
@@ -963,6 +1004,9 @@ async function loadDriverCreditByTripId(
       driver_net_pence: trip.driver_net_pence == null ? null : Number(trip.driver_net_pence),
       tip_pence: tipPence,
       ledger: ledgerByTripId.get(tripId) ?? [],
+      campaign_progress: trip.driver_id == null
+        ? []
+        : campaignProgressByDriverId.get(String(trip.driver_id)) ?? [],
       wallet_evidence_available: ledgerErr == null,
       provider_state: session?.provider_state ?? null,
       captured_pence: session?.captured_pence ?? null,
@@ -977,6 +1021,10 @@ async function loadDriverCreditByTripId(
       expected_driver_credit_pence: credit.expected_driver_credit_pence,
       actual_driver_credit_pence: credit.actual_driver_credit_pence,
       credit_difference_pence: credit.credit_difference_pence,
+      authorised_campaign_credit_pence: credit.authorised_campaign_credit_pence,
+      authorised_other_incentive_pence: credit.authorised_other_incentive_pence,
+      total_legitimate_credit_pence: credit.total_legitimate_credit_pence,
+      unexplained_credit_variance_pence: credit.unexplained_credit_variance_pence,
     });
   }
 

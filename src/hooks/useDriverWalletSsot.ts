@@ -53,6 +53,11 @@ export type DriverWalletSettlementHistoryRow = {
   credit_difference_pence?: number | null;
   driver_credit_health?: string | null;
   credit_eligibility_at?: string | null;
+  /** Backend SSOT incentive split — display only. */
+  authorised_campaign_credit_pence?: number | null;
+  authorised_other_incentive_pence?: number | null;
+  total_legitimate_credit_pence?: number | null;
+  unexplained_credit_variance_pence?: number | null;
   is_diagnostic_projection?: boolean;
   diagnostic_label?: string | null;
 };

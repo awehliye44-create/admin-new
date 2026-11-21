@@ -80,3 +80,27 @@ export function driverWalletTxTypeLabel(rawType: string | null | undefined): str
   if (canonical === 'REFUND') return 'Refund';
   return String(rawType ?? 'Adjustment');
 }
+
+export const DRIVER_TRIP_BONUS_CAMPAIGN_SOURCE = 'driver_trip_bonus_campaign';
+export const CAMPAIGN_BONUS_LABEL = 'Campaign Bonus';
+
+/** True for BONUS ledger rows from trip bonus campaigns (metadata.source or "Trip bonus:" description). */
+export function isCampaignBonusLedgerRow(row: {
+  type?: string | null;
+  description?: string | null;
+  metadata?: Record<string, unknown> | null;
+}): boolean {
+  if (canonicalDriverWalletTxType(row.type) !== 'BONUS') return false;
+  if (String(row.metadata?.source ?? '').trim() === DRIVER_TRIP_BONUS_CAMPAIGN_SOURCE) return true;
+  return /^\s*trip bonus:/i.test(String(row.description ?? ''));
+}
+
+/** Transaction-type chip text — Campaign Bonus for campaign BONUS rows, else canonical type. */
+export function driverWalletTxChipLabel(row: {
+  type?: string | null;
+  description?: string | null;
+  metadata?: Record<string, unknown> | null;
+}): string {
+  if (isCampaignBonusLedgerRow(row)) return CAMPAIGN_BONUS_LABEL;
+  return String(canonicalDriverWalletTxType(row.type));
+}

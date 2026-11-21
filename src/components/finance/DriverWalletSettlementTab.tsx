@@ -83,8 +83,10 @@ export function DriverWalletSettlementTab({
               <TableHead className="text-right">Driver Commission %</TableHead>
               <TableHead className="text-right">Driver Net</TableHead>
               <TableHead className="text-right">Expected Credit</TableHead>
-              <TableHead className="text-right">Actual Credit</TableHead>
+              <TableHead className="text-right">Actual Credit (trip)</TableHead>
+              <TableHead className="text-right">Campaign Bonus</TableHead>
               <TableHead className="text-right">Credit Diff</TableHead>
+              <TableHead className="text-right">Unexplained</TableHead>
               <TableHead>Credit Health</TableHead>
               <TableHead className="text-right">Wallet Credit</TableHead>
               <TableHead>Eligibility</TableHead>
@@ -96,7 +98,7 @@ export function DriverWalletSettlementTab({
           <TableBody>
             {displayRows.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={19} className="text-center text-muted-foreground py-8">
+                <TableCell colSpan={21} className="text-center text-muted-foreground py-8">
                   No settlement rows for this driver.
                 </TableCell>
               </TableRow>
@@ -156,8 +158,20 @@ export function DriverWalletSettlementTab({
                   <TableCell className="text-xs text-right tabular-nums">
                     {formatNullablePence(row.actual_driver_credit_pence, currencyCode)}
                   </TableCell>
+                  <TableCell className="text-xs text-right tabular-nums" data-testid="settlement-campaign-bonus">
+                    {isPositiveStoredPence(row.authorised_campaign_credit_pence) ? (
+                      <Badge variant="outline" className="bg-emerald-500/15 text-emerald-300 border-emerald-500/30 font-normal tabular-nums">
+                        {formatNullablePence(row.authorised_campaign_credit_pence, currencyCode)}
+                      </Badge>
+                    ) : (
+                      formatNullablePence(row.authorised_campaign_credit_pence, currencyCode)
+                    )}
+                  </TableCell>
                   <TableCell className="text-xs text-right tabular-nums font-medium">
                     {formatNullablePence(row.credit_difference_pence, currencyCode)}
+                  </TableCell>
+                  <TableCell className="text-xs text-right tabular-nums" data-testid="settlement-unexplained">
+                    {formatNullablePence(row.unexplained_credit_variance_pence, currencyCode)}
                   </TableCell>
                   <TableCell>
                     <Badge

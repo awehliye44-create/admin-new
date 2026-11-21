@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
   canonicalDriverWalletTxType,
+  driverWalletTxChipLabel,
   driverWalletTxTypeLabel,
+  isCampaignBonusLedgerRow,
 } from '@/lib/driverWalletTransactionTypes';
 
 describe('canonicalDriverWalletTxType', () => {
@@ -22,5 +24,16 @@ describe('canonicalDriverWalletTxType', () => {
     expect(canonicalDriverWalletTxType('TIP_CREDIT')).toBe('DRIVER_TIP_CREDIT');
     expect(driverWalletTxTypeLabel('DRIVER_TIP_CREDIT')).toBe('Tip');
     expect(driverWalletTxTypeLabel('TRIP_EARNING_NET')).toBe('Trip earning');
+  });
+});
+
+describe('campaign bonus chip', () => {
+  it('labels BONUS rows from driver_trip_bonus_campaign or "Trip bonus:" description', () => {
+    expect(driverWalletTxChipLabel({ type: 'BONUS', metadata: { source: 'driver_trip_bonus_campaign' } }))
+      .toBe('Campaign Bonus');
+    expect(driverWalletTxChipLabel({ type: 'BONUS', description: 'Trip bonus: Weekend 10' }))
+      .toBe('Campaign Bonus');
+    expect(driverWalletTxChipLabel({ type: 'BONUS', description: 'Goodwill' })).toBe('BONUS');
+    expect(isCampaignBonusLedgerRow({ type: 'TRIP_EARNING_NET', description: 'Trip bonus: x' })).toBe(false);
   });
 });

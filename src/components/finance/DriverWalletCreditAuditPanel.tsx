@@ -48,6 +48,8 @@ function mapSettlementRows(
     expected_driver_credit_pence: row.expected_driver_credit_pence,
     actual_driver_credit_pence: row.actual_driver_credit_pence,
     credit_difference_pence: row.credit_difference_pence,
+    authorised_campaign_credit_pence: row.authorised_campaign_credit_pence,
+    unexplained_credit_variance_pence: row.unexplained_credit_variance_pence,
     credit_eligibility_at: row.credit_eligibility_at,
     settlement_status: row.settlement_status,
     completed_at: row.completed_at,
@@ -75,8 +77,9 @@ function AuditDrawerTable({
             <TableHead>Trip</TableHead>
             <TableHead>Classification</TableHead>
             <TableHead className="text-right">Expected</TableHead>
-            <TableHead className="text-right">Credited</TableHead>
-            <TableHead className="text-right">Variance</TableHead>
+            <TableHead className="text-right">Actual trip</TableHead>
+            <TableHead className="text-right">Campaign bonus</TableHead>
+            <TableHead className="text-right">Unexplained</TableHead>
             <TableHead>Active impact</TableHead>
             <TableHead>Recommended owner</TableHead>
           </TableRow>
@@ -84,7 +87,7 @@ function AuditDrawerTable({
         <TableBody>
           {filtered.length === 0 ? (
             <TableRow>
-              <TableCell colSpan={7} className="text-center text-muted-foreground py-8">
+              <TableCell colSpan={8} className="text-center text-muted-foreground py-8">
                 No audit rows in this scope.
               </TableCell>
             </TableRow>
@@ -108,8 +111,14 @@ function AuditDrawerTable({
                 <TableCell className="text-right tabular-nums">
                   {formatNullablePence(row.actual_driver_credit_pence, currencyCode)}
                 </TableCell>
-                <TableCell className="text-right tabular-nums">
-                  {formatNullablePence(row.credit_difference_pence, currencyCode)}
+                <TableCell className="text-right tabular-nums" data-testid="audit-campaign-bonus">
+                  {formatNullablePence(row.authorised_campaign_credit_pence, currencyCode)}
+                </TableCell>
+                <TableCell className="text-right tabular-nums" data-testid="audit-unexplained">
+                  {formatNullablePence(
+                    row.unexplained_credit_variance_pence ?? row.credit_difference_pence,
+                    currencyCode,
+                  )}
                 </TableCell>
                 <TableCell>{row.active_wallet_impact ? 'Yes' : 'No'}</TableCell>
                 <TableCell className="text-xs">

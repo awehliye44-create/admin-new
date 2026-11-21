@@ -4,13 +4,36 @@
  * never writes wallet entries, never repairs money, never includes Commission Wallet.
  */
 
-import {
-  DEFAULT_PAYOUT_CLEARING_DELAY_HOURS,
-  PAYOUT_ELIGIBLE_LEDGER_TYPES,
-} from "./driverPayoutEligibilitySSOT.ts";
+import { DEFAULT_PAYOUT_CLEARING_DELAY_HOURS } from "./driverPayoutEligibilitySSOT.ts";
 import { evaluateFrSettlementCaptureIdentity } from "./frConsumeOnlySSOT.ts";
+import {
+  FR_TRIP_ENTITLEMENT_CREDIT_TYPES,
+  isFrTripEntitlementCreditType,
+} from "./frDriverReconciliationSSOT.ts";
 
 export { DEFAULT_PAYOUT_CLEARING_DELAY_HOURS } from "./driverPayoutEligibilitySSOT.ts";
+export {
+  FR_TRIP_ENTITLEMENT_CREDIT_TYPES,
+  isFrTripEntitlementCreditType,
+} from "./frDriverReconciliationSSOT.ts";
+
+/**
+ * Trip-specific entitlement ledger types for expected vs actual trip credit.
+ * Must NOT reuse PAYOUT_ELIGIBLE_LEDGER_TYPES — that set includes BONUS for
+ * withdrawal eligibility, which must not inflate per-trip "actual" credit.
+ */
+export const TRIP_ENTITLEMENT_LEDGER_TYPES: ReadonlySet<string> =
+  FR_TRIP_ENTITLEMENT_CREDIT_TYPES;
+
+/** Platform-funded / discretionary credits — never trip entitlement. */
+export const PLATFORM_INCENTIVE_LEDGER_TYPES = new Set([
+  "BONUS",
+  "INCENTIVE",
+  "PROMOTION",
+  "DRIVER_COMPENSATION_CREDIT",
+]);
+
+export const CAMPAIGN_BONUS_LEDGER_SOURCE = "driver_trip_bonus_campaign";
 
 export const DRIVER_CREDIT_HEALTH = {
   OK: "OK",
@@ -72,12 +95,39 @@ const TERMINAL_FEE_TRIP_STATUSES = new Set([
 
 export { TERMINAL_FEE_TRIP_STATUSES };
 
-const DRIVER_EARNING_LEDGER_TYPES = PAYOUT_ELIGIBLE_LEDGER_TYPES;
-
 export type DriverCreditLedgerEntry = {
   type: string;
   amount_pence: number;
   driver_id?: string | null;
+  id?: string | null;
+  related_trip_id?: string | null;
+  description?: string | null;
+  currency?: string | null;
+  metadata?: Record<string, unknown> | null;
+};
+
+export type CampaignBonusProgressEvidence = {
+  campaign_id: string;
+  driver_id: string;
+  ledger_entry_id?: string | null;
+  entitled_bonus_amount_pence: number;
+  credited_at?: string | null;
+  currency?: string | null;
+};
+
+export type PlatformIncentiveIssueCode =
+  | "DUPLICATE_CAMPAIGN_CREDIT"
+  | "UNAUTHORISED_CAMPAIGN_BONUS"
+  | "CAMPAIGN_AMOUNT_MISMATCH"
+  | "CAMPAIGN_WRONG_DRIVER"
+  | "CAMPAIGN_REVERSAL_NET_NEGATIVE";
+
+export type PlatformIncentiveIssue = {
+  code: PlatformIncentiveIssueCode;
+  amount_pence: number;
+  campaign_id?: string | null;
+  ledger_entry_id?: string | null;
+  detail?: string;
 };
 
 export type DriverCreditMonitoringInput = {
@@ -88,6 +138,8 @@ export type DriverCreditMonitoringInput = {
   tip_pence?: number | null;
   other_driver_entitlement_pence?: number | null;
   ledger?: DriverCreditLedgerEntry[];
+  /** Authoritative campaign progress rows for this driver (optional). */
+  campaign_progress?: CampaignBonusProgressEvidence[];
   wallet_evidence_available?: boolean;
   provider_state?: string | null;
   captured_pence?: number | null;
@@ -99,6 +151,23 @@ export type DriverCreditMonitoringInput = {
   is_terminal_fee_session?: boolean;
   now_ms?: number;
   clearing_delay_hours?: number;
+};
+
+export type DriverCreditClassificationResult = {
+  health: DriverCreditHealth;
+  expected_driver_credit_pence: number;
+  /** Trip-entitlement credits only (excludes campaign / other incentives). */
+  actual_driver_credit_pence: number;
+  /** actual trip − expected trip (unexplained trip variance). */
+  credit_difference_pence: number;
+  credit_eligibility_at: string | null;
+  authorised_campaign_credit_pence: number;
+  authorised_other_incentive_pence: number;
+  /** Trip actual + authorised campaign + authorised other incentives. */
+  total_legitimate_credit_pence: number;
+  /** Unexplained variance after separating authorised incentives (= trip difference ± incentive exceptions). */
+  unexplained_credit_variance_pence: number;
+  incentive_issues: PlatformIncentiveIssue[];
 };
 
 export function computeExpectedDriverCreditPence(args: {
@@ -113,6 +182,213 @@ export function computeExpectedDriverCreditPence(args: {
   return net + tips + other;
 }
 
+function ledgerTypeKey(type: string | null | undefined): string {
+  return String(type ?? "").trim().toUpperCase();
+}
+
+function isPlatformIncentiveLedgerType(type: string | null | undefined): boolean {
+  return PLATFORM_INCENTIVE_LEDGER_TYPES.has(ledgerTypeKey(type));
+}
+
+function readCampaignId(entry: DriverCreditLedgerEntry): string | null {
+  const meta = entry.metadata ?? {};
+  const raw = meta.campaign_id ?? meta.campaignId;
+  const id = raw == null ? "" : String(raw).trim();
+  return id || null;
+}
+
+function readCampaignSource(entry: DriverCreditLedgerEntry): string {
+  const meta = entry.metadata ?? {};
+  return String(meta.source ?? "").trim();
+}
+
+function isCampaignSourcedBonus(entry: DriverCreditLedgerEntry): boolean {
+  if (ledgerTypeKey(entry.type) !== "BONUS") return false;
+  return readCampaignSource(entry) === CAMPAIGN_BONUS_LEDGER_SOURCE
+    || readCampaignId(entry) != null;
+}
+
+/**
+ * Classify platform-funded incentive ledger rows linked to a trip.
+ * Non-campaign BONUS (e.g. Welcome Credit) stays authorised without requiring
+ * campaign progress. Campaign-sourced rows are validated against progress.
+ */
+export function classifyPlatformIncentiveCreditsForTrip(args: {
+  ledger?: DriverCreditLedgerEntry[];
+  trip_driver_id?: string | null;
+  campaign_progress?: CampaignBonusProgressEvidence[];
+}): {
+  authorised_campaign_credit_pence: number;
+  authorised_other_incentive_pence: number;
+  incentive_exception_pence: number;
+  incentive_issues: PlatformIncentiveIssue[];
+} {
+  const ledger = args.ledger ?? [];
+  const tripDriverId = args.trip_driver_id ?? null;
+  const progress = args.campaign_progress ?? [];
+  const issues: PlatformIncentiveIssue[] = [];
+
+  let authorisedCampaign = 0;
+  let authorisedOther = 0;
+  let exceptionPence = 0;
+
+  const campaignBonusRows = ledger.filter(
+    (e) => e.amount_pence !== 0 && isCampaignSourcedBonus(e),
+  );
+  const otherIncentiveRows = ledger.filter(
+    (e) =>
+      e.amount_pence !== 0
+      && isPlatformIncentiveLedgerType(e.type)
+      && !isCampaignSourcedBonus(e),
+  );
+
+  // Non-campaign incentives (Welcome / legacy / compensation): authorised for
+  // variance purposes; never inflate trip entitlement; never invalid solely
+  // because campaign progress is absent.
+  for (const entry of otherIncentiveRows) {
+    const amt = Math.round(Number(entry.amount_pence));
+    if (amt > 0) authorisedOther += amt;
+    if (amt < 0) {
+      // Reversal of a non-campaign incentive — net against authorised other.
+      authorisedOther += amt;
+    }
+  }
+
+  const byCampaign = new Map<string, DriverCreditLedgerEntry[]>();
+  for (const entry of campaignBonusRows) {
+    const campaignId = readCampaignId(entry) ?? `unkeyed:${entry.id ?? "unknown"}`;
+    const list = byCampaign.get(campaignId) ?? [];
+    list.push(entry);
+    byCampaign.set(campaignId, list);
+  }
+
+  for (const [campaignKey, rows] of byCampaign) {
+    const positive = rows.filter((r) => Math.round(Number(r.amount_pence)) > 0);
+    const negative = rows.filter((r) => Math.round(Number(r.amount_pence)) < 0);
+    const net = rows.reduce((s, r) => s + Math.round(Number(r.amount_pence)), 0);
+
+    if (positive.length > 1) {
+      const dupAmt = positive.reduce((s, r) => s + Math.round(Number(r.amount_pence)), 0);
+      exceptionPence += dupAmt;
+      issues.push({
+        code: "DUPLICATE_CAMPAIGN_CREDIT",
+        amount_pence: dupAmt,
+        campaign_id: campaignKey.startsWith("unkeyed:") ? null : campaignKey,
+        ledger_entry_id: positive[0]?.id ?? null,
+        detail: `${positive.length} positive BONUS rows for campaign`,
+      });
+      continue;
+    }
+
+    if (net < 0) {
+      exceptionPence += Math.abs(net);
+      issues.push({
+        code: "CAMPAIGN_REVERSAL_NET_NEGATIVE",
+        amount_pence: Math.abs(net),
+        campaign_id: campaignKey.startsWith("unkeyed:") ? null : campaignKey,
+        detail: "Campaign incentive net is negative beyond a full reversal",
+      });
+      continue;
+    }
+
+    // Full reversal (net ~0): authorised campaign credit 0, no exception.
+    if (Math.abs(net) <= TOLERANCE_PENCE) {
+      continue;
+    }
+
+    const entry = positive[0] ?? rows[0]!;
+    const amt = Math.round(Number(entry.amount_pence));
+    const entryDriverId = entry.driver_id ?? null;
+    if (tripDriverId && entryDriverId && entryDriverId !== tripDriverId) {
+      exceptionPence += amt;
+      issues.push({
+        code: "CAMPAIGN_WRONG_DRIVER",
+        amount_pence: amt,
+        campaign_id: readCampaignId(entry),
+        ledger_entry_id: entry.id ?? null,
+      });
+      continue;
+    }
+
+    const campaignId = readCampaignId(entry);
+    const match = campaignId
+      ? progress.find((p) =>
+        p.campaign_id === campaignId
+        && (!tripDriverId || p.driver_id === tripDriverId)
+        && (
+          (p.ledger_entry_id && entry.id && p.ledger_entry_id === entry.id)
+          || p.credited_at
+          || p.entitled_bonus_amount_pence > 0
+        )
+      )
+      : null;
+
+    // No progress row: do not treat as trip overcredit / invalid solely for
+    // missing progress (covers Welcome / legacy bonuses and unverified campaign
+    // stamps) — hold as authorised other incentive outside trip entitlement.
+    if (!match) {
+      authorisedOther += amt;
+      continue;
+    }
+
+    if (match.driver_id && tripDriverId && match.driver_id !== tripDriverId) {
+      exceptionPence += amt;
+      issues.push({
+        code: "CAMPAIGN_WRONG_DRIVER",
+        amount_pence: amt,
+        campaign_id: campaignId,
+        ledger_entry_id: entry.id ?? null,
+      });
+      continue;
+    }
+
+    const entitled = Math.max(0, Math.round(Number(match.entitled_bonus_amount_pence)));
+    if (match.ledger_entry_id && entry.id && match.ledger_entry_id !== entry.id) {
+      // Progress points at a different ledger row — this row is unauthorised.
+      exceptionPence += amt;
+      issues.push({
+        code: "UNAUTHORISED_CAMPAIGN_BONUS",
+        amount_pence: amt,
+        campaign_id: campaignId,
+        ledger_entry_id: entry.id ?? null,
+        detail: "ledger_entry_id does not match progress",
+      });
+      continue;
+    }
+
+    if (Math.abs(amt - entitled) > TOLERANCE_PENCE) {
+      const authorisedPortion = Math.min(amt, entitled);
+      authorisedCampaign += authorisedPortion;
+      const excess = Math.max(0, amt - entitled);
+      if (excess > 0) {
+        exceptionPence += excess;
+      }
+      issues.push({
+        code: "CAMPAIGN_AMOUNT_MISMATCH",
+        amount_pence: Math.abs(amt - entitled),
+        campaign_id: campaignId,
+        ledger_entry_id: entry.id ?? null,
+        detail: `ledger ${amt}p vs entitled ${entitled}p`,
+      });
+      continue;
+    }
+
+    authorisedCampaign += amt;
+    void negative;
+  }
+
+  return {
+    authorised_campaign_credit_pence: Math.max(0, authorisedCampaign),
+    authorised_other_incentive_pence: Math.max(0, authorisedOther),
+    incentive_exception_pence: Math.max(0, exceptionPence),
+    incentive_issues: issues,
+  };
+}
+
+/**
+ * Sum trip-entitlement wallet credits for a trip (FR_TRIP_ENTITLEMENT_CREDIT_TYPES).
+ * Platform-funded BONUS / incentives are excluded — use classifyPlatformIncentiveCreditsForTrip.
+ */
 export function sumActiveDriverWalletCreditForTrip(args: {
   ledger?: DriverCreditLedgerEntry[];
   trip_driver_id?: string | null;
@@ -136,12 +412,14 @@ export function sumActiveDriverWalletCreditForTrip(args: {
   let tipCreditCount = 0;
 
   for (const entry of ledger) {
-    if (!DRIVER_EARNING_LEDGER_TYPES.has(entry.type)) continue;
+    const type = ledgerTypeKey(entry.type);
+    // FR trip-entitlement SSOT + legacy TIP_CREDIT alias (same tip entitlement).
+    if (!isFrTripEntitlementCreditType(type) && type !== "TIP_CREDIT") continue;
     if (entry.amount_pence <= 0) continue;
     total += entry.amount_pence;
     earningCount += 1;
-    if (entry.type === "TRIP_EARNING_NET") tripEarningCount += 1;
-    if (entry.type === "DRIVER_TIP_CREDIT" || entry.type === "TIP_CREDIT") tipCreditCount += 1;
+    if (type === "TRIP_EARNING_NET") tripEarningCount += 1;
+    if (type === "DRIVER_TIP_CREDIT" || type === "TIP_CREDIT") tipCreditCount += 1;
     const entryDriverId = entry.driver_id ?? null;
     if (tripDriverId && entryDriverId && entryDriverId !== tripDriverId) {
       wrongTotal += entry.amount_pence;
@@ -218,18 +496,78 @@ function isBeforeEligibility(args: {
   return args.now_ms < at;
 }
 
+function emptyIncentiveFields(): Pick<
+  DriverCreditClassificationResult,
+  | "authorised_campaign_credit_pence"
+  | "authorised_other_incentive_pence"
+  | "total_legitimate_credit_pence"
+  | "unexplained_credit_variance_pence"
+  | "incentive_issues"
+> {
+  return {
+    authorised_campaign_credit_pence: 0,
+    authorised_other_incentive_pence: 0,
+    total_legitimate_credit_pence: 0,
+    unexplained_credit_variance_pence: 0,
+    incentive_issues: [],
+  };
+}
+
+function withIncentiveBreakdown(
+  base: {
+    health: DriverCreditHealth;
+    expected_driver_credit_pence: number;
+    actual_driver_credit_pence: number;
+    credit_difference_pence: number;
+    credit_eligibility_at: string | null;
+  },
+  incentives: ReturnType<typeof classifyPlatformIncentiveCreditsForTrip>,
+): DriverCreditClassificationResult {
+  const authorisedCampaign = incentives.authorised_campaign_credit_pence;
+  const authorisedOther = incentives.authorised_other_incentive_pence;
+  const tripDiff = base.credit_difference_pence;
+  // Incentive exceptions (duplicate / wrong amount / unauthorised excess) add to
+  // unexplained variance without treating authorised campaign credit as overcredit.
+  const unexplained = tripDiff + incentives.incentive_exception_pence;
+  let health = base.health;
+  if (
+    incentives.incentive_exception_pence > TOLERANCE_PENCE
+    && (health === DRIVER_CREDIT_HEALTH.OK
+      || health === DRIVER_CREDIT_HEALTH.NOT_APPLICABLE
+      || health === DRIVER_CREDIT_HEALTH.PENDING)
+  ) {
+    health = DRIVER_CREDIT_HEALTH.OVER_CREDITED;
+  }
+  return {
+    ...base,
+    health,
+    authorised_campaign_credit_pence: authorisedCampaign,
+    authorised_other_incentive_pence: authorisedOther,
+    total_legitimate_credit_pence: base.actual_driver_credit_pence
+      + authorisedCampaign
+      + authorisedOther,
+    unexplained_credit_variance_pence: unexplained,
+    incentive_issues: incentives.incentive_issues,
+    // Keep credit_difference as trip-only unexplained when incentives are clean;
+    // when incentive exceptions exist, surface combined unexplained on both fields.
+    credit_difference_pence: incentives.incentive_exception_pence > TOLERANCE_PENCE
+      ? unexplained
+      : tripDiff,
+  };
+}
+
 /** Canonical driver credit health classifier — FR is primary detection owner. */
 export function classifyDriverCreditHealth(
   input: DriverCreditMonitoringInput,
-): {
-  health: DriverCreditHealth;
-  expected_driver_credit_pence: number;
-  actual_driver_credit_pence: number;
-  credit_difference_pence: number;
-  credit_eligibility_at: string | null;
-} {
+): DriverCreditClassificationResult {
   const nowMs = input.now_ms ?? Date.now();
   const model = String(input.financial_model ?? "").trim().toUpperCase();
+  const incentives = classifyPlatformIncentiveCreditsForTrip({
+    ledger: input.ledger,
+    trip_driver_id: input.trip_driver_id,
+    campaign_progress: input.campaign_progress,
+  });
+
   if (model.includes("DRIVER_COLLECTED")) {
     return {
       health: DRIVER_CREDIT_HEALTH.NOT_APPLICABLE,
@@ -237,6 +575,7 @@ export function classifyDriverCreditHealth(
       actual_driver_credit_pence: 0,
       credit_difference_pence: 0,
       credit_eligibility_at: null,
+      ...emptyIncentiveFields(),
     };
   }
 
@@ -264,43 +603,45 @@ export function classifyDriverCreditHealth(
     refunded_pence: input.refunded_pence,
     provider_state: input.provider_state,
   })) {
-    return {
+    return withIncentiveBreakdown({
       health: DRIVER_CREDIT_HEALTH.NOT_APPLICABLE,
       expected_driver_credit_pence: expected,
       actual_driver_credit_pence: 0,
       credit_difference_pence: 0,
       credit_eligibility_at: eligibilityAt,
-    };
+    }, incentives);
   }
 
   if (isProviderPending(input.provider_state)) {
-    return {
+    return withIncentiveBreakdown({
       health: DRIVER_CREDIT_HEALTH.PENDING,
       expected_driver_credit_pence: expected,
       actual_driver_credit_pence: 0,
       credit_difference_pence: 0,
       credit_eligibility_at: eligibilityAt,
-    };
+    }, incentives);
   }
 
   if (expected === 0) {
-    return {
+    // Still surface incentive-only trips (bonus linked with zero trip entitlement).
+    const incentiveOnly = withIncentiveBreakdown({
       health: DRIVER_CREDIT_HEALTH.NOT_APPLICABLE,
       expected_driver_credit_pence: 0,
       actual_driver_credit_pence: 0,
       credit_difference_pence: 0,
       credit_eligibility_at: eligibilityAt,
-    };
+    }, incentives);
+    return incentiveOnly;
   }
 
   if (input.wallet_evidence_available === false) {
-    return {
+    return withIncentiveBreakdown({
       health: DRIVER_CREDIT_HEALTH.PENDING,
       expected_driver_credit_pence: expected,
       actual_driver_credit_pence: 0,
       credit_difference_pence: 0,
       credit_eligibility_at: eligibilityAt,
-    };
+    }, incentives);
   }
 
   const wallet = sumActiveDriverWalletCreditForTrip({
@@ -312,72 +653,72 @@ export function classifyDriverCreditHealth(
   const difference = actual - expected;
 
   if (wallet.has_wrong_driver) {
-    return {
+    return withIncentiveBreakdown({
       health: DRIVER_CREDIT_HEALTH.WRONG_DRIVER,
       expected_driver_credit_pence: expected,
       actual_driver_credit_pence: actual,
       credit_difference_pence: difference,
       credit_eligibility_at: eligibilityAt,
-    };
+    }, incentives);
   }
 
   if (wallet.has_duplicate) {
-    return {
+    return withIncentiveBreakdown({
       health: DRIVER_CREDIT_HEALTH.DUPLICATE,
       expected_driver_credit_pence: expected,
       actual_driver_credit_pence: actual,
       credit_difference_pence: difference,
       credit_eligibility_at: eligibilityAt,
-    };
+    }, incentives);
   }
 
   if (isBeforeEligibility({ eligibility_at: eligibilityAt, now_ms: nowMs })) {
-    return {
+    return withIncentiveBreakdown({
       health: DRIVER_CREDIT_HEALTH.PENDING,
       expected_driver_credit_pence: expected,
       actual_driver_credit_pence: actual,
       credit_difference_pence: difference,
       credit_eligibility_at: eligibilityAt,
-    };
+    }, incentives);
   }
 
   if (actual === 0) {
-    return {
+    return withIncentiveBreakdown({
       health: DRIVER_CREDIT_HEALTH.MISSING,
       expected_driver_credit_pence: expected,
       actual_driver_credit_pence: 0,
       credit_difference_pence: -expected,
       credit_eligibility_at: eligibilityAt,
-    };
+    }, incentives);
   }
 
   if (Math.abs(difference) <= TOLERANCE_PENCE) {
-    return {
+    return withIncentiveBreakdown({
       health: DRIVER_CREDIT_HEALTH.OK,
       expected_driver_credit_pence: expected,
       actual_driver_credit_pence: actual,
       credit_difference_pence: difference,
       credit_eligibility_at: eligibilityAt,
-    };
+    }, incentives);
   }
 
   if (difference < 0) {
-    return {
+    return withIncentiveBreakdown({
       health: DRIVER_CREDIT_HEALTH.UNDER_CREDITED,
       expected_driver_credit_pence: expected,
       actual_driver_credit_pence: actual,
       credit_difference_pence: difference,
       credit_eligibility_at: eligibilityAt,
-    };
+    }, incentives);
   }
 
-  return {
+  return withIncentiveBreakdown({
     health: DRIVER_CREDIT_HEALTH.OVER_CREDITED,
     expected_driver_credit_pence: expected,
     actual_driver_credit_pence: actual,
     credit_difference_pence: difference,
     credit_eligibility_at: eligibilityAt,
-  };
+  }, incentives);
 }
 
 export function mapDriverCreditHealthToPaymentSessionDisplay(
@@ -620,6 +961,11 @@ export function buildPaymentSessionDriverCreditFields(
   actual_driver_credit_pence: number;
   credit_difference_pence: number;
   credit_eligibility_at: string | null;
+  authorised_campaign_credit_pence: number;
+  authorised_other_incentive_pence: number;
+  total_legitimate_credit_pence: number;
+  unexplained_credit_variance_pence: number;
+  incentive_issues: PlatformIncentiveIssue[];
 } {
   const purpose = String(input.purpose ?? "").toUpperCase();
   if (purpose === "SAVE_CARD" || purpose === "LEGACY_EVIDENCE") {
@@ -630,6 +976,7 @@ export function buildPaymentSessionDriverCreditFields(
       actual_driver_credit_pence: 0,
       credit_difference_pence: 0,
       credit_eligibility_at: null,
+      ...emptyIncentiveFields(),
     };
   }
 
@@ -641,6 +988,11 @@ export function buildPaymentSessionDriverCreditFields(
     actual_driver_credit_pence: credit.actual_driver_credit_pence,
     credit_difference_pence: credit.credit_difference_pence,
     credit_eligibility_at: credit.credit_eligibility_at,
+    authorised_campaign_credit_pence: credit.authorised_campaign_credit_pence,
+    authorised_other_incentive_pence: credit.authorised_other_incentive_pence,
+    total_legitimate_credit_pence: credit.total_legitimate_credit_pence,
+    unexplained_credit_variance_pence: credit.unexplained_credit_variance_pence,
+    incentive_issues: credit.incentive_issues,
   };
 }
 
@@ -729,6 +1081,10 @@ export type DriverWalletCreditAuditInputRow = {
   completed_at?: string | null;
   payout_status?: string | null;
   wallet_payout_blocked?: boolean | null;
+  /** Backend-authorised campaign bonus credit (display only; never recomputed in UI). */
+  authorised_campaign_credit_pence?: number | null;
+  /** Backend unexplained variance after authorised incentives (display only). */
+  unexplained_credit_variance_pence?: number | null;
 };
 
 export type DriverWalletCreditAuditRow = {
@@ -738,6 +1094,8 @@ export type DriverWalletCreditAuditRow = {
   expected_driver_credit_pence: number | null;
   actual_driver_credit_pence: number | null;
   credit_difference_pence: number | null;
+  authorised_campaign_credit_pence: number | null;
+  unexplained_credit_variance_pence: number | null;
   scope: DriverCreditExceptionScope;
   active_wallet_impact: boolean;
   recommended_owner: DriverCreditRecommendedOwner;
@@ -906,6 +1264,12 @@ export function buildDriverWalletCreditAuditRow(
     expected_driver_credit_pence: expected,
     actual_driver_credit_pence: actual,
     credit_difference_pence: diff,
+    authorised_campaign_credit_pence: input.authorised_campaign_credit_pence == null
+      ? null
+      : Math.round(Number(input.authorised_campaign_credit_pence)),
+    unexplained_credit_variance_pence: input.unexplained_credit_variance_pence == null
+      ? null
+      : Math.round(Number(input.unexplained_credit_variance_pence)),
     scope,
     active_wallet_impact: active,
     recommended_owner,

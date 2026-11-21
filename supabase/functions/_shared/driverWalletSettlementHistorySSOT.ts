@@ -41,6 +41,11 @@ export type DriverWalletSettlementHistoryInput = {
     credit_difference_pence?: number | null;
     driver_credit_health?: string | null;
     credit_eligibility_at?: string | null;
+    /** #71A — authorised campaign / other incentive split (optional). */
+    authorised_campaign_credit_pence?: number | null;
+    authorised_other_incentive_pence?: number | null;
+    total_legitimate_credit_pence?: number | null;
+    unexplained_credit_variance_pence?: number | null;
     is_diagnostic_projection?: boolean;
     diagnostic_label?: string | null;
   } | null;
@@ -71,6 +76,10 @@ export type DriverWalletSettlementHistoryRow = {
   credit_difference_pence?: number | null;
   driver_credit_health?: string | null;
   credit_eligibility_at?: string | null;
+  authorised_campaign_credit_pence?: number | null;
+  authorised_other_incentive_pence?: number | null;
+  total_legitimate_credit_pence?: number | null;
+  unexplained_credit_variance_pence?: number | null;
   is_diagnostic_projection?: boolean;
   diagnostic_label?: string | null;
 };
@@ -133,6 +142,10 @@ export function buildDriverWalletSettlementHistoryRow(
     credit_difference_pence: input.credit_monitoring?.credit_difference_pence ?? null,
     driver_credit_health: input.credit_monitoring?.driver_credit_health ?? null,
     credit_eligibility_at: input.credit_monitoring?.credit_eligibility_at ?? null,
+    authorised_campaign_credit_pence: input.credit_monitoring?.authorised_campaign_credit_pence ?? null,
+    authorised_other_incentive_pence: input.credit_monitoring?.authorised_other_incentive_pence ?? null,
+    total_legitimate_credit_pence: input.credit_monitoring?.total_legitimate_credit_pence ?? null,
+    unexplained_credit_variance_pence: input.credit_monitoring?.unexplained_credit_variance_pence ?? null,
     is_diagnostic_projection: input.credit_monitoring?.is_diagnostic_projection ?? false,
     diagnostic_label: input.credit_monitoring?.diagnostic_label ?? null,
   };

@@ -24,7 +24,11 @@ import {
 } from '@/lib/driverWalletLedgerFilters';
 import { getTripDisplayId } from '@/lib/tripUtils';
 import { ledgerAuditTypeLabel } from '@/lib/driverWalletLedgerRoutes';
-import { canonicalDriverWalletTxType } from '@/lib/driverWalletTransactionTypes';
+import {
+  canonicalDriverWalletTxType,
+  driverWalletTxChipLabel,
+  isCampaignBonusLedgerRow,
+} from '@/lib/driverWalletTransactionTypes';
 import { Download, Printer, Search } from 'lucide-react';
 import type { ServiceAreaFinanceSelection } from '@/components/finance/ServiceAreaFinanceFilter';
 import { formatNullablePence } from '@/lib/formatNullablePence';
@@ -194,7 +198,7 @@ export function FinanceLedgerPanel({
           description: r.description ?? r.notes,
           credit_pence: credit,
           debit_pence: debit,
-          type: canonicalDriverWalletTxType(r.type),
+          type: driverWalletTxChipLabel(r),
           status: r.status,
           evidence: r.evidence,
           notes: r.notes,
@@ -232,7 +236,7 @@ export function FinanceLedgerPanel({
           description: r.description ?? r.notes,
           credit_pence: r.amount_pence > 0 ? r.amount_pence : null,
           debit_pence: r.amount_pence < 0 ? Math.abs(r.amount_pence) : null,
-          type: canonicalDriverWalletTxType(r.type),
+          type: driverWalletTxChipLabel(r),
           status: r.status,
           evidence: r.evidence,
           notes: r.notes,
@@ -417,9 +421,19 @@ export function FinanceLedgerPanel({
                           ) : null}
                           {isWallet ? (
                             <TableCell className="text-xs">
-                              <span className={isRecoveryDebit ? 'text-red-400 font-medium' : undefined}>
-                                {canonicalDriverWalletTxType(row.type)}
-                              </span>
+                              {isCampaignBonusLedgerRow(row) ? (
+                                <Badge
+                                  variant="outline"
+                                  className="text-[10px] bg-emerald-500/15 text-emerald-300 border-emerald-500/30"
+                                  title={row.description ?? undefined}
+                                >
+                                  {driverWalletTxChipLabel(row)}
+                                </Badge>
+                              ) : (
+                                <span className={isRecoveryDebit ? 'text-red-400 font-medium' : undefined}>
+                                  {driverWalletTxChipLabel(row)}
+                                </span>
+                              )}
                             </TableCell>
                           ) : null}
                           {showCreditHealth ? (

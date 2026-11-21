@@ -10,6 +10,7 @@ import { DriverWalletDriverList } from '@/components/finance/DriverWalletDriverL
 import { DriverWalletFleetOverviewCards } from '@/components/finance/DriverWalletFleetOverviewCards';
 import { DriverWalletAccountHeader } from '@/components/finance/DriverWalletAccountHeader';
 import { DriverWalletPeriodWidgetCards } from '@/components/finance/DriverWalletPeriodWidgetCards';
+import { DriverWalletCampaignBonusCard } from '@/components/finance/DriverWalletCampaignBonusCard';
 import { DriverWalletSettlementTab } from '@/components/finance/DriverWalletSettlementTab';
 import { DriverWalletCommissionTab } from '@/components/finance/DriverWalletCommissionTab';
 import { DriverWalletDebtRecoveryPanel } from '@/components/finance/DriverWalletDebtRecoveryPanel';
@@ -464,6 +465,15 @@ export default function DriverWalletLedger() {
                 periodLabel={periodBounds.label}
                 enabled={customRangeApplied}
               />
+              {customRangeApplied ? (
+                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                  <DriverWalletCampaignBonusCard
+                    settlementRows={driver?.settlement_history}
+                    currencyCode={currencyCode}
+                    periodLabel={periodBounds.label}
+                  />
+                </div>
+              ) : null}
             </div>
 
             <Tabs value={tab === 'drivers' || tab === 'payouts' ? 'overview' : tab} onValueChange={(v) => setTab(v as DriverWalletLedgerTab)}>
