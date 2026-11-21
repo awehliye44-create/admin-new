@@ -44,7 +44,6 @@ import {
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { getSingleCurrency } from '@/components/finance/CurrencyGroupedStats';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
-import { format, subDays, startOfDay, endOfDay, parseISO } from 'date-fns';
 import { formatFinanceDateSafe } from '@/lib/financialReconciliationGuards';
 import { toast } from 'sonner';
 import { getCurrencySymbol, formatDistance as formatDistanceUtil, getDistanceUnitShort } from '@/lib/regionSettings';
@@ -85,6 +84,14 @@ import {
   parseAdminTripDateSort,
   type AdminTripDateSort,
 } from '@/lib/adminTripListDateSort';
+import {
+  TRIP_HISTORY_DATE_FILTER_DEFAULT,
+  TRIP_HISTORY_DATE_FILTER_OPTIONS,
+  parseTripHistoryDateFilter,
+  resolveTripHistoryDateRange,
+  tripHistoryDateFilterForSort,
+  type TripHistoryDateFilter,
+} from '@/lib/tripHistoryDateRange';
 import {
   adminNoShowPaymentLabel,
   adminTripHistoryDisplayAt,
@@ -424,7 +431,7 @@ export default function TripHistory() {
   const [searchParams, setSearchParams] = useSearchParams();
   
   const [searchQuery, setSearchQuery] = useState('');
-  const [dateFilter, setDateFilter] = useState('7days');
+  const [dateFilter, setDateFilter] = useState<TripHistoryDateFilter>(TRIP_HISTORY_DATE_FILTER_DEFAULT);
   const [customStartDate, setCustomStartDate] = useState('');
   const [customEndDate, setCustomEndDate] = useState('');
   const [statusFilter, setStatusFilter] = useState<TripHistoryStatusFilter>('all');
@@ -486,36 +493,10 @@ export default function TripHistory() {
     legacyCompletionRef.current = legacyCompletion;
   }, [legacyCompletion]);
 
-  const getDateRange = useCallback(() => {
-    const now = new Date();
-    switch (dateFilter) {
-      case 'today':
-        return { start: startOfDay(now), end: endOfDay(now) };
-      case '7days':
-        return { start: startOfDay(subDays(now, 7)), end: endOfDay(now) };
-      case '30days':
-        return { start: startOfDay(subDays(now, 30)), end: endOfDay(now) };
-      case '90days':
-        return { start: startOfDay(subDays(now, 90)), end: endOfDay(now) };
-      case 'custom': {
-        if (!customStartDate && !customEndDate) {
-          return { start: startOfDay(subDays(now, 7)), end: endOfDay(now) };
-        }
-        let start = customStartDate
-          ? startOfDay(parseISO(customStartDate))
-          : startOfDay(subDays(now, 3650));
-        let end = customEndDate ? endOfDay(parseISO(customEndDate)) : endOfDay(now);
-        if (start > end) {
-          const swap = start;
-          start = startOfDay(end);
-          end = endOfDay(swap);
-        }
-        return { start, end };
-      }
-      default:
-        return { start: startOfDay(subDays(now, 7)), end: endOfDay(now) };
-    }
-  }, [dateFilter, customStartDate, customEndDate]);
+  const getDateRange = useCallback(
+    () => resolveTripHistoryDateRange(dateFilter, customStartDate, customEndDate),
+    [dateFilter, customStartDate, customEndDate],
+  );
 
   // Use shared cached hooks for regions/service areas
   const { data: sharedRegions = [] } = useRegions();
@@ -1411,16 +1392,16 @@ export default function TripHistory() {
                 )}
               </SelectContent>
             </Select>
-            <Select value={dateFilter} onValueChange={setDateFilter}>
+            <Select value={dateFilter} onValueChange={(v) => setDateFilter(parseTripHistoryDateFilter(v))}>
               <SelectTrigger className="w-full md:w-[130px]">
                 <SelectValue placeholder="Date Range" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="today">Today</SelectItem>
-                <SelectItem value="7days">Last 7 Days</SelectItem>
-                <SelectItem value="30days">Last 30 Days</SelectItem>
-                <SelectItem value="90days">Last 90 Days</SelectItem>
-                <SelectItem value="custom">Custom Range</SelectItem>
+                {TRIP_HISTORY_DATE_FILTER_OPTIONS.map((option) => (
+                  <SelectItem key={option.value} value={option.value}>
+                    {option.label}
+                  </SelectItem>
+                ))}
               </SelectContent>
             </Select>
             {dateFilter === 'custom' && (
@@ -1444,7 +1425,14 @@ export default function TripHistory() {
                 />
               </div>
             )}
-            <Select value={dateSort} onValueChange={(v) => setDateSort(parseAdminTripDateSort(v))}>
+            <Select
+              value={dateSort}
+              onValueChange={(v) => {
+                const nextSort = parseAdminTripDateSort(v);
+                setDateSort(nextSort);
+                setDateFilter((current) => tripHistoryDateFilterForSort(nextSort, current));
+              }}
+            >
               <SelectTrigger className="w-full md:w-[150px]" aria-label="Sort by date">
                 <SelectValue placeholder="Sort by date" />
               </SelectTrigger>
