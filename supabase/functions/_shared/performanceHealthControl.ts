@@ -73,7 +73,11 @@ export type BackendPerformanceAction =
   | 'edge_resolve_service_area'
   | 'edge_estimate_fare'
   | 'edge_get_active_trip'
-  | 'edge_restore_active_trip';
+  | 'edge_restore_active_trip'
+  | 'edge_driver_fare_offer'
+  | 'edge_customer_fare_decision'
+  | 'edge_driver_fare_final'
+  | 'edge_expire_offers';
 
 /**
  * Admin Panel — one action per tracked page load/refresh/save.
@@ -158,6 +162,10 @@ export const P95_TARGET_MS: Record<PerformanceActionName, number> = {
   edge_estimate_fare: 2_000,
   edge_get_active_trip: 1_500,
   edge_restore_active_trip: 1_500,
+  edge_driver_fare_offer: 2_000,
+  edge_customer_fare_decision: 2_000,
+  edge_driver_fare_final: 2_000,
+  edge_expire_offers: 2_000,
   admin_dashboard_load: 2_000,
   admin_financial_reconciliation_load: 3_000,
   admin_driver_wallet_ledger_load: 3_000,
@@ -318,4 +326,8 @@ export const EDGE_FUNCTION_PERF_ACTION: Record<string, BackendPerformanceAction>
   // Restores Edge→app_performance_events rows (client restore continued; Edge
   // mapping was missing after 2026-11-12 — #65D).
   'restore-active-trip': 'edge_restore_active_trip',
+  'driver-fare-offer': 'edge_driver_fare_offer',
+  'customer-fare-decision': 'edge_customer_fare_decision',
+  'driver-fare-final': 'edge_driver_fare_final',
+  'expire-offers': 'edge_expire_offers',
 };

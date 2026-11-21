@@ -321,6 +321,22 @@ const ALLOWED_METADATA_KEYS = new Set([
   "fingerprint",
   "vehicle_count",
   "outcome",
+  // #67A preset negotiation stage telemetry
+  "offer_id",
+  "delivery_path",
+  "cover_ms",
+  "countdown_skew_ms",
+  "negotiation_phase",
+  "offer_version",
+  "negotiate_to_chips_ms",
+  "preset_submit_ack_ms",
+  "preset_commit_to_present_ms",
+  "decision_ack_ms",
+  "counter_commit_to_present_ms",
+  "final_decision_ack_ms",
+  "agreement_to_assigned_ms",
+  "realtime_vs_fallback",
+  "payment_cover_ms",
 ]);
 
 interface TelemetryEvent {

@@ -51,6 +51,17 @@ import {
   faresMatchPence,
   type PresetOptionCanonical,
 } from "../_shared/presetOptionsCanonical.ts";
+import {
+  createRequestId,
+  finishEdgeRequestLog,
+  startRequestTimer,
+  withDuration,
+} from "../_shared/edgeRequestTiming.ts";
+import { scheduleReliableEdgeNotify } from "../_shared/scheduleReliableEdgeNotify.ts";
+import {
+  clearCustomerNegotiationViewOnTrip,
+  stampNegotiationViewFromOfferId,
+} from "../_shared/stampCustomerNegotiationView.ts";
 
 const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "https://thazislrdkjpvvghtvzo.supabase.co";
 const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -169,6 +180,11 @@ Deno.serve(async (req) => {
   const ip = getClientIP(req);
   const rl = checkRateLimit(ip, { limit: 30, windowMs: 60000, keyPrefix: "customer-fare-decision" });
   if (!rl.allowed) return rateLimitResponse(rl);
+
+  const elapsed = startRequestTimer();
+  const requestId = createRequestId();
+  let tripIdForLog: string | null = null;
+  let coverMs: number | null = null;
 
   try {
     const authHeader = req.headers.get("Authorization");
@@ -382,12 +398,14 @@ Deno.serve(async (req) => {
         return errorResponse("INVALID_STATE", "Driver offer fare missing", 409);
       }
 
+      const coverStartedAt = Date.now();
       const cover = await ensureNegotiationPayableAuthorised({
         supabase,
         tripId: trip.id,
         requiredFarePence: finalFarePence,
         owner: `negotiation_accept_y:${trip.id}:${offer_id}`,
       });
+      coverMs = Date.now() - coverStartedAt;
       if (!cover.ok) {
         return errorResponse(cover.code, cover.message, cover.status);
       }
@@ -484,19 +502,21 @@ Deno.serve(async (req) => {
         console.error("[customer-fare-decision] finalize assignment incomplete", finalize);
       }
 
-      await supabase.rpc("log_audit_event", {
-        p_event_type: "customer_accepted_fare",
-        p_user_id: user.id,
-        p_trip_id: trip.id,
-        p_details: {
-          offer_id,
-          accepted_fare_pence: finalFarePence,
-          fare_source: "negotiated_offer",
-          assigned_via: "accept_ride_offer",
-        },
-      });
+      await clearCustomerNegotiationViewOnTrip(supabase, trip.id);
 
-      try {
+      scheduleReliableEdgeNotify("customer-fare-decision-accept-notify", async () => {
+        const { error: auditErr } = await supabase.rpc("log_audit_event", {
+          p_event_type: "customer_accepted_fare",
+          p_user_id: user.id,
+          p_trip_id: trip.id,
+          p_details: {
+            offer_id,
+            accepted_fare_pence: finalFarePence,
+            fare_source: "negotiated_offer",
+            assigned_via: "accept_ride_offer",
+          },
+        });
+        if (auditErr) throw new Error(auditErr.message ?? "audit failed");
         await postDriverNegotiationPush({
           driverId: offer.driver_id,
           type: "NEGOTIATION_UPDATE",
@@ -509,18 +529,28 @@ Deno.serve(async (req) => {
             trip_id: trip.id,
           },
         }, "accept");
-      } catch (pushErr) {
-        console.warn("[customer-fare-decision] accept driver push failed:", pushErr);
-      }
+      });
 
-      return successResponse(assignedNegotiationSuccessBody({
-        tripId: trip.id,
-        offerId: offer_id,
-        driverId: offer.driver_id,
-        snapshot: finalize.snapshot ?? null,
-        fallbackFarePence: finalFarePence,
-        fallbackFareSource: "negotiated_offer",
-      }));
+      const durationMs = elapsed();
+      finishEdgeRequestLog("customer-fare-decision", durationMs, {
+        request_id: requestId,
+        http_status: 200,
+        trip_id: trip.id,
+        action: "ACCEPT",
+        cover_ms: coverMs,
+      });
+      return successResponse(withDuration({
+        ...assignedNegotiationSuccessBody({
+          tripId: trip.id,
+          offerId: offer_id,
+          driverId: offer.driver_id,
+          snapshot: finalize.snapshot ?? null,
+          fallbackFarePence: finalFarePence,
+          fallbackFareSource: "negotiated_offer",
+        }),
+        negotiation: null,
+        request_id: requestId,
+      }, durationMs, { source: "customer-fare-decision", requestId }));
     }
 
     if (action === "DECLINE") {
@@ -534,20 +564,32 @@ Deno.serve(async (req) => {
       const baseFarePence =
         secondChance.original_fare_pence ?? resolveNegotiationBaseFarePence(trip);
 
-      await supabase.rpc("log_audit_event", {
-        p_event_type: "customer_declined_fare",
-        p_user_id: user.id,
-        p_trip_id: trip.id,
-        p_details: {
-          offer_id,
-          driver_id: offer.driver_id,
-          base_fare_pence: baseFarePence,
-          second_chance: true,
-          negotiation_expires_at: secondChance.negotiation_expires_at,
-        },
+      await clearCustomerNegotiationViewOnTrip(supabase, trip.id);
+
+      scheduleReliableEdgeNotify("customer-fare-decision-decline-audit", async () => {
+        const { error: auditErr } = await supabase.rpc("log_audit_event", {
+          p_event_type: "customer_declined_fare",
+          p_user_id: user.id,
+          p_trip_id: trip.id,
+          p_details: {
+            offer_id,
+            driver_id: offer.driver_id,
+            base_fare_pence: baseFarePence,
+            second_chance: true,
+            negotiation_expires_at: secondChance.negotiation_expires_at,
+          },
+        });
+        if (auditErr) throw new Error(auditErr.message ?? "audit failed");
       });
 
-      return successResponse({
+      const durationMs = elapsed();
+      finishEdgeRequestLog("customer-fare-decision", durationMs, {
+        request_id: requestId,
+        http_status: 200,
+        trip_id: trip.id,
+        action: "DECLINE",
+      });
+      return successResponse(withDuration({
         success: true,
         action: "DRIVER_SECOND_CHANCE",
         trip_id: trip.id,
@@ -555,8 +597,10 @@ Deno.serve(async (req) => {
         negotiation_status: "declined_customer_awaiting_driver",
         negotiation_expires_at: secondChance.negotiation_expires_at,
         original_fare_pence: baseFarePence,
+        negotiation: null,
         message: "Driver has one chance to accept the original fare",
-      });
+        request_id: requestId,
+      }, durationMs, { source: "customer-fare-decision", requestId }));
     }
 
     if (action === "COUNTER") {
@@ -643,12 +687,14 @@ Deno.serve(async (req) => {
         );
       }
 
+      const coverStartedAt = Date.now();
       const cover = await ensureNegotiationPayableAuthorised({
         supabase,
         tripId: trip.id,
         requiredFarePence: selected_fare_pence,
         owner: `negotiation_counter_z:${trip.id}:${offer_id}`,
       });
+      coverMs = Date.now() - coverStartedAt;
       if (!cover.ok) {
         return errorResponse(cover.code, cover.message, cover.status);
       }
@@ -736,19 +782,6 @@ Deno.serve(async (req) => {
         expires_at: driverRespondBy,
       });
 
-      await supabase.rpc("log_audit_event", {
-        p_event_type: "customer_counter_offer",
-        p_user_id: user.id,
-        p_trip_id: trip.id,
-        p_details: {
-          offer_id,
-          selected_fare_pence,
-          driver_respond_by: driverRespondBy,
-          event: "customer_counter_offer_received",
-          driver_id: offer.driver_id,
-        },
-      });
-
       const { data: broadcastRow } = await supabase
         .from("ride_offers")
         .select(
@@ -765,54 +798,66 @@ Deno.serve(async (req) => {
         return errorResponse("BROADCAST_ROW_MISSING", "Counter-offer persisted but could not be verified", 500);
       }
 
-      const broadcastDelivered = await broadcastCustomerCounterOffer(supabase, {
-        id: broadcastRow.id,
-        trip_id: broadcastRow.trip_id,
-        driver_id: broadcastRow.driver_id,
-        status: broadcastRow.status,
-        negotiation_status: broadcastRow.negotiation_status,
-        customer_counter_fare: broadcastRow.customer_counter_fare,
-        driver_offer_fare: broadcastRow.driver_offer_fare,
-        driver_respond_by: broadcastRow.driver_respond_by,
-        expires_at: broadcastRow.expires_at ?? driverRespondBy,
-        negotiation_expires_at:
-          (broadcastRow as { negotiation_expires_at?: string }).negotiation_expires_at
-          ?? driverRespondBy,
-        offer_options: broadcastRow.offer_options,
-        customer_respond_by: broadcastRow.customer_respond_by,
-        grace_window_expires_at: broadcastRow.grace_window_expires_at,
+      const negotiationView = await stampNegotiationViewFromOfferId(supabase, {
+        tripId: trip.id,
+        offerId: offer_id,
+        originalFarePence: resolveNegotiationBaseFarePence(trip),
       });
 
-      if (!broadcastDelivered) {
-        console.error("[customer-fare-decision] COUNTER driver broadcast failed (offer already committed)", {
-          offer_id,
-          trip_id: trip.id,
-          driver_id: broadcastRow.driver_id,
+      scheduleReliableEdgeNotify("customer-fare-decision-counter-notify", async () => {
+        const { error: auditErr } = await supabase.rpc("log_audit_event", {
+          p_event_type: "customer_counter_offer",
+          p_user_id: user.id,
+          p_trip_id: trip.id,
+          p_details: {
+            offer_id,
+            selected_fare_pence,
+            driver_respond_by: driverRespondBy,
+            event: "customer_counter_offer_received",
+            driver_id: offer.driver_id,
+          },
         });
-      }
+        if (auditErr) throw new Error(auditErr.message ?? "audit failed");
 
-      try {
-          const pushData = buildDriverNegotiationPushData({
-            offer_id: broadcastRow.id,
-            trip_id: broadcastRow.trip_id,
-            negotiation_status: broadcastRow.negotiation_status,
-            negotiation_expires_at:
-              (broadcastRow as { negotiation_expires_at?: string }).negotiation_expires_at
-              ?? broadcastRow.driver_respond_by,
-            customer_counter_fare: broadcastRow.customer_counter_fare,
-            expires_at: broadcastRow.expires_at ?? broadcastRow.driver_respond_by,
-            notificationType: "customer_counter_offer",
-          });
-          await postDriverNegotiationPush({
-            driverId: broadcastRow.driver_id,
-            type: "NEGOTIATION_UPDATE",
-            title: "Customer counter offer",
-            body: customerCounterOfferPushBody(selected_fare_pence),
-            data: pushData,
-          }, "counter");
-        } catch (pushErr) {
-          console.warn("[customer-fare-decision] driver negotiation push failed:", pushErr);
+        const broadcastDelivered = await broadcastCustomerCounterOffer(supabase, {
+          id: broadcastRow.id,
+          trip_id: broadcastRow.trip_id,
+          driver_id: broadcastRow.driver_id,
+          status: broadcastRow.status,
+          negotiation_status: broadcastRow.negotiation_status,
+          customer_counter_fare: broadcastRow.customer_counter_fare,
+          driver_offer_fare: broadcastRow.driver_offer_fare,
+          driver_respond_by: broadcastRow.driver_respond_by,
+          expires_at: broadcastRow.expires_at ?? driverRespondBy,
+          negotiation_expires_at:
+            (broadcastRow as { negotiation_expires_at?: string }).negotiation_expires_at
+            ?? driverRespondBy,
+          offer_options: broadcastRow.offer_options,
+          customer_respond_by: broadcastRow.customer_respond_by,
+          grace_window_expires_at: broadcastRow.grace_window_expires_at,
+        });
+        if (!broadcastDelivered) {
+          throw new Error("counter broadcast not delivered");
         }
+        const pushData = buildDriverNegotiationPushData({
+          offer_id: broadcastRow.id,
+          trip_id: broadcastRow.trip_id,
+          negotiation_status: broadcastRow.negotiation_status,
+          negotiation_expires_at:
+            (broadcastRow as { negotiation_expires_at?: string }).negotiation_expires_at
+            ?? broadcastRow.driver_respond_by,
+          customer_counter_fare: broadcastRow.customer_counter_fare,
+          expires_at: broadcastRow.expires_at ?? broadcastRow.driver_respond_by,
+          notificationType: "customer_counter_offer",
+        });
+        await postDriverNegotiationPush({
+          driverId: broadcastRow.driver_id,
+          type: "NEGOTIATION_UPDATE",
+          title: "Customer counter offer",
+          body: customerCounterOfferPushBody(selected_fare_pence),
+          data: pushData,
+        }, "counter");
+      });
 
       console.log("CUSTOMER_COUNTER_EDGE_SUCCESS", {
         ride_id: trip.id,
@@ -820,22 +865,38 @@ Deno.serve(async (req) => {
         driver_id: offer.driver_id,
         counter_fare: selected_fare_pence,
         driver_respond_by: driverRespondBy,
-        broadcast_sent: broadcastDelivered,
+        broadcast_deferred: true,
       });
 
-      return successResponse({
+      const durationMs = elapsed();
+      finishEdgeRequestLog("customer-fare-decision", durationMs, {
+        request_id: requestId,
+        http_status: 200,
+        trip_id: trip.id,
+        action: "COUNTER",
+        cover_ms: coverMs,
+      });
+      return successResponse(withDuration({
         success: true,
         action: "COUNTERED",
         customer_counter_fare: selected_fare_pence,
         driver_respond_by: driverRespondBy,
         negotiation_expires_at: driverRespondBy,
         expires_at: driverRespondBy,
-      });
+        negotiation: negotiationView,
+        request_id: requestId,
+      }, durationMs, { source: "customer-fare-decision", requestId }));
     }
 
     return errorResponse("INVALID_ACTION", "Unknown action", 400);
   } catch (err) {
     console.error("[customer-fare-decision] Error:", err);
+    finishEdgeRequestLog("customer-fare-decision", elapsed(), {
+      request_id: requestId,
+      http_status: 500,
+      trip_id: tripIdForLog,
+      success: false,
+    });
     return errorResponse("INTERNAL_ERROR", "Internal server error", 500);
   }
 });

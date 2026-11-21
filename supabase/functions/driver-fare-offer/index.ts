@@ -37,6 +37,14 @@ import {
   loadServiceAreaNegotiationCountdown,
   resolveNegotiationDeadlineIso,
 } from "../_shared/negotiation-deadline.ts";
+import {
+  createRequestId,
+  finishEdgeRequestLog,
+  startRequestTimer,
+  withDuration,
+} from "../_shared/edgeRequestTiming.ts";
+import { scheduleReliableEdgeNotify } from "../_shared/scheduleReliableEdgeNotify.ts";
+import { stampNegotiationViewFromOfferId } from "../_shared/stampCustomerNegotiationView.ts";
 
 const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "https://thazislrdkjpvvghtvzo.supabase.co";
 const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -58,6 +66,11 @@ Deno.serve(async (req) => {
   const ip = getClientIP(req);
   const rl = checkRateLimit(ip, { limit: 30, windowMs: 60000, keyPrefix: "driver-fare-offer" });
   if (!rl.allowed) return rateLimitResponse(rl);
+
+  const elapsed = startRequestTimer();
+  const requestId = createRequestId();
+  let tripIdForLog: string | null = null;
+  let httpStatus = 200;
 
   try {
     // Auth
@@ -89,26 +102,21 @@ Deno.serve(async (req) => {
       return errorResponse("VALIDATION_ERROR", "Invalid selected_fare_pence", 400);
     }
 
-    // Verify driver belongs to user
-    const { data: driver, error: driverErr } = await supabase
-      .from("drivers")
-      .select("id, user_id")
-      .eq("id", driver_id)
-      .single();
+    // Verify driver + load offer in parallel (#67A)
+    const [{ data: driver, error: driverErr }, { data: offer, error: offerErr }] = await Promise.all([
+      supabase.from("drivers").select("id, user_id").eq("id", driver_id).single(),
+      supabase
+        .from("ride_offers")
+        .select("*, trips(id, estimated_fare, fare, fare_breakdown, base_fare_pence, service_area_id, vehicle_type_id, status, negotiation_locked_until, negotiation_owner_driver_id, negotiation_disabled, negotiation_allowed, dispatch_status, is_scheduled, dispatch_mode, trip_type, corporate_account_id, booking_source, passenger_id)")
+        .eq("id", offer_id)
+        .eq("driver_id", driver_id)
+        .single(),
+    ]);
 
     if (driverErr || !driver) {
       return errorResponse("NOT_FOUND", "Driver not found", 404);
     }
     if (driver.user_id !== user.id) return errorResponse("FORBIDDEN", "Not your driver profile", 403);
-
-    // Get offer with trip including vehicle_type_id, service_area_id, and current negotiation owner
-    const { data: offer, error: offerErr } = await supabase
-      .from("ride_offers")
-      .select("*, trips(id, estimated_fare, fare, fare_breakdown, base_fare_pence, service_area_id, vehicle_type_id, status, negotiation_locked_until, negotiation_owner_driver_id, negotiation_disabled, negotiation_allowed, dispatch_status, is_scheduled, dispatch_mode, trip_type, corporate_account_id, booking_source)")
-      .eq("id", offer_id)
-      .eq("driver_id", driver_id)
-      .single();
-
     if (offerErr || !offer) return errorResponse("NOT_FOUND", "Offer not found", 404);
     if (offer.status !== "pending") {
       return errorResponse("INVALID_STATE", `Offer is ${offer.status}, not pending`, 409);
@@ -118,6 +126,7 @@ Deno.serve(async (req) => {
     }
 
     const trip = offer.trips;
+    tripIdForLog = trip?.id ?? null;
     if (!trip || ["completed", "cancelled", "expired", "declined"].includes(trip.status)) {
       console.error("[driver-fare-offer] TRIP_STATUS_UNAVAILABLE", {
         offer_id,
@@ -245,26 +254,28 @@ Deno.serve(async (req) => {
 
     {
       const settingsFields = "fare_negotiation_enabled";
-      let dispSettings: { fare_negotiation_enabled?: boolean } | null = null;
-      if (trip.service_area_id) {
-        const { data: areaSettings } = await supabase
-          .from("dispatch_settings")
-          .select(settingsFields)
-          .eq("service_area_id", trip.service_area_id)
-          .maybeSingle();
-        dispSettings = areaSettings;
-      }
-      if (!dispSettings) {
-        const { data: globalSettings } = await supabase
+      const serviceAreaId = (trip as { service_area_id?: string | null }).service_area_id ?? null;
+      const [areaSettingsResult, globalSettingsResult, adminCountdownEarly] = await Promise.all([
+        serviceAreaId
+          ? supabase
+            .from("dispatch_settings")
+            .select(settingsFields)
+            .eq("service_area_id", serviceAreaId)
+            .maybeSingle()
+          : Promise.resolve({ data: null }),
+        supabase
           .from("dispatch_settings")
           .select(settingsFields)
           .is("service_area_id", null)
-          .maybeSingle();
-        dispSettings = globalSettings;
-      }
+          .maybeSingle(),
+        loadServiceAreaNegotiationCountdown(supabase, serviceAreaId),
+      ]);
+      const dispSettings =
+        areaSettingsResult.data ?? globalSettingsResult.data ?? null;
       if (dispSettings?.fare_negotiation_enabled === false) {
         return errorResponse("DISABLED", "Fare negotiation is not enabled for this service area", 403);
       }
+      (trip as { __adminCountdown?: number | null }).__adminCountdown = adminCountdownEarly;
     }
 
     const existingSnap = parseOfferSnapshot(offerForPresets.offer_snapshot) ?? {};
@@ -273,10 +284,12 @@ Deno.serve(async (req) => {
       selected_fare_pence,
       selected_offer_key ?? null,
     );
-    const adminCountdown = await loadServiceAreaNegotiationCountdown(
-      supabase,
-      (trip as { service_area_id?: string | null }).service_area_id,
-    );
+    const adminCountdown =
+      (trip as { __adminCountdown?: number | null }).__adminCountdown ??
+      await loadServiceAreaNegotiationCountdown(
+        supabase,
+        (trip as { service_area_id?: string | null }).service_area_id,
+      );
     const snapshotCountdown = Number(
       existingSnap.countdown_seconds ?? existingSnap.presetCountdownSeconds,
     );
@@ -530,18 +543,15 @@ Deno.serve(async (req) => {
       negotiation_status: "waiting_customer",
     });
 
-    const { data: passengerRow } = await supabase
-      .from("trips")
-      .select("passenger_id")
-      .eq("id", trip.id)
-      .maybeSingle();
+    const passengerId =
+      (trip as { passenger_id?: string | null }).passenger_id ?? null;
 
     console.log("CUSTOMER_OFFER_EVENT_SENT", {
       event: "driver_preset_offer_sent",
       ride_offer_id: offer_id,
       ride_id: trip.id,
       driver_id,
-      customer_id: passengerRow?.passenger_id ?? null,
+      customer_id: passengerId,
       negotiation_status: "waiting_customer",
     });
 
@@ -550,7 +560,7 @@ Deno.serve(async (req) => {
       ride_offer_id: offer_id,
       ride_id: trip.id,
       driver_id,
-      customer_id: passengerRow?.passenger_id ?? null,
+      customer_id: passengerId,
       selected_offer_key: selected_offer_key ?? null,
       selected_gross_fare: selected_fare_pence,
       preset_options: presetOptions,
@@ -559,13 +569,18 @@ Deno.serve(async (req) => {
       negotiation_status: "waiting_customer",
     });
 
-    if (passengerRow?.passenger_id) {
-      try {
+    // Authoritative Realtime payload for Customer card (#67A) — before HTTP ack.
+    const negotiationView = await stampNegotiationViewFromOfferId(supabase, {
+      tripId: trip.id,
+      offerId: offer_id,
+      originalFarePence: baseFarePence,
+    });
+
+    // Push + audit after durable commit (waitUntil + retry). Never bare fire-and-forget.
+    scheduleReliableEdgeNotify("driver-fare-offer-notify", async () => {
+      if (passengerId) {
         const { resolveCustomerAuthUserId } = await import("../_shared/authoritativeDevicePush.ts");
-        const customerAuthUserId = await resolveCustomerAuthUserId(
-          supabase,
-          passengerRow.passenger_id,
-        );
+        const customerAuthUserId = await resolveCustomerAuthUserId(supabase, passengerId);
         const pushResp = await fetch(`${supabaseUrl}/functions/v1/send-trip-notification`, {
           method: "POST",
           headers: {
@@ -585,34 +600,37 @@ Deno.serve(async (req) => {
         console.log("NEGOTIATION_CUSTOMER_PUSH_SENT", {
           offer_id,
           trip_id: trip.id,
-          customer_id: passengerRow.passenger_id,
+          customer_id: passengerId,
           push_ok: pushResp.ok,
           push_status: pushResp.status,
         });
-      } catch (pushErr) {
-        console.warn("[driver-fare-offer] customer_new_fare_offer push failed:", pushErr);
+        if (!pushResp.ok) {
+          throw new Error(`customer_new_fare_offer push HTTP ${pushResp.status}`);
+        }
       }
-    }
-
-    // Audit
-    await supabase.rpc("log_audit_event", {
-      p_event_type: "driver_fare_offered",
-      p_driver_id: driver_id,
-      p_trip_id: trip.id,
-      p_details: {
-        offer_id,
-        selected_fare_pence,
-        base_fare_pence: baseFarePence,
-        offer_options: uniqueOptions,
-        preset_options: presetOptions,
-        customer_respond_by: customerRespondBy,
-      },
+      const { error: auditErr } = await supabase.rpc("log_audit_event", {
+        p_event_type: "driver_fare_offered",
+        p_driver_id: driver_id,
+        p_trip_id: trip.id,
+        p_details: {
+          offer_id,
+          selected_fare_pence,
+          base_fare_pence: baseFarePence,
+          offer_options: uniqueOptions,
+          preset_options: presetOptions,
+          customer_respond_by: customerRespondBy,
+        },
+      });
+      if (auditErr) {
+        throw new Error(auditErr.message ?? "audit failed");
+      }
     });
 
     console.log("[driver-fare-offer] SEND_PRESET_OFFER_SUCCESS", {
       offer_id,
       trip_id: trip.id,
       customer_respond_by: customerRespondBy,
+      duration_ms: elapsed(),
     });
 
     // Fresh negotiation/trip snapshot for UI (no client-invented waiting_customer).
@@ -627,13 +645,22 @@ Deno.serve(async (req) => {
       supabase
         .from("trips")
         .select(
-          "id, status, dispatch_status, driver_id, negotiation_status, negotiation_owner_driver_id, negotiation_locked_until, final_fare_pence, final_customer_fare_pence, updated_at",
+          "id, status, dispatch_status, driver_id, negotiation_status, negotiation_owner_driver_id, negotiation_locked_until, final_fare_pence, final_customer_fare_pence, customer_negotiation_view, updated_at",
         )
         .eq("id", trip.id)
         .maybeSingle(),
     ]);
 
-    return successResponse({
+    const durationMs = elapsed();
+    finishEdgeRequestLog("driver-fare-offer", durationMs, {
+      request_id: requestId,
+      http_status: 200,
+      trip_id: trip.id,
+      offer_id,
+      negotiation_status: "waiting_customer",
+    });
+
+    return successResponse(withDuration({
       success: true,
       offer_id,
       trip_id: trip.id,
@@ -645,12 +672,21 @@ Deno.serve(async (req) => {
       customer_respond_by: customerRespondBy,
       negotiation_expires_at: customerRespondBy,
       negotiation_status: "waiting_customer",
+      negotiation: negotiationView,
       event: "driver_preset_offer_sent",
       offer: offerSnap ?? null,
       trip: tripSnap ?? null,
-    });
+      request_id: requestId,
+    }, durationMs, { source: "driver-fare-offer", requestId }));
   } catch (err) {
+    httpStatus = 500;
     console.error("[driver-fare-offer] SEND_PRESET_OFFER_ERROR", err);
+    finishEdgeRequestLog("driver-fare-offer", elapsed(), {
+      request_id: requestId,
+      http_status: httpStatus,
+      trip_id: tripIdForLog,
+      success: false,
+    });
     return errorResponse("INTERNAL_ERROR", "Internal server error", 500);
   }
 });
