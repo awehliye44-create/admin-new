@@ -25,6 +25,10 @@ import {
 } from "../_shared/waitingSegmentClock.ts";
 import { notifyCustomerTripLifecycle } from "../_shared/customerTripLifecycleNotify.ts";
 import { notifyDriverTripStopped } from "../_shared/notifyDriverTripStopped.ts";
+import {
+  isDriverEligibleForCancelTripNotify,
+  resolveCancelNotifyAssignedDriverId,
+} from "../_shared/driverCancelNotifyRecipientSSOT.ts";
 import { maybeResumeTerminalFeeSettlementAfterProviderFee } from "../_shared/terminalFeeSettlementResumptionSSOT.ts";
 import { buildCancelledScheduledStatePatch } from "../_shared/tripTerminalDispatch.ts";
 import { broadcastScheduledMarketplaceChanged } from "../_shared/scheduledMarketplaceRealtimeBroadcastSSOT.ts";
@@ -151,7 +155,7 @@ serve(async (req) => {
     const { data: trip, error: tripErr } = await supabase
       .from("trips")
       .select(
-        "id, status, driver_id, confirmed_driver_id, passenger_id, service_area_id, vehicle_type_id, assigned_at, arrived_at, cancellation_grace_expires_at, free_wait_expires_at, payment_method, waiting_minutes, waiting_charge_pence, scheduled_at, started_at, is_scheduled, scheduled_status, completed_at, authorised_amount_pence, payment_session_id, payment_provider"
+        "id, status, driver_id, confirmed_driver_id, previous_driver_id, cancelled_driver_ids, excluded_driver_ids, passenger_id, service_area_id, vehicle_type_id, assigned_at, arrived_at, cancellation_grace_expires_at, free_wait_expires_at, payment_method, waiting_minutes, waiting_charge_pence, scheduled_at, started_at, is_scheduled, scheduled_status, completed_at, authorised_amount_pence, payment_session_id, payment_provider"
       )
       .eq("id", trip_id)
       .maybeSingle();
@@ -426,7 +430,7 @@ serve(async (req) => {
         const { data: freshTrip, error: freshErr } = await supabase
           .from("trips")
           .select(
-            "id, status, driver_id, confirmed_driver_id, passenger_id, service_area_id, vehicle_type_id, assigned_at, arrived_at, cancellation_grace_expires_at, free_wait_expires_at, payment_method, waiting_minutes, waiting_charge_pence, scheduled_at, started_at, is_scheduled, scheduled_status, completed_at, authorised_amount_pence, payment_session_id, payment_provider",
+            "id, status, driver_id, confirmed_driver_id, previous_driver_id, cancelled_driver_ids, excluded_driver_ids, passenger_id, service_area_id, vehicle_type_id, assigned_at, arrived_at, cancellation_grace_expires_at, free_wait_expires_at, payment_method, waiting_minutes, waiting_charge_pence, scheduled_at, started_at, is_scheduled, scheduled_status, completed_at, authorised_amount_pence, payment_session_id, payment_provider",
           )
           .eq("id", trip_id)
           .maybeSingle();
@@ -610,7 +614,8 @@ serve(async (req) => {
     }
 
     // Clear driver's current trip if driver was assigned
-    const assignedDriverId = trip.confirmed_driver_id ?? trip.driver_id ?? null;
+    // #66 — live assignment only (never previous_driver_id / rematch history).
+    const assignedDriverId = resolveCancelNotifyAssignedDriverId(trip);
     if (assignedDriverId) {
       await supabase
         .from("drivers")
@@ -774,8 +779,12 @@ serve(async (req) => {
 
     // Assigned Driver must get cancel push for BG/killed Trip Cancelled audio.
     // Skip when the Driver themselves cancelled (local UI already owns that path).
-    // Searching-only cancels (no driver) skip — nothing to stop on Driver app.
-    if (assignedDriverId && cancelled_by !== "driver") {
+    // Searching-only / rematch-released cancels skip (#66).
+    if (
+      assignedDriverId &&
+      cancelled_by !== "driver" &&
+      isDriverEligibleForCancelTripNotify(trip, assignedDriverId)
+    ) {
       void notifyDriverTripStopped(supabaseUrl, supabaseKey, assignedDriverId, {
         tripId: trip_id,
         stopReason:

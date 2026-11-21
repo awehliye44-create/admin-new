@@ -2,6 +2,10 @@ import { createClient } from "npm:@supabase/supabase-js@2.57.2";
 import { requireAuthenticatedUser } from "../_shared/edgeAuth.ts";
 import { notifyCustomerTripLifecycle } from "../_shared/customerTripLifecycleNotify.ts";
 import { notifyDriverTripStopped } from "../_shared/notifyDriverTripStopped.ts";
+import {
+  isDriverEligibleForCancelTripNotify,
+  resolveCancelNotifyAssignedDriverId,
+} from "../_shared/driverCancelNotifyRecipientSSOT.ts";
 import { disposeTerminalTripPayment } from "../_shared/terminalTripPaymentDisposition.ts";
 
 const corsHeaders: Record<string, string> = {
@@ -94,7 +98,7 @@ Deno.serve(async (req) => {
     const { data: current } = await supabase
       .from("trips")
       .select(
-        "status, completed_at, driver_id, confirmed_driver_id, previous_driver_id, passenger_id",
+        "status, completed_at, driver_id, confirmed_driver_id, previous_driver_id, cancelled_driver_ids, excluded_driver_ids, passenger_id",
       )
       .eq("id", trip_id)
       .maybeSingle();
@@ -110,12 +114,12 @@ Deno.serve(async (req) => {
       }, 409);
     }
 
-    // Capture assigned Driver before terminal RPC nulls assignment columns.
-    const assignedDriverId =
-      (typeof current.confirmed_driver_id === "string" && current.confirmed_driver_id) ||
-      (typeof current.driver_id === "string" && current.driver_id) ||
-      (typeof current.previous_driver_id === "string" && current.previous_driver_id) ||
-      null;
+    // #66 — live assignment only. Never previous_driver_id (rematch-released).
+    const assignedDriverId = resolveCancelNotifyAssignedDriverId(current);
+    const cancelNotifyEligible = isDriverEligibleForCancelTripNotify(
+      current,
+      assignedDriverId,
+    );
     const passengerIdBefore =
       typeof current.passenger_id === "string" ? current.passenger_id : null;
 
@@ -156,7 +160,8 @@ Deno.serve(async (req) => {
     // #55C — notify Driver immediately after terminal cancel commit (before
     // payment disposition). Missing RIDE_STOP left Driver on Start Trip for
     // 6–7s until a slow hydrate (MK-261120-002).
-    if (assignedDriverId) {
+    // #66 — skip rematch-released / unassigned broadcasting cancels.
+    if (assignedDriverId && cancelNotifyEligible) {
       void notifyDriverTripStopped(supabaseUrl, serviceRoleKey, assignedDriverId, {
         tripId: trip_id,
         stopReason: "admin_cancelled",
@@ -164,6 +169,11 @@ Deno.serve(async (req) => {
         body: "Trip cancelled by ONECAB",
       }).catch((e) =>
         console.warn("[admin-trip-actions] driver trip_cancelled push failed:", e)
+      );
+    } else if (assignedDriverId && !cancelNotifyEligible) {
+      console.info(
+        "[admin-trip-actions] driver trip_cancelled push skipped (assignment ineligible)",
+        { trip_id, driver_id: assignedDriverId },
       );
     }
     if (passengerIdBefore) {
@@ -207,7 +217,7 @@ Deno.serve(async (req) => {
       already_terminal: (cancelResult as { already_terminal?: boolean } | null)?.already_terminal === true,
       hold_disposition_outcome: holdDisposition?.outcome ?? null,
       hold_disposition_key: holdDisposition?.disposition_key ?? null,
-      driver_notified: Boolean(assignedDriverId),
+      driver_notified: Boolean(assignedDriverId && cancelNotifyEligible),
     });
 
     return json({

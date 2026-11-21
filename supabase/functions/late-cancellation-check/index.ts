@@ -10,6 +10,10 @@ import {
   validationErrorResponse,
 } from "../_shared/security.ts";
 import { notifyDriverTripStopped } from "../_shared/notifyDriverTripStopped.ts";
+import {
+  isDriverEligibleForCancelTripNotify,
+  resolveCancelNotifyAssignedDriverId,
+} from "../_shared/driverCancelNotifyRecipientSSOT.ts";
 import { notifyCustomerTripLifecycle } from "../_shared/customerTripLifecycleNotify.ts";
 import { maybeResumeTerminalFeeSettlementAfterProviderFee } from "../_shared/terminalFeeSettlementResumptionSSOT.ts";
 import { assertServiceRole } from "../_shared/internalAuth.ts";
@@ -96,7 +100,7 @@ Deno.serve(async (req) => {
     const { data: trip, error: tripErr } = await supabase
       .from("trips")
       .select(
-        "id, status, service_area_id, driver_id, confirmed_driver_id, passenger_id, created_at, is_scheduled, scheduled_at, accepted_at, arrived_at, no_show_charge_pence, late_cancel_fee_pence, total_waiting_charge_pence, pickup_waiting_charge_pence, completed_at"
+        "id, status, service_area_id, driver_id, confirmed_driver_id, previous_driver_id, cancelled_driver_ids, excluded_driver_ids, passenger_id, created_at, is_scheduled, scheduled_at, accepted_at, arrived_at, no_show_charge_pence, late_cancel_fee_pence, total_waiting_charge_pence, pickup_waiting_charge_pence, completed_at"
       )
       .eq("id", trip_id)
       .single();
@@ -114,7 +118,8 @@ Deno.serve(async (req) => {
     }
     const cancelled_by = authz.cancelledBy;
 
-    const driverIdEarly = trip.driver_id || trip.confirmed_driver_id;
+    // #66 — live assignment only (confirmed ?? driver); never previous_driver_id.
+    const driverIdEarly = resolveCancelNotifyAssignedDriverId(trip);
     const preservedDriver = driverIdEarly ? { previous_driver_id: driverIdEarly } : {};
     const cancelledByRole = cancelled_by;
     const scheduledCancelPatch = buildCancelledScheduledStatePatch(trip);
@@ -140,6 +145,13 @@ Deno.serve(async (req) => {
 
     const notifyDriverIfAssigned = async () => {
       if (!driverIdEarly) return;
+      if (!isDriverEligibleForCancelTripNotify(trip, driverIdEarly)) {
+        console.info(
+          "[late-cancellation-check] driver trip_cancelled push skipped (assignment ineligible)",
+          { trip_id, driver_id: driverIdEarly },
+        );
+        return;
+      }
       await notifyDriverTripStopped(supabaseUrl, serviceRoleKey, driverIdEarly, {
         tripId: trip_id,
         stopReason: "passenger_cancelled",
@@ -220,7 +232,7 @@ Deno.serve(async (req) => {
     const gracePeriodSec = settings?.pickup_waiting_grace_period_seconds ?? 300;
 
     const nowIso = new Date().toISOString();
-    const driverId = trip.driver_id || trip.confirmed_driver_id;
+    const driverId = resolveCancelNotifyAssignedDriverId(trip);
 
     // PRIORITY 2: cancellation after driver has arrived → cancellation fee
     // (overrides waiting charges; clears them so customer is not double-charged)

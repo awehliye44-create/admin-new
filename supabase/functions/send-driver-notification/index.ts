@@ -343,6 +343,50 @@ Deno.serve(async (req) => {
         eventRaw === "trip_canceled" ||
         CANCEL_STOP_REASONS.has(stopReasonRaw));
 
+    // #66 — Cancel-flavoured Trip Cancelled: re-validate live assignment (or
+    // non-rematch previous) before every send, including queued retries.
+    // Silent offer revoke RIDE_STOP stays ungated here.
+    if (isCancelRideStop) {
+      const tripId =
+        payload.data?.trip_id ||
+        payload.data?.tripId ||
+        payload.data?.booking_id ||
+        payload.data?.bookingId ||
+        null;
+      if (typeof tripId === "string" && tripId.trim()) {
+        const { isDriverEligibleForCancelTripNotify } = await import(
+          "../_shared/driverCancelNotifyRecipientSSOT.ts"
+        );
+        const { data: cancelTripRow } = await supabase
+          .from("trips")
+          .select(
+            "driver_id, confirmed_driver_id, previous_driver_id, cancelled_driver_ids, excluded_driver_ids",
+          )
+          .eq("id", tripId.trim())
+          .maybeSingle();
+        if (
+          cancelTripRow &&
+          !isDriverEligibleForCancelTripNotify(cancelTripRow, payload.driverId)
+        ) {
+          console.warn(
+            "[send-driver-notification] cancel_ride_stop_skip_ineligible_assignment",
+            {
+              driverId: payload.driverId,
+              tripId: tripId.trim(),
+              stopReason: stopReasonRaw || null,
+              event: eventRaw || null,
+            },
+          );
+          return errorResponse(
+            "DRIVER_INELIGIBLE",
+            "Cancel notify blocked: driver is not the current assignment",
+            409,
+            { sent: 0, reason: "cancel_assignment_ineligible" },
+          );
+        }
+      }
+    }
+
     // ── SCHEDULED_RIDE_REQUEST: recheck marketplace invite + open booking ──
     // Applies to primary sends, queued retries, and remotes that re-invoke this edge.
     // Requires online + online intent + fresh presence (as well as docs/account).
