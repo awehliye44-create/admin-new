@@ -10,3 +10,4 @@
 - [x] Fix fare display issue shown in user screenshot (image-79)
 - [x] Security batch: call-masking report filter, invoice resend email logging
 - [x] admin_page_select/mutate findings — accepted by user (staff-gated, allowlisted, bound values)
+- [x] Driver Details: Add Documents / Approve / Reject / Re-reject in Documents tab

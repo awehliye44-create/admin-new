@@ -1392,6 +1392,10 @@ export default function Drivers() {
           setIsDetailsOpen(false);
           openServiceAreasDialog(driver);
         }}
+        canAddDocuments={canAdminUploadDocuments}
+        onDocumentsChanged={() => {
+          void fetchDrivers(true);
+        }}
       />
 
       <AdminAddDriverDocumentsDialog

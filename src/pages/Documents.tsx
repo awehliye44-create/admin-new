@@ -7,7 +7,6 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Textarea } from '@/components/ui/textarea';
 import {
   Table,
   TableBody,
@@ -52,6 +51,10 @@ import {
 import { format } from 'date-fns';
 import { toast } from 'sonner';
 import { useDocumentTypes } from '@/hooks/useDocumentTypes';
+import {
+  DocumentReviewDialog,
+  type DocumentReviewDecision,
+} from '@/components/documents/DocumentReviewDialog';
 import {
   formatExpiryDisplayDate,
   getDocumentExpiryDisplayStatus,
@@ -129,11 +132,8 @@ export default function Documents() {
 
   // Dialog states
   const [isViewOpen, setIsViewOpen] = useState(false);
-  const [isReviewOpen, setIsReviewOpen] = useState(false);
   const [selectedDocument, setSelectedDocument] = useState<Document | null>(null);
-  const [reviewStatus, setReviewStatus] = useState('');
-  const [rejectionReason, setRejectionReason] = useState('');
-  const [isSaving, setIsSaving] = useState(false);
+  const [reviewTarget, setReviewTarget] = useState<{ doc: Document; decision: DocumentReviewDecision } | null>(null);
   const [purgeTarget, setPurgeTarget] = useState<{ doc: Document; scope: 'document' | 'driver' } | null>(null);
   const [isPurging, setIsPurging] = useState(false);
 
@@ -228,86 +228,6 @@ export default function Documents() {
       toast.error(err.message || 'Failed to delete documents');
     } finally {
       setIsPurging(false);
-    }
-  };
-
-  const handleReview = async () => {
-    if (!selectedDocument || !reviewStatus) {
-      toast.error('Please select a status');
-      return;
-    }
-
-    if (reviewStatus === 'rejected' && !rejectionReason.trim()) {
-      toast.error('Please provide a rejection reason');
-      return;
-    }
-
-    setIsSaving(true);
-    try {
-      const isReReject = selectedDocument.status === 'approved' && reviewStatus === 'rejected';
-      const { data: authData, error: authError } = await supabase.auth.getUser();
-      if (authError || !authData.user?.id) {
-        throw new Error('Your admin session expired. Sign in again, then retry approve/reject.');
-      }
-
-      const updatePayload: Record<string, unknown> = {
-        status: reviewStatus,
-        rejection_reason: reviewStatus === 'rejected' ? rejectionReason.trim() : null,
-        reviewed_at: new Date().toISOString(),
-        reviewed_by: authData.user.id,
-      };
-
-      // On re-rejection, clear the file so the driver must re-upload
-      if (isReReject) {
-        updatePayload.file_url = null;
-      }
-
-      const result = await adminPageMutate<{ status?: string; id?: string }>(
-        'documents',
-        'documents',
-        'update',
-        {
-          id: selectedDocument.id,
-          patch: updatePayload,
-        },
-      );
-
-      const savedStatus = result.row?.status;
-      if (!result.row) {
-        throw new Error(
-          'Review did not update any document row. Refresh the list and try again.',
-        );
-      }
-      if (savedStatus !== reviewStatus) {
-        throw new Error(
-          `Review did not stick (status is still “${savedStatus ?? 'unknown'}”). Refresh and retry, or check staff document permissions.`,
-        );
-      }
-
-      toast.success(
-        isReReject
-          ? 'Document re-rejected — driver will be prompted to re-upload'
-          : reviewStatus === 'approved'
-            ? 'Document approved — driver eligibility will refresh automatically'
-            : 'Document rejected — driver can re-upload from My Documents',
-      );
-      setIsReviewOpen(false);
-      setSelectedDocument(null);
-      setReviewStatus('');
-      setRejectionReason('');
-      refreshData();
-    } catch (err: unknown) {
-      console.error('Error reviewing document:', err);
-      const raw = err instanceof Error ? err.message : typeof err === 'object' && err && 'message' in err
-        ? String((err as { message?: unknown }).message || '')
-        : '';
-      const friendly =
-        /syntax error at or near/i.test(raw)
-          ? 'Document review failed on the server. Refresh and retry — if it persists, the admin mutate fix may not be applied yet.'
-          : raw || 'Failed to review document';
-      toast.error(friendly);
-    } finally {
-      setIsSaving(false);
     }
   };
 
@@ -556,24 +476,14 @@ export default function Documents() {
                               {!isDeletedDriverDocument(doc) && doc.status === 'pending' && (
                                 <>
                                   <DropdownMenuItem 
-                                    onClick={() => { 
-                                      setSelectedDocument(doc); 
-                                      setReviewStatus('approved'); 
-                                      setRejectionReason('');
-                                      setIsReviewOpen(true); 
-                                    }}
+                                    onClick={() => setReviewTarget({ doc, decision: 'approved' })}
                                     className="text-green-600"
                                   >
                                     <CheckCircle2 className="h-4 w-4 mr-2" />
                                     Approve
                                   </DropdownMenuItem>
                                   <DropdownMenuItem 
-                                    onClick={() => { 
-                                      setSelectedDocument(doc); 
-                                      setReviewStatus('rejected'); 
-                                      setRejectionReason('');
-                                      setIsReviewOpen(true); 
-                                    }}
+                                    onClick={() => setReviewTarget({ doc, decision: 'rejected' })}
                                     className="text-red-600"
                                   >
                                     <XCircle className="h-4 w-4 mr-2" />
@@ -583,12 +493,7 @@ export default function Documents() {
                               )}
                               {!isDeletedDriverDocument(doc) && doc.status === 'approved' && (
                                 <DropdownMenuItem 
-                                  onClick={() => { 
-                                    setSelectedDocument(doc); 
-                                    setReviewStatus('rejected'); 
-                                    setRejectionReason('');
-                                    setIsReviewOpen(true); 
-                                  }}
+                                  onClick={() => setReviewTarget({ doc, decision: 'rejected' })}
                                   className="text-red-600"
                                 >
                                   <XCircle className="h-4 w-4 mr-2" />
@@ -634,67 +539,17 @@ export default function Documents() {
           />
         </Dialog>
 
-        {/* Review Dialog */}
-        <Dialog open={isReviewOpen} onOpenChange={setIsReviewOpen}>
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>
-                {reviewStatus === 'approved' 
-                  ? 'Approve Document' 
-                  : selectedDocument?.status === 'approved' 
-                    ? 'Re-reject Document' 
-                    : 'Reject Document'}
-              </DialogTitle>
-              <DialogDescription>
-                {selectedDocument?.document_name} - {selectedDocument?.driver?.first_name} {selectedDocument?.driver?.last_name}
-              </DialogDescription>
-            </DialogHeader>
-            <div className="space-y-4">
-              {reviewStatus === 'rejected' && (
-                <div className="space-y-3">
-                  {selectedDocument?.status === 'approved' && (
-                    <div className="rounded-md border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">
-                      <strong>Re-rejection:</strong> The uploaded file will be cleared and the driver will be prompted to re-upload this document in their app.
-                    </div>
-                  )}
-                  <div>
-                    <Label htmlFor="rejectionReason">Rejection Reason *</Label>
-                    <Textarea
-                      id="rejectionReason"
-                      value={rejectionReason}
-                      onChange={(e) => setRejectionReason(e.target.value)}
-                      placeholder="Please provide a reason for rejection..."
-                      rows={3}
-                    />
-                  </div>
-                </div>
-              )}
-              {reviewStatus === 'approved' && (
-                <div className="space-y-2 rounded-md border border-emerald-200 bg-emerald-50/60 p-3 text-sm text-emerald-950">
-                  <p className="font-medium">Approve this document?</p>
-                  <ul className="list-disc space-y-1 pl-4 text-muted-foreground">
-                    <li>Marks it verified for this driver.</li>
-                    <li>When every required document is approved and valid, onboarding unlocks automatically — no extra step.</li>
-                    <li>Expired or missing required docs still keep the driver offline.</li>
-                  </ul>
-                </div>
-              )}
-            </div>
-            <DialogFooter>
-              <Button variant="outline" onClick={() => setIsReviewOpen(false)} disabled={isSaving}>
-                Cancel
-              </Button>
-              <Button 
-                onClick={handleReview} 
-                disabled={isSaving || (reviewStatus === 'rejected' && !rejectionReason.trim())}
-                variant={reviewStatus === 'rejected' ? 'destructive' : 'default'}
-              >
-                {isSaving ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
-                {reviewStatus === 'approved' ? 'Approve' : 'Reject'}
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
+        {/* Review Dialog (shared with Driver Details) */}
+        <DocumentReviewDialog
+          open={Boolean(reviewTarget)}
+          onOpenChange={(open) => { if (!open) setReviewTarget(null); }}
+          document={reviewTarget?.doc ?? null}
+          decision={reviewTarget?.decision ?? null}
+          driverName={reviewTarget?.doc.driver
+            ? `${reviewTarget.doc.driver.first_name} ${reviewTarget.doc.driver.last_name}`
+            : undefined}
+          pageSlug="documents"
+        />
 
         {/* Permanent deletion (data protection) */}
         <Dialog open={Boolean(purgeTarget)} onOpenChange={(open) => { if (!open) setPurgeTarget(null); }}>

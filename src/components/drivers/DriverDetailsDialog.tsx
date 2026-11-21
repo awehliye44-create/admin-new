@@ -44,12 +44,18 @@ import {
   Car, Star, Phone, Mail, MapPin, CheckCircle, XCircle, 
   Loader2, Pencil, Map, AlertTriangle, PawPrint, Users,
   Truck, Shield, CreditCard, ExternalLink, Send, Crown, Target,
-  FileText, Clock, AlertOctagon, FileWarning, Eye, Ban, Power, Trash2
+  FileText, Clock, AlertOctagon, FileWarning, Eye, Ban, Power, Trash2, FileUp
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { formatDriverAddressFull, formatCountryWithFlag } from '@/lib/driverAddress';
 import { isDriverPayoutOnboardingComplete } from '@/lib/manualPayoutGate';
 import { DriverStandardsPanel } from '@/components/drivers/DriverStandardsPanel';
+import { AdminAddDriverDocumentsDialog } from '@/components/drivers/AdminAddDriverDocumentsDialog';
+import {
+  DocumentReviewDialog,
+  type DocumentReviewDecision,
+  type DocumentReviewTarget,
+} from '@/components/documents/DocumentReviewDialog';
 
 interface Driver {
   id: string;
@@ -78,6 +84,10 @@ interface Driver {
   charges_enabled?: boolean;
   onboarding_complete?: boolean;
   current_trip_id?: string | null;
+  email_verified?: boolean | null;
+  phone_verified?: boolean | null;
+  terms_accepted_at?: string | null;
+  terms_version?: string | null;
 }
 
 interface Vehicle {
@@ -129,6 +139,10 @@ interface DriverDetailsDialogProps {
   onVehicleUpdate: (vehicle: Vehicle) => void;
   onEditProfile: (driver: Driver) => void;
   onManageServiceAreas: (driver: Driver) => void;
+  /** Staff may upload documents on behalf of this driver (documents.admin_upload). */
+  canAddDocuments?: boolean;
+  /** Called after a document is added, approved, rejected or re-rejected. */
+  onDocumentsChanged?: () => void;
 }
 
 
@@ -143,7 +157,14 @@ export function DriverDetailsDialog({
   onVehicleUpdate,
   onEditProfile,
   onManageServiceAreas,
+  canAddDocuments = false,
+  onDocumentsChanged,
 }: DriverDetailsDialogProps) {
+  const [docReviewTarget, setDocReviewTarget] = useState<{
+    doc: DocumentReviewTarget;
+    decision: DocumentReviewDecision;
+  } | null>(null);
+  const [isAddDocumentsOpen, setIsAddDocumentsOpen] = useState(false);
   const [activeTab, setActiveTab] = useState('overview');
   const [isUpdating, setIsUpdating] = useState(false);
   const [isPetFriendly, setIsPetFriendly] = useState(driver?.is_pet_friendly ?? false);
@@ -304,22 +325,25 @@ export function DriverDetailsDialog({
 
     return requiredTypes.map((dt) => {
       const doc = driverDocs.find((d) => d.document_type === dt.slug);
-      if (!doc) return { name: dt.name, slug: dt.slug, status: 'missing' as const, daysLeft: null, fileUrl: null };
+      if (!doc) {
+        return { name: dt.name, slug: dt.slug, status: 'missing' as const, daysLeft: null, fileUrl: null, doc: null };
+      }
+      const base = { name: dt.name, slug: dt.slug, fileUrl: doc.file_url, doc };
 
-      if (doc.status === 'rejected') return { name: dt.name, slug: dt.slug, status: 'rejected' as const, daysLeft: null, fileUrl: doc.file_url };
-      if (doc.status !== 'approved') return { name: dt.name, slug: dt.slug, status: 'pending' as const, daysLeft: null, fileUrl: doc.file_url };
+      if (doc.status === 'rejected') return { ...base, status: 'rejected' as const, daysLeft: null };
+      if (doc.status !== 'approved') return { ...base, status: 'pending' as const, daysLeft: null };
 
       if (doc.expiry_date) {
         const daysLeft = getDaysUntilExpiryLondon(doc.expiry_date);
         if (isDocumentExpired(doc.expiry_date)) {
-          return { name: dt.name, slug: dt.slug, status: 'expired' as const, daysLeft, fileUrl: doc.file_url };
+          return { ...base, status: 'expired' as const, daysLeft };
         }
         if (isDocumentExpiringSoon(doc.expiry_date, 30)) {
-          return { name: dt.name, slug: dt.slug, status: 'expiring_soon' as const, daysLeft, fileUrl: doc.file_url };
+          return { ...base, status: 'expiring_soon' as const, daysLeft };
         }
       }
 
-      return { name: dt.name, slug: dt.slug, status: 'valid' as const, daysLeft: null, fileUrl: doc.file_url };
+      return { ...base, status: 'valid' as const, daysLeft: null };
     });
   };
 
@@ -926,6 +950,15 @@ export function DriverDetailsDialog({
                         </p>
                       </div>
 
+                      {canAddDocuments && (
+                        <div className="flex justify-end">
+                          <Button size="sm" onClick={() => setIsAddDocumentsOpen(true)}>
+                            <FileUp className="h-4 w-4 mr-2" />
+                            Add Documents
+                          </Button>
+                        </div>
+                      )}
+
                       <div className="p-3 border rounded-lg bg-muted/50 flex items-center justify-between">
                         <div className="flex items-center gap-2">
                           <FileText className="h-4 w-4 text-muted-foreground" />
@@ -999,6 +1032,48 @@ export function DriverDetailsDialog({
                                     >
                                       <Eye className="h-3 w-3 mr-1" />
                                       View
+                                    </Button>
+                                  )}
+                                  {item.doc && item.doc.status === 'pending' && (
+                                    <>
+                                      <Button
+                                        variant="ghost"
+                                        size="sm"
+                                        className="h-7 px-2 text-xs text-green-700"
+                                        onClick={() => setDocReviewTarget({
+                                          doc: { ...item.doc!, driver_id: driver.id },
+                                          decision: 'approved',
+                                        })}
+                                      >
+                                        <CheckCircle className="h-3 w-3 mr-1" />
+                                        Approve
+                                      </Button>
+                                      <Button
+                                        variant="ghost"
+                                        size="sm"
+                                        className="h-7 px-2 text-xs text-destructive"
+                                        onClick={() => setDocReviewTarget({
+                                          doc: { ...item.doc!, driver_id: driver.id },
+                                          decision: 'rejected',
+                                        })}
+                                      >
+                                        <XCircle className="h-3 w-3 mr-1" />
+                                        Reject
+                                      </Button>
+                                    </>
+                                  )}
+                                  {item.doc && item.doc.status === 'approved' && (
+                                    <Button
+                                      variant="ghost"
+                                      size="sm"
+                                      className="h-7 px-2 text-xs text-destructive"
+                                      onClick={() => setDocReviewTarget({
+                                        doc: { ...item.doc!, driver_id: driver.id },
+                                        decision: 'rejected',
+                                      })}
+                                    >
+                                      <XCircle className="h-3 w-3 mr-1" />
+                                      Re-reject
                                     </Button>
                                   )}
                                   <Badge variant="outline" className={statusClass}>
@@ -1399,6 +1474,27 @@ export function DriverDetailsDialog({
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {driver && (
+        <>
+          <DocumentReviewDialog
+            open={Boolean(docReviewTarget)}
+            onOpenChange={(next) => { if (!next) setDocReviewTarget(null); }}
+            document={docReviewTarget?.doc ?? null}
+            decision={docReviewTarget?.decision ?? null}
+            driverName={`${driver.first_name} ${driver.last_name}`.trim()}
+            pageSlug="drivers"
+            onReviewed={onDocumentsChanged}
+          />
+          <AdminAddDriverDocumentsDialog
+            open={isAddDocumentsOpen}
+            onOpenChange={setIsAddDocumentsOpen}
+            driver={driver}
+            canUpload={canAddDocuments}
+            onSubmitted={onDocumentsChanged}
+          />
+        </>
+      )}
     </>
   );
 }

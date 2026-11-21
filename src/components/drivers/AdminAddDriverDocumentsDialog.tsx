@@ -265,7 +265,7 @@ export function AdminAddDriverDocumentsDialog({
         queryKey: ['admin-driver-document-checklist', driver.id],
       });
       await queryClient.invalidateQueries({
-        queryKey: ['driver-document-compliance', driver.id],
+        queryKey: ['driver-doc-compliance', driver.id],
       });
       await refetch();
       setDrafts({});
