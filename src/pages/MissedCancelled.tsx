@@ -46,13 +46,20 @@ import {
   parseAdminTripDateSort,
   type AdminTripDateSort,
 } from '@/lib/adminTripListDateSort';
+import {
+  ADMIN_TRIP_DATE_FILTER_DEFAULT,
+  ADMIN_TRIP_PRESET_DATE_FILTER_OPTIONS,
+  adminTripDateFilterForSort,
+  parseAdminTripDateFilter,
+  resolveAdminTripDateRange,
+  type AdminTripDateFilter,
+} from '@/lib/adminTripListDateRange';
 import { missedCancelledHasNextPage, missedCancelledPageRange } from '@/lib/missedCancelledPagination';
 import { formatCancellationReason, resolveCancellationActor, resolveCancellationReasonText } from '@/lib/tripCancellationReason';
 import { 
   XCircle, Loader2, Search, RefreshCw, Clock, MapPin, Phone,
   Eye, AlertTriangle, Ban, TrendingDown,
 } from 'lucide-react';
-import { subDays, startOfDay, endOfDay } from 'date-fns';
 import { formatFinanceDateSafe } from '@/lib/financialReconciliationGuards';
 import { getCurrencySymbol } from '@/lib/regionSettings';
 import { getTripDisplayId } from '@/lib/tripUtils';
@@ -172,7 +179,7 @@ export default function MissedCancelled() {
   const queryClient = useQueryClient();
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
-  const [dateFilter, setDateFilter] = useState('7days');
+  const [dateFilter, setDateFilter] = useState<AdminTripDateFilter>(ADMIN_TRIP_DATE_FILTER_DEFAULT);
   const [serviceFilter, setServiceFilter] = useState<ServiceAreaFinanceSelection>(DEFAULT_SERVICE_AREA_SELECTION);
   const [listPage, setListPage] = useState(0);
   const [dateSort, setDateSort] = useState<AdminTripDateSort>(ADMIN_TRIP_DATE_SORT_DEFAULT);
@@ -181,21 +188,7 @@ export default function MissedCancelled() {
   const [isViewOpen, setIsViewOpen] = useState(false);
   const [selectedTrip, setSelectedTrip] = useState<CancelledTrip | null>(null);
 
-  const getDateRange = useCallback(() => {
-    const now = new Date();
-    switch (dateFilter) {
-      case 'today':
-        return { start: startOfDay(now), end: endOfDay(now) };
-      case '7days':
-        return { start: startOfDay(subDays(now, 7)), end: endOfDay(now) };
-      case '30days':
-        return { start: startOfDay(subDays(now, 30)), end: endOfDay(now) };
-      case '90days':
-        return { start: startOfDay(subDays(now, 90)), end: endOfDay(now) };
-      default:
-        return { start: startOfDay(subDays(now, 7)), end: endOfDay(now) };
-    }
-  }, [dateFilter]);
+  const getDateRange = useCallback(() => resolveAdminTripDateRange(dateFilter, '', ''), [dateFilter]);
 
   // Debounce search so server-side filtering doesn't fire per keystroke.
   const [debouncedSearch, setDebouncedSearch] = useState('');
@@ -618,18 +611,27 @@ export default function MissedCancelled() {
                 <SelectItem value="expired">Expired</SelectItem>
               </SelectContent>
             </Select>
-            <Select value={dateFilter} onValueChange={(v) => { setDateFilter(v); setListPage(0); }}>
+            <Select value={dateFilter} onValueChange={(v) => { setDateFilter(parseAdminTripDateFilter(v)); setListPage(0); }}>
               <SelectTrigger className="w-full md:w-[130px]">
                 <SelectValue placeholder="Date Range" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="today">Today</SelectItem>
-                <SelectItem value="7days">Last 7 Days</SelectItem>
-                <SelectItem value="30days">Last 30 Days</SelectItem>
-                <SelectItem value="90days">Last 90 Days</SelectItem>
+                {ADMIN_TRIP_PRESET_DATE_FILTER_OPTIONS.map((option) => (
+                  <SelectItem key={option.value} value={option.value}>
+                    {option.label}
+                  </SelectItem>
+                ))}
               </SelectContent>
             </Select>
-            <Select value={dateSort} onValueChange={(v) => { setDateSort(parseAdminTripDateSort(v)); setListPage(0); }}>
+            <Select
+              value={dateSort}
+              onValueChange={(v) => {
+                const nextSort = parseAdminTripDateSort(v);
+                setDateSort(nextSort);
+                setDateFilter((current) => adminTripDateFilterForSort(nextSort, current));
+                setListPage(0);
+              }}
+            >
               <SelectTrigger className="w-full md:w-[150px]" aria-label="Sort by date">
                 <SelectValue placeholder="Sort by date" />
               </SelectTrigger>

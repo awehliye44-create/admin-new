@@ -85,13 +85,13 @@ import {
   type AdminTripDateSort,
 } from '@/lib/adminTripListDateSort';
 import {
-  TRIP_HISTORY_DATE_FILTER_DEFAULT,
-  TRIP_HISTORY_DATE_FILTER_OPTIONS,
-  parseTripHistoryDateFilter,
-  resolveTripHistoryDateRange,
-  tripHistoryDateFilterForSort,
-  type TripHistoryDateFilter,
-} from '@/lib/tripHistoryDateRange';
+  ADMIN_TRIP_DATE_FILTER_DEFAULT,
+  ADMIN_TRIP_DATE_FILTER_OPTIONS,
+  parseAdminTripDateFilter,
+  resolveAdminTripDateRange,
+  adminTripDateFilterForSort,
+  type AdminTripDateFilter,
+} from '@/lib/adminTripListDateRange';
 import {
   adminNoShowPaymentLabel,
   adminTripHistoryDisplayAt,
@@ -431,7 +431,7 @@ export default function TripHistory() {
   const [searchParams, setSearchParams] = useSearchParams();
   
   const [searchQuery, setSearchQuery] = useState('');
-  const [dateFilter, setDateFilter] = useState<TripHistoryDateFilter>(TRIP_HISTORY_DATE_FILTER_DEFAULT);
+  const [dateFilter, setDateFilter] = useState<AdminTripDateFilter>(ADMIN_TRIP_DATE_FILTER_DEFAULT);
   const [customStartDate, setCustomStartDate] = useState('');
   const [customEndDate, setCustomEndDate] = useState('');
   const [statusFilter, setStatusFilter] = useState<TripHistoryStatusFilter>('all');
@@ -494,7 +494,7 @@ export default function TripHistory() {
   }, [legacyCompletion]);
 
   const getDateRange = useCallback(
-    () => resolveTripHistoryDateRange(dateFilter, customStartDate, customEndDate),
+    () => resolveAdminTripDateRange(dateFilter, customStartDate, customEndDate),
     [dateFilter, customStartDate, customEndDate],
   );
 
@@ -1392,12 +1392,12 @@ export default function TripHistory() {
                 )}
               </SelectContent>
             </Select>
-            <Select value={dateFilter} onValueChange={(v) => setDateFilter(parseTripHistoryDateFilter(v))}>
+            <Select value={dateFilter} onValueChange={(v) => setDateFilter(parseAdminTripDateFilter(v))}>
               <SelectTrigger className="w-full md:w-[130px]">
                 <SelectValue placeholder="Date Range" />
               </SelectTrigger>
               <SelectContent>
-                {TRIP_HISTORY_DATE_FILTER_OPTIONS.map((option) => (
+                {ADMIN_TRIP_DATE_FILTER_OPTIONS.map((option) => (
                   <SelectItem key={option.value} value={option.value}>
                     {option.label}
                   </SelectItem>
@@ -1430,7 +1430,7 @@ export default function TripHistory() {
               onValueChange={(v) => {
                 const nextSort = parseAdminTripDateSort(v);
                 setDateSort(nextSort);
-                setDateFilter((current) => tripHistoryDateFilterForSort(nextSort, current));
+                setDateFilter((current) => adminTripDateFilterForSort(nextSort, current));
               }}
             >
               <SelectTrigger className="w-full md:w-[150px]" aria-label="Sort by date">
