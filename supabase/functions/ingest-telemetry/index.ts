@@ -305,6 +305,22 @@ const ALLOWED_METADATA_KEYS = new Set([
   "cold_start_hint",
   "restore_trigger",
   "restore_reason",
+  // Customer lifecycle telemetry (#65D) — non-PII stage markers only
+  "correlation_id",
+  "runtime_version",
+  "ota_update_id",
+  "stage",
+  "source",
+  "skipped",
+  "trip_rt_fresh",
+  "gps_fresh",
+  "overdue",
+  "hit",
+  "retained",
+  "generation",
+  "fingerprint",
+  "vehicle_count",
+  "outcome",
 ]);
 
 interface TelemetryEvent {
