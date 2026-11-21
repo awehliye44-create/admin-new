@@ -22,6 +22,7 @@ import {
 import { scheduleEdgeBackground } from "../_shared/scheduleEdgeBackground.ts";
 import {
   createRequestId,
+  createStageClock,
   finishEdgeRequestLog,
   startRequestTimer,
   withDuration,
@@ -81,7 +82,10 @@ serve(async (req) => {
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
     console.log(`[decline-trip] Driver ${driver_id} declining trip ${trip_id}`);
+    const stages = createStageClock(elapsed);
+    stages.mark("auth_end");
 
+    stages.mark("offer_lookup_start");
     const { data: offer, error: lookupErr } = await supabase
       .from("ride_offers")
       .select("id")
@@ -89,6 +93,7 @@ serve(async (req) => {
       .eq("driver_id", driver_id)
       .in("status", ["pending", "offered", "countered"])
       .maybeSingle();
+    stages.mark("offer_lookup_end");
 
     if (lookupErr || !offer) {
       console.log(`[decline-trip] No active ride_offer found`);
@@ -102,12 +107,18 @@ serve(async (req) => {
         });
       }, "decline-trip-audit-not-found");
       const durationMs = elapsed();
+      const snap = stages.snapshot();
       finishEdgeRequestLog("decline-trip", durationMs, {
         request_id: requestId,
         http_status: 404,
         trip_id,
         success: false,
         path: "offer_not_found",
+        edge_offer_lookup_ms:
+          typeof snap.offer_lookup_end === "number" &&
+            typeof snap.offer_lookup_start === "number"
+            ? Math.max(0, snap.offer_lookup_end - snap.offer_lookup_start)
+            : null,
       });
       // 404 is a safe client dismiss — offer already non-pending.
       return errorResponse(
@@ -119,21 +130,34 @@ serve(async (req) => {
     }
 
     // Authoritative decline commit — response returns as soon as this succeeds.
+    stages.mark("decline_rpc_start");
     const { error: declineErr } = await supabase.rpc("decline_ride_offer", {
       p_offer_id: offer.id,
       p_driver_id: driver_id,
       p_reason: reason || null,
     });
+    stages.mark("decline_rpc_end");
 
     if (declineErr) {
       console.error("[decline-trip] decline_ride_offer RPC failed:", declineErr);
       const durationMs = elapsed();
+      const snap = stages.snapshot();
       finishEdgeRequestLog("decline-trip", durationMs, {
         request_id: requestId,
         http_status: 500,
         trip_id,
         success: false,
         path: "decline_rpc_failed",
+        edge_offer_lookup_ms:
+          typeof snap.offer_lookup_end === "number" &&
+            typeof snap.offer_lookup_start === "number"
+            ? Math.max(0, snap.offer_lookup_end - snap.offer_lookup_start)
+            : null,
+        edge_decline_rpc_ms:
+          typeof snap.decline_rpc_end === "number" &&
+            typeof snap.decline_rpc_start === "number"
+            ? Math.max(0, snap.decline_rpc_end - snap.decline_rpc_start)
+            : null,
       });
       return errorResponse(declineErr.message, 500, undefined, "DECLINE_FAILED");
     }
@@ -194,6 +218,17 @@ serve(async (req) => {
     }, "decline-trip-post-canonical");
 
     const durationMs = elapsed();
+    const snap = stages.snapshot();
+    const edge_offer_lookup_ms =
+      typeof snap.offer_lookup_end === "number" &&
+        typeof snap.offer_lookup_start === "number"
+        ? Math.max(0, snap.offer_lookup_end - snap.offer_lookup_start)
+        : null;
+    const edge_decline_rpc_ms =
+      typeof snap.decline_rpc_end === "number" &&
+        typeof snap.decline_rpc_start === "number"
+        ? Math.max(0, snap.decline_rpc_end - snap.decline_rpc_start)
+        : null;
     finishEdgeRequestLog("decline-trip", durationMs, {
       request_id: requestId,
       http_status: 200,
@@ -201,10 +236,20 @@ serve(async (req) => {
       offer_id: offer.id,
       success: true,
       path: "decline_ride_offer",
+      edge_offer_lookup_ms,
+      edge_decline_rpc_ms,
+      // DB commit is decline_rpc; deferred rescue is not part of ack wall.
+      edge_db_commit_ms: edge_decline_rpc_ms,
     });
     return successResponse(
       withDuration(
-        { declined: true, message: "Offer declined", request_id: requestId },
+        {
+          declined: true,
+          message: "Offer declined",
+          request_id: requestId,
+          edge_offer_lookup_ms,
+          edge_decline_rpc_ms,
+        },
         durationMs,
         { source: "decline-trip", requestId },
       ),

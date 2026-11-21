@@ -43,6 +43,10 @@ Deno.test("decline-trip returns after RPC and defers exclusive rescue", async ()
   assertStringIncludes(src, "scheduleEdgeBackground");
   assertStringIncludes(src, "rescueExclusiveActivationToNearby");
   assertStringIncludes(src, 'finishEdgeRequestLog("decline-trip"');
+  assertStringIncludes(src, "createStageClock");
+  assertStringIncludes(src, "edge_offer_lookup_ms");
+  assertStringIncludes(src, "edge_decline_rpc_ms");
+  assertStringIncludes(src, "edge_db_commit_ms");
   const rpcIdx = src.indexOf('rpc("decline_ride_offer"');
   const scheduleIdx = src.indexOf('scheduleEdgeBackground(async () => {', rpcIdx);
   const rescueIdx = src.indexOf("rescueExclusiveActivationToNearby", rpcIdx);
