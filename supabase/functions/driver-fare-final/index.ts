@@ -88,17 +88,6 @@ Deno.serve(async (req) => {
       return errorResponse("VALIDATION_ERROR", "Action must be ACCEPT, ACCEPT_STANDARD, or DECLINE", 400);
     }
 
-    // Verify driver
-    const { data: driver } = await supabase
-      .from("drivers")
-      .select("id, user_id")
-      .eq("id", driver_id)
-      .single();
-
-    if (!driver || driver.user_id !== user.id) {
-      return errorResponse("FORBIDDEN", "Not your driver profile", 403);
-    }
-
     const resolveOfferIdFromRideId = async (): Promise<string | null> => {
       if (!isValidUUID(raw_ride_id)) return null;
       const { data: fallbackOffer, error: fallbackErr } = await supabase
@@ -130,15 +119,6 @@ Deno.serve(async (req) => {
       return null;
     };
 
-    let offer_id: string | null = isValidUUID(raw_offer_id) ? raw_offer_id : null;
-    if (!offer_id) {
-      offer_id = await resolveOfferIdFromRideId();
-    }
-
-    if (!offer_id) {
-      return errorResponse("VALIDATION_ERROR", "Invalid offer_id", 400);
-    }
-
     const fetchOfferWithTrip = (id: string) =>
       supabase
         .from("ride_offers")
@@ -147,9 +127,46 @@ Deno.serve(async (req) => {
         .eq("driver_id", driver_id)
         .maybeSingle();
 
+    // #67A: when offer_id is known, load driver ownership + offer in parallel.
+    let offer_id: string | null = isValidUUID(raw_offer_id) ? raw_offer_id : null;
+    let driver: { id: string; user_id: string } | null = null;
+    // deno-lint-ignore no-explicit-any
+    let offer: any = null;
+    let offerErr: { message?: string } | null = null;
+
+    if (offer_id) {
+      const [driverResult, offerResult] = await Promise.all([
+        supabase.from("drivers").select("id, user_id").eq("id", driver_id).single(),
+        fetchOfferWithTrip(offer_id),
+      ]);
+      driver = driverResult.data;
+      offer = offerResult.data;
+      offerErr = offerResult.error;
+    } else {
+      const { data: driverOnly } = await supabase
+        .from("drivers")
+        .select("id, user_id")
+        .eq("id", driver_id)
+        .single();
+      driver = driverOnly;
+      offer_id = await resolveOfferIdFromRideId();
+      if (offer_id) {
+        const recovered = await fetchOfferWithTrip(offer_id);
+        offer = recovered.data;
+        offerErr = recovered.error;
+      }
+    }
+
+    if (!driver || driver.user_id !== user.id) {
+      return errorResponse("FORBIDDEN", "Not your driver profile", 403);
+    }
+
+    if (!offer_id) {
+      return errorResponse("VALIDATION_ERROR", "Invalid offer_id", 400);
+    }
+
     // Get offer with trip; if the provided offer_id is stale (no row for this
     // driver), retry once via ride_id so a stale client id cannot freeze accepts.
-    let { data: offer, error: offerErr } = await fetchOfferWithTrip(offer_id);
     if ((offerErr || !offer) && isValidUUID(raw_ride_id) && raw_ride_id !== offer_id) {
       const recoveredId = await resolveOfferIdFromRideId();
       if (recoveredId && recoveredId !== offer_id) {
@@ -158,7 +175,9 @@ Deno.serve(async (req) => {
           recovered_offer_id: recoveredId,
         });
         offer_id = recoveredId;
-        ({ data: offer, error: offerErr } = await fetchOfferWithTrip(offer_id));
+        const recovered = await fetchOfferWithTrip(offer_id);
+        offer = recovered.data;
+        offerErr = recovered.error;
       }
     }
 

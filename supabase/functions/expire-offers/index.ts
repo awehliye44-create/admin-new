@@ -53,6 +53,11 @@ import {
   rescueExclusiveActivationToNearby,
   SCHEDULED_ACTIVATION_EXCLUSIVE_REASON,
 } from "../_shared/scheduledActivationExclusiveRescue.ts";
+import {
+  createRequestId,
+  finishEdgeRequestLog,
+  startRequestTimer,
+} from "../_shared/edgeRequestTiming.ts";
 
 // Rate limit: 60 requests per minute (for cron jobs)
 const RATE_LIMIT_CONFIG = { limit: 60, windowMs: 60000, keyPrefix: 'expire-offers' };
@@ -232,6 +237,9 @@ Deno.serve(async (req) => {
     console.warn("[expire-offers] Rate limit exceeded for IP:", clientIP);
     return rateLimitResponse(rateLimitResult);
   }
+
+  const elapsed = startRequestTimer();
+  const requestId = createRequestId();
 
   try {
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
@@ -800,11 +808,20 @@ Deno.serve(async (req) => {
       loadDispatchTripContext,
     });
 
+    const durationMs = elapsed();
+    finishEdgeRequestLog("expire-offers", durationMs, {
+      request_id: requestId,
+      success: true,
+      expired_offers: expiredCount,
+      trips_rebroadcast: rebroadcastResults.filter((r) => r.success).length,
+    });
     return successResponse({
       success: true,
       expired_offers: expiredCount,
       trips_rebroadcast: rebroadcastResults.filter(r => r.success).length,
       trips_expired: (staleTrips || []).length - tripsToRebroadcast.length,
+      duration_ms: durationMs,
+      request_id: requestId,
       details: {
         rebroadcast_concurrency: rebroadcastConcurrency,
         rebroadcast_results: rebroadcastResults,
@@ -814,6 +831,11 @@ Deno.serve(async (req) => {
 
   } catch (error) {
     console.error("[expire-offers] Error:", error);
+    finishEdgeRequestLog("expire-offers", elapsed(), {
+      request_id: requestId,
+      success: false,
+      error: String(error),
+    });
     return errorResponse("INTERNAL_ERROR", String(error), 500);
   }
 });

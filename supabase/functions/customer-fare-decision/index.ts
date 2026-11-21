@@ -220,24 +220,25 @@ Deno.serve(async (req) => {
       return errorResponse("VALIDATION_ERROR", "Action must be ACCEPT, DECLINE, or COUNTER", 400);
     }
 
-    // Get offer
-    const { data: offer, error: offerErr } = await supabase
-      .from("ride_offers")
-      .select("*, trips(id, passenger_id, status, excluded_driver_ids, service_area_id, base_fare_pence, estimated_fare, fare, fare_breakdown, negotiation_disabled, negotiation_allowed, negotiation_owner_driver_id, current_offer_driver_id, is_scheduled, dispatch_mode, trip_type, corporate_account_id, booking_source)")
-      .eq("id", offer_id)
-      .single();
+    // #67A: parallel independent reads (offer + customer row).
+    const [{ data: offer, error: offerErr }, { data: customerRow }] = await Promise.all([
+      supabase
+        .from("ride_offers")
+        .select("*, trips(id, passenger_id, status, excluded_driver_ids, service_area_id, base_fare_pence, estimated_fare, fare, fare_breakdown, negotiation_disabled, negotiation_allowed, negotiation_owner_driver_id, current_offer_driver_id, is_scheduled, dispatch_mode, trip_type, corporate_account_id, booking_source)")
+        .eq("id", offer_id)
+        .single(),
+      supabase
+        .from("customers")
+        .select("id")
+        .eq("user_id", user.id)
+        .maybeSingle(),
+    ]);
 
     if (offerErr || !offer) return errorResponse("NOT_FOUND", "Offer not found", 404);
 
     // Verify this is the customer's trip
     const trip = offer.trips;
     if (!trip) return errorResponse("NOT_FOUND", "Trip not found", 404);
-
-    const { data: customerRow } = await supabase
-      .from("customers")
-      .select("id")
-      .eq("user_id", user.id)
-      .maybeSingle();
 
     const customerRecordId = customerRow?.id ?? null;
     const isCustomer =

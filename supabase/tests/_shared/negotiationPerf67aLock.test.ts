@@ -55,4 +55,22 @@ Deno.test("driver-fare-final clears view and defers notify", async () => {
   assertStringIncludes(src, "clearCustomerNegotiationViewOnTrip");
   assertStringIncludes(src, "scheduleReliableEdgeNotify");
   assertStringIncludes(src, "finishEdgeRequestLog");
+  assertStringIncludes(src, "Promise.all");
+});
+
+Deno.test("customer-fare-decision parallelises independent reads", async () => {
+  const src = await read("customer-fare-decision/index.ts");
+  assertStringIncludes(src, "Promise.all");
+  assertStringIncludes(src, "from(\"customers\")");
+});
+
+Deno.test("expire-offers emits Edge timing", async () => {
+  const src = await read("expire-offers/index.ts");
+  assertStringIncludes(src, "finishEdgeRequestLog");
+  assertStringIncludes(src, "startRequestTimer");
+});
+
+Deno.test("maps expire-offers into EDGE_FUNCTION_PERF_ACTION", async () => {
+  const src = await read("_shared/performanceHealthControl.ts");
+  assertStringIncludes(src, "'expire-offers': 'edge_expire_offers'");
 });
