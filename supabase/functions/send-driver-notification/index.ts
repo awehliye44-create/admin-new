@@ -35,6 +35,7 @@ import {
   resolveOfferIdFromPushData,
   type FcmAttemptResult,
 } from "./lib/fcmPushDeliveryInstrumentation.ts";
+import { isDriverEligibleForCancelTripNotify } from "../_shared/driverCancelNotifyRecipientSSOT.ts";
 
 interface NotificationPayload {
   driverId: string;
@@ -354,9 +355,6 @@ Deno.serve(async (req) => {
         payload.data?.bookingId ||
         null;
       if (typeof tripId === "string" && tripId.trim()) {
-        const { isDriverEligibleForCancelTripNotify } = await import(
-          "../_shared/driverCancelNotifyRecipientSSOT.ts"
-        );
         const { data: cancelTripRow } = await supabase
           .from("trips")
           .select(
