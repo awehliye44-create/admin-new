@@ -101,7 +101,7 @@ export function DriverWalletDriverList({
     setPage(1);
   }, [regionId, periodFrom, periodTo]);
 
-  const { data, isLoading, error, isFetching } = useDriverWalletSsot({
+  const { data, isLoading, error, isFetching, refetch, isError, dataUpdatedAt } = useDriverWalletSsot({
     regionId,
     page,
     pageSize,
@@ -109,9 +109,13 @@ export function DriverWalletDriverList({
     periodTo,
   });
 
+  // Failed Edge requests must not look like an empty fleet (0 drivers / £0).
   const rows = data?.drivers ?? [];
+  const hasLoadedPage = Array.isArray(data?.drivers);
   const total = data?.total ?? 0;
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
+  const showUnavailableEmpty = isError && !hasLoadedPage;
+  const showStale = isError && hasLoadedPage;
 
   return (
     <Card>
@@ -123,13 +127,30 @@ export function DriverWalletDriverList({
         </p>
       </CardHeader>
       <CardContent>
-        {isLoading ? (
+        {isLoading && !hasLoadedPage ? (
           <div className="flex items-center gap-2 text-sm text-muted-foreground py-6">
             <Loader2 className="h-4 w-4 animate-spin" />
             Loading drivers…
           </div>
         ) : null}
-        {error ? <p className="text-sm text-destructive">{(error as Error).message}</p> : null}
+        {error ? (
+          <div className="flex flex-wrap items-center gap-2 mb-2">
+            <p className="text-sm text-destructive">
+              {(error as Error).message}
+              {showUnavailableEmpty
+                ? ' — driver wallets unavailable (not an empty fleet).'
+                : showStale
+                ? ` Showing last successful load${dataUpdatedAt ? ` from ${new Date(dataUpdatedAt).toLocaleString()}` : ''}.`
+                : ''}
+            </p>
+            <Button variant="outline" size="sm" onClick={() => void refetch()}>
+              Retry
+            </Button>
+          </div>
+        ) : null}
+        {isFetching && hasLoadedPage ? (
+          <p className="text-xs text-muted-foreground mb-2">Refreshing…</p>
+        ) : null}
 
         <div className="overflow-x-auto">
           <Table>
@@ -149,7 +170,14 @@ export function DriverWalletDriverList({
               </TableRow>
             </TableHeader>
             <TableBody>
-              {rows.length === 0 && !isLoading ? (
+              {showUnavailableEmpty ? (
+                <TableRow>
+                  <TableCell colSpan={9} className="text-center text-muted-foreground py-8">
+                    Wallet data unavailable — retry to load live balances.
+                  </TableCell>
+                </TableRow>
+              ) : null}
+              {rows.length === 0 && !isLoading && !isError ? (
                 <TableRow>
                   <TableCell colSpan={9} className="text-center text-muted-foreground py-8">
                     No drivers with connected payout accounts in this region.

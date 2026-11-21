@@ -6,24 +6,29 @@
 
 import { DEFAULT_PAYOUT_CLEARING_DELAY_HOURS } from "./driverPayoutEligibilitySSOT.ts";
 import { evaluateFrSettlementCaptureIdentity } from "./frConsumeOnlySSOT.ts";
-import {
-  FR_TRIP_ENTITLEMENT_CREDIT_TYPES,
-  isFrTripEntitlementCreditType,
-} from "./frDriverReconciliationSSOT.ts";
 
 export { DEFAULT_PAYOUT_CLEARING_DELAY_HOURS } from "./driverPayoutEligibilitySSOT.ts";
-export {
-  FR_TRIP_ENTITLEMENT_CREDIT_TYPES,
-  isFrTripEntitlementCreditType,
-} from "./frDriverReconciliationSSOT.ts";
 
 /**
  * Trip-specific entitlement ledger types for expected vs actual trip credit.
  * Must NOT reuse PAYOUT_ELIGIBLE_LEDGER_TYPES — that set includes BONUS for
  * withdrawal eligibility, which must not inflate per-trip "actual" credit.
+ *
+ * Kept as a leaf constant here (do NOT import frDriverReconciliationSSOT):
+ * FR → frDriverExpectedEntitlement → this file, so importing FR would create a
+ * circular init that crashes Edge boot (OPTIONS/POST 500). Parity with
+ * FR_TRIP_ENTITLEMENT_CREDIT_TYPES is locked in driverCreditCampaignBonus71aLock.
  */
-export const TRIP_ENTITLEMENT_LEDGER_TYPES: ReadonlySet<string> =
-  FR_TRIP_ENTITLEMENT_CREDIT_TYPES;
+export const TRIP_ENTITLEMENT_LEDGER_TYPES: ReadonlySet<string> = new Set([
+  "TRIP_EARNING_NET",
+  "TRIP_SETTLEMENT_CORRECTION",
+  "SETTLEMENT_CORRECTION",
+  "DRIVER_TIP_CREDIT",
+]);
+
+export function isTripEntitlementLedgerType(type: string | null | undefined): boolean {
+  return TRIP_ENTITLEMENT_LEDGER_TYPES.has(String(type ?? "").trim().toUpperCase());
+}
 
 /** Platform-funded / discretionary credits — never trip entitlement. */
 export const PLATFORM_INCENTIVE_LEDGER_TYPES = new Set([
@@ -413,8 +418,8 @@ export function sumActiveDriverWalletCreditForTrip(args: {
 
   for (const entry of ledger) {
     const type = ledgerTypeKey(entry.type);
-    // FR trip-entitlement SSOT + legacy TIP_CREDIT alias (same tip entitlement).
-    if (!isFrTripEntitlementCreditType(type) && type !== "TIP_CREDIT") continue;
+    // Trip-entitlement SSOT + legacy TIP_CREDIT alias (same tip entitlement).
+    if (!isTripEntitlementLedgerType(type) && type !== "TIP_CREDIT") continue;
     if (entry.amount_pence <= 0) continue;
     total += entry.amount_pence;
     earningCount += 1;

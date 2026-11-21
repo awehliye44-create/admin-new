@@ -9,10 +9,10 @@ import {
   classifyPlatformIncentiveCreditsForTrip,
   DRIVER_CREDIT_HEALTH,
   DRIVER_CREDIT_PROCESSING_GRACE_MS,
-  FR_TRIP_ENTITLEMENT_CREDIT_TYPES,
   sumActiveDriverWalletCreditForTrip,
   TRIP_ENTITLEMENT_LEDGER_TYPES,
 } from "../../functions/_shared/driverCreditMonitoringSSOT.ts";
+import { FR_TRIP_ENTITLEMENT_CREDIT_TYPES } from "../../functions/_shared/frDriverReconciliationSSOT.ts";
 import { PAYOUT_ELIGIBLE_LEDGER_TYPES } from "../../functions/_shared/driverPayoutEligibilitySSOT.ts";
 
 const NOW = Date.parse("2026-11-21T12:00:00.000Z");
@@ -26,6 +26,17 @@ Deno.test("#71A trip entitlement set is FR SSOT and excludes BONUS", () => {
   assertEquals(FR_TRIP_ENTITLEMENT_CREDIT_TYPES.has("BONUS"), false);
   assertEquals(PAYOUT_ELIGIBLE_LEDGER_TYPES.has("BONUS"), true);
   assertEquals(TRIP_ENTITLEMENT_LEDGER_TYPES.has("TRIP_EARNING_NET"), true);
+  // Leaf-constant parity with FR (monitoring must not import FR — Edge circular boot).
+  assertEquals(
+    [...TRIP_ENTITLEMENT_LEDGER_TYPES].sort().join(","),
+    [...FR_TRIP_ENTITLEMENT_CREDIT_TYPES].sort().join(","),
+  );
+});
+
+Deno.test("#71B Edge dependency graph loads wallet snapshot module", async () => {
+  // Reproduces the production boot failure: circular import crashed OPTIONS with 500.
+  const mod = await import("../../functions/_shared/fetchDriverWalletPayoutSnapshot.ts");
+  assertEquals(typeof mod.fetchDriverWalletPayoutSnapshot, "function");
 });
 
 Deno.test("#71A MK0007 shape: £20 campaign bonus → OK, unexplained 0", () => {

@@ -57,24 +57,28 @@ export function DriverWalletFleetOverviewCards({
   periodFrom?: string | null;
   periodTo?: string | null;
 }) {
-  const { data: drivers = [], isLoading, isFetching, isError, error, refetch } = useDriverWalletSsotAll(
-    regionId,
-    { periodFrom, periodTo },
-  );
-  const overview = buildDriverWalletFleetOverview(drivers);
-  const fmt = (p: number) => formatNullablePence(p, currencyCode);
+  const { data: drivers, isLoading, isFetching, isError, error, refetch, isFetched, dataUpdatedAt } =
+    useDriverWalletSsotAll(regionId, { periodFrom, periodTo });
+  // Never treat a failed request as an empty fleet (£0). Unknown ≠ zero.
+  const hasLiveRows = Array.isArray(drivers);
+  const overview = hasLiveRows ? buildDriverWalletFleetOverview(drivers) : null;
+  const fmt = (p: number | null | undefined) =>
+    p == null ? '—' : formatNullablePence(p, currencyCode);
+  const unavailable = '—';
 
-  const showSkeleton = isLoading && drivers.length === 0;
+  const showSkeleton = isLoading && !hasLiveRows;
+  const showUnavailable = isError && !hasLiveRows;
+  const showStale = isError && hasLiveRows;
   const [retryHint, setRetryHint] = useState(false);
 
   useEffect(() => {
-    if (!showSkeleton) {
+    if (!showSkeleton && !isError) {
       setRetryHint(false);
       return;
     }
     const timer = setTimeout(() => setRetryHint(true), FLEET_OVERVIEW_RETRY_HINT_MS);
     return () => clearTimeout(timer);
-  }, [showSkeleton]);
+  }, [showSkeleton, isError]);
 
   return (
     <div className="space-y-3">
@@ -84,9 +88,10 @@ export function DriverWalletFleetOverviewCards({
           <p className="text-xs text-muted-foreground">
             Active Driver Wallet balances across all drivers (excludes completed payouts)
             {showSkeleton ? ' · loading…' : isFetching ? ' · refreshing…' : ''}
+            {showStale ? ' · stale (last successful load)' : ''}
           </p>
         </div>
-        {retryHint && showSkeleton ? (
+        {(retryHint && showSkeleton) || isError ? (
           <Button variant="outline" size="sm" onClick={() => void refetch()}>
             <RefreshCw className="h-3.5 w-3.5 mr-1.5" />
             Retry
@@ -97,13 +102,27 @@ export function DriverWalletFleetOverviewCards({
       {isError ? (
         <p className="text-sm text-destructive">
           {error instanceof Error ? error.message : 'Unable to load fleet overview'}
+          {showUnavailable
+            ? ' — balances unavailable (not £0).'
+            : showStale
+            ? ` Showing last successful load${dataUpdatedAt ? ` from ${new Date(dataUpdatedAt).toLocaleString()}` : ''}.`
+            : ''}
         </p>
       ) : null}
 
       <div className="grid gap-3 grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
         {showSkeleton ? (
           METRIC_LABELS.map((label) => <MetricSkeleton key={label} label={label} />)
-        ) : (
+        ) : showUnavailable ? (
+          <>
+            <Metric label="Total Drivers" value={unavailable} />
+            <Metric label="Total Pending (settlement)" value={unavailable} />
+            <Metric label="Total Available" value={unavailable} />
+            <Metric label="Total Reserved" value={unavailable} />
+            <Metric label="Processing exceptions" value={unavailable} />
+            <Metric label="Wallets On Hold" value={unavailable} />
+          </>
+        ) : overview ? (
           <>
             <Metric label="Total Drivers" value={String(overview.total_drivers)} />
             <Metric label="Total Pending (settlement)" value={fmt(overview.total_pending_balance_pence)} />
@@ -112,6 +131,10 @@ export function DriverWalletFleetOverviewCards({
             <Metric label="Processing exceptions" value={fmt(overview.total_processing_exception_pence)} />
             <Metric label="Wallets On Hold" value={String(overview.wallets_on_hold)} />
           </>
+        ) : isFetched ? (
+          METRIC_LABELS.map((label) => <Metric key={label} label={label} value={unavailable} />)
+        ) : (
+          METRIC_LABELS.map((label) => <MetricSkeleton key={label} label={label} />)
         )}
       </div>
     </div>

@@ -382,6 +382,10 @@ export function useDriverWalletSsotAll(
       ),
     ...ADMIN_FINANCE_QUERY_DEFAULTS,
     staleTime: 60_000,
+    // Keep last successful fleet rows on transient Edge failures — never flash £0.
+    placeholderData: keepPreviousData,
+    retry: 2,
+    retryDelay: (attempt) => Math.min(1500 * 2 ** attempt, 8000),
   });
 }
 
