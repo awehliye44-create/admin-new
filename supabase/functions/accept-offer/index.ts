@@ -342,8 +342,8 @@ Deno.serve(async (req) => {
       }
     }
 
-    // Phase 4 / Bug #44: Edge pre-check uses parallelized inputs; SQL gate in
-    // accept_ride_offer remains the authoritative race safeguard.
+    // Phase 4 / Bug #44: Edge pre-check uses parallelized inputs.
+    // SQL driver_scheduled_commitment_gate remains the atomic race safeguard.
     if (tripIdForAccept && holdTrip) {
       const candidateDur = Math.max(
         5,
