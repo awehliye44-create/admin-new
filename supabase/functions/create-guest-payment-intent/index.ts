@@ -238,11 +238,32 @@ async function reuseRegisteredPhoneOwner(
   return { ok: true, userId, customerId: resolvedCustomerId, createdGuestUser: false };
 }
 
+/** Typed number belongs to an existing ONECAB account — the owner must book from the app or their WhatsApp link. */
+function existingAccountNeedsVerifiedBooking(): GuestIdentity {
+  console.warn(JSON.stringify({
+    event: "PHONE_ALREADY_REGISTERED",
+    outcome: "unverified_phone_existing_account",
+  }));
+  return {
+    ok: false,
+    error: "This number already has a ONECAB account. Book in the ONECAB app or use the booking link sent to you on WhatsApp.",
+    status: 409,
+    code: "PHONE_ALREADY_REGISTERED",
+  };
+}
+
 async function ensureWhatsAppGuestCustomer(
   supabase: any,
   supabaseUrl: string,
   serviceRoleKey: string,
-  input: { phone: string; waId: string; displayName: string; clientRequestId: string },
+  input: {
+    phone: string;
+    waId: string;
+    displayName: string;
+    clientRequestId: string;
+    /** True only when the phone came from a signed WhatsApp continuation token. */
+    phoneVerified: boolean;
+  },
 ): Promise<GuestIdentity> {
   const digits = input.phone.replace(/\D/g, "");
   const { data: candidates } = await supabase
@@ -259,6 +280,9 @@ async function ensureWhatsAppGuestCustomer(
     rider_status: string | null;
   }) => phonesExactlyMatch(row.phone, input.phone));
   if (existing) {
+    // A typed-in number proves nothing about who owns it: never book under an
+    // existing account unless the number came from a signed WhatsApp link.
+    if (!input.phoneVerified) return existingAccountNeedsVerifiedBooking();
     if (isBlockedRiderStatus(existing.rider_status)) {
       return { ok: false, error: "This account cannot book a ride", status: 403, code: "PHONE_ALREADY_REGISTERED" };
     }
@@ -298,6 +322,7 @@ async function ensureWhatsAppGuestCustomer(
   });
   if (createErr || !created.user?.id) {
     if (isPhoneAlreadyRegistered(createErr?.message)) {
+      if (!input.phoneVerified) return existingAccountNeedsVerifiedBooking();
       return await reuseRegisteredPhoneOwner(supabase, input);
     }
     console.error(JSON.stringify({
@@ -428,6 +453,8 @@ Deno.serve(async (req) => {
   let resolvedWaId = "";
   let passengerPhone = "";
   let activeContinuationToken = "";
+  /** Only a signed WhatsApp continuation token proves the caller controls the phone. */
+  let phoneVerified = false;
 
   const resolvePhoneFromCustomerField = ():
     | { ok: true; e164: string; waId: string }
@@ -483,6 +510,7 @@ Deno.serve(async (req) => {
         resolvedWaId = claims.waId;
         passengerPhone = fromToken;
         activeContinuationToken = rawContinuation;
+        phoneVerified = true;
       }
     }
     // Stale/invalid ?wa= must not block website guests who entered a mobile number.
@@ -674,6 +702,7 @@ Deno.serve(async (req) => {
     waId: resolvedWaId,
     displayName: customer_name.trim(),
     clientRequestId: client_request_id,
+    phoneVerified,
   });
   if (!identity.ok) {
     console.error(JSON.stringify({

@@ -1,5 +1,6 @@
 import { createClient } from "npm:@supabase/supabase-js@2.57.2";
 import { getDriverStatementSignedUrl } from "../_shared/deliverDriverStatement.ts";
+import { loadStatementDriver } from "../_shared/driverStatementAccess.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -39,14 +40,10 @@ Deno.serve(async (req) => {
       });
     }
 
-    const { data: driver, error: driverError } = await supabaseUser
-      .from("drivers")
-      .select("id")
-      .eq("user_id", user.id)
-      .single();
-
-    if (driverError || !driver) {
-      return new Response(JSON.stringify({ error: "Driver not found" }), {
+    // Only approved, not-removed drivers can open their statements.
+    const driver = await loadStatementDriver(supabaseUser, user.id);
+    if (!driver) {
+      return new Response(JSON.stringify({ error: "Statements are not available for this account" }), {
         status: 403,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });

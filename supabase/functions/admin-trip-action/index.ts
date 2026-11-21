@@ -46,6 +46,22 @@ const ACTIVE_STATUSES = new Set([
   "negotiating",
 ]);
 
+/** Customer "driver assigned" notices admins may trigger — wording and links are fixed server-side. */
+const DRIVER_ASSIGNED_NOTICES: Record<
+  "live" | "scheduled_confirmed",
+  { title?: string; body: string; path?: string }
+> = {
+  live: { body: "Your driver has been assigned." },
+  scheduled_confirmed: {
+    title: "Driver confirmed",
+    body: "Your driver is confirmed for your scheduled ride.",
+    path: "/account/rides",
+  },
+};
+
+/** Allowed notification-id suffixes (dedupe key per sending screen). */
+const DRIVER_ASSIGNED_SOURCES = ["admin", "manual", "manual_scheduled", "scheduled_admin"];
+
 function json(body: Record<string, unknown>, status = 200) {
   return new Response(JSON.stringify(body), {
     status,
@@ -445,30 +461,22 @@ Deno.serve(async (req) => {
       if (!passengerId) {
         return json({ success: false, error: "Trip has no passenger_id" }, 409);
       }
-      const title =
-        typeof body.title === "string" && body.title.trim()
-          ? body.title.trim()
-          : undefined;
-      const notifyBody =
-        typeof body.body === "string" && body.body.trim()
-          ? body.body.trim()
-          : undefined;
-      const notificationId =
-        typeof body.notification_id === "string" && body.notification_id.trim()
-          ? body.notification_id.trim()
-          : `driver_assigned-${tripId}-admin`;
-      const pathOverride =
-        typeof body.path === "string" && body.path.startsWith("/")
-          ? body.path.trim()
-          : null;
+      // Fixed wording only: callers pick a notice variant and source, never the text or link.
+      const variant =
+        body.variant === "scheduled_confirmed" ? "scheduled_confirmed" : "live";
+      const notice = DRIVER_ASSIGNED_NOTICES[variant];
+      const source =
+        typeof body.source === "string" && DRIVER_ASSIGNED_SOURCES.includes(body.source)
+          ? body.source
+          : "admin";
       await notifyCustomerTripLifecycle(gate.supabase, {
         passengerId,
         tripId,
         event: "driver_assigned",
-        ...(title ? { title } : {}),
-        ...(notifyBody ? { body: notifyBody } : {}),
-        notificationId,
-        ...(pathOverride ? { path: pathOverride } : {}),
+        ...(notice.title ? { title: notice.title } : {}),
+        body: notice.body,
+        notificationId: `driver_assigned-${tripId}-${source}`,
+        ...(notice.path ? { path: notice.path } : {}),
       });
       return json({ success: true, action, trip_id: tripId });
     }

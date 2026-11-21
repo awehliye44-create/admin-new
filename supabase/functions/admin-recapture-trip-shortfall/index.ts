@@ -8,7 +8,7 @@
  * Server recomputes payable/capture/shortfall from current evidence.
  * Final capture success is established by provider webhook, not this response.
  *
- * Permission: payments-trip-shortfall-recapture OR super_admin only
+ * Permission: payments-trip-shortfall-recapture page, or the Super Admin (owner)
  * (not blanket trip-history access).
  */
 import {
@@ -33,23 +33,14 @@ import {
 } from "../_shared/tripHistoryShortfallRecaptureSSOT.ts";
 import { readTripFinancialModelStamp } from "../_shared/commissionWalletSSOT.ts";
 
-async function authorizeTripShortfallRecapture(
+/**
+ * Dedicated page permission only. The Super Admin (owner) passes inside
+ * requirePageAccess; a missing or inactive staff profile is always refused.
+ */
+function authorizeTripShortfallRecapture(
   gate: GateResult,
 ): Promise<GateResult | GateError> {
-  const dedicated = await requirePageAccess(gate, "payments-trip-shortfall-recapture");
-  if (dedicated.ok) return dedicated;
-
-  const { data: staffRow } = await gate.supabase
-    .from("staff_profiles")
-    .select("role")
-    .eq("user_id", gate.userId)
-    .eq("is_active", true)
-    .maybeSingle();
-
-  const role = staffRow?.role ? String(staffRow.role) : "super_admin";
-  if (role === "super_admin") return gate;
-
-  return dedicated;
+  return requirePageAccess(gate, "payments-trip-shortfall-recapture");
 }
 
 Deno.serve(async (req) => {

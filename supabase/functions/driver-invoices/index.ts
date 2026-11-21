@@ -1,4 +1,6 @@
 import { createClient } from "npm:@supabase/supabase-js@2.57.2";
+import { loadStatementDriver } from "../_shared/driverStatementAccess.ts";
+import { freshDriverStatementPdfUrl } from "../_shared/deliverDriverStatement.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -23,14 +25,14 @@ Deno.serve(async (req) => {
     const { data: { user }, error: authError } = await supabase.auth.getUser();
     if (authError || !user) throw new Error("Unauthorized");
 
-    // Get the driver record for this user
-    const { data: driver, error: driverError } = await supabase
-      .from("drivers")
-      .select("id, region_id")
-      .eq("user_id", user.id)
-      .single();
-
-    if (driverError || !driver) throw new Error("Driver not found");
+    // Only approved, not-removed drivers can open their statements.
+    const driver = await loadStatementDriver(supabase, user.id);
+    if (!driver) {
+      return new Response(JSON.stringify({ success: false, error: "Statements are not available for this account" }), {
+        status: 403,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
 
     const url = new URL(req.url);
     const invoiceId = url.searchParams.get("invoice_id");
@@ -59,10 +61,19 @@ Deno.serve(async (req) => {
       const regionCurrency = invoice.regions?.currency_code || invoice.currency_code;
       const distanceUnit = invoice.regions?.distance_unit || "mile";
 
+      // Fresh one-hour PDF link instead of the stored long-lived one.
+      const supabaseAdmin = createClient(
+        Deno.env.get("SUPABASE_URL")!,
+        Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
+      );
+      const { pdf_storage_path: _storagePath, invoice_pdf_url: _storedUrl, ...invoiceFields } = invoice;
+      const freshPdfUrl = await freshDriverStatementPdfUrl(supabaseAdmin, invoice);
+
       return new Response(JSON.stringify({
         success: true,
         invoice: {
-          ...invoice,
+          ...invoiceFields,
+          invoice_pdf_url: freshPdfUrl,
           resolved_currency_code: regionCurrency,
           resolved_distance_unit: distanceUnit,
         },

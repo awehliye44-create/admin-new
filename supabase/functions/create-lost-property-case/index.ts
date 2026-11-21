@@ -5,11 +5,34 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
-interface CreateCaseRequest {
-  trip_id: string;
-  item_category: "phone" | "wallet" | "keys" | "bag" | "other";
-  item_description: string;
-  photos?: string[];
+/**
+ * Known item categories and the fixed wording used in the driver's push notification.
+ * The driver's notification never repeats passenger-typed text: unknown categories read "item".
+ */
+const ITEM_CATEGORY_LABELS: Record<string, string> = {
+  phone: "phone",
+  wallet: "wallet",
+  keys: "set of keys",
+  bag: "bag",
+  other: "item",
+};
+
+const MAX_CATEGORY_LENGTH = 40;
+const MAX_DESCRIPTION_LENGTH = 1000;
+const MAX_PHOTOS = 10;
+const MAX_PHOTO_URL_LENGTH = 2048;
+
+/** Short plain category (letters, digits, spaces, & / -); anything else is rejected. */
+function parseItemCategory(raw: unknown): string | null {
+  const value = typeof raw === "string" ? raw.trim().toLowerCase() : "";
+  if (!value || value.length > MAX_CATEGORY_LENGTH) return null;
+  return /^[a-z0-9][a-z0-9 &/-]*$/.test(value) ? value : null;
+}
+
+function itemCategoryPushLabel(category: string): string {
+  return Object.prototype.hasOwnProperty.call(ITEM_CATEGORY_LABELS, category)
+    ? ITEM_CATEGORY_LABELS[category]
+    : "item";
 }
 
 Deno.serve(async (req) => {
@@ -43,15 +66,42 @@ Deno.serve(async (req) => {
       );
     }
 
-    const body: CreateCaseRequest = await req.json();
-    const { trip_id, item_category, item_description, photos = [] } = body;
+    const body = await req.json().catch(() => null) as Record<string, unknown> | null;
+    const trip_id = typeof body?.trip_id === "string" ? body.trip_id.trim() : "";
+    const item_category = parseItemCategory(body?.item_category);
+    const item_description =
+      typeof body?.item_description === "string" ? body.item_description.trim() : "";
+    const rawPhotos = body?.photos ?? [];
 
-    if (!trip_id || !item_category || !item_description) {
+    if (!trip_id || !body?.item_category || !item_description) {
       return new Response(
         JSON.stringify({ error: "Missing required fields" }),
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
+    if (!item_category) {
+      return new Response(
+        JSON.stringify({ error: "Invalid item category" }),
+        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+    if (item_description.length > MAX_DESCRIPTION_LENGTH) {
+      return new Response(
+        JSON.stringify({ error: `Description must be ${MAX_DESCRIPTION_LENGTH} characters or fewer` }),
+        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+    if (
+      !Array.isArray(rawPhotos) ||
+      rawPhotos.length > MAX_PHOTOS ||
+      !rawPhotos.every((p) => typeof p === "string" && p.length > 0 && p.length <= MAX_PHOTO_URL_LENGTH)
+    ) {
+      return new Response(
+        JSON.stringify({ error: "Invalid photos" }),
+        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+    const photos = rawPhotos as string[];
 
     // Use service role for database operations
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
@@ -190,7 +240,7 @@ Deno.serve(async (req) => {
           body: JSON.stringify({
             userId: driver.user_id,
             title: "📦 Lost Item Reported",
-            body: `A passenger reported a lost ${item_category}. Please check your vehicle.`,
+            body: `A passenger reported a lost ${itemCategoryPushLabel(item_category)}. Please check your vehicle.`,
             url: `/lost-property/${newCase.id}`,
             tag: "lost-property",
             requireInteraction: true,

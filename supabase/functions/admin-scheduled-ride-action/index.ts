@@ -388,10 +388,8 @@ Deno.serve(async (req) => {
           body: JSON.stringify({
             action: "notify_driver_assigned",
             trip_id: tripId,
-            title: "Driver confirmed",
-            body: "Your driver is confirmed for your scheduled ride.",
-            notification_id: `driver_assigned-${tripId}-scheduled_admin`,
-            path: "/account/rides",
+            variant: "scheduled_confirmed",
+            source: "scheduled_admin",
           }),
         });
       } catch (notifyErr) {

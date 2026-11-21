@@ -333,19 +333,36 @@ export async function deliverDriverStatement(
   }
 }
 
+/**
+ * One-hour link to a driver statement PDF from its storage path (admin invoice bucket
+ * or statement bucket). Returns null when the PDF has not been stored yet.
+ */
+export async function freshDriverStatementPdfUrl(
+  supabase: SupabaseClient,
+  invoice: { pdf_storage_path?: string | null },
+): Promise<string | null> {
+  const admin = await signedUrlFromAdminInvoice(supabase, invoice);
+  if (admin) return admin;
+  if (!invoice.pdf_storage_path) return null;
+  const { data: signed, error } = await supabase.storage
+    .from(STATEMENT_PDF_BUCKET)
+    .createSignedUrl(invoice.pdf_storage_path, 60 * 60);
+  if (error || !signed?.signedUrl) return null;
+  return signed.signedUrl;
+}
+
 async function signedUrlFromAdminInvoice(
   supabase: SupabaseClient,
-  invoice: { pdf_storage_path?: string | null; invoice_pdf_url?: string | null },
+  invoice: { pdf_storage_path?: string | null },
 ): Promise<string | null> {
-  if (invoice.invoice_pdf_url) {
-    return invoice.invoice_pdf_url;
-  }
-  if (!invoice.pdf_storage_path?.startsWith("invoices/drivers/")) {
+  // Always sign a fresh short-lived link; never hand drivers the stored long-lived one.
+  const path = invoice.pdf_storage_path ?? "";
+  if (!path.startsWith("invoices/drivers/") && !path.startsWith("invoices/by-id/")) {
     return null;
   }
   const { data: signed, error } = await supabase.storage
     .from(ADMIN_INVOICE_BUCKET)
-    .createSignedUrl(invoice.pdf_storage_path, 60 * 60);
+    .createSignedUrl(path, 60 * 60);
   if (error || !signed?.signedUrl) return null;
   return signed.signedUrl;
 }

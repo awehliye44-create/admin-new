@@ -747,16 +747,8 @@ export default function ManualTrip() {
             action: 'notify_driver_assigned',
             trip_id: createdTrip.id,
             ...(isScheduled
-              ? {
-                  title: 'Driver confirmed',
-                  body: 'Your driver is confirmed for your scheduled ride.',
-                  path: '/account/rides',
-                  notification_id: `driver_assigned-${createdTrip.id}-manual_scheduled`,
-                }
-              : {
-                  body: 'Your driver has been assigned.',
-                  notification_id: `driver_assigned-${createdTrip.id}-manual`,
-                }),
+              ? { variant: 'scheduled_confirmed', source: 'manual_scheduled' }
+              : { variant: 'live', source: 'manual' }),
           },
         });
         if (notifyErr) {

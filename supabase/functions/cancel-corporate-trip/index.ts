@@ -1,5 +1,9 @@
 import { createClient } from 'npm:@supabase/supabase-js@2.57.2';
 import { notifyCustomerTripLifecycle } from '../_shared/customerTripLifecycleNotify.ts';
+import { requireAnyPageAccess } from '../_shared/adminPaymentGate.ts';
+
+/** Admin pages whose staff may cancel a corporate trip on the company's behalf. */
+const STAFF_CANCEL_PAGES = ['active-trips', 'corporate-accounts'];
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -39,7 +43,7 @@ Deno.serve(async (req) => {
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
     const body = await req.json();
-    const { trip_id, reason, note, cancelled_by_role } = body;
+    const { trip_id, reason, note } = body;
 
     if (!trip_id || !reason) {
       return new Response(JSON.stringify({ error: 'trip_id and reason are required' }), {
@@ -62,8 +66,10 @@ Deno.serve(async (req) => {
       });
     }
 
-    // 1b. Caller must belong to the trip's corporate account, or be active staff
+    // 1b. Caller must belong to the trip's corporate account, or be staff with
+    // access to an admin page that manages trips / corporate accounts.
     let callerAllowed = false;
+    let callerRole: 'corporate' | 'admin' = 'corporate';
     if (trip.corporate_account_id) {
       const [{ data: cu }, { data: cua }] = await Promise.all([
         supabase.from('corporate_users').select('id')
@@ -74,9 +80,14 @@ Deno.serve(async (req) => {
       callerAllowed = (cu?.length ?? 0) > 0 || (cua?.length ?? 0) > 0;
     }
     if (!callerAllowed) {
-      const { data: staff } = await supabase.from('staff_profiles').select('id')
-        .eq('user_id', user.id).eq('is_active', true).maybeSingle();
-      callerAllowed = !!staff;
+      const staffGate = await requireAnyPageAccess(
+        { ok: true, supabase, userId: user.id },
+        STAFF_CANCEL_PAGES,
+      );
+      if (staffGate.ok) {
+        callerAllowed = true;
+        callerRole = 'admin';
+      }
     }
     if (!callerAllowed) {
       return new Response(JSON.stringify({ error: 'Trip not found' }), {
@@ -177,7 +188,7 @@ Deno.serve(async (req) => {
       cancellation_reason: reason,
       cancellation_note: reason === 'Other' ? (note || null) : null,
       cancelled_by: user.id,
-      cancelled_by_role: cancelled_by_role || 'corporate',
+      cancelled_by_role: callerRole,
       cancelled_at: now.toISOString(),
     };
 
