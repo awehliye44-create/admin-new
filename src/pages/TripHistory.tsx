@@ -44,7 +44,7 @@ import {
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { getSingleCurrency } from '@/components/finance/CurrencyGroupedStats';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
-import { format, subDays, startOfDay, endOfDay } from 'date-fns';
+import { format, subDays, startOfDay, endOfDay, parseISO } from 'date-fns';
 import { formatFinanceDateSafe } from '@/lib/financialReconciliationGuards';
 import { toast } from 'sonner';
 import { getCurrencySymbol, formatDistance as formatDistanceUtil, getDistanceUnitShort } from '@/lib/regionSettings';
@@ -425,6 +425,8 @@ export default function TripHistory() {
   
   const [searchQuery, setSearchQuery] = useState('');
   const [dateFilter, setDateFilter] = useState('7days');
+  const [customStartDate, setCustomStartDate] = useState('');
+  const [customEndDate, setCustomEndDate] = useState('');
   const [statusFilter, setStatusFilter] = useState<TripHistoryStatusFilter>('all');
   const [pageSize, setPageSize] = useState(TRIP_HISTORY_PAGE_SIZE_DEFAULT);
   const [dateSort, setDateSort] = useState<AdminTripDateSort>(ADMIN_TRIP_DATE_SORT_DEFAULT);
@@ -495,10 +497,25 @@ export default function TripHistory() {
         return { start: startOfDay(subDays(now, 30)), end: endOfDay(now) };
       case '90days':
         return { start: startOfDay(subDays(now, 90)), end: endOfDay(now) };
+      case 'custom': {
+        if (!customStartDate && !customEndDate) {
+          return { start: startOfDay(subDays(now, 7)), end: endOfDay(now) };
+        }
+        let start = customStartDate
+          ? startOfDay(parseISO(customStartDate))
+          : startOfDay(subDays(now, 3650));
+        let end = customEndDate ? endOfDay(parseISO(customEndDate)) : endOfDay(now);
+        if (start > end) {
+          const swap = start;
+          start = startOfDay(end);
+          end = endOfDay(swap);
+        }
+        return { start, end };
+      }
       default:
         return { start: startOfDay(subDays(now, 7)), end: endOfDay(now) };
     }
-  }, [dateFilter]);
+  }, [dateFilter, customStartDate, customEndDate]);
 
   // Use shared cached hooks for regions/service areas
   const { data: sharedRegions = [] } = useRegions();
@@ -540,6 +557,8 @@ export default function TripHistory() {
     queryKey: [
       'trip-history',
       dateFilter,
+      customStartDate,
+      customEndDate,
       selectedRegionId,
       selectedServiceAreaId,
       statusFilter,
@@ -1401,8 +1420,30 @@ export default function TripHistory() {
                 <SelectItem value="7days">Last 7 Days</SelectItem>
                 <SelectItem value="30days">Last 30 Days</SelectItem>
                 <SelectItem value="90days">Last 90 Days</SelectItem>
+                <SelectItem value="custom">Custom Range</SelectItem>
               </SelectContent>
             </Select>
+            {dateFilter === 'custom' && (
+              <div className="flex items-center gap-2 w-full md:w-auto">
+                <Input
+                  type="date"
+                  aria-label="From date"
+                  value={customStartDate}
+                  max={customEndDate || undefined}
+                  onChange={(e) => setCustomStartDate(e.target.value)}
+                  className="w-full md:w-[150px]"
+                />
+                <span className="text-sm text-muted-foreground">to</span>
+                <Input
+                  type="date"
+                  aria-label="To date"
+                  value={customEndDate}
+                  min={customStartDate || undefined}
+                  onChange={(e) => setCustomEndDate(e.target.value)}
+                  className="w-full md:w-[150px]"
+                />
+              </div>
+            )}
             <Select value={dateSort} onValueChange={(v) => setDateSort(parseAdminTripDateSort(v))}>
               <SelectTrigger className="w-full md:w-[150px]" aria-label="Sort by date">
                 <SelectValue placeholder="Sort by date" />
