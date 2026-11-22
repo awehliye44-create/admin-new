@@ -11,6 +11,7 @@ import {
   type GateResult,
 } from "../_shared/adminPaymentGate.ts";
 import { listAdminPaymentSessions } from "./lib/adminPaymentSessionsListSSOT.ts";
+import { reconcileHistoricalReleaseEvidence } from "./lib/adminPaymentSessionsReleaseEvidenceReconcileSSOT.ts";
 import { FINANCIAL_MODEL, resolveServiceAreaFinancialScope } from "../_shared/financialModelScopeGate.ts";
 
 export const AdminPaymentSessionsInputSchema = z.object({
@@ -193,9 +194,6 @@ export async function handleAdminPaymentSessions(
     }
 
     if (parsed.data.reconcile_release_evidence === true) {
-      const { reconcileHistoricalReleaseEvidence } = await import(
-        "./lib/adminPaymentSessionsReleaseEvidenceReconcileSSOT.ts"
-      );
       const result = await reconcileHistoricalReleaseEvidence({
         supabase: gate.supabase,
         limit: parsed.data.reconcile_release_evidence_limit,
