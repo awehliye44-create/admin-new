@@ -15,12 +15,14 @@ import {
   type RevolutPaymentSessionStatus,
 } from "./revolutPaymentHoldSSOT.ts";
 import {
+  RELEASE_EVIDENCE_SOURCE,
   buildResidualReleaseIdempotencyKey,
   classifyPostCaptureResidualReleaseEvidence,
   hasResidualReleaseIdempotencyKey,
   shouldSkipResidualReleasePersist,
 } from "./paymentSessionReleaseEvidenceSSOT.ts";
 import { extractConfirmedReleaseAmountPence } from "./paymentHoldProviderTerminalPure.ts";
+import { extractProviderFeePence } from "./paymentCaptureEvidenceSSOT.ts";
 import {
   ADDITIONAL_AUTH_SOURCE,
   ADDITIONAL_AUTH_STATUS,
@@ -427,6 +429,113 @@ export async function markPaymentSessionCaptureResidualRelease(
   return { applied: true, skipped: false, classification };
 }
 
+/**
+ * Post-capture residual release evidence — shared by completion capture + webhook.
+ * Never invents released_amount from auth − capture. Failures must not retry capture.
+ * Accepts a prefetched provider payload (webhook fee GET) or retrieves when env keys given.
+ */
+export async function persistCaptureResidualReleaseEvidence(args: {
+  supabase: SupabaseClient;
+  clientActionId?: string | null;
+  providerOrderId: string;
+  sessionId?: string | null;
+  tripId?: string | null;
+  authorisedHoldPence: number;
+  capturedAmountPence: number;
+  evidenceSource?: string;
+  providerPayload?: Record<string, unknown> | null;
+  retrieveSucceeded?: boolean;
+  /** When payload omitted, retrieve via these (completion-capture path). */
+  retrieveOrder?: (orderId: string) => Promise<Record<string, unknown>>;
+  providerReleaseReference?: string | null;
+  /** Also stamp provider fee from the same retrieve when present. */
+  persistFee?: boolean;
+}): Promise<{
+  applied: boolean;
+  skipped: boolean;
+  release_evidence_status: string;
+  released_amount_pence: number | null;
+  expected_release_pence: number;
+  messageSuffix: string;
+}> {
+  let retrieveSucceeded = args.retrieveSucceeded === true;
+  let providerPayload = args.providerPayload ?? null;
+  if (!providerPayload && args.retrieveOrder) {
+    try {
+      providerPayload = await args.retrieveOrder(args.providerOrderId);
+      retrieveSucceeded = true;
+    } catch (err) {
+      console.warn("[paymentSessionSSOT] residual release retrieve failed", err);
+      retrieveSucceeded = false;
+      providerPayload = null;
+    }
+  }
+
+  const result = await markPaymentSessionCaptureResidualRelease(args.supabase, {
+    clientActionId: args.clientActionId,
+    providerOrderId: args.providerOrderId,
+    sessionId: args.sessionId,
+    tripId: args.tripId,
+    authorisedHoldPence: args.authorisedHoldPence,
+    capturedAmountPence: args.capturedAmountPence,
+    providerPayload,
+    retrieveSucceeded,
+    evidenceSource: args.evidenceSource ?? RELEASE_EVIDENCE_SOURCE.REVOLUT_POST_CAPTURE_RETRIEVE,
+    providerReleaseReference: args.providerReleaseReference ?? args.providerOrderId,
+  });
+
+  if (args.persistFee !== false) {
+    try {
+      await markPaymentSessionProviderFee(args.supabase, {
+        clientActionId: args.clientActionId,
+        providerOrderId: args.providerOrderId,
+        providerFeePence: extractProviderFeePence(providerPayload),
+        retrieveSucceeded,
+      });
+    } catch (feeErr) {
+      console.warn("[paymentSessionSSOT] fee persist after residual failed", feeErr);
+    }
+  }
+
+  const c = result.classification;
+  let messageSuffix = "";
+  if (c.release_evidence_status === "NOT_REQUIRED") {
+    messageSuffix = "";
+  } else if (c.release_evidence_status === "CONFIRMED" && c.released_amount_pence != null) {
+    messageSuffix = `; residual release confirmed ${c.released_amount_pence}p`;
+  } else if (c.release_evidence_status === "AMOUNT_UNCONFIRMED") {
+    messageSuffix =
+      `; residual authorisation no longer held (expected ${c.expected_release_pence}p, amount unconfirmed)`;
+  } else if (c.release_evidence_status === "PENDING_PROVIDER_CONFIRMATION") {
+    messageSuffix =
+      `; residual release pending provider confirmation (expected ${c.expected_release_pence}p)`;
+  } else if (c.release_evidence_status === "PROVIDER_STATE_UNAVAILABLE") {
+    messageSuffix =
+      `; residual release evidence unavailable (expected ${c.expected_release_pence}p)`;
+  }
+
+  return {
+    applied: result.applied,
+    skipped: result.skipped,
+    release_evidence_status: c.release_evidence_status,
+    released_amount_pence: c.released_amount_pence,
+    expected_release_pence: c.expected_release_pence,
+    messageSuffix,
+  };
+}
+
+/** Swallow residual-evidence errors so callers never re-capture. */
+export async function safePersistCaptureResidualReleaseEvidence(
+  args: Parameters<typeof persistCaptureResidualReleaseEvidence>[0],
+): Promise<Awaited<ReturnType<typeof persistCaptureResidualReleaseEvidence>> | null> {
+  try {
+    return await persistCaptureResidualReleaseEvidence(args);
+  } catch (err) {
+    console.warn("[paymentSessionSSOT] residual release evidence persist failed (non-fatal)", err);
+    return null;
+  }
+}
+
 export async function markPaymentSessionCaptured(
   supabase: SupabaseClient,
   args: {
@@ -449,6 +558,11 @@ export async function markPaymentSessionCaptured(
       confirmedCapturedPence: number;
       amountFromProviderGet: true;
     } | null;
+    /**
+     * Optional resolution metadata only — never includes released_amount_pence.
+     * Residual release amounts are owned by persistCaptureResidualReleaseEvidence.
+     */
+    resolutionFields?: Record<string, unknown> | null;
   },
 ): Promise<void> {
   const session = await loadPaymentSession(supabase, {
@@ -497,6 +611,15 @@ export async function markPaymentSessionCaptured(
   }
   if (args.providerCaptureId) {
     patch.provider_capture_id = args.providerCaptureId;
+  }
+  // Resolution metadata only — strip any released_amount invent from fare plan.
+  if (args.resolutionFields && typeof args.resolutionFields === "object") {
+    const {
+      released_amount_pence: _omitReleased,
+      released_at: _omitReleasedAt,
+      ...resolutionSafe
+    } = args.resolutionFields as Record<string, unknown>;
+    Object.assign(patch, resolutionSafe);
   }
   await markPaymentSessionStatus(supabase, "captured", args, patch);
 

@@ -637,24 +637,42 @@ export function formatReleasedAmountDisplay(args: {
     evidence === "AMOUNT_UNCONFIRMED"
     || Boolean(args.released_at && args.released_amount_pence == null);
 
-  const healthyResidual =
-    (args.captureConfirmed === true && amountUnconfirmed)
-    || isHealthyPostCaptureResidualRelease({
-      providerState: args.providerState,
-      capturedAmountPence: args.capturedAmountPence,
-      releasedAt: args.released_at,
-      releasedAmountPence: args.released_amount_pence,
-      releaseEvidenceStatus: args.release_evidence_status,
-    });
+  const healthyResidual = isHealthyPostCaptureResidualRelease({
+    providerState: args.providerState,
+    capturedAmountPence: args.capturedAmountPence,
+    releasedAt: args.released_at,
+    releasedAmountPence: args.released_amount_pence,
+    releaseEvidenceStatus: args.release_evidence_status,
+  }) || (
+    args.captureConfirmed === true
+    && args.released_amount_pence == null
+    && (args.expectedReleasePence == null
+      ? false
+      : Math.round(Number(args.expectedReleasePence)) > 0)
+    && (amountUnconfirmed || evidence === "" || evidence === "AMOUNT_UNCONFIRMED")
+  );
 
-  if (amountUnconfirmed && healthyResidual) {
+  // Confirmed provider amount first.
+  if (args.released_amount_pence != null && Number(args.released_amount_pence) > 0) {
+    return {
+      primary: args.currencyFormatter(Math.round(Number(args.released_amount_pence))),
+      secondary: null,
+    };
+  }
+
+  // Healthy post-capture residual (incl. missing evidence stamp) → show expected, not dash.
+  if (healthyResidual || (amountUnconfirmed && args.captureConfirmed === true)) {
     const expected = args.expectedReleasePence == null
       ? null
       : Math.round(Number(args.expectedReleasePence));
+    if (expected != null && expected > 0) {
+      return {
+        primary: args.currencyFormatter(expected),
+        secondary: "Expected residual — amount not confirmed by provider",
+      };
+    }
     return {
-      primary: expected != null && expected > 0
-        ? args.currencyFormatter(expected)
-        : "Auto-voided",
+      primary: "Auto-voided",
       secondary: "Local record reconciled — residual release amount not explicit from provider",
     };
   }
@@ -695,5 +713,50 @@ export function sumReleasedBufferTotalPence(
     releasedBuffer = (releasedBuffer ?? 0) + Math.round(releasedRaw);
   }
   return releasedBuffer;
+}
+
+/**
+ * Expected residual authorisation (audit) — auth − capture when capture confirmed and auth > cap.
+ * Never a confirmed released total. Distinct from sumReleasedBufferTotalPence.
+ * Returns 0 when the scope was scanned and no residual is expected (genuine zero).
+ * Returns null only when there were no scannable captured rows to evaluate.
+ */
+export function sumExpectedResidualReleasePence(
+  providerRows: Array<{
+    authorised_amount_pence?: number | null;
+    captured_amount_pence?: number | null;
+    release_evidence_status?: string | null;
+    provider_state?: string | null;
+  }>,
+): number | null {
+  let anyCaptured = false;
+  let expectedSum = 0;
+  for (const row of providerRows) {
+    const cap = confirmedCapturedRevenuePence(row);
+    if (cap == null) continue;
+    anyCaptured = true;
+    const authRaw = row.authorised_amount_pence == null ? null : Number(row.authorised_amount_pence);
+    const auth = authRaw != null && Number.isFinite(authRaw) && authRaw > 0
+      ? Math.round(authRaw)
+      : null;
+    if (auth == null || auth <= cap) continue;
+    expectedSum += auth - cap;
+  }
+  if (!anyCaptured) return null;
+  return expectedSum;
+}
+
+/** Row-level expected residual for Released column display. */
+export function expectedResidualReleasePenceForRow(row: {
+  authorised_amount_pence?: number | null;
+  captured_amount_pence?: number | null;
+}): number | null {
+  const cap = confirmedCapturedRevenuePence(row);
+  const authRaw = row.authorised_amount_pence == null ? null : Number(row.authorised_amount_pence);
+  const auth = authRaw != null && Number.isFinite(authRaw) && authRaw > 0
+    ? Math.round(authRaw)
+    : null;
+  if (cap == null || auth == null || auth <= cap) return null;
+  return auth - cap;
 }
 

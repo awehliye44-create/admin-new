@@ -1,15 +1,14 @@
 // Money totals SSOT for Payment Sessions (SSOT) admin page.
 //
-// Root-cause fix: Captured / Released / Refunded / Provider fee totals used to be
-// summed from the attention-queue page slice (capped feed), so the cards showed
-// partial sums presented as full totals. This module aggregates directly over the
-// payment_sessions table for the whole filtered scope, in DB-side pages.
+// Captured / Released / Expected residual / Refunded / Provider fee totals aggregate
+// directly over payment_sessions for the whole filtered scope (not the page slice).
 import type { SupabaseClient } from "npm:@supabase/supabase-js@2.57.2";
 import {
   confirmedCapturedRevenuePence,
   rowBelongsInCapturedTab,
   rowBelongsInRefundedTab,
   rowBelongsInReleasedTab,
+  sumExpectedResidualReleasePence,
   sumReleasedBufferTotalPence,
 } from "../../_shared/paymentSessionsDisplaySSOT.ts";
 
@@ -21,6 +20,8 @@ export type PaymentSessionsMoneyAggregates = {
   captured_total_pence: number | null;
   released_count: number;
   released_buffer_total_pence: number | null;
+  /** Auth − capture residual (audit). Distinct from confirmed released buffer. */
+  expected_residual_release_total_pence: number | null;
   refunded_count: number;
   refunded_total_pence: number | null;
   provider_fees_total_pence: number | null;
@@ -38,23 +39,57 @@ export type PaymentSessionsMoneyAggregateFilters = {
   trip_id?: string | null;
   payment_session_id?: string | null;
   provider_order_id?: string | null;
+  payment_method?: string | null;
+  purpose?: string | null;
+  session_status?: string | null;
+  provider_state?: string | null;
+  has_trip?: boolean | null;
+  release_failed?: boolean | null;
+  recovery_pending?: boolean | null;
+  capture_failed?: boolean | null;
+  provider_fees_pending?: boolean | null;
 };
 
 type MoneyRow = {
   id: string;
   status: string | null;
   provider_state: string | null;
+  purpose: string | null;
+  payment_method: string | null;
+  hold_release_state: string | null;
+  fee_status: string | null;
   authorised_amount_pence: number | null;
   captured_amount_pence: number | null;
   released_amount_pence: number | null;
   refunded_amount_pence: number | null;
   provider_processing_fee_pence: number | null;
-  fee_status: string | null;
   captured_at: string | null;
   released_at: string | null;
   refunded_at: string | null;
+  trip_id: string | null;
   service_area_id: string | null;
+  release_evidence_status: string | null;
 };
+
+/** Filters that cannot be expressed as payment_sessions column predicates. */
+export function moneyAggregateUnsupportedReason(
+  filters: PaymentSessionsMoneyAggregateFilters & {
+    active_hold?: boolean | null;
+    legacy_evidence?: boolean | null;
+    money_at_risk?: boolean | null;
+  },
+): string | null {
+  if (filters.active_hold === true) {
+    return "Active-hold filter requires live hold classification — money cards unavailable for this scope.";
+  }
+  if (filters.legacy_evidence === true) {
+    return "Legacy-evidence filter is not column-aggregatable — money cards unavailable for this scope.";
+  }
+  if (filters.money_at_risk === true) {
+    return "Money-at-risk filter is not column-aggregatable — money cards unavailable for this scope.";
+  }
+  return null;
+}
 
 /** Provider fees only count when the provider reported the actual fee. */
 export function actualProviderFeePence(row: {
@@ -100,13 +135,19 @@ export function aggregatePaymentSessionsMoney(
     fees = (fees ?? 0) + fee;
   }
 
+  const releasedBuffer = sumReleasedBufferTotalPence(rows as MoneyRow[]);
+  const expectedResidual = sumExpectedResidualReleasePence(rows as MoneyRow[]);
+
   return {
     captured_count: capturedRows.length,
-    captured_total_pence: captured,
+    // Genuine £0 when rows scanned but none captured — keep null only when no captured rows.
+    captured_total_pence: capturedRows.length === 0 ? null : (captured ?? 0),
     released_count: releasedRows.length,
-    released_buffer_total_pence: sumReleasedBufferTotalPence(rows as MoneyRow[]),
+    // Confirmed released buffer: null when none confirmed (do not invent £0 as confirmed).
+    released_buffer_total_pence: releasedBuffer,
+    expected_residual_release_total_pence: expectedResidual,
     refunded_count: refundedRows.length,
-    refunded_total_pence: refunded,
+    refunded_total_pence: refundedRows.length === 0 ? null : (refunded ?? 0),
     provider_fees_total_pence: fees,
     scanned_rows: rows.length,
     truncated: false,
@@ -125,7 +166,7 @@ export async function fetchPaymentSessionsMoneyAggregates(
     let query = supabase
       .from("payment_sessions")
       .select(
-        "id, status, provider_state, authorised_amount_pence, captured_amount_pence, released_amount_pence, refunded_amount_pence, provider_processing_fee_pence, fee_status, captured_at, released_at, refunded_at, service_area_id",
+        "id, status, provider_state, purpose, payment_method, hold_release_state, fee_status, authorised_amount_pence, captured_amount_pence, released_amount_pence, refunded_amount_pence, provider_processing_fee_pence, captured_at, released_at, refunded_at, trip_id, service_area_id, release_evidence_status",
       )
       .order("created_at", { ascending: false })
       .range(offset, offset + PAGE_SIZE - 1);
@@ -136,6 +177,28 @@ export async function fetchPaymentSessionsMoneyAggregates(
     if (filters.customer_id) query = query.eq("customer_id", filters.customer_id);
     if (filters.provider) query = query.eq("payment_provider", filters.provider);
     if (filters.service_area_id) query = query.eq("service_area_id", filters.service_area_id);
+    if (filters.payment_method) {
+      query = query.ilike("payment_method", filters.payment_method.trim());
+    }
+    if (filters.purpose) query = query.eq("purpose", filters.purpose);
+    if (filters.session_status) query = query.eq("status", filters.session_status);
+    if (filters.provider_state) {
+      query = query.ilike("provider_state", filters.provider_state.trim());
+    }
+    if (filters.has_trip === true) query = query.not("trip_id", "is", null);
+    if (filters.has_trip === false) query = query.is("trip_id", null);
+    if (filters.release_failed === true) {
+      query = query.eq("hold_release_state", "release_failed");
+    }
+    if (filters.recovery_pending === true) {
+      query = query.eq("purpose", "PAYMENT_RECOVERY");
+    }
+    if (filters.capture_failed === true) {
+      query = query.in("status", ["capture_failed", "failed", "PAYMENT_RECOVERY_REQUIRED"]);
+    }
+    if (filters.provider_fees_pending === true) {
+      query = query.or("fee_status.is.null,fee_status.eq.PENDING,fee_status.eq.ESTIMATED");
+    }
     if (filters.date_from) query = query.gte("created_at", filters.date_from);
     if (filters.date_to) {
       const toBound = filters.date_to.length <= 10

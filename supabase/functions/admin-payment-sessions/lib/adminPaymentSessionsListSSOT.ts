@@ -40,7 +40,10 @@ import {
 } from "../../_shared/paymentSessionsCanonicalReadAdapterSSOT.ts";
 import { classifyTripForPlatformCollectedAdminPage } from "../../_shared/financialModelScopeSSOT.ts";
 import { listPaymentHoldsRequiringAttention } from "../../_shared/paymentHoldReconciliationSSOT.ts";
-import { fetchPaymentSessionsMoneyAggregates } from "./adminPaymentSessionsMoneyAggregatesSSOT.ts";
+import {
+  fetchPaymentSessionsMoneyAggregates,
+  moneyAggregateUnsupportedReason,
+} from "./adminPaymentSessionsMoneyAggregatesSSOT.ts";
 import { buildPaymentSessionsTripCompare, buildPsOnlyCompareSummary } from "../../_shared/adminPaymentSessionsTripCompareSSOT.ts";
 import type { PaymentHoldReconciliationRow } from "../../_shared/paymentHoldReconciliation.ts";
 import {
@@ -909,22 +912,13 @@ export async function listAdminPaymentSessions(
       ?? summary.total_customer_revenue_captured_pence,
   };
 
-  // Captured / Released / Refunded / provider fee totals must cover the whole filtered
-  // scope, not the fetched page slice. Aggregate directly over payment_sessions whenever
-  // every active filter can be expressed on that table.
-  const aggregatableScope = !request.purpose
-    && !request.session_status
-    && !request.provider_state
-    && !request.payment_method
-    && request.has_trip === undefined
-    && request.active_hold !== true
-    && request.release_failed !== true
-    && request.recovery_pending !== true
-    && request.legacy_evidence !== true
-    && request.money_at_risk !== true
-    && request.capture_failed !== true
-    && request.provider_fees_pending !== true;
-  if (aggregatableScope) {
+  // Captured / Released / Expected residual / Refunded / fees — whole filtered scope.
+  const unsupportedReason = moneyAggregateUnsupportedReason({
+    active_hold: request.active_hold === true ? true : null,
+    legacy_evidence: request.legacy_evidence === true ? true : null,
+    money_at_risk: request.money_at_risk === true ? true : null,
+  });
+  if (!unsupportedReason) {
     try {
       const money = await fetchPaymentSessionsMoneyAggregates(supabase, {
         allowed_service_area_ids: request.allowed_service_area_ids ?? null,
@@ -936,6 +930,15 @@ export async function listAdminPaymentSessions(
         trip_id: request.trip_id ?? null,
         payment_session_id: request.payment_session_id ?? null,
         provider_order_id: request.provider_order_id ?? null,
+        payment_method: request.payment_method ?? null,
+        purpose: request.purpose ?? null,
+        session_status: request.session_status ?? null,
+        provider_state: request.provider_state ?? null,
+        has_trip: request.has_trip ?? null,
+        release_failed: request.release_failed === true ? true : null,
+        recovery_pending: request.recovery_pending === true ? true : null,
+        capture_failed: request.capture_failed === true ? true : null,
+        provider_fees_pending: request.provider_fees_pending === true ? true : null,
       });
       mergedSummary = {
         ...mergedSummary,
@@ -945,8 +948,10 @@ export async function listAdminPaymentSessions(
         total_customer_revenue_captured_pence: money.captured_total_pence,
         provider_captured_total_pence: money.captured_total_pence,
         released_buffer_total_pence: money.released_buffer_total_pence,
+        expected_residual_release_total_pence: money.expected_residual_release_total_pence,
         refunded_total_pence: money.refunded_total_pence,
         provider_fees_total_pence: money.provider_fees_total_pence,
+        money_totals_unavailable_reason: null,
       };
     } catch (err) {
       // Never keep page-slice money as if it were the filtered scope total.
@@ -956,19 +961,23 @@ export async function listAdminPaymentSessions(
         total_customer_revenue_captured_pence: null,
         provider_captured_total_pence: null,
         released_buffer_total_pence: null,
+        expected_residual_release_total_pence: null,
         refunded_total_pence: null,
         provider_fees_total_pence: null,
+        money_totals_unavailable_reason:
+          "Money totals unavailable — aggregation failed for this scope.",
       };
     }
   } else {
-    // Non-aggregatable filters: page-slice revenue must not masquerade as Captured total.
     mergedSummary = {
       ...mergedSummary,
       total_customer_revenue_captured_pence: null,
       provider_captured_total_pence: null,
       released_buffer_total_pence: null,
+      expected_residual_release_total_pence: null,
       refunded_total_pence: null,
       provider_fees_total_pence: null,
+      money_totals_unavailable_reason: unsupportedReason,
     };
   }
 

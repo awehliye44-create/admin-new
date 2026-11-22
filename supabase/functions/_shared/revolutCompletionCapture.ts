@@ -50,13 +50,11 @@ import { recordPaymentSessionPersistFailureMetadata } from "./walletPostingMisma
 import {
   loadPaymentSession,
   markPaymentSessionCaptured,
-  markPaymentSessionCaptureResidualRelease,
+  safePersistCaptureResidualReleaseEvidence,
   markPaymentSessionCompletedPendingCapture,
-  markPaymentSessionProviderFee,
 } from "./paymentSessionSSOT.ts";
 import { extractConfirmedCaptureAmountPence, extractProviderCaptureId } from "./paymentHoldProviderTerminalPure.ts";
 import { tipCollectedFromConfirmedCapture } from "./tripPaymentFinalised.ts";
-import { extractProviderFeePence } from "./paymentCaptureEvidenceSSOT.ts";
 import {
   ensureShortfallReceivableOrException,
   isWithinReceivablesLedger,
@@ -95,64 +93,40 @@ async function persistPostCaptureResidualReleaseEvidence(args: {
   expected_release_pence: number;
   messageSuffix: string;
 }> {
-  let retrieveSucceeded = false;
-  let providerPayload: Record<string, unknown> | null = null;
-  try {
-    const orderAfter = await retrieveRevolutOrder(
-      args.environment,
-      args.secretKey,
-      args.providerOrderId,
-    );
-    retrieveSucceeded = true;
-    providerPayload = orderAfter as unknown as Record<string, unknown>;
-  } catch (err) {
-    console.warn("[revolutCompletionCapture] post-capture retrieve failed", err);
-  }
-
-  const result = await markPaymentSessionCaptureResidualRelease(args.supabase, {
+  const result = await safePersistCaptureResidualReleaseEvidence({
+    supabase: args.supabase,
     clientActionId: args.clientActionId,
     providerOrderId: args.providerOrderId,
     tripId: args.tripId,
     authorisedHoldPence: args.authorisedHoldPence,
     capturedAmountPence: args.capturedAmountPence,
-    providerPayload,
-    retrieveSucceeded,
     evidenceSource: args.evidenceSource,
-    providerReleaseReference: args.providerOrderId,
+    persistFee: true,
+    retrieveOrder: async (orderId) => {
+      const orderAfter = await retrieveRevolutOrder(
+        args.environment,
+        args.secretKey,
+        orderId,
+      );
+      return orderAfter as unknown as Record<string, unknown>;
+    },
   });
-
-  // Slice 3: persist provider-confirmed fee from post-capture retrieve (never invent £0).
-  try {
-    await markPaymentSessionProviderFee(args.supabase, {
-      clientActionId: args.clientActionId,
-      providerOrderId: args.providerOrderId,
-      providerFeePence: extractProviderFeePence(providerPayload),
-      retrieveSucceeded,
-    });
-  } catch (feeErr) {
-    console.warn("[revolutCompletionCapture] fee persist failed", feeErr);
+  if (!result) {
+    return {
+      release_evidence_status: "PROVIDER_STATE_UNAVAILABLE",
+      released_amount_pence: null,
+      expected_release_pence: Math.max(
+        0,
+        Math.round(args.authorisedHoldPence) - Math.round(args.capturedAmountPence),
+      ),
+      messageSuffix: "",
+    };
   }
-
-  const c = result.classification;
-  let messageSuffix = "";
-  if (c.release_evidence_status === "NOT_REQUIRED") {
-    messageSuffix = "";
-  } else if (c.release_evidence_status === "CONFIRMED" && c.released_amount_pence != null) {
-    messageSuffix = `; residual release confirmed ${c.released_amount_pence}p`;
-  } else if (c.release_evidence_status === "AMOUNT_UNCONFIRMED") {
-    messageSuffix =
-      `; residual authorisation no longer held (expected ${c.expected_release_pence}p, amount unconfirmed)`;
-  } else if (c.release_evidence_status === "PENDING_PROVIDER_CONFIRMATION") {
-    messageSuffix = `; residual release pending provider confirmation (expected ${c.expected_release_pence}p)`;
-  } else if (c.release_evidence_status === "PROVIDER_STATE_UNAVAILABLE") {
-    messageSuffix = `; residual release evidence unavailable (expected ${c.expected_release_pence}p)`;
-  }
-
   return {
-    release_evidence_status: c.release_evidence_status,
-    released_amount_pence: c.released_amount_pence,
-    expected_release_pence: c.expected_release_pence,
-    messageSuffix,
+    release_evidence_status: result.release_evidence_status,
+    released_amount_pence: result.released_amount_pence,
+    expected_release_pence: result.expected_release_pence,
+    messageSuffix: result.messageSuffix,
   };
 }
 
@@ -1010,6 +984,20 @@ export async function executeRevolutTripCompletionCapture(args: {
           farePlusTipPence: finalFarePence,
           requestedTipPence: safeTipPence,
         });
+        const residualSafe = await persistPostCaptureResidualReleaseEvidence({
+          supabase: args.supabase,
+          clientActionId,
+          providerOrderId: orderId,
+          tripId,
+          authorisedHoldPence: authorisedHoldPence,
+          capturedAmountPence: safe.capturePence,
+          environment: merchant.environment,
+          secretKey: merchant.secretKey,
+          evidenceSource: RELEASE_EVIDENCE_SOURCE.REVOLUT_POST_CAPTURE_RETRIEVE,
+        });
+        const safeBaseMsg = safe.shortfallPence > 0
+          ? `Captured ${safe.capturePence}p; remaining shortfall ${safe.shortfallPence}p only`
+          : undefined;
         return capturedWithPosting({
           success: true,
           status: safe.shortfallPence > 0 ? "PARTIAL_CAPTURE_ONLY" : "captured",
@@ -1017,9 +1005,9 @@ export async function executeRevolutTripCompletionCapture(args: {
           provider_order_id: orderId,
           tip_collected_pence: coveredSafe.tipCollectedPence,
           tip_shortfall_pence: coveredSafe.tipShortfallPence,
-          message: safe.shortfallPence > 0
-            ? `Captured ${safe.capturePence}p; remaining shortfall ${safe.shortfallPence}p only`
-            : undefined,
+          message: [safeBaseMsg, residualSafe.messageSuffix.replace(/^; /, "") || null]
+            .filter(Boolean)
+            .join("; ") || undefined,
           ...(shortfallSafety?.manual_review
             ? {
               error_code: RECEIVABLE_PERSISTENCE_UNAVAILABLE,
@@ -1265,6 +1253,17 @@ export async function executeRevolutTripCompletionCapture(args: {
           nextState: "CAPTURED",
         });
         capturedOk = true;
+        const residualRec = await persistPostCaptureResidualReleaseEvidence({
+          supabase: args.supabase,
+          clientActionId,
+          providerOrderId: orderId,
+          tripId,
+          authorisedHoldPence: authorisedHoldPence,
+          capturedAmountPence: decision.captureAmountPence,
+          environment: merchant.environment,
+          secretKey: merchant.secretKey,
+          evidenceSource: RELEASE_EVIDENCE_SOURCE.REVOLUT_ALREADY_CAPTURED_RECONCILE,
+        });
         const covered = tipCoverageFor(decision.captureAmountPence);
         const posting = await ensurePostCaptureSettlement(decision.captureAmountPence);
         return capturedWithPosting({
@@ -1274,7 +1273,9 @@ export async function executeRevolutTripCompletionCapture(args: {
           provider_order_id: orderId,
           tip_collected_pence: covered.tipCollectedPence,
           tip_shortfall_pence: covered.tipShortfallPence,
-          message: "Provider already captured; reconciled without re-capture",
+          message: residualRec.messageSuffix
+            ? `Provider already captured; reconciled without re-capture${residualRec.messageSuffix}`
+            : "Provider already captured; reconciled without re-capture",
         }, posting);
       }
 
@@ -1458,6 +1459,17 @@ export async function executeRevolutTripCompletionCapture(args: {
         nextState: "CAPTURED",
       });
       capturedOk = true;
+      const residualLocked = await persistPostCaptureResidualReleaseEvidence({
+        supabase: args.supabase,
+        clientActionId,
+        providerOrderId: orderId,
+        tripId,
+        authorisedHoldPence: authorisedHoldPence,
+        capturedAmountPence: decision.captureAmountPence,
+        environment: merchant.environment,
+        secretKey: merchant.secretKey,
+        evidenceSource: RELEASE_EVIDENCE_SOURCE.REVOLUT_POST_CAPTURE_RETRIEVE,
+      });
       const posting = await ensurePostCaptureSettlement(decision.captureAmountPence);
       const covered = tipCoverageFor(decision.captureAmountPence);
       return capturedWithPosting({
@@ -1468,6 +1480,9 @@ export async function executeRevolutTripCompletionCapture(args: {
         tip_collected_pence: covered.tipCollectedPence,
         tip_shortfall_pence: covered.tipShortfallPence,
         provider_capture_status: "CAPTURED",
+        message: residualLocked.messageSuffix
+          ? `Captured ${decision.captureAmountPence}p${residualLocked.messageSuffix}`
+          : undefined,
       }, posting);
     } finally {
       if (!capturedOk) {

@@ -376,6 +376,10 @@ export type AdminPaymentSessionsSummary = {
   /** COUNT completed trips with no Payment Sessions row (PS presence, not FR). */
   missing_payment_sessions_count: number;
   released_buffer_total_pence: number | null;
+  /** Expected residual (auth − capture) — audit only; never confirmed released. */
+  expected_residual_release_total_pence?: number | null;
+  /** When money cards cannot aggregate the active filter scope. */
+  money_totals_unavailable_reason?: string | null;
   refunded_total_pence: number | null;
   provider_fees_total_pence: number | null;
   /** SUM trip gross ONECAB commission (settlement) — backend only. */

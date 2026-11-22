@@ -65,6 +65,8 @@ import {
   BOOKING_FAILED_HOLD_RELEASED_CUSTOMER_MESSAGE,
   classifyBookingFinalizeFailure,
 } from "../_shared/bookingFinalizeFailureSSOT.ts";
+import { safePersistCaptureResidualReleaseEvidence } from "../_shared/paymentSessionSSOT.ts";
+import { RELEASE_EVIDENCE_SOURCE } from "../_shared/paymentSessionReleaseEvidenceSSOT.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -1278,6 +1280,42 @@ Deno.serve(async (req) => {
             retrieveSucceeded: true,
             source: "revolut_webhook",
           });
+        }
+        // #75A: stamp residual release evidence from the same GET (never re-capture).
+        try {
+          const { data: residualSession } = await supabase
+            .from("payment_sessions")
+            .select(
+              "id, authorised_amount_pence, total_authorised_amount_pence, captured_amount_pence, release_evidence_status",
+            )
+            .eq("provider_order_id", orderId)
+            .eq("purpose", "RIDE_BOOKING")
+            .maybeSingle();
+          const authHold = Math.round(Number(
+            residualSession?.total_authorised_amount_pence
+              ?? residualSession?.authorised_amount_pence
+              ?? 0,
+          ));
+          const capAmt = Math.round(Number(residualSession?.captured_amount_pence ?? 0));
+          if (residualSession?.id && authHold > 0 && capAmt > 0) {
+            await safePersistCaptureResidualReleaseEvidence({
+              supabase,
+              sessionId: String(residualSession.id),
+              providerOrderId: orderId,
+              tripId: tripId ?? null,
+              authorisedHoldPence: authHold,
+              capturedAmountPence: capAmt,
+              evidenceSource: RELEASE_EVIDENCE_SOURCE.REVOLUT_WEBHOOK,
+              providerPayload: order as Record<string, unknown>,
+              retrieveSucceeded: true,
+              persistFee: false,
+            });
+          }
+        } catch (residualErr) {
+          console.warn(
+            "[revolut-webhook] residual release evidence persist failed (non-fatal):",
+            residualErr instanceof Error ? residualErr.message : String(residualErr),
+          );
         }
       } else {
         console.warn("[revolut-webhook] no merchant secret env; skipping fee hydration");

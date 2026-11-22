@@ -168,8 +168,9 @@ describe('platform collection money display lock', () => {
 
   it('14. PS money chips fail closed when scope is not fully aggregatable', () => {
     const src = read('../supabase/functions/admin-payment-sessions/lib/adminPaymentSessionsListSSOT.ts');
-    expect(src).toContain('page-slice revenue must not masquerade as Captured total');
     expect(src).toContain('money aggregation failed; money chips → null');
+    expect(src).toContain('money_totals_unavailable_reason');
+    expect(src).toContain('moneyAggregateUnsupportedReason');
     expect(src).not.toContain('page-slice totals kept');
   });
 

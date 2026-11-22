@@ -70,6 +70,7 @@ Deno.test("capture status: zero/null PS capture is mismatch not green", () => {
 });
 
 Deno.test("release/refund classifiers preserve unknown amounts", () => {
+  // No provider_state → actionable MISSING_RELEASE (unknown whether residual still held).
   assertEquals(
     classifyReleaseReconciliation({
       authorised_pence: 780,
@@ -77,6 +78,16 @@ Deno.test("release/refund classifiers preserve unknown amounts", () => {
       released_pence: null,
     }),
     "MISSING_RELEASE",
+  );
+  // #75A: terminal COMPLETED residual without amount → unconfirmed, not actionable missing.
+  assertEquals(
+    classifyReleaseReconciliation({
+      authorised_pence: 780,
+      captured_pence: 480,
+      released_pence: null,
+      provider_state: "COMPLETED",
+    }),
+    "RELEASE_AMOUNT_UNCONFIRMED",
   );
   assertEquals(
     classifyReleaseReconciliation({
@@ -289,6 +300,7 @@ Deno.test("PS customer money KPIs: missing capture and release from session fiel
       provider_state: "AUTHORISED",
     },
     {
+      // #75A: terminal CAPTURED residual → RELEASE_AMOUNT_UNCONFIRMED (not actionable missing).
       captured_amount_pence: 480,
       authorised_amount_pence: 780,
       released_amount_pence: null,
@@ -302,9 +314,24 @@ Deno.test("PS customer money KPIs: missing capture and release from session fiel
         },
       },
     },
+    {
+      // Outstanding residual while auth still live → counts as missing/pending release.
+      captured_amount_pence: 400,
+      authorised_amount_pence: 500,
+      released_amount_pence: null,
+      provider_state: "AUTHORISED",
+      metadata: {
+        capture_breakdown: {
+          expected_capture_pence: 400,
+          provider_captured_pence: 400,
+          variance_pence: 0,
+          capture_classification: "CAPTURED_MATCHED",
+        },
+      },
+    },
   ]);
   assertEquals(k.missing_captures_count, 1);
   assertEquals(k.missing_releases_count, 1);
-  assertEquals(k.confirmed_provider_captured_total_pence, 480);
-  assertEquals(k.completed_trip_fare_total_pence, 480);
+  assertEquals(k.confirmed_provider_captured_total_pence, 880);
+  assertEquals(k.completed_trip_fare_total_pence, 880);
 });

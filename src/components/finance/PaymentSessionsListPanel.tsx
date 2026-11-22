@@ -23,6 +23,10 @@ import {
   isPositiveStoredPence,
 } from '@/lib/adminFareComponentDisplay';
 import { PaymentSessionsRowActions } from '@/components/finance/PaymentSessionsRowActions';
+import {
+  expectedResidualReleasePenceForRow,
+  formatReleasedAmountDisplay,
+} from '../../../shared/paymentSessionsDisplaySSOT';
 
 export type PaymentSessionsListPanelProps = {
   rows: AdminPaymentSessionsListRow[];
@@ -49,9 +53,26 @@ export type PaymentSessionsListPanelProps = {
   onRefreshProvider: (row: AdminPaymentSessionsListRow) => void;
 };
 
-/** Released column — never invent £0.00 from capture≥auth inference. */
-function releasedCellDisplay(row: AdminPaymentSessionsListRow): string {
-  return formatNullablePence(row.released_amount_pence);
+/** Released column — SSOT display; expected residual when amount unconfirmed. */
+function releasedCellDisplay(row: AdminPaymentSessionsListRow): {
+  primary: string;
+  secondary: string | null;
+} {
+  const expected = expectedResidualReleasePenceForRow({
+    authorised_amount_pence: row.authorised_amount_pence,
+    captured_amount_pence: row.captured_amount_pence,
+  });
+  return formatReleasedAmountDisplay({
+    released_amount_pence: row.released_amount_pence,
+    released_at: row.released_at,
+    release_evidence_status: row.release_evidence_status,
+    currencyFormatter: (pence) => formatNullablePence(pence),
+    captureConfirmed: row.captured_amount_pence != null
+      && Number(row.captured_amount_pence) > 0,
+    providerState: row.provider_state,
+    capturedAmountPence: row.captured_amount_pence,
+    expectedReleasePence: expected,
+  });
 }
 
 function providerFeeCell(row: AdminPaymentSessionsListRow) {
@@ -204,7 +225,19 @@ export function PaymentSessionsListPanel({
                       {formatNullablePence(row.captured_amount_pence)}
                     </TableCell>
                     <TableCell className="text-xs tabular-nums">
-                      {releasedCellDisplay(row)}
+                      {(() => {
+                        const released = releasedCellDisplay(row);
+                        return (
+                          <div className="space-y-0.5">
+                            <p>{released.primary}</p>
+                            {released.secondary ? (
+                              <p className="text-[10px] text-muted-foreground leading-snug max-w-[11rem]">
+                                {released.secondary}
+                              </p>
+                            ) : null}
+                          </div>
+                        );
+                      })()}
                     </TableCell>
                     <TableCell className="text-xs tabular-nums">
                       {formatNullablePence(row.refunded_amount_pence)}
@@ -310,8 +343,13 @@ export function PaymentSessionsListPanel({
                               <div>
                                 <p className="text-muted-foreground">Released</p>
                                 <p className="tabular-nums font-medium">
-                                  {formatStoredPenceOrUnknown(row.released_amount_pence)}
+                                  {releasedCellDisplay(row).primary}
                                 </p>
+                                {releasedCellDisplay(row).secondary ? (
+                                  <p className="text-[10px] text-muted-foreground">
+                                    {releasedCellDisplay(row).secondary}
+                                  </p>
+                                ) : null}
                               </div>
                               <div>
                                 <p className="text-muted-foreground">Remaining authorised</p>

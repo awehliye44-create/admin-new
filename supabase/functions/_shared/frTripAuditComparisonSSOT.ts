@@ -146,8 +146,18 @@ export function classifyReleaseReconciliation(args: {
   captured_pence: number | null;
   released_pence: number | null;
   release_evidence_status?: string | null;
+  /** Provider order state — terminal COMPLETED/CAPTURED residual ≠ actionable MISSING_RELEASE. */
+  provider_state?: string | null;
 }): ReleaseReconciliationStatus {
   const evidence = String(args.release_evidence_status ?? "").toUpperCase();
+  const providerState = String(args.provider_state ?? "").toUpperCase();
+  const providerTerminalCapture =
+    providerState === "COMPLETED" || providerState === "CAPTURED";
+  const providerAuthStillLive =
+    providerState === "AUTHORISED"
+    || providerState === "AUTHORIZED"
+    || providerState === "PROCESSING";
+
   if (evidence === "NOT_REQUIRED") return "RELEASE_NOT_REQUIRED";
   if (evidence === "AMOUNT_UNCONFIRMED") return "RELEASE_AMOUNT_UNCONFIRMED";
   if (evidence === "CONFIRMED" && args.released_pence != null) {
@@ -177,8 +187,14 @@ export function classifyReleaseReconciliation(args: {
     if (args.released_pence == null || args.released_pence === 0) return "RELEASE_MATCHED";
     return "OVERRELEASE";
   }
-  // Residual expected but no confirmed release amount → MISSING_RELEASE (Slice 5).
-  if (args.released_pence == null) return "MISSING_RELEASE";
+  // Residual expected but no confirmed release amount.
+  if (args.released_pence == null) {
+    // #75A: terminal capture with residual voided → amount unconfirmed, not actionable missing.
+    if (providerTerminalCapture) return "RELEASE_AMOUNT_UNCONFIRMED";
+    // Live authorisation still holding residual → outstanding / pending.
+    if (providerAuthStillLive) return "RELEASE_PENDING";
+    return "MISSING_RELEASE";
+  }
   const variance = args.released_pence - expected;
   if (Math.abs(variance) <= TOLERANCE_PENCE) return "RELEASE_MATCHED";
   if (variance < 0) return "RELEASE_SHORTFALL";
@@ -667,6 +683,7 @@ export function buildFrCustomerMoneyKpisFromPaymentSessions(
       release_evidence_status: s.release_evidence_status != null
         ? String(s.release_evidence_status)
         : null,
+      provider_state: providerState,
     });
     if (
       (

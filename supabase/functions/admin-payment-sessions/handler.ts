@@ -31,6 +31,10 @@ export const AdminPaymentSessionsInputSchema = z.object({
   ),
   refresh_provider_state: z.boolean().optional().default(false),
   inspect_provider_order_id: z.string().nullable().optional(),
+  /** #75A — bounded historical residual-release evidence reconcile (GET + evidence only). */
+  reconcile_release_evidence: z.boolean().optional().default(false),
+  reconcile_release_evidence_limit: z.number().int().min(1).max(100).optional(),
+  reconcile_release_evidence_session_ids: z.array(z.string().uuid()).optional(),
   service_area_id: z.string().uuid().nullable().optional(),
   provider: z.string().nullable().optional(),
   payment_method: z.string().nullable().optional(),
@@ -88,6 +92,8 @@ const DEGRADED_SUMMARY = {
   refund_beyond_gross_overcapture_pence: null,
   missing_payment_sessions_count: 0,
   released_buffer_total_pence: null,
+  expected_residual_release_total_pence: null,
+  money_totals_unavailable_reason: null,
   refunded_total_pence: null,
   provider_fees_total_pence: null,
   gross_onecab_commission_pence: null,
@@ -184,6 +190,18 @@ export async function handleAdminPaymentSessions(
             "Provider Sync Pending — showing last verified database state. Verified values were not overwritten.",
         }, 502);
       }
+    }
+
+    if (parsed.data.reconcile_release_evidence === true) {
+      const { reconcileHistoricalReleaseEvidence } = await import(
+        "./lib/adminPaymentSessionsReleaseEvidenceReconcileSSOT.ts"
+      );
+      const result = await reconcileHistoricalReleaseEvidence({
+        supabase: gate.supabase,
+        limit: parsed.data.reconcile_release_evidence_limit,
+        sessionIds: parsed.data.reconcile_release_evidence_session_ids ?? null,
+      });
+      return jsonResponse(result, result.success ? 200 : 500);
     }
 
     // PIPELINE 1 isolation — Payment Sessions is PLATFORM_COLLECTED only.
