@@ -311,7 +311,22 @@ export async function requireAdminOrStaff(req: Request): Promise<GateResult | Ga
 
   const token = authHeader.replace('Bearer ', '');
   if (token === supabaseServiceKey) {
-    return { ok: true, supabase, userId: 'service-role' };
+    return { ok: true, supabase, userId: 'service-role', actor_role: 'service_role', auth_source: 'service_role_key' };
+  }
+  // Management-API / rotated service JWTs may not equal the injected env string —
+  // verify via admin API (same as cronEdgeAuth), never by decoding role alone.
+  {
+    const { assertCronOrServiceRoleAuth } = await import("./cronEdgeAuth.ts");
+    const serviceAuth = await assertCronOrServiceRoleAuth(req, {});
+    if (serviceAuth.ok) {
+      return {
+        ok: true,
+        supabase,
+        userId: 'service-role',
+        actor_role: 'service_role',
+        auth_source: serviceAuth.source,
+      };
+    }
   }
 
   const { data: { user }, error: authError } = await supabase.auth.getUser(token);
