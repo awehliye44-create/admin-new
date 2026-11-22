@@ -1127,6 +1127,10 @@ export function mapTripToFinancialAuditRow(
     release_evidence_status: session?.release_evidence_status != null
       ? String(session.release_evidence_status)
       : null,
+    // #75A: terminal COMPLETED/CAPTURED residual must not surface as actionable MISSING_RELEASE.
+    provider_state: session?.provider_state != null
+      ? String(session.provider_state)
+      : null,
   });
   const refund_reconciliation_status = classifyRefundReconciliation({
     refunded_pence: refunded,

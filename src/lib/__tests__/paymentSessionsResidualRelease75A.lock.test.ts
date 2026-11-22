@@ -195,6 +195,15 @@ describe('#75A residual release SSOT', () => {
     expect(webhook).toContain('REVOLUT_WEBHOOK');
   });
 
+  it('FR settlement summary passes provider_state into release classifier', () => {
+    const settlement = readFileSync(
+      resolve(__dirname, '../../../supabase/functions/_shared/financeSettlementSummary.ts'),
+      'utf8',
+    );
+    expect(settlement).toContain('classifyReleaseReconciliation({');
+    expect(settlement).toMatch(/provider_state:\s*session\?\.provider_state/);
+  });
+
   it('Admin UI uses formatReleasedAmountDisplay + Expected residual card', () => {
     const list = readFileSync(
       resolve(__dirname, '../../../src/components/finance/PaymentSessionsListPanel.tsx'),
