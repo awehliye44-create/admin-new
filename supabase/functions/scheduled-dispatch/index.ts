@@ -53,6 +53,7 @@ import {
   expireTripWhenSearchExhaustedAndNotifyCustomer,
   notifyCustomerTripLifecycle,
 } from "../_shared/customerTripLifecycleNotify.ts";
+import { claimAndNotifyScheduledTrafficDelay } from "../_shared/customerTrafficDelayNotify.ts";
 import { notifyScheduledMarketplaceOpen } from "../_shared/scheduledMarketplaceNotifySSOT.ts";
 import { broadcastScheduledMarketplaceChanged } from "../_shared/scheduledMarketplaceRealtimeBroadcastSSOT.ts";
 import {
@@ -79,7 +80,6 @@ import {
 import {
   shouldSurfacePostActivationLateness,
   buildPostActivationLatenessOpsAlert,
-  buildTrafficDelayNotificationId,
 } from "./lib/scheduledPostActivationLatenessSSOT.ts";
 import {
   isScheduledEarlyArrivalDueForUnlock,
@@ -1142,7 +1142,7 @@ Deno.serve(async (req) => {
 
     // ============================================================
     // STEP 1z: Post–Heading to Pickup lateness / stale GPS (D6)
-    // Never auto-reassign. Ops alert + deduped traffic_delay only.
+    // Never auto-reassign. Ops alert + ONE-SHOT traffic_delay (#79A ledger).
     // ============================================================
     {
       const { data: enRouteLateRows } = await supabase
@@ -1205,14 +1205,14 @@ Deno.serve(async (req) => {
         } catch (opsErr) {
           console.warn("[scheduled-dispatch] lateness ops_alert failed", opsErr);
         }
+        // #79A: durable claim — remaining-late cron ticks must not re-push.
         if (verdict.lateVsPickup && row.passenger_id) {
-          void notifyCustomerTripLifecycle(supabase, {
-            passengerId: row.passenger_id,
+          void claimAndNotifyScheduledTrafficDelay(supabase, {
             tripId: row.id,
-            event: "traffic_delay",
-            title: "Traffic Update",
-            body: "Your driver is running late — still on the way to pick you up.",
-            notificationId: buildTrafficDelayNotificationId(row.id),
+            passengerId: String(row.passenger_id),
+            status: row.status,
+            scheduledStatus: row.scheduled_status,
+            nowMs,
           }).catch((e) =>
             console.warn("[scheduled-dispatch] traffic_delay notify failed:", e)
           );

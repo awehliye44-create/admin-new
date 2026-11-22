@@ -12,7 +12,9 @@
  * - FCM HTTP v1 API for iOS (APNs via FCM)
  * - Android notification channels
  * - iOS critical alerts / categories
- * - Deduplication via notificationId
+ * - Android notification tag + APNs collapse-id use notificationId (presentation only).
+ * - Durable send-once for scheduled traffic_delay is owned by
+ *   customer_trip_notification_deliveries (#79A) — not this tag alone.
  */
 
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
@@ -35,6 +37,7 @@ import {
   getFcmHttpV1AccessToken,
   readFcmServiceAccountJson,
 } from "../_shared/fcmHttpV1.ts";
+import { TRAFFIC_DELAY_DEDUPE_PREFIX } from "../scheduled-dispatch/lib/scheduledPostActivationLatenessSSOT.ts";
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
@@ -64,7 +67,10 @@ interface SendTripNotificationRequest {
   /** Intermediate stop index (hint only). */
   stopIndex?: number;
   stop_index?: number;
-  /** Stable dedupe id (trip + event + version) */
+  /**
+   * Stable event id — used as Android tag + APNs collapse-id.
+   * Scheduled traffic_delay also requires a durable ledger claim (#79A).
+   */
   notificationId?: string;
 }
 
@@ -254,11 +260,17 @@ async function sendFCMv1(
       // Wake JS for hydrate when OS allows (background task / content-available).
       apsPayload['content-available'] = 1;
     }
+    const apnsHeaders: Record<string, string> = {
+      'apns-priority': priority === 'high' ? '10' : '5',
+      'apns-push-type': 'alert',
+    };
+    // Event-scoped collapse (secondary to durable backend idempotency).
+    const collapseId = String(data.notificationId || '').trim();
+    if (collapseId) {
+      apnsHeaders['apns-collapse-id'] = collapseId.slice(0, 64);
+    }
     (message as any).apns = {
-      headers: {
-        'apns-priority': priority === 'high' ? '10' : '5',
-        'apns-push-type': 'alert',
-      },
+      headers: apnsHeaders,
       payload: {
         aps: apsPayload,
       },
@@ -342,6 +354,65 @@ serve(async (req) => {
     if (fareDisplay) notifBody = notifBody.replace('{fare}', fareDisplay);
 
     const notificationId = body.notificationId || `${event}-${tripId}`;
+
+    // #79A defense: scheduled traffic_delay must have a durable claim in
+    // customer_trip_notification_deliveries. Terminal rows never re-send.
+    const isScheduledTrafficDelay =
+      event === "traffic_delay" &&
+      notificationId.startsWith(TRAFFIC_DELAY_DEDUPE_PREFIX);
+    if (isScheduledTrafficDelay) {
+      const supabaseGuard = createClient(supabaseUrl, supabaseServiceKey);
+      const { data: delivery } = await supabaseGuard
+        .from("customer_trip_notification_deliveries")
+        .select("id, status")
+        .eq("notification_id", notificationId)
+        .maybeSingle();
+      const deliveryStatus = String(delivery?.status ?? "").toLowerCase();
+      if (!delivery?.id) {
+        console.warn(
+          `[TripNotif] Refusing scheduled traffic_delay without ledger claim: ${notificationId}`,
+        );
+        return new Response(
+          JSON.stringify({
+            success: true,
+            sent: 0,
+            failed: 0,
+            event,
+            tripId,
+            reason: "missing_delivery_claim",
+          }),
+          {
+            status: 200,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          },
+        );
+      }
+      if (
+        deliveryStatus === "sent" ||
+        deliveryStatus === "skipped" ||
+        deliveryStatus === "ambiguous"
+      ) {
+        console.log(
+          `[TripNotif] Skip scheduled traffic_delay — ledger ${deliveryStatus}: ${notificationId}`,
+        );
+        return new Response(
+          JSON.stringify({
+            success: true,
+            sent: 0,
+            failed: 0,
+            event,
+            tripId,
+            reason: `already_${deliveryStatus}`,
+          }),
+          {
+            status: 200,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          },
+        );
+      }
+      // status sending | failed — allow (caller owns reclaim → sending).
+    }
+
     const channelId = customerAndroidChannelIdForEvent(event);
     const androidSound = customerAndroidSoundForEvent(event);
     const iosSound = customerIosSoundFileForEvent(event);

@@ -247,6 +247,8 @@ Deno.test("D6: scheduled-dispatch STEP 1z gates live en_route + terminal exclude
   assert(dispatch.includes('.in("status", ["en_route_to_pickup", "en_route"])'));
   assert(dispatch.includes("TERMINAL_TRIP_STATUS_POSTGREST_LIST"));
   assert(dispatch.includes("isTripTerminalForDispatch(row)"));
+  // #79A — durable one-shot claim (not raw notifyCustomerTripLifecycle flood).
+  assert(dispatch.includes("claimAndNotifyScheduledTrafficDelay"));
 });
 
 Deno.test("D7: accident/breakdown reason preserved helpers", () => {

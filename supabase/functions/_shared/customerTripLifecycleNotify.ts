@@ -274,6 +274,13 @@ function serviceRoleNotifyHeaders(serviceRoleKey: string): Record<string, string
  * invokeAutoDispatchWithServiceRole) — never `functions.invoke` from a
  * Driver/Customer-authenticated Edge request.
  */
+export type NotifyCustomerTripLifecycleResult = {
+  httpOk: boolean;
+  sent: number | null;
+  reason: string | null;
+  skipped?: boolean;
+};
+
 export async function notifyCustomerTripLifecycle(
   _supabase: InvokeClient,
   input: {
@@ -292,10 +299,12 @@ export async function notifyCustomerTripLifecycle(
     /** Override deep-link path (e.g. scheduled preconfirm → /account/rides). */
     path?: string | null;
   },
-): Promise<void> {
+): Promise<NotifyCustomerTripLifecycleResult> {
   const userId = (input.userId ?? input.passengerId ?? "").trim();
   const tripId = input.tripId.trim();
-  if (!userId || !tripId) return;
+  if (!userId || !tripId) {
+    return { httpOk: false, sent: null, reason: "missing_ids", skipped: true };
+  }
   const event = canonicalizeCustomerTripNotificationEvent(input.event);
   const stopIndex =
     typeof input.stopIndex === "number" && Number.isFinite(input.stopIndex)
@@ -315,7 +324,7 @@ export async function notifyCustomerTripLifecycle(
       stop_index: stopIndex,
       message: "SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY missing",
     });
-    return;
+    return { httpOk: false, sent: null, reason: "missing_env" };
   }
 
   const body: Record<string, unknown> = {
@@ -353,6 +362,9 @@ export async function notifyCustomerTripLifecycle(
       }
     }
 
+    const sent = typeof parsed?.sent === "number" ? parsed.sent : null;
+    const reason = typeof parsed?.reason === "string" ? parsed.reason : null;
+
     if (!response.ok) {
       console.warn("[notifyCustomerTripLifecycle] send-trip-notification failed", {
         event,
@@ -363,18 +375,18 @@ export async function notifyCustomerTripLifecycle(
           ? parsed.error
           : rawText.slice(0, 200) || `HTTP ${response.status}`,
       });
-      return;
+      return { httpOk: false, sent, reason: reason ?? "http_not_ok" };
     }
 
-    const sent = typeof parsed?.sent === "number" ? parsed.sent : null;
     console.log("[customer_trip_lifecycle_emitted]", {
       event,
       trip_id: tripId,
       stop_index: stopIndex,
       http_status: response.status,
       sent,
-      reason: typeof parsed?.reason === "string" ? parsed.reason : null,
+      reason,
     });
+    return { httpOk: true, sent, reason };
   } catch (error) {
     console.warn("[notifyCustomerTripLifecycle] send-trip-notification failed", {
       event,
@@ -382,6 +394,7 @@ export async function notifyCustomerTripLifecycle(
       stop_index: stopIndex,
       message: error instanceof Error ? error.message : String(error),
     });
+    return { httpOk: false, sent: null, reason: "fetch_threw" };
   } finally {
     // Independent of alert delivery — Live Trip projection fanout is best-effort.
     publishCustomerLiveTripBestEffort(tripId);
