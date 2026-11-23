@@ -1,0 +1,1 @@
+ALTER TABLE public.driver_compliance_audit_log ALTER COLUMN created_at SET DEFAULT clock_timestamp();

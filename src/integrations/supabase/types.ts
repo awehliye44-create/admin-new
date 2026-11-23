@@ -8466,6 +8466,48 @@ export type Database = {
           },
         ]
       }
+      driver_compliance_audit_log: {
+        Row: {
+          action: string
+          actor_kind: string
+          actor_name: string | null
+          actor_user_id: string | null
+          changes: Json
+          created_at: string
+          driver_id: string | null
+          entity_id: string
+          entity_label: string | null
+          entity_type: string
+          id: string
+        }
+        Insert: {
+          action: string
+          actor_kind: string
+          actor_name?: string | null
+          actor_user_id?: string | null
+          changes?: Json
+          created_at?: string
+          driver_id?: string | null
+          entity_id: string
+          entity_label?: string | null
+          entity_type: string
+          id?: string
+        }
+        Update: {
+          action?: string
+          actor_kind?: string
+          actor_name?: string | null
+          actor_user_id?: string | null
+          changes?: Json
+          created_at?: string
+          driver_id?: string | null
+          entity_id?: string
+          entity_label?: string | null
+          entity_type?: string
+          id?: string
+        }
+        Relationships: []
+      }
       driver_demand_zones: {
         Row: {
           active: boolean
@@ -32336,6 +32378,11 @@ export type Database = {
       driver_commission_wallet_usable_balance_minor: {
         Args: { p_driver_id: string; p_service_area_id: string }
         Returns: number
+      }
+      driver_compliance_audit_actor: { Args: { p_uid: string }; Returns: Json }
+      driver_compliance_audit_diff: {
+        Args: { p_keys: string[]; p_new: Json; p_old: Json }
+        Returns: Json
       }
       driver_compliance_today_london: { Args: never; Returns: string }
       driver_demand_zone_geometry_is_valid: {
