@@ -21,6 +21,7 @@ const ACTIONS: Record<string, { label: string; tone: BadgeTone }> = {
   change_rejected: { label: 'Change rejected', tone: 'destructive' },
   change_cancelled: { label: 'Change cancelled', tone: 'outline' },
   change_updated: { label: 'Change request edited', tone: 'outline' },
+  restored: { label: 'Restored', tone: 'outline' },
 };
 
 export function describeAuditAction(action: string): { label: string; tone: BadgeTone } {
@@ -66,4 +67,30 @@ export function formatAuditChangeValue(field: string, value: unknown): string {
     return value.slice(0, 8);
   }
   return String(value);
+}
+
+export interface AuditActorFields {
+  actor_kind: string;
+  actor_name: string | null;
+  actor_username: string | null;
+  actor_user_id: string | null;
+  source: string;
+}
+
+const KIND_LABELS: Record<string, string> = {
+  staff: 'Staff',
+  admin: 'Admin',
+  driver: 'Driver',
+  user: 'User',
+};
+
+/** "ONECAB Administrator (@admin) · Staff", "Mohamed Handule · Driver", "System". */
+export function describeAuditActor(row: AuditActorFields): string {
+  if (!row.actor_user_id) {
+    return row.source === 'backfill' ? 'Not recorded' : 'System';
+  }
+  const name = row.actor_name || 'Unknown';
+  const username = row.actor_username ? ` (@${row.actor_username})` : '';
+  const kind = KIND_LABELS[row.actor_kind];
+  return `${name}${username}${kind ? ` · ${kind}` : ''}`;
 }

@@ -7,6 +7,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
   describeAuditAction,
+  describeAuditActor,
   formatAuditChangeValue,
   labelAuditField,
   type ComplianceAuditEntityFilter,
@@ -21,6 +22,9 @@ interface AuditRow {
   changes: Record<string, { from: unknown; to: unknown }> | null;
   actor_kind: string;
   actor_name: string | null;
+  actor_username: string | null;
+  actor_user_id: string | null;
+  source: string;
   created_at: string;
 }
 
@@ -38,7 +42,7 @@ export function DriverComplianceAuditLog({ driverId }: { driverId: string }) {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('driver_compliance_audit_log')
-        .select('id, entity_type, entity_id, entity_label, action, changes, actor_kind, actor_name, created_at')
+        .select('id, entity_type, entity_id, entity_label, action, changes, actor_kind, actor_name, actor_username, actor_user_id, source, created_at')
         .eq('driver_id', driverId)
         .order('created_at', { ascending: false })
         .limit(500);
@@ -113,8 +117,10 @@ export function DriverComplianceAuditLog({ driverId }: { driverId: string }) {
                   </span>
                 </div>
                 <p className="text-xs text-muted-foreground">
-                  By {row.actor_name || 'Unknown'}
-                  {row.actor_kind !== 'system' && ` (${row.actor_kind})`}
+                  By <span className="font-medium text-foreground">{describeAuditActor(row)}</span>
+                  {row.source === 'backfill' && (
+                    <Badge variant="outline" className="ml-2 text-[10px]">From earlier records</Badge>
+                  )}
                 </p>
                 {changes.length > 0 && (
                   <ul className="text-xs space-y-1 bg-muted/50 rounded p-2">

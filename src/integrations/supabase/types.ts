@@ -8472,6 +8472,7 @@ export type Database = {
           actor_kind: string
           actor_name: string | null
           actor_user_id: string | null
+          actor_username: string | null
           changes: Json
           created_at: string
           driver_id: string | null
@@ -8479,12 +8480,14 @@ export type Database = {
           entity_label: string | null
           entity_type: string
           id: string
+          source: string
         }
         Insert: {
           action: string
           actor_kind: string
           actor_name?: string | null
           actor_user_id?: string | null
+          actor_username?: string | null
           changes?: Json
           created_at?: string
           driver_id?: string | null
@@ -8492,12 +8495,14 @@ export type Database = {
           entity_label?: string | null
           entity_type: string
           id?: string
+          source?: string
         }
         Update: {
           action?: string
           actor_kind?: string
           actor_name?: string | null
           actor_user_id?: string | null
+          actor_username?: string | null
           changes?: Json
           created_at?: string
           driver_id?: string | null
@@ -8505,6 +8510,7 @@ export type Database = {
           entity_label?: string | null
           entity_type?: string
           id?: string
+          source?: string
         }
         Relationships: []
       }
