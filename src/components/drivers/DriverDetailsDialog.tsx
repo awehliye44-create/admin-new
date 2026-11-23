@@ -1015,7 +1015,14 @@ export function DriverDetailsDialog({
                               <div key={item.slug} className="flex items-center justify-between p-3 border rounded-lg">
                                 <div className="flex items-center gap-3">
                                   <FileText className="h-4 w-4 text-muted-foreground" />
-                                  <span className="text-sm font-medium">{item.name}</span>
+                                  <div>
+                                    <span className="text-sm font-medium">{item.name}</span>
+                                    <p className="text-xs text-muted-foreground">
+                                      {item.doc?.expiry_date
+                                        ? `Expires ${new Date(`${item.doc.expiry_date}T00:00:00`).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}`
+                                        : 'No expiry date'}
+                                    </p>
+                                  </div>
                                 </div>
                                 <div className="flex items-center gap-2">
                                   {item.fileUrl && (
