@@ -5118,6 +5118,83 @@ export type Database = {
         }
         Relationships: []
       }
+      customer_trip_notification_deliveries: {
+        Row: {
+          attempts: number
+          created_at: string
+          error_message: string | null
+          event: string
+          id: string
+          metadata: Json
+          notification_id: string
+          passenger_id: string | null
+          provider_message_id: string | null
+          skipped_reason: string | null
+          status: string
+          trip_id: string | null
+          updated_at: string
+        }
+        Insert: {
+          attempts?: number
+          created_at?: string
+          error_message?: string | null
+          event: string
+          id?: string
+          metadata?: Json
+          notification_id: string
+          passenger_id?: string | null
+          provider_message_id?: string | null
+          skipped_reason?: string | null
+          status: string
+          trip_id?: string | null
+          updated_at?: string
+        }
+        Update: {
+          attempts?: number
+          created_at?: string
+          error_message?: string | null
+          event?: string
+          id?: string
+          metadata?: Json
+          notification_id?: string
+          passenger_id?: string | null
+          provider_message_id?: string | null
+          skipped_reason?: string | null
+          status?: string
+          trip_id?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "customer_trip_notification_deliveries_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "admin_trip_lifecycle_fees"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "customer_trip_notification_deliveries_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "available_scheduled_jobs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "customer_trip_notification_deliveries_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "trips"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "customer_trip_notification_deliveries_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "v_payment_lifecycle_audit"
+            referencedColumns: ["trip_id"]
+          },
+        ]
+      }
       customer_wallet_ledger: {
         Row: {
           amount_pence: number
