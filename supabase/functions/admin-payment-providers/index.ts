@@ -221,11 +221,23 @@ serve(async (req) => {
 
       if (error) throw error;
 
-      const providers = await Promise.all(
-        (configs ?? [])
-          .filter((c) => SUPPORTED_PAYMENT_PROVIDER_IDS.includes(c.provider as PaymentProviderId))
-          .map((c) => buildProviderCard(supabase, c)),
+      // Authoritative registry filter only — disabled / not_configured stubs stay visible.
+      // Do not filter by is_enabled or readiness (SA assignment gates live elsewhere).
+      const supportedConfigs = (configs ?? []).filter((c) =>
+        SUPPORTED_PAYMENT_PROVIDER_IDS.includes(c.provider as PaymentProviderId),
       );
+      const providers = (
+        await Promise.all(
+          supportedConfigs.map(async (c) => {
+            try {
+              return await buildProviderCard(supabase, c);
+            } catch (cardErr) {
+              console.error("buildProviderCard failed", c.provider, cardErr);
+              return null;
+            }
+          }),
+        )
+      ).filter((p): p is Awaited<ReturnType<typeof buildProviderCard>> => p != null);
 
       const active = providers.find((p) => p.is_primary && p.is_enabled)
         ?? providers.find((p) => p.is_enabled && p.provider === "revolut")

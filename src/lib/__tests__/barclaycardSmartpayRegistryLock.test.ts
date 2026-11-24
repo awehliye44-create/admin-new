@@ -65,12 +65,27 @@ describe('Barclaycard Smartpay registry lock', () => {
     expect(edge).toMatch(/barclaycard_smartpay:\s*\{\}/);
     expect(edge).toMatch(/barclaycard_smartpay:\s*\[\]/);
     expect(edge).not.toContain('BARCLAYCARD_SMARTPAY_SECRET');
+    // admin-payment-providers GET filters by this list — undeployed Edge omits the card.
+    const supported = edge.slice(
+      edge.indexOf('SUPPORTED_PAYMENT_PROVIDER_IDS'),
+      edge.indexOf('PROVIDER_SECRET_FIELD_LABELS'),
+    );
+    expect(supported).toContain('"barclaycard_smartpay"');
+    expect(supported).toContain('"revolut"');
   });
 
   it('adapter factory never constructs Barclaycard', () => {
     const factory = readSrc('supabase/functions/_shared/paymentProviders/index.ts');
     expect(factory).toContain('provider !== "revolut"');
     expect(factory).not.toContain('barclaycard');
+  });
+
+  it('admin-payment-providers GET uses shared SUPPORTED registry (no separate filter that drops stubs)', () => {
+    const edgeAdmin = readSrc('supabase/functions/admin-payment-providers/index.ts');
+    expect(edgeAdmin).toContain('SUPPORTED_PAYMENT_PROVIDER_IDS.includes(c.provider as PaymentProviderId)');
+    expect(edgeAdmin).toContain('disabled / not_configured stubs stay visible');
+    // Visibility must not require is_enabled — disabled stubs remain listed.
+    expect(edgeAdmin).not.toMatch(/\.filter\(\(c\)\s*=>\s*c\.is_enabled\)/);
   });
 
   it('service-area assignment excludes Barclaycard until readiness', () => {
