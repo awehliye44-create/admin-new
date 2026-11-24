@@ -42,7 +42,7 @@ describe('Barclaycard Smartpay registry lock', () => {
     expect([...LIVE_DRIVER_PAYOUT_PROVIDERS]).toEqual(['revolut']);
   });
 
-  it('migration seeds disabled test-mode non-primary stub', () => {
+  it('migration seeds disabled test-mode non-primary stub with backend gates', () => {
     const migration = readSrc(
       'supabase/migrations/20270228130000_barclaycard_smartpay_payment_provider_registry.sql',
     );
@@ -53,6 +53,10 @@ describe('Barclaycard Smartpay registry lock', () => {
     expect(migration).toMatch(/false,\s*\n\s*false,\s*\n\s*false,\s*\n\s*false/);
     expect(migration).toContain('supports_customer_payments = false');
     expect(migration).toContain('supports_driver_payouts = false');
+    expect(migration).toContain('enforce_barclaycard_smartpay_readiness_stub');
+    expect(migration).toContain('barclaycard_smartpay_not_ready');
+    expect(migration).toContain('payment_provider_not_assignable');
+    expect(migration).toContain('sync_service_area_payment_provider');
   });
 
   it('Edge registry mirrors Admin and excludes speculative credential map', () => {
