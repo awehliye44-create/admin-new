@@ -71,6 +71,8 @@ interface ServiceAreaPaymentGatewayConfigProps {
 
 const UNSET_VALUE = '__unset__';
 
+/** Assignable service-area providers. Barclaycard Smartpay is intentionally omitted until
+ *  booking/payout adapters + readiness checks pass (Payment Providers registry only). */
 const SUPPORTED_PROVIDERS = new Set([
   'sifalo_pay',
   'waafi_pay',

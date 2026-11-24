@@ -11,6 +11,7 @@ export const SUPPORTED_PAYMENT_PROVIDER_IDS: PaymentProviderId[] = [
   "hubtel",
   "dpo_pay",
   "noda",
+  "barclaycard_smartpay",
   "revolut",
 ];
 
@@ -36,6 +37,8 @@ export const PROVIDER_SECRET_FIELDS: Record<PaymentProviderId, ProviderSecretNam
   hubtel: ["publishable_key", "secret_key", "webhook_secret"],
   dpo_pay: ["publishable_key", "secret_key", "webhook_secret", "merchant_id"],
   noda: ["publishable_key", "secret_key", "webhook_secret", "merchant_id"],
+  // No speculative Smartpay credential schema until official merchant docs.
+  barclaycard_smartpay: [],
   revolut: ["publishable_key", "secret_key", "webhook_secret", "merchant_id", "business_access_token"],
 };
 
@@ -117,6 +120,7 @@ export const PROVIDER_SECRET_FIELD_LABELS: Record<PaymentProviderId, ProviderSec
     webhook_secret: "Webhook secret",
     merchant_id: "Merchant / account ID",
   },
+  barclaycard_smartpay: {},
   revolut: {
     publishable_key: "Production API Public key (pk_…)",
     secret_key: "Production API Secret key (sk_…) — customer payments",

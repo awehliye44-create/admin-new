@@ -1,47 +1,23 @@
-import { useQuery } from "@tanstack/react-query";
 import { Activity, Code, Key, Link2 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { supabase } from "@/integrations/supabase/client";
+import type { PaymentProviderCard } from "@/hooks/usePaymentProviders";
 
-interface IntegrationRow {
-  id: string;
-  status: string;
-}
+type Props = {
+  /** Authoritative Payment Providers registry cards (not legacy admin_settings). */
+  providers?: PaymentProviderCard[] | null;
+  isLoading?: boolean;
+};
 
-interface ApiKeyRow {
-  id: string;
-  is_active: boolean;
-}
-
-export function IntegrationsOverviewCards() {
-  const { data: integrations = [] } = useQuery({
-    queryKey: ["integrations"],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("admin_settings")
-        .select("setting_key, setting_value")
-        .eq("setting_key", "integrations")
-        .single();
-      if (error && error.code !== "PGRST116") throw error;
-      return (data?.setting_value as unknown as IntegrationRow[]) || [];
-    },
-  });
-
-  const { data: apiKeys = [] } = useQuery({
-    queryKey: ["api-keys"],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("admin_settings")
-        .select("setting_key, setting_value")
-        .eq("setting_key", "api_keys")
-        .single();
-      if (error && error.code !== "PGRST116") throw error;
-      return (data?.setting_value as unknown as ApiKeyRow[]) || [];
-    },
-  });
-
-  const activeIntegrations = integrations.filter((i) => i.status === "active").length;
-  const activeApiKeys = apiKeys.filter((k) => k.is_active).length;
+/**
+ * Overview counters for Settings → Payment Providers.
+ * Source of truth: `payment_provider_configs` via admin-payment-providers cards.
+ * Legacy `admin_settings.integrations` / `api_keys` JSON is unrelated and must not drive these figures.
+ */
+export function IntegrationsOverviewCards({ providers = [], isLoading = false }: Props) {
+  const list = providers ?? [];
+  const enabledCount = list.filter((p) => p.is_enabled).length;
+  const apiKeysAdded = list.filter((p) => p.api_key_status === "added").length;
+  const primary = list.find((p) => p.is_primary);
 
   return (
     <div className="grid gap-4 md:grid-cols-4">
@@ -51,8 +27,11 @@ export function IntegrationsOverviewCards() {
           <Link2 className="h-4 w-4 text-muted-foreground" />
         </CardHeader>
         <CardContent>
-          <div className="text-2xl font-bold">{integrations.length}</div>
-          <p className="text-xs text-muted-foreground">{activeIntegrations} active</p>
+          <div className="text-2xl font-bold">{isLoading ? "—" : list.length}</div>
+          <p className="text-xs text-muted-foreground">
+            {isLoading ? "Loading…" : `${enabledCount} enabled`}
+            {!isLoading && primary ? ` · primary ${primary.display_name}` : ""}
+          </p>
         </CardContent>
       </Card>
       <Card>
@@ -61,8 +40,10 @@ export function IntegrationsOverviewCards() {
           <Key className="h-4 w-4 text-muted-foreground" />
         </CardHeader>
         <CardContent>
-          <div className="text-2xl font-bold">{apiKeys.length}</div>
-          <p className="text-xs text-muted-foreground">{activeApiKeys} active</p>
+          <div className="text-2xl font-bold">{isLoading ? "—" : apiKeysAdded}</div>
+          <p className="text-xs text-muted-foreground">
+            {isLoading ? "Loading…" : `${apiKeysAdded} with credentials stored`}
+          </p>
         </CardContent>
       </Card>
       <Card>

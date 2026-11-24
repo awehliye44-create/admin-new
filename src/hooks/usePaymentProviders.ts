@@ -16,6 +16,7 @@ export type PaymentProviderId =
   | "hubtel"
   | "dpo_pay"
   | "noda"
+  | "barclaycard_smartpay"
   | "revolut";
 
 export type ProviderEnvironment = "test" | "live";

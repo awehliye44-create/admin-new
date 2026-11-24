@@ -55,7 +55,10 @@ export default function PaymentProviders() {
           </p>
         </div>
 
-        <IntegrationsOverviewCards />
+        <IntegrationsOverviewCards
+          providers={data?.providers}
+          isLoading={isLoading}
+        />
 
         {isLoading ? (
           <div className="flex items-center justify-center py-12">
