@@ -31,6 +31,13 @@ describe('admin customerPaymentWorkflow', () => {
     expect(resolveProviderBookingAdapterStatus('checkout_com', true)).toBe('not_implemented');
   });
 
+  it('keeps Barclaycard Smartpay off live booking/payout adapters', () => {
+    expect(isCustomerBookingAdapterLive('barclaycard_smartpay')).toBe(false);
+    expect(resolveProviderBookingAdapterStatus('barclaycard_smartpay', false, false)).toBe(
+      'not_configured',
+    );
+  });
+
   it('respects mobile wallet allowlist', () => {
     expect(normalizeMobileWalletMethods('sifalo_pay', ['evc_plus', 'zaad'])).toEqual([
       'evc_plus',

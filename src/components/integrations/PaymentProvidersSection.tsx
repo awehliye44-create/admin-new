@@ -69,6 +69,7 @@ const PROVIDER_ICONS: Record<PaymentProviderId, string> = {
   hubtel: "🇬🇭",
   dpo_pay: "🌍",
   noda: "🏦",
+  barclaycard_smartpay: "💳",
   revolut: "💷",
 };
 
@@ -167,8 +168,13 @@ function SecretsDialog({
     "merchant_id",
   ];
   const labels = PROVIDER_SECRET_FIELD_LABELS[provider.provider] ?? {};
+  const secretsUnavailable = fields.length === 0;
 
   const handleSave = () => {
+    if (secretsUnavailable) {
+      onOpenChange(false);
+      return;
+    }
     onSave(values);
     setValues({});
     onOpenChange(false);
@@ -184,37 +190,53 @@ function SecretsDialog({
         <DialogHeader>
           <DialogTitle>Edit {provider.display_name} secrets</DialogTitle>
           <DialogDescription>
-            Secrets are stored securely server-side. Only masked values are shown in the admin UI.
-            Leave fields blank to keep existing values.
+            {secretsUnavailable
+              ? "Credential schema is not available yet. Official merchant documentation is required before API secrets can be stored."
+              : "Secrets are stored securely server-side. Only masked values are shown in the admin UI. Leave fields blank to keep existing values."}
           </DialogDescription>
         </DialogHeader>
-        <div className="space-y-4">
-          {fields.map((fieldName) => {
-            const label = labels[fieldName] ?? fieldName;
-            const isSecret = fieldName === "secret_key" || fieldName === "webhook_secret";
-            const masked = provider.secrets?.[fieldName as keyof typeof provider.secrets];
-            return (
-              <div key={fieldName} className="space-y-2">
-                <Label>
-                  {label} ({mode})
-                </Label>
-                <Input
-                  type={isSecret ? "password" : "text"}
-                  placeholder={masked ?? `${label}…`}
-                  value={values[fieldName] ?? ""}
-                  onChange={(e) => setField(fieldName, e.target.value)}
-                  autoComplete={isSecret ? "new-password" : "off"}
-                />
-              </div>
-            );
-          })}
-        </div>
+        {secretsUnavailable ? (
+          <Alert>
+            <Shield className="h-4 w-4" />
+            <AlertTitle>Configuration readiness only</AlertTitle>
+            <AlertDescription>
+              No speculative Smartpay credential fields are exposed. Booking and payout adapters remain
+              not configured until adapters ship and merchant approval is granted.
+            </AlertDescription>
+          </Alert>
+        ) : (
+          <div className="space-y-4">
+            {fields.map((fieldName) => {
+              const label = labels[fieldName] ?? fieldName;
+              const isSecret = fieldName === "secret_key" || fieldName === "webhook_secret";
+              const masked = provider.secrets?.[fieldName as keyof typeof provider.secrets];
+              return (
+                <div key={fieldName} className="space-y-2">
+                  <Label>
+                    {label} ({mode})
+                  </Label>
+                  <Input
+                    type={isSecret ? "password" : "text"}
+                    placeholder={masked ?? `${label}…`}
+                    value={values[fieldName] ?? ""}
+                    onChange={(e) => setField(fieldName, e.target.value)}
+                    autoComplete={isSecret ? "new-password" : "off"}
+                  />
+                </div>
+              );
+            })}
+          </div>
+        )}
         <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
-          <Button onClick={handleSave} disabled={isSaving}>
-            {isSaving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-            Save secrets
+          <Button variant="outline" onClick={() => onOpenChange(false)}>
+            {secretsUnavailable ? "Close" : "Cancel"}
           </Button>
+          {!secretsUnavailable && (
+            <Button onClick={handleSave} disabled={isSaving}>
+              {isSaving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              Save secrets
+            </Button>
+          )}
         </DialogFooter>
       </DialogContent>
     </Dialog>
@@ -238,6 +260,11 @@ function ProviderCard({
   onEditSecrets: () => void;
   isTesting: boolean;
 }) {
+  // Matches Edge PATCH gate: only Revolut may be enabled / primary until other adapters are live.
+  const enableLocked = provider.provider !== "revolut";
+  const secretsUnavailable = (PROVIDER_SECRET_FIELDS[provider.provider] ?? []).length === 0;
+  const connectionTestLocked = provider.provider !== "revolut";
+
   return (
     <Card className={provider.is_primary ? "border-primary/50 shadow-sm" : undefined}>
       <CardHeader className="pb-3">
@@ -385,7 +412,7 @@ function ProviderCard({
             <Switch
               checked={provider.is_primary}
               onCheckedChange={() => onTogglePrimary()}
-              disabled={!provider.is_enabled}
+              disabled={enableLocked || !provider.is_enabled}
             />
             <Label className="text-sm">Primary provider</Label>
           </div>
@@ -393,6 +420,7 @@ function ProviderCard({
             <Switch
               checked={provider.is_enabled}
               onCheckedChange={onToggleEnabled}
+              disabled={enableLocked}
             />
             <Label className="text-sm">Enabled</Label>
           </div>
@@ -400,16 +428,29 @@ function ProviderCard({
             <Switch
               checked={provider.mode === "live"}
               onCheckedChange={(live) => onToggleMode(live ? "live" : "test")}
+              disabled={enableLocked && secretsUnavailable}
             />
             <Label className="text-sm">{provider.mode === "live" ? "Live" : "Test"}</Label>
           </div>
         </div>
 
+        {enableLocked ? (
+          <p className="text-xs text-muted-foreground">
+            Enable and primary are locked until booking/payout adapters and readiness checks pass.
+            Revolut remains the live payment provider.
+          </p>
+        ) : null}
+
         <div className="flex flex-wrap gap-2">
           <Button variant="outline" size="sm" onClick={onEditSecrets}>
-            Edit secrets
+            {secretsUnavailable ? "Secrets unavailable" : "Edit secrets"}
           </Button>
-          <Button variant="outline" size="sm" onClick={onTest} disabled={isTesting}>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={onTest}
+            disabled={isTesting || connectionTestLocked}
+          >
             {isTesting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
             Test connection
           </Button>
@@ -441,9 +482,10 @@ export function PaymentProvidersConfigurationReadiness({
         <AlertTitle>Configuration readiness phase</AlertTitle>
         <AlertDescription>
           Use this page to prepare API keys, secrets, and test/live mode before vendors deliver
-          credentials. Milton Keynes remains Provider (customer) and Provider (driver) — unchanged.
-          Service area gateway and mobile wallet allowlists are configured under each Service Area →
-          Offers & Payment.
+          credentials. Active primary provider: Revolut (customer payments and driver payouts).
+          Barclaycard Smartpay is registered for configuration readiness only — disabled, test mode,
+          and not assignable until official docs, adapters, and approval. Service area gateway and
+          mobile wallet allowlists are under each Service Area → Offers & Payment.
         </AlertDescription>
       </Alert>
 
