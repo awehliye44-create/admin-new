@@ -51,6 +51,7 @@ import { formatDriverAddressFull, formatCountryWithFlag } from '@/lib/driverAddr
 import { isDriverPayoutOnboardingComplete } from '@/lib/manualPayoutGate';
 import { DriverStandardsPanel } from '@/components/drivers/DriverStandardsPanel';
 import { AdminAddDriverDocumentsDialog } from '@/components/drivers/AdminAddDriverDocumentsDialog';
+import { DriverComplianceAuditLog } from '@/components/drivers/DriverComplianceAuditLog';
 import {
   DocumentReviewDialog,
   type DocumentReviewDecision,
@@ -552,7 +553,7 @@ export function DriverDetailsDialog({
     try {
       await adminPageMutate('drivers', 'vehicles', 'update', {
         id: vehicleId,
-        patch: { approval_status: 'approved', rejection_reason: null },
+        patch: { approval_status: 'approved' },
       });
       
       const vehicle = vehicles.find(v => v.id === vehicleId);
@@ -719,7 +720,7 @@ export function DriverDetailsDialog({
 
             {/* Tabs */}
             <Tabs value={activeTab} onValueChange={setActiveTab}>
-              <TabsList className="grid w-full grid-cols-4 md:grid-cols-7 h-auto">
+              <TabsList className="grid w-full grid-cols-4 md:grid-cols-8 h-auto">
                 <TabsTrigger value="overview">Overview</TabsTrigger>
                 <TabsTrigger value="standards">Driver Standards</TabsTrigger>
                 <TabsTrigger value="documents">Documents</TabsTrigger>
@@ -727,6 +728,7 @@ export function DriverDetailsDialog({
                 <TabsTrigger value="commission">Commission</TabsTrigger>
                 <TabsTrigger value="categories">Categories</TabsTrigger>
                 <TabsTrigger value="preferences">Preferences</TabsTrigger>
+                <TabsTrigger value="audit">Audit Log</TabsTrigger>
               </TabsList>
 
               {/* Overview Tab */}
@@ -1015,7 +1017,14 @@ export function DriverDetailsDialog({
                               <div key={item.slug} className="flex items-center justify-between p-3 border rounded-lg">
                                 <div className="flex items-center gap-3">
                                   <FileText className="h-4 w-4 text-muted-foreground" />
-                                  <span className="text-sm font-medium">{item.name}</span>
+                                  <div>
+                                    <span className="text-sm font-medium">{item.name}</span>
+                                    <p className="text-xs text-muted-foreground">
+                                      {item.doc?.expiry_date
+                                        ? `Expires ${new Date(`${item.doc.expiry_date}T00:00:00`).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}`
+                                        : 'No expiry date'}
+                                    </p>
+                                  </div>
                                 </div>
                                 <div className="flex items-center gap-2">
                                   {item.fileUrl && (
@@ -1230,7 +1239,7 @@ export function DriverDetailsDialog({
                           </div>
                         </div>
 
-                        {vehicle.rejection_reason && (
+                        {vehicle.approval_status === 'rejected' && vehicle.rejection_reason && (
                           <div className="flex items-start gap-2 p-3 bg-red-500/10 rounded-lg text-sm">
                             <AlertTriangle className="h-4 w-4 text-red-600 mt-0.5" />
                             <div>
@@ -1272,7 +1281,7 @@ export function DriverDetailsDialog({
                                 try {
                                   await adminPageMutate('drivers', 'vehicles', 'update', {
                                     id: vehicle.id,
-                                    patch: { approval_status: 'pending', rejection_reason: null },
+                                    patch: { approval_status: 'pending' },
                                   });
                                   onVehicleUpdate({ ...vehicle, approval_status: 'pending', rejection_reason: null });
                                   toast.success('Vehicle set to pending');
@@ -1292,6 +1301,10 @@ export function DriverDetailsDialog({
                     ))}
                   </div>
                 )}
+              </TabsContent>
+
+              <TabsContent value="audit" className="space-y-4">
+                <DriverComplianceAuditLog driverId={driver.id} />
               </TabsContent>
 
               {/* Categories Tab */}

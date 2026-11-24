@@ -691,7 +691,7 @@ function DocumentViewDialog({
           </div>
         )}
 
-        {doc.rejection_reason && (
+        {doc.status === 'rejected' && doc.rejection_reason && (
           <div>
             <Label className="text-muted-foreground text-red-600">Rejection Reason</Label>
             <p className="text-sm bg-red-50 text-red-700 p-2 rounded">{doc.rejection_reason}</p>

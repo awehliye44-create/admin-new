@@ -135,7 +135,7 @@ export function AdminVehicleEditDialog({ vehicle, open, onClose, onSaved }: Prop
         .update(patch)
         .eq('id', vehicle.id)
         .select(
-          'id, make, model, year, color, license_plate, is_primary, capacity, vehicle_type_id, approval_status',
+          'id, make, model, year, color, license_plate, is_primary, capacity, vehicle_type_id, approval_status, rejection_reason',
         )
         .maybeSingle();
       if (error) throw error;

@@ -5118,6 +5118,83 @@ export type Database = {
         }
         Relationships: []
       }
+      customer_trip_notification_deliveries: {
+        Row: {
+          attempts: number
+          created_at: string
+          error_message: string | null
+          event: string
+          id: string
+          metadata: Json
+          notification_id: string
+          passenger_id: string | null
+          provider_message_id: string | null
+          skipped_reason: string | null
+          status: string
+          trip_id: string | null
+          updated_at: string
+        }
+        Insert: {
+          attempts?: number
+          created_at?: string
+          error_message?: string | null
+          event: string
+          id?: string
+          metadata?: Json
+          notification_id: string
+          passenger_id?: string | null
+          provider_message_id?: string | null
+          skipped_reason?: string | null
+          status: string
+          trip_id?: string | null
+          updated_at?: string
+        }
+        Update: {
+          attempts?: number
+          created_at?: string
+          error_message?: string | null
+          event?: string
+          id?: string
+          metadata?: Json
+          notification_id?: string
+          passenger_id?: string | null
+          provider_message_id?: string | null
+          skipped_reason?: string | null
+          status?: string
+          trip_id?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "customer_trip_notification_deliveries_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "admin_trip_lifecycle_fees"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "customer_trip_notification_deliveries_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "available_scheduled_jobs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "customer_trip_notification_deliveries_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "trips"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "customer_trip_notification_deliveries_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "v_payment_lifecycle_audit"
+            referencedColumns: ["trip_id"]
+          },
+        ]
+      }
       customer_wallet_ledger: {
         Row: {
           amount_pence: number
@@ -8388,6 +8465,54 @@ export type Database = {
             referencedColumns: ["trip_id"]
           },
         ]
+      }
+      driver_compliance_audit_log: {
+        Row: {
+          action: string
+          actor_kind: string
+          actor_name: string | null
+          actor_user_id: string | null
+          actor_username: string | null
+          changes: Json
+          created_at: string
+          driver_id: string | null
+          entity_id: string
+          entity_label: string | null
+          entity_type: string
+          id: string
+          source: string
+        }
+        Insert: {
+          action: string
+          actor_kind: string
+          actor_name?: string | null
+          actor_user_id?: string | null
+          actor_username?: string | null
+          changes?: Json
+          created_at?: string
+          driver_id?: string | null
+          entity_id: string
+          entity_label?: string | null
+          entity_type: string
+          id?: string
+          source?: string
+        }
+        Update: {
+          action?: string
+          actor_kind?: string
+          actor_name?: string | null
+          actor_user_id?: string | null
+          actor_username?: string | null
+          changes?: Json
+          created_at?: string
+          driver_id?: string | null
+          entity_id?: string
+          entity_label?: string | null
+          entity_type?: string
+          id?: string
+          source?: string
+        }
+        Relationships: []
       }
       driver_demand_zones: {
         Row: {
@@ -32259,6 +32384,11 @@ export type Database = {
       driver_commission_wallet_usable_balance_minor: {
         Args: { p_driver_id: string; p_service_area_id: string }
         Returns: number
+      }
+      driver_compliance_audit_actor: { Args: { p_uid: string }; Returns: Json }
+      driver_compliance_audit_diff: {
+        Args: { p_keys: string[]; p_new: Json; p_old: Json }
+        Returns: Json
       }
       driver_compliance_today_london: { Args: never; Returns: string }
       driver_demand_zone_geometry_is_valid: {
