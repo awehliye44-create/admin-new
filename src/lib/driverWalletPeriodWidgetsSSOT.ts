@@ -98,6 +98,9 @@ const BALANCE_EXCLUDED_TYPES = new Set([
   'PAYMENT_PROVIDER_FEE_ADJUSTMENT',
   'COMMISSION_REVERSAL',
   'PROVIDER_FEE_REVERSAL',
+  // #98: pending entitlement is Today-visible, not period live-balance liability.
+  'TRIP_EARNING_PENDING',
+  'TRIP_EARNING_PENDING_RELEASE',
 ]);
 
 export function isLedgerRowInPeriod(

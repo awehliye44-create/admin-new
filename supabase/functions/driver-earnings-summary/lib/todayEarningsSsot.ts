@@ -26,11 +26,15 @@ export const TODAY_EARNINGS_INCLUDE_TYPES = [
   "TRIP_EARNING_NET",
   "DRIVER_TIP_CREDIT",
   "NO_SHOW_FEE",
+  // #98: pending entitlement visible at complete; RELEASE nets so PENDING+TEN never double.
+  "TRIP_EARNING_PENDING",
 ] as const;
 
 /** Signed settlement corrections — amount may be negative. */
 export const TODAY_EARNINGS_SETTLEMENT_CORRECTION_TYPES = [
   "REFUND_DEBIT",
+  // #98: offsets PENDING when TEN confirms (signed negative).
+  "TRIP_EARNING_PENDING_RELEASE",
 ] as const;
 
 /** Never Today earnings (money movement / isolation / unapproved promos). */

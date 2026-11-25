@@ -128,8 +128,17 @@ Deno.serve(async (req) => {
     // ── Parallel: materialised wallet balance + period earnings from ledger ──
     // Today/period totals use posting-time SSOT (todayEarningsSsot). Available /
     // Pending still come from payout-eligibility (27h clearing) — separate clocks.
-    const earningTypes = ['TRIP_EARNING_NET', 'DRIVER_TIP_CREDIT', 'NO_SHOW_FEE', 'REFUND_DEBIT'];
-    const reportingOnlyTypes = '("PLATFORM_COMMISSION","CASH_TRIP_EARNING")';
+    // #98: include PENDING + RELEASE so Today/Week net once; lifetime stays confirmed-only.
+    const earningTypes = [
+      'TRIP_EARNING_NET',
+      'TRIP_EARNING_PENDING',
+      'TRIP_EARNING_PENDING_RELEASE',
+      'DRIVER_TIP_CREDIT',
+      'NO_SHOW_FEE',
+      'REFUND_DEBIT',
+    ];
+    const reportingOnlyTypes =
+      '("PLATFORM_COMMISSION","CASH_TRIP_EARNING","TRIP_EARNING_PENDING","TRIP_EARNING_PENDING_RELEASE")';
 
     const [lifetimeResult, ledgerResult, economicFields, eligibility] = await Promise.all([
       supabase
@@ -206,7 +215,9 @@ Deno.serve(async (req) => {
       const entryLocalDate = londonCivilDateKey(attributedIso) ?? lf.format(new Date(attributedIso));
       const amount = todayEarningsAmountPence(entry);
       const tripId = entry.related_trip_id;
-      const isCard = entry.type === 'TRIP_EARNING_NET';
+      const isCard = entry.type === 'TRIP_EARNING_NET'
+        || entry.type === 'TRIP_EARNING_PENDING'
+        || entry.type === 'TRIP_EARNING_PENDING_RELEASE';
       const isTip = entry.type === 'DRIVER_TIP_CREDIT';
 
       if (entryLocalDate === todayDateStr) {

@@ -74,6 +74,10 @@ import {
 } from "../_shared/edgeRequestTiming.ts";
 import { invokeFinalizeTripCapture as invokeFinalizeTripCaptureWithRetry } from "../_shared/invokeFinalizeTripCapture.ts";
 import { postTripEarningNetCanonical } from "../_shared/canonicalTypedWalletPostingSSOT.ts";
+import {
+  creditTripEarningPending,
+  pendingEntitlementAmountPence,
+} from "../_shared/tripEarningPendingSSOT.ts";
 import { isCustomerAppTipChannelEligible } from "../_shared/tipChannelEligibilitySSOT.ts";
 import {
   TIP_WINDOW_MS,
@@ -4650,12 +4654,42 @@ Deno.serve(async (req) => {
           // G8 / CaptureSSOT: never post TEN during tip-window deferral.
           // SettlementSSOT posts TRIP_EARNING_NET only after provider-confirmed capture
           // (finalize / tip submit / tip-window expiry). Operational Complete→Rate stays non-blocking.
+          // #98: post TRIP_EARNING_PENDING immediately so earnings are visible while awaiting capture.
           const queueTipWindowTen = (label: string) => {
             console.log("[stop-workflow] tip-window TEN deferred until capture confirmed", {
               trip_id,
               label,
               driver_net_pence: settlement.driver_net_pence,
             });
+          };
+          const postPendingEntitlement = async (source: string) => {
+            if (!mayPostDriverWalletLedger || !driver_id) return;
+            const amount = pendingEntitlementAmountPence({
+              driverNetPence: settlement.driver_net_pence,
+              airportChargePence: settlement.airport_charge_pence,
+            });
+            if (amount <= 0) return;
+            try {
+              const pendingResult = await creditTripEarningPending(supabase, {
+                tripId: trip_id,
+                driverId: driver_id,
+                amountPence: amount,
+                currency: ledgerCurrency || "GBP",
+              });
+              console.log("[stop-workflow] trip earning pending", {
+                trip_id,
+                source,
+                amount_pence: amount,
+                ...pendingResult,
+              });
+            } catch (pendingErr) {
+              // Never block Complete→Rate; recovery inserts missing PENDING.
+              console.error("[stop-workflow] trip earning pending failed", {
+                trip_id,
+                source,
+                error: pendingErr instanceof Error ? pendingErr.message : String(pendingErr),
+              });
+            }
           };
 
           let tipWindowDeferred = false;
@@ -4689,6 +4723,7 @@ Deno.serve(async (req) => {
               tipWindowDeferred = true;
               paymentCaptureDeferred = true;
               queueTipWindowTen("deferred tip-window TEN post failed");
+              await postPendingEntitlement("tip_window_deferred");
 
               console.log("[PAYMENT_AUDIT]", JSON.stringify({
                 stage: "tip_window_capture_deferred",
@@ -4707,6 +4742,7 @@ Deno.serve(async (req) => {
             tipWindowDeferred = true;
             paymentCaptureDeferred = true;
             queueTipWindowTen("deferred tip-window TEN post failed");
+            await postPendingEntitlement("tip_window_already_open");
           }
           if (!tipWindowDeferred) {
           // Bug #23: durable accept — stamp capture_requested + settlement, return to Rate,
@@ -4735,6 +4771,7 @@ Deno.serve(async (req) => {
               captureRequestedErr,
             );
           }
+          await postPendingEntitlement("capture_requested");
 
           const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
           const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";

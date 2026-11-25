@@ -27,11 +27,15 @@ Deno.test("canonical posting service owns TRIP_EARNING_NET insert", async () => 
 
 Deno.test("Payout Ledger eligible types are Driver Wallet Ledger earning credits only", () => {
   assertEquals([...PAYOUT_ELIGIBLE_LEDGER_TYPES].sort(), [
+    "BONUS",
     "DRIVER_COMPENSATION_CREDIT",
     "DRIVER_TIP_CREDIT",
     "TIP_CREDIT",
     "TRIP_EARNING_NET",
   ]);
+  // #98: pending entitlement never payout-eligible.
+  assertEquals(PAYOUT_ELIGIBLE_LEDGER_TYPES.has("TRIP_EARNING_PENDING"), false);
+  assertEquals(PAYOUT_ELIGIBLE_LEDGER_TYPES.has("TRIP_EARNING_PENDING_RELEASE"), false);
 });
 
 Deno.test("FR trip audit status includes WALLET_MISMATCH and does not own posting", () => {

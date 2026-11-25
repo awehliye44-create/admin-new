@@ -25,6 +25,19 @@ describe('canonicalDriverWalletTxType', () => {
     expect(driverWalletTxTypeLabel('DRIVER_TIP_CREDIT')).toBe('Tip');
     expect(driverWalletTxTypeLabel('TRIP_EARNING_NET')).toBe('Trip earning');
   });
+
+  it('#98 pending entitlement labels stay distinct from confirmed TEN', () => {
+    expect(canonicalDriverWalletTxType('TRIP_EARNING_PENDING')).toBe('TRIP_EARNING_PENDING');
+    expect(canonicalDriverWalletTxType('TRIP_EARNING_PENDING_RELEASE')).toBe(
+      'TRIP_EARNING_PENDING_RELEASE',
+    );
+    expect(driverWalletTxTypeLabel('TRIP_EARNING_PENDING')).toBe(
+      'Awaiting payment confirmation',
+    );
+    expect(driverWalletTxTypeLabel('TRIP_EARNING_PENDING_RELEASE')).toBe(
+      'Pending earning confirmed',
+    );
+  });
 });
 
 describe('campaign bonus chip', () => {

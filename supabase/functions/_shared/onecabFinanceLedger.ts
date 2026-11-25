@@ -8,6 +8,10 @@ import type { SupabaseClient } from "npm:@supabase/supabase-js@2.57.2";
 import { tripBlocksDriverWalletLedgerPosting } from "./commissionWalletDeduction.ts";
 import { FINANCIAL_MODEL_VIOLATION } from "./commissionWalletSSOT.ts";
 import { readTripEarningNetLedgerState } from "./tripEarningNetLedgerReadback.ts";
+import {
+  PENDING_ENTITLEMENT_BALANCE_EXCLUDED_TYPES,
+  releaseTripEarningPendingIfPresent,
+} from "./tripEarningPendingSSOT.ts";
 
 export const CAPTURED_PAYMENT_STATUSES = new Set(["captured", "paid", "succeeded"]);
 
@@ -25,6 +29,8 @@ export const BALANCE_EXCLUDED_LEDGER_TYPES = [
   // Slice 6: hold/release audit rows must not change live wallet balance.
   "PAYOUT_RESERVATION_HOLD",
   "PAYOUT_RESERVATION_RELEASE",
+  // #98: pending entitlement is visible in Today/Activity, not live withdrawable liability.
+  ...PENDING_ENTITLEMENT_BALANCE_EXCLUDED_TYPES,
 ] as const;
 
 /** Reporting-only types excluded from wallet balance (Phase 3A.4). COMMISSION_RECOVERED is included in wallet. */
@@ -267,14 +273,25 @@ export async function creditCapturedCardTripLedger(
         { code: "WALLET_AMOUNT_MISMATCH" },
       );
     }
-    // TEN already posted (e.g. tip-window deferral at complete). Do NOT return early —
-    // DRIVER_TIP_CREDIT must still be allowed when tipPence > 0 and no tip row exists.
+    // TEN already posted. Still release any stranded PENDING, then allow tip credit.
+    await releaseTripEarningPendingIfPresent(supabase, {
+      tripId: args.tripId,
+      driverId: args.driverId,
+      currency,
+    });
   } else if (readbackBefore.count > 1) {
     throw Object.assign(
       new Error(`duplicate TRIP_EARNING_NET rows for trip ${args.tripId}`),
       { code: "DUPLICATE_WALLET_CREDIT" },
     );
   } else if (args.driverNetPence > 0) {
+    // #98: append-only supersession — RELEASE open PENDING before confirmed TEN.
+    await releaseTripEarningPendingIfPresent(supabase, {
+      tripId: args.tripId,
+      driverId: args.driverId,
+      currency,
+    });
+
     const { error } = await supabase.from("driver_wallet_ledger").insert({
       driver_id: args.driverId,
       related_trip_id: args.tripId,

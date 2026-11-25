@@ -17,6 +17,9 @@ export { BALANCE_EXCLUDED_LEDGER_TYPES, computeLedgerWalletBalancePence };
 export const WALLET_BALANCE_EXCLUDED_LEDGER_TYPES = new Set<string>([
   "PLATFORM_COMMISSION",
   "CASH_TRIP_EARNING",
+  // #98: pending entitlement / release never inflate live wallet liability.
+  "TRIP_EARNING_PENDING",
+  "TRIP_EARNING_PENDING_RELEASE",
 ]);
 
 export type WalletBalanceLedgerRow = {

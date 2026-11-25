@@ -6,6 +6,8 @@
  */
 export const DRIVER_WALLET_TX_TYPES = [
   'TRIP_EARNING',
+  'TRIP_EARNING_PENDING',
+  'TRIP_EARNING_PENDING_RELEASE',
   'DRIVER_TIP_CREDIT',
   'BONUS',
   'ADJUSTMENT',
@@ -53,6 +55,13 @@ export function canonicalDriverWalletTxType(rawType: string | null | undefined):
   if (type === 'DRIVER_TIP_CREDIT' || type === 'TIP_CREDIT') {
     return 'DRIVER_TIP_CREDIT';
   }
+  // #98: pending entitlement stays distinct from confirmed TEN.
+  if (type === 'TRIP_EARNING_PENDING') {
+    return 'TRIP_EARNING_PENDING';
+  }
+  if (type === 'TRIP_EARNING_PENDING_RELEASE') {
+    return 'TRIP_EARNING_PENDING_RELEASE';
+  }
   if (
     type.includes('TRIP')
     || type === 'DRIVER_EARNING'
@@ -69,6 +78,8 @@ export function canonicalDriverWalletTxType(rawType: string | null | undefined):
 export function driverWalletTxTypeLabel(rawType: string | null | undefined): string {
   const canonical = canonicalDriverWalletTxType(rawType);
   if (canonical === 'DRIVER_TIP_CREDIT') return 'Tip';
+  if (canonical === 'TRIP_EARNING_PENDING') return 'Awaiting payment confirmation';
+  if (canonical === 'TRIP_EARNING_PENDING_RELEASE') return 'Pending earning confirmed';
   if (canonical === 'TRIP_EARNING') return 'Trip earning';
   if (canonical === 'BONUS') return 'Bonus';
   if (canonical === 'ADJUSTMENT') return 'Adjustment';

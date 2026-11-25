@@ -34,6 +34,7 @@ import { reconcilePendingIncrementAuthorisationsFromProvider } from "../_shared/
 import { sweepPlatformCollectedFinancialIntegrity } from "../_shared/platformCollectedFinancialIntegrityRecoverySSOT.ts";
 import { reconcileIncrementOperationsToCoverConfirmed } from "../_shared/reconcileFinancialOperationFromEvidenceSSOT.ts";
 import { reconcileAuthorisationProjectionsBatch } from "../_shared/reconcileAuthorisationProjectionSSOT.ts";
+import { recoverMissingTripEarningPendingBatch } from "../_shared/missingTripEarningPendingRecoverySSOT.ts";
 import {
   expiryFareOnlyTipPence,
   expiredUnclosedTipWindowForbidsTipCapture,
@@ -701,6 +702,20 @@ serve(async (req) => {
     console.error("[sweep-revolut-stale-holds] missing TEN recovery failed", tenSweepErr);
   }
 
+  // #98: missing PENDING after completed PC card trips (pre-capture visibility).
+  let missingPendingRecovery: Awaited<
+    ReturnType<typeof recoverMissingTripEarningPendingBatch>
+  > = { scanned: 0, results: [] };
+  try {
+    if (!dryRun) {
+      missingPendingRecovery = await recoverMissingTripEarningPendingBatch(supabase, {
+        limit: Math.min(15, limit),
+      });
+    }
+  } catch (pendingSweepErr) {
+    console.error("[sweep-revolut-stale-holds] missing PENDING recovery failed", pendingSweepErr);
+  }
+
   // #91A: PENDING PSA rows whose provider order already confirms coverage (or
   // terminal decline/fail). GET-only — no increment POST / capture / credit.
   const pendingIncrementReconcile: Array<Record<string, unknown>> = [];
@@ -833,6 +848,7 @@ serve(async (req) => {
     completed_capture_heals: healResults,
     completed_authorised_retries: retryResults,
     missing_ten_recovery: missingTenRecovery,
+    missing_pending_recovery_98: missingPendingRecovery,
     pending_increment_reconcile: pendingIncrementReconcile,
     pc_integrity_recovery: pcIntegrityRecovery,
     auth_projection_reconcile_103: authProjectionReconcile,
