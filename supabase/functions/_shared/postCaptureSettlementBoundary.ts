@@ -70,7 +70,12 @@ export type PaymentSessionCaptureGate = {
  *   - captured_amount_pence > 0
  *   - purpose is not PAYMENT_RECOVERY
  *   - refunded_amount_pence is 0 / null
- *   - not released (released_amount_pence / hold_release_state / hold_terminal_reason)
+ *   - released_amount_pence is 0 / null (confirmed returned funds block posting)
+ *
+ * Post-capture residual voids (auth − capture) stamp hold_release_state=released with
+ * released_amount_pence null (AMOUNT_UNCONFIRMED). That must NOT block TRIP_EARNING_NET —
+ * MK-261122-001 / MK-261124-002 failed with PAYMENT_SESSION_CAPTURE_UNVERIFIED solely
+ * because residual evidence ran before settlement and set hold_release_state=released.
  *
  * A session with status="trip_created" + provider_state="COMPLETED" is a lifecycle mismatch.
  * The caller must finalize the session to "captured" before calling this gate.
@@ -84,9 +89,8 @@ export function paymentSessionAllowsWalletPosting(
   const captured = Math.round(Number(session.captured_amount_pence) || 0);
   if (captured <= 0) return false;
   if (Math.round(Number(session.refunded_amount_pence) || 0) > 0) return false;
+  // Confirmed returned funds only — residual void markers use null released_amount.
   if (Math.round(Number(session.released_amount_pence) || 0) > 0) return false;
-  const releaseState = String(session.hold_release_state ?? "").trim().toUpperCase();
-  if (releaseState.includes("RELEASE")) return false;
   const terminal = String(session.hold_terminal_reason ?? "").trim().toUpperCase();
   if (terminal.includes("RELEASE") && !terminal.includes("CAPTURE")) return false;
   const status = String(session.status ?? "").trim().toLowerCase();

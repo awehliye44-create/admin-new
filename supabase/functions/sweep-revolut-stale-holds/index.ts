@@ -24,6 +24,7 @@ import {
   TRIPLESS_AUTHORISED_HOLD_SWEEP_MIN_AGE_MS,
 } from "../_shared/holdReleaseSSOT.ts";
 import { applyCanonicalSettlementAfterCapture } from "../_shared/applyCanonicalSettlementAfterCapture.ts";
+import { sweepRecoverMissingTripEarningNet } from "../_shared/missingTripEarningNetRecoverySSOT.ts";
 import { invokeFinalizeTripCapture } from "../_shared/invokeFinalizeTripCapture.ts";
 import { getRevolutMerchantConfig, retrieveRevolutOrder } from "../_shared/revolutOrders.ts";
 import { extractConfirmedCaptureAmountPence } from "../_shared/paymentHoldProviderTerminalPure.ts";
@@ -349,6 +350,8 @@ serve(async (req) => {
           captureAmountPence: amountMinor,
           tipPence: coveredTip.tipCollectedPence,
           mode: "recovery",
+          // Incomplete settlement heal — not FR historical browse.
+          activatedAtMs: 0,
         });
       }
       healResults.push({ trip_id: tripId, outcome: "HEALED_COMPLETED_CAPTURE", amount_pence: amountMinor });
@@ -642,6 +645,21 @@ serve(async (req) => {
     }
   }
 
+  // Provider-confirmed capture with incomplete driver settlement (missing TEN).
+  // Durable retry — exactly-once via ledger insert / readback. No Revolut mutation.
+  let missingTenRecovery: Awaited<ReturnType<typeof sweepRecoverMissingTripEarningNet>> = {
+    scanned: 0,
+    results: [],
+  };
+  try {
+    missingTenRecovery = await sweepRecoverMissingTripEarningNet(supabase, {
+      limit,
+      dryRun,
+    });
+  } catch (tenSweepErr) {
+    console.error("[sweep-revolut-stale-holds] missing TEN recovery failed", tenSweepErr);
+  }
+
   return new Response(JSON.stringify({
     success: true,
     dry_run: dryRun,
@@ -651,6 +669,7 @@ serve(async (req) => {
     tripless_holds: orphanResults,
     completed_capture_heals: healResults,
     completed_authorised_retries: retryResults,
+    missing_ten_recovery: missingTenRecovery,
     watchdog: {
       unresolved_count: watchdog.length,
       by_currency: byCurrency,

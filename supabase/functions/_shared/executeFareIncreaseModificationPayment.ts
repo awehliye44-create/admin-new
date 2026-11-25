@@ -291,12 +291,29 @@ export async function executeFareIncreaseModificationPayment(
     .eq("id", requestId)
     .in("status", ["payment_required", "payment_pending"]);
 
-  const newFarePence = Number(
+  const routeFarePence = Number(
     changeRequest.new_fare_pence
       ?? trip.final_customer_fare_pence
       ?? trip.estimated_total_pence
       ?? 0,
   );
+  const afterSnap = changeRequest.after_route_snapshot &&
+      typeof changeRequest.after_route_snapshot === "object"
+    ? changeRequest.after_route_snapshot as Record<string, unknown>
+    : {};
+  const farePreview = afterSnap.fare_preview && typeof afterSnap.fare_preview === "object"
+    ? afterSnap.fare_preview as Record<string, unknown>
+    : {};
+  // D1: authorise to payable including accumulated waiting, not route-only new_fare.
+  const newFarePence = revisedPayablePenceForModification({
+    newFarePence: routeFarePence,
+    originalFarePence: Number(changeRequest.original_fare_pence ?? 0),
+    pickupWaitingChargePence: Number(trip.pickup_waiting_charge_pence ?? 0),
+    stopWaitingChargePence: Number(
+      trip.stop_waiting_charge_pence ?? trip.stop_charge_total_pence ?? 0,
+    ),
+    newCustomerTotalPence: Number(farePreview.new_customer_total_pence ?? 0),
+  });
 
   if (!newFarePence || newFarePence <= 0) {
     await supabase

@@ -58,6 +58,7 @@ import {
 } from "../_shared/commissionWalletSSOT.ts";
 import { quoteFareServerSide } from "./lib/serverFareQuote.ts";
 import { resolvePreauthBuffer } from "../_shared/preauthBufferResolverSSOT.ts";
+import { buildBookingFinancialPolicy } from "../_shared/bookingFinancialPolicySSOT.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -726,6 +727,18 @@ serveWithEdgeTiming("create-preauth-payment-intent", corsHeaders, async (req) =>
       edgeTiming.markCurrencyEnd();
     }
     const authorisedAmountPence = estimatedTotalPence + bufferPence;
+    // #89 — freeze Admin financial contract at booking create (prospective only).
+    const bookingFinancialPolicy = buildBookingFinancialPolicy({
+      serviceAreaId: resolvedServiceAreaId,
+      financialModel: SERVICE_AREA_FINANCIAL_MODEL.PLATFORM_COLLECTED,
+      paymentProvider: "revolut",
+      providerConfigIdentity: customerGatewayCheck?.ok
+        ? `revolut:${customerGatewayCheck.environment ?? "live"}`
+        : "revolut",
+      buffer: { bufferPence, source: bufferSource },
+      offerDiscountPence: offerDiscountPenceForBuffer,
+      source: "booking_create",
+    });
     logStep("Buffer calculated", {
       estimated_fare_pence: estimatedTotalPence,
       discount_amount_pence: offerDiscountPenceForBuffer,
@@ -739,6 +752,7 @@ serveWithEdgeTiming("create-preauth-payment-intent", corsHeaders, async (req) =>
       service_area_id: bufferSource.service_area_id,
       source_config: bufferSource.config_table,
       enable_preauth_buffer: bufferSource.enable_preauth_buffer,
+      booking_financial_policy_version: bookingFinancialPolicy.version,
     });
     /** Ride pre-auth product spec: GBP manual-capture PaymentIntent (amount in pence). */
     const paymentCurrency = "gbp";
@@ -800,6 +814,7 @@ serveWithEdgeTiming("create-preauth-payment-intent", corsHeaders, async (req) =>
         platformPaymentMethodId: body.payment_method_id ?? null,
         savePaymentMethod: body.save_payment_method === true,
         browserEnvironment: validatedBrowserEnvironment,
+        bookingFinancialPolicyJson: bookingFinancialPolicy,
         bookingSnapshot:
           body.booking_snapshot && typeof body.booking_snapshot === "object"
             ? body.booking_snapshot as Record<string, unknown>

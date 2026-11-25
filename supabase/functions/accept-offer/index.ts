@@ -45,6 +45,7 @@ import {
 import { opsLog } from "../_shared/opsLog.ts";
 import { notifyCustomerTripLifecycle } from "../_shared/customerTripLifecycleNotify.ts";
 import { evaluateInstantOfferScheduledCommitmentGate } from "../_shared/scheduledCommitmentOfferGateSSOT.ts";
+import { ensureNegotiationPayableAuthorised } from "../_shared/negotiationPayableAuthorisation.ts";
 
 interface AcceptRequest {
   offer_id: string;
@@ -745,6 +746,28 @@ Deno.serve(async (req) => {
     const allowCustomerCounter =
       customerCounterFare > 0
       && ["waiting_driver_final", "waiting_driver", "driver_accepted_counter"].includes(ns);
+
+    // Parity with driver-fare-final: counter accept must re-cover authorised hold
+    // before accept_ride_offer (same-order increment SSOT). Prior COUNTER cover is
+    // usually sufficient; this closes the accept-offer divergence path.
+    if (allowCustomerCounter) {
+      const tripIdForCover = String(offerRow?.trip_id ?? "").trim();
+      if (!tripIdForCover || !isValidUUID(tripIdForCover)) {
+        return businessFailureResponse(
+          "NEGOTIATION_COVER_FAILED",
+          "Unable to verify payment coverage for the counter fare",
+        );
+      }
+      const cover = await ensureNegotiationPayableAuthorised({
+        supabase,
+        tripId: tripIdForCover,
+        requiredFarePence: Math.round(customerCounterFare),
+        owner: `accept_offer_counter:${tripIdForCover}:${offer_id}`,
+      });
+      if (!cover.ok) {
+        return businessFailureResponse(cover.code, cover.message);
+      }
+    }
 
     console.log("[accept-offer] ACCEPT_ORIGINAL_RPC_REQUEST", {
       offer_id,

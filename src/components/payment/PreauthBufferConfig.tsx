@@ -107,6 +107,10 @@ export function PreauthBufferConfig({ serviceAreaId, serviceAreaName, regionCurr
               {serviceAreaName || "this service area"}. <strong>This is not part of the fare</strong>{" "}
               — it&apos;s only a payment safety hold. Provider releases the unused amount when the
               final fare is captured.
+              <span className="mt-2 block rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-amber-950">
+                Changes apply to new bookings only. Existing bookings retain their original
+                financial settings (frozen at booking create).
+              </span>
             </CardDescription>
           </div>
           <Switch

@@ -70,13 +70,27 @@ export type ModificationHoldLiveness =
     authorisedPence: number;
   };
 
+/**
+ * Authorisation coverage required for a modification.
+ * Route payable (new_fare) plus accumulated waiting; prefers preview
+ * new_customer_total when present (D1 / MK-261125).
+ */
 export function revisedPayablePenceForModification(args: {
   newFarePence: number | null | undefined;
   originalFarePence?: number | null | undefined;
+  pickupWaitingChargePence?: number | null | undefined;
+  stopWaitingChargePence?: number | null | undefined;
+  newCustomerTotalPence?: number | null | undefined;
 }): number {
   const neu = Math.max(0, Math.round(Number(args.newFarePence ?? 0)));
-  if (neu > 0) return neu;
-  return Math.max(0, Math.round(Number(args.originalFarePence ?? 0)));
+  const base = neu > 0
+    ? neu
+    : Math.max(0, Math.round(Number(args.originalFarePence ?? 0)));
+  const waiting =
+    Math.max(0, Math.round(Number(args.pickupWaitingChargePence ?? 0))) +
+    Math.max(0, Math.round(Number(args.stopWaitingChargePence ?? 0)));
+  const preview = Math.max(0, Math.round(Number(args.newCustomerTotalPence ?? 0)));
+  return Math.max(base + waiting, preview, base);
 }
 
 export function isDigitalPlatformPaymentMethod(method: unknown): boolean {

@@ -160,6 +160,8 @@ export type RevolutPreauthInput = {
    * run. A second SELECT is skipped when the id matches.
    */
   preloadedBookingPaymentQuote?: BookingPaymentQuoteRow | null;
+  /** Frozen booking financial contract (#89). Persisted on payment session create. */
+  bookingFinancialPolicyJson?: Record<string, unknown> | null;
 };
 
 export async function createRevolutPreauthResponse(
@@ -177,6 +179,7 @@ export async function createRevolutPreauthResponse(
     idempotencyKeySuffix,
     metadataExtra,
     paymentMethodType,
+    bookingFinancialPolicyJson,
     userId,
     platformPaymentMethodId,
     bookingSnapshot: bookingSnapshotInput,
@@ -876,6 +879,7 @@ export async function createRevolutPreauthResponse(
         authorisedAmountPence,
         estimatedTotalPence: rideFarePence,
         bufferPence: bufferPenceForSession,
+        bookingFinancialPolicyJson: bookingFinancialPolicyJson ?? null,
         fareSnapshot: fareSnapshot ?? {},
         bookingSnapshot: bookingSnapshot ?? {},
         platformPaymentMethodId: resolvedPlatformPaymentMethodId ?? null,

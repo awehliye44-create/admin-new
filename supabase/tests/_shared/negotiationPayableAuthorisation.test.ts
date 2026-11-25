@@ -111,6 +111,19 @@ Deno.test("Driver Accept £Z increments before accept_ride_offer", async () => {
   assertEquals(final.includes("createRevolutOrder"), false);
 });
 
+Deno.test("accept-offer counter path covers before accept_ride_offer (parity)", async () => {
+  const accept = await Deno.readTextFile(
+    new URL("../../functions/accept-offer/index.ts", import.meta.url),
+  );
+  const coverCall = 'await ensureNegotiationPayableAuthorised({';
+  const coverIdx = accept.indexOf(coverCall);
+  const allowIdx = accept.indexOf("const allowCustomerCounter =");
+  const rpcIdx = accept.indexOf('supabase.rpc("accept_ride_offer"');
+  assertEquals(coverIdx > 0, true);
+  assertEquals(allowIdx > 0 && coverIdx > allowIdx && coverIdx < rpcIdx, true);
+  assertEquals(accept.includes("accept_offer_counter:"), true);
+});
+
 Deno.test("helper reuses same-order increment and never opens a second checkout", async () => {
   const helper = await Deno.readTextFile(
     new URL("../../functions/_shared/negotiationPayableAuthorisation.ts", import.meta.url),

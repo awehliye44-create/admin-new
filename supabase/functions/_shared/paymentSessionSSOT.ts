@@ -75,6 +75,8 @@ export type UpsertPaymentSessionInput = {
   authorisedAmountPence?: number | null;
   estimatedTotalPence?: number | null;
   bufferPence?: number | null;
+  /** Frozen booking financial contract (#89) — never live Admin settings. */
+  bookingFinancialPolicyJson?: Record<string, unknown> | null;
   fareSnapshot?: Record<string, unknown>;
   bookingSnapshot?: Record<string, unknown>;
   platformPaymentMethodId?: string | null;
@@ -112,6 +114,9 @@ export async function upsertPaymentSessionPending(
     metadata: input.metadata ?? {},
     updated_at: new Date().toISOString(),
   };
+  if (input.bookingFinancialPolicyJson && typeof input.bookingFinancialPolicyJson === "object") {
+    row.booking_financial_policy_json = input.bookingFinancialPolicyJson;
+  }
   if (input.advanceWindowValidatedAt && input.advanceWindowValidatedScheduledAt) {
     row.advance_window_validated_at = input.advanceWindowValidatedAt;
     row.advance_window_validated_scheduled_at = input.advanceWindowValidatedScheduledAt;

@@ -94,8 +94,13 @@ export function checkPsLifecycleFinalizerPreconditions(
     return "refund_exists_cannot_finalize";
   }
 
-  const holdReleaseState = String(session.hold_release_state ?? "");
-  if (holdReleaseState === "released") {
+  // Confirmed returned funds (released_amount_pence > 0) block finalization.
+  // Post-capture residual voids stamp hold_release_state=released with
+  // released_amount_pence null (AMOUNT_UNCONFIRMED). That must NOT block —
+  // capture evidence above already proves COMPLETED/CAPTURED with amount > 0
+  // (MK-261122-001 / MK-261124-002 / #89A settlement sequencing).
+  const releasedAmount = Number(session.released_amount_pence ?? 0);
+  if (Number.isFinite(releasedAmount) && releasedAmount > 0) {
     return "hold_already_released";
   }
 
@@ -104,10 +109,11 @@ export function checkPsLifecycleFinalizerPreconditions(
     holdTerminalReason.includes("CANCEL")
     || holdTerminalReason.includes("FAILED")
     || holdTerminalReason.includes("REFUND")
-    || holdTerminalReason.includes("RELEASE")
   ) {
     return `contradictory_hold_terminal_reason:${holdTerminalReason}`;
   }
+  // RELEASE terminal reasons are residual-void markers after capture — allowed.
+  // True full-hold releases are already gated by released_amount_pence > 0.
 
   const operationState = String(session.financial_operation_state ?? "").toUpperCase();
   if (operationState && !RECOVERABLE_OPERATION_STATES.has(operationState)) {
@@ -143,7 +149,8 @@ function resolveCanonicalCaptureIdentity(session: Record<string, unknown>): { id
  * - provider_state_verified_at is set
  * - captured_amount_pence > 0
  * - no refund exists (refunded_amount_pence = 0/null)
- * - hold_release_state is not "released"
+ * - no confirmed returned funds (released_amount_pence = 0/null);
+ *   residual hold_release_state=released after capture is allowed
  * - current status is in the explicitly recoverable set (NOT already "captured")
  * - strict compare-and-set: status must be the expected recoverable status
  *

@@ -46,9 +46,24 @@ Deno.test("preconditions: refund exists — fails closed", () => {
   assertEquals(result, "refund_exists_cannot_finalize");
 });
 
-Deno.test("preconditions: hold already released — fails closed", () => {
+Deno.test("preconditions: residual hold_release_state=released after capture — allowed (#89A)", () => {
+  // Residual void stamps hold_release_state without confirmed released_amount.
+  const residual = checkPsLifecycleFinalizerPreconditions(
+    baseSession({
+      hold_release_state: "released",
+      released_amount_pence: null,
+      hold_terminal_reason: "provider_captured",
+    }),
+  );
+  assertEquals(residual, null);
+});
+
+Deno.test("preconditions: confirmed returned funds — fails closed", () => {
   const result = checkPsLifecycleFinalizerPreconditions(
-    baseSession({ hold_release_state: "released" }),
+    baseSession({
+      hold_release_state: "released",
+      released_amount_pence: 480,
+    }),
   );
   assertEquals(result, "hold_already_released");
 });

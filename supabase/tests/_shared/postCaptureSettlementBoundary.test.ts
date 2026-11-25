@@ -91,7 +91,7 @@ Deno.test("Payment Sessions capture gate: verified captured session only", () =>
     provider_state_verified_at: "2026-08-17T10:00:00.000Z",
     refunded_amount_pence: 480,
   }), false);
-  // Released session → blocked.
+  // Confirmed returned funds (released_amount_pence > 0) → blocked.
   assertEquals(paymentSessionAllowsWalletPosting({
     status: "captured",
     provider_state: "COMPLETED",
@@ -100,6 +100,17 @@ Deno.test("Payment Sessions capture gate: verified captured session only", () =>
     released_amount_pence: 480,
     hold_release_state: "RELEASED",
   }), false);
+  // Post-capture residual void (AMOUNT_UNCONFIRMED): hold_release_state=released,
+  // released_amount null — must still allow TEN (MK-261122-001 / MK-261124-002).
+  assertEquals(paymentSessionAllowsWalletPosting({
+    status: "captured",
+    provider_state: "COMPLETED",
+    captured_amount_pence: 2940,
+    provider_state_verified_at: "2026-11-22T21:19:35.946Z",
+    released_amount_pence: null,
+    hold_release_state: "released",
+    hold_terminal_reason: "provider_captured",
+  }), true);
 });
 
 Deno.test("Payment Sessions lifecycle mismatch detection", () => {

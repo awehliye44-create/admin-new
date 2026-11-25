@@ -387,6 +387,12 @@ Deno.test("original Accept and negotiated Accept still assign immediately", asyn
     new URL("../../functions/driver-fare-final/index.ts", import.meta.url),
   );
   assertEquals(accept.includes("accept_ride_offer"), true);
+  assertEquals(accept.includes("await ensureNegotiationPayableAuthorised({"), true);
+  assertEquals(
+    accept.indexOf("await ensureNegotiationPayableAuthorised({")
+      < accept.indexOf('supabase.rpc("accept_ride_offer"'),
+    true,
+  );
   assertEquals(decision.includes('if (action === "ACCEPT")'), true);
   assertEquals(decision.includes("accept_ride_offer"), true);
   assertEquals(decision.includes("ensureNegotiationPayableAuthorised"), true);
@@ -579,7 +585,7 @@ Deno.test("driver-fare-offer rejects stacked before any negotiation write", asyn
     new URL("../../functions/accept-offer/index.ts", import.meta.url),
   );
   assertEquals(accept.includes('msg.includes("NEGOTIATION_HELD")'), true);
-  assertEquals(accept.includes("stacked_driver_assigned"), true);
+  assertEquals(accept.includes("BLOCKED_NEGOTIATION_HELD"), true);
   assertEquals(accept.includes("accept_stacked_ride"), true);
 });
 

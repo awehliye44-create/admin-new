@@ -34,7 +34,11 @@ export type FoldTripModificationFareResult = {
   finalCustomerFarePence: number;
   /** Gross = net + existing discount (promotion stays applied once). */
   grossFarePence: number;
-  /** Same as final — capture / final_fare columns. */
+  /**
+   * Payable fare after fold (mirrors final_customer / final_fare).
+   * Must NOT be written to trips.capture_amount_pence (D3 / MK-261125).
+   * @deprecated Name kept for test compatibility — use as payable only.
+   */
   captureAmountPence: number;
   /** Per-revision signed destination adjustment (may be negative). */
   destinationChangeAdjustmentPence: number;
