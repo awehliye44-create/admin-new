@@ -7,6 +7,7 @@
 DO $$
 DECLARE
   v_trip uuid := '00000000-0000-4000-9200-000000000001';
+  v_trip_fee uuid := '00000000-0000-4000-9200-000000000002';
   v_sess uuid := '00000000-0000-4000-9200-000000000010';
   v_sess_fee uuid := '00000000-0000-4000-9200-000000000011';
   v_trip_c uuid := '00000000-0000-4000-9200-0000000000c1';
@@ -24,13 +25,14 @@ BEGIN
 
   DELETE FROM public.payment_financial_events
     WHERE payment_session_id IN (v_sess, v_sess_fee, v_sess_c)
-       OR trip_id IN (v_trip, v_trip_c);
+       OR trip_id IN (v_trip, v_trip_fee, v_trip_c);
   DELETE FROM public.payment_financial_operations
     WHERE payment_session_id IN (v_sess, v_sess_fee, v_sess_c)
-       OR trip_id IN (v_trip, v_trip_c);
-  DELETE FROM public.payment_payable_snapshots WHERE trip_id IN (v_trip, v_trip_c);
+       OR trip_id IN (v_trip, v_trip_fee, v_trip_c);
+  DELETE FROM public.payment_payable_snapshots
+    WHERE trip_id IN (v_trip, v_trip_fee, v_trip_c);
   DELETE FROM public.payment_sessions WHERE id IN (v_sess, v_sess_fee, v_sess_c);
-  DELETE FROM public.trips WHERE id IN (v_trip, v_trip_c);
+  DELETE FROM public.trips WHERE id IN (v_trip, v_trip_fee, v_trip_c);
 
   IF v_full THEN
     SELECT t.service_area_id, t.pickup_latitude, t.pickup_longitude
@@ -51,6 +53,7 @@ BEGIN
     PERFORM set_config('request.jwt.claim.role', 'service_role', true);
     SET LOCAL session_replication_role = replica;
 
+    -- One RIDE_BOOKING session per trip (payment_sessions_ride_trip_unique_idx).
     INSERT INTO public.payment_sessions (
       id, user_id, service_area_id, idempotency_key, client_action_id,
       status, purpose, authorised_amount_pence, provider_state
@@ -73,12 +76,17 @@ BEGIN
        v_lat, v_lng, v_lat + 0.01, v_lng + 0.01,
        'PLATFORM_COLLECTED', 'in_progress', 'card', 'CARD', v_sa,
        v_sess, 1000, 1000, 1000, 1000),
+      (v_trip_fee, gen_random_uuid(), 'TEST-92A-FEE', 'TEST 92A fee pickup', 'TEST 92A fee drop',
+       v_lat, v_lng, v_lat + 0.01, v_lng + 0.01,
+       'PLATFORM_COLLECTED', 'cancelled', 'card', 'CARD', v_sa,
+       v_sess_fee, 500, 500, 500, 500),
       (v_trip_c, gen_random_uuid(), 'TEST-92A-C', 'TEST 92A race pickup', 'TEST 92A race drop',
        v_lat, v_lng, v_lat + 0.01, v_lng + 0.01,
        'PLATFORM_COLLECTED', 'in_progress', 'card', 'CARD', v_sa,
        v_sess_c, 500, 500, 500, 500);
 
-    UPDATE public.payment_sessions SET trip_id = v_trip WHERE id IN (v_sess, v_sess_fee);
+    UPDATE public.payment_sessions SET trip_id = v_trip WHERE id = v_sess;
+    UPDATE public.payment_sessions SET trip_id = v_trip_fee WHERE id = v_sess_fee;
     UPDATE public.payment_sessions SET trip_id = v_trip_c WHERE id = v_sess_c;
 
     SET LOCAL session_replication_role = origin;
@@ -87,11 +95,12 @@ BEGIN
     INSERT INTO public.trips (id, final_customer_fare_pence, locked_base_fare_pence, financial_model)
     VALUES
       (v_trip, 1000, 1000, 'PLATFORM_COLLECTED'),
+      (v_trip_fee, 500, 500, 'PLATFORM_COLLECTED'),
       (v_trip_c, 500, 500, 'PLATFORM_COLLECTED');
     INSERT INTO public.payment_sessions (id, trip_id, purpose, authorised_amount_pence)
     VALUES
       (v_sess, v_trip, 'TRIP_FARE', 1000),
-      (v_sess_fee, v_trip, 'TERMINAL_FEE', 500),
+      (v_sess_fee, v_trip_fee, 'TERMINAL_FEE', 500),
       (v_sess_c, v_trip_c, 'TRIP_FARE', 500);
   END IF;
 

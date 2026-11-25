@@ -118,13 +118,14 @@ BEGIN
     lease_expires_at, provider_post_inflight
   ) VALUES (
     'CAPTURE:' || v_trip::text || ':fee1',
-    gen_random_uuid(), v_sess_fee, v_trip, 'CAPTURE',
+    gen_random_uuid(), v_sess_fee, '00000000-0000-4000-9200-000000000002', 'CAPTURE',
     'CAPTURE:terminal_fee:' || v_sess_fee::text || ':ord1:250:v1:e0',
     'CAPTURE_REQUESTED', 250, 'ord1',
     now() + interval '2 minutes', false
   );
   SELECT count(*) INTO v_cnt FROM public.payment_financial_operations
-  WHERE provider_order_id = 'ord1' AND trip_id = v_trip;
+  WHERE provider_order_id = 'ord1'
+    AND payment_session_id IN (v_sess, v_sess_fee);
   IF v_cnt >= 2 THEN
     v_pass := v_pass + 1;
     RAISE NOTICE 'PASS fare_vs_nonfare_same_order';
