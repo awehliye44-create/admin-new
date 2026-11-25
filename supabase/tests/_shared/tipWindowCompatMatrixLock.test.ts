@@ -23,7 +23,7 @@ const FARE_TAKEN_COPY =
   "The fare was already taken, so this tip could not be added. You can continue without a tip or skip.";
 
 const CUSTOMER_TIP =
-  "/Users/admin/onecab-customer-native/src/features/booking/data/submitCustomerTripTip.ts";
+  "/Users/admin/ONECAB/onecab-customer-native/src/features/booking/data/submitCustomerTripTip.ts";
 
 Deno.test("COMPAT: Old Customer + new Edge — typed decline is failure, zero capture, stays authorised", () => {
   const body = {

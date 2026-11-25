@@ -20,6 +20,10 @@ Deno.test("92H: generic integrity recovery never POSTs money or duplicates TEN",
   assert(src.includes("pc-integrity-recovery-booking-gap"));
   assert(src.includes("resolveBookingTimePayableEvidence"));
   assert(src.includes("payable_snapshot_booking_gap_unrecoverable"));
+  // #92L — booking-gap recovery while tip window defers capture
+  assert(src.includes("not_captured_or_authorised"));
+  assert(src.includes("capture_requested"));
+  assert(src.includes("Completion/recovery snap only after confirmed capture"));
 });
 
 Deno.test("92H: sweep wires pc integrity recovery without capture POST", () => {

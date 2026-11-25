@@ -143,15 +143,20 @@ export async function recoverPlatformCollectedTripFinancialIntegrity(
   if (String(trip.status ?? "").toLowerCase() !== "completed") {
     return { ...empty, skipped_reason: "not_completed" };
   }
-  if (String(trip.payment_status ?? "").toLowerCase() !== "captured") {
-    return { ...empty, skipped_reason: "not_captured" };
-  }
-
-  const sessionId = String(trip.payment_session_id ?? "").trim();
+  const paymentStatus = String(trip.payment_status ?? "").toLowerCase();
   const capturedPence = Math.max(
     0,
     Math.round(Number(trip.capture_amount_pence) || 0),
   );
+  const isCaptured = paymentStatus === "captured" || capturedPence > 0;
+  // #92L — Booking-gap recovery must run while tip-window capture is deferred
+  // (authorized / capture_requested), not only after capture (MK-261125-007).
+  if (!isCaptured && paymentStatus !== "authorized" && paymentStatus !== "authorised"
+    && paymentStatus !== "capture_requested") {
+    return { ...empty, skipped_reason: "not_captured_or_authorised" };
+  }
+
+  const sessionId = String(trip.payment_session_id ?? "").trim();
 
   // ── Snapshots: booking baseline + at least one completion/recovery row ────
   // MK-261125-006: completion snap alone must not hide a missing booking snap.
@@ -224,24 +229,28 @@ export async function recoverPlatformCollectedTripFinancialIntegrity(
       if (bookingGap.ok) snapshotsWritten += 1;
     }
   }
-  const { count: snapCount } = await supabase
-    .from("payment_payable_snapshots")
-    .select("id", { count: "exact", head: true })
-    .eq("trip_id", tripId);
-  if ((snapCount ?? 0) === 0) {
-    const snap = await writePayableSnapshotOrLog(supabase, {
-      tripId,
-      trip: tripSnapRow,
-      source: "recovery",
-      tipPence: Math.max(
-        0,
-        Math.round(Number(trip.tip_pence ?? trip.tip_amount_pence) || 0),
-      ),
-      waitingBasis: "columns",
-      paymentSessionId: sessionId || null,
-      logPrefix: "pc-integrity-recovery",
-    });
-    if (snap.ok) snapshotsWritten += 1;
+  // Completion/recovery snap only after confirmed capture — never invent a
+  // post-tip payable from authorised tip-window state (MK-261125-007).
+  if (isCaptured) {
+    const { count: snapCount } = await supabase
+      .from("payment_payable_snapshots")
+      .select("id", { count: "exact", head: true })
+      .eq("trip_id", tripId);
+    if ((snapCount ?? 0) === 0) {
+      const snap = await writePayableSnapshotOrLog(supabase, {
+        tripId,
+        trip: tripSnapRow,
+        source: "recovery",
+        tipPence: Math.max(
+          0,
+          Math.round(Number(trip.tip_pence ?? trip.tip_amount_pence) || 0),
+        ),
+        waitingBasis: "columns",
+        paymentSessionId: sessionId || null,
+        logPrefix: "pc-integrity-recovery",
+      });
+      if (snap.ok) snapshotsWritten += 1;
+    }
   }
 
   // ── INCREMENT ops: reconcile from confirmed PSA rows only ─────────────────
@@ -281,10 +290,10 @@ export async function recoverPlatformCollectedTripFinancialIntegrity(
     }
   }
 
-  // ── Coverage stamp ────────────────────────────────────────────────────────
+  // ── Coverage stamp (only after confirmed capture) ─────────────────────────
   let coverageStamped = false;
   const coverage = String(trip.payment_coverage_status ?? "").toLowerCase();
-  if (capturedPence > 0 && coverage !== "captured" && coverage !== "partial") {
+  if (isCaptured && capturedPence > 0 && coverage !== "captured" && coverage !== "partial") {
     const projection = buildTripPaymentProjectionAfterCapture({
       canonicalPayablePence: Math.max(
         capturedPence,
@@ -327,11 +336,12 @@ export async function sweepPlatformCollectedFinancialIntegrity(
   args?: { limit?: number },
 ): Promise<{ scanned: number; results: IntegrityRecoveryTripResult[] }> {
   const limit = Math.min(40, Math.max(1, Number(args?.limit ?? 15)));
+  // Include tip-window deferred authorised trips (missing booking snap).
   const { data: trips } = await supabase
     .from("trips")
     .select("id")
     .eq("status", "completed")
-    .eq("payment_status", "captured")
+    .in("payment_status", ["captured", "authorized", "authorised", "capture_requested"])
     .eq("financial_model", "PLATFORM_COLLECTED")
     .order("completed_at", { ascending: false })
     .limit(limit * 3);

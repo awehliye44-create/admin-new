@@ -134,13 +134,16 @@ Deno.test("LOCK: source files refuse false capture / tip seal", async () => {
   const capture = await Deno.readTextFile(
     new URL("../../functions/_shared/revolutCompletionCapture.ts", import.meta.url),
   );
-  assertEquals(capture.includes("Provider capture not confirmed"), true);
-  assertEquals(capture.includes("tip window must stay open"), true);
-  // Non-terminal capture POST must GET-reconcile before local stamp.
+  // Non-terminal capture POST must GET-reconcile before local stamp / tip seal.
+  assertEquals(capture.includes("Provider capture not terminal"), true);
   assertEquals(capture.includes("providerCaptureConfirmed"), true);
   assertEquals(capture.includes("retrieveRevolutOrder"), true);
   assertEquals(capture.includes("decideCaptureAfterRetrieve"), true);
   assertEquals(capture.includes("reconcile_already_captured"), true);
+  const tipClose = await Deno.readTextFile(
+    new URL("../../functions/_shared/tripPaymentFinalised.ts", import.meta.url),
+  );
+  assertEquals(tipClose.includes("tipWindowCloseAllowedAfterFinalize"), true);
 
   const finalize = await Deno.readTextFile(
     new URL("../../functions/finalize-trip-and-capture/index.ts", import.meta.url),
@@ -189,10 +192,19 @@ Deno.test("LOCK MK-260926-001: fare already captured blocks tip-window stamp", a
     shouldCloseOpenTipWindowAfterFareCapture,
   } = await import("../../functions/_shared/tripPaymentFinalised.ts");
 
+  // G4: trips.capture_amount_pence alone is untrusted — need confirmed pence or finalised status.
   assertEquals(
     isFareCapturedBlockingTipWindow({
       paymentStatus: "authorized",
       captureAmountPence: 500,
+    }),
+    false,
+  );
+  assertEquals(
+    isFareCapturedBlockingTipWindow({
+      paymentStatus: "authorized",
+      captureAmountPence: 500,
+      captureConfirmedPence: 500,
     }),
     true,
   );

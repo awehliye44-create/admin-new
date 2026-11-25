@@ -159,10 +159,29 @@ async function failBookingAfterAuthorizedRevolutOrder(
     if (release.status === "has_trip" && release.trip_id) {
       const { data: liveTrip } = await supabase
         .from("trips")
-        .select("id, trip_code, status")
+        .select("id, trip_code, status, payment_session_id, financial_model")
         .eq("id", release.trip_id)
         .maybeSingle();
       if (liveTrip) {
+        // #92M — Adopted success must still ensure booking payable snap (PC).
+        const model = String(
+          (liveTrip as { financial_model?: string | null }).financial_model ?? "",
+        ).toUpperCase();
+        if (model === "PLATFORM_COLLECTED") {
+          try {
+            await persistBookingPayableSnapshotAfterInsert(supabase, {
+              tripId: liveTrip.id,
+              paymentSessionId:
+                (liveTrip as { payment_session_id?: string | null }).payment_session_id
+                ?? null,
+            });
+          } catch (e) {
+            console.error(
+              "[CREATE-TRIP-AFTER-PAYMENT] booking snap ensure on adopt failed",
+              { trip_id: liveTrip.id, error: String((e as Error)?.message ?? e) },
+            );
+          }
+        }
         return new Response(JSON.stringify({
           success: true,
           ride_id: liveTrip.id,
@@ -581,6 +600,35 @@ serveWithEdgeTiming("create-trip-after-payment", corsHeaders, async (req) => {
     }
 
     // 3. Idempotency short-circuit (client_action_id or payment ref)
+    /**
+     * #92L — Every PC success path (insert or idempotent) must ensure a booking
+     * payable snapshot. Race losers used to return without writing (MK-007).
+     */
+    const ensureBookingSnapOnIdempotent = async (
+      tripId: string,
+      sessionIdHint?: string | null,
+    ) => {
+      if (skipPlatformPreauth) return;
+      try {
+        const sessionId =
+          String(sessionIdHint ?? "").trim()
+          || (paymentSessionRes.status === "fulfilled"
+            ? String(paymentSessionRes.value?.id ?? "").trim()
+            : "")
+          || null;
+        await persistBookingPayableSnapshotAfterInsert(supabase, {
+          tripId,
+          paymentSessionId: sessionId,
+          log,
+        });
+      } catch (e) {
+        log("payable_snapshot_booking_idempotent_ensure_threw", {
+          trip_id: tripId,
+          error: String((e as Error)?.message ?? e),
+        });
+      }
+    };
+
     const idempotentTrip =
       (existingTripsRes.value.data?.[0] as IdempotentTripRow | undefined)
       ?? (existingTripByPaymentRes.value.data?.[0] as IdempotentTripRow | undefined)
@@ -643,6 +691,10 @@ serveWithEdgeTiming("create-trip-after-payment", corsHeaders, async (req) => {
           }
         }
       }
+      await ensureBookingSnapOnIdempotent(
+        idempotentTrip.id,
+        idempotentTrip.payment_session_id,
+      );
       return new Response(JSON.stringify({
         success: true,
         ride_id: idempotentTrip.id,
@@ -875,7 +927,7 @@ serveWithEdgeTiming("create-trip-after-payment", corsHeaders, async (req) => {
     ): Promise<Response | null> => {
       const { data: liveTrip } = await supabase
         .from("trips")
-        .select("id, trip_code, status, client_action_id, provider_order_id")
+        .select("id, trip_code, status, client_action_id, provider_order_id, payment_session_id")
         .eq("id", tripId)
         .maybeSingle();
       if (!liveTrip) return null;
@@ -891,6 +943,11 @@ serveWithEdgeTiming("create-trip-after-payment", corsHeaders, async (req) => {
         reason,
         by: sameClientAction ? "client_action_id" : "provider_order_id",
       });
+      await ensureBookingSnapOnIdempotent(
+        liveTrip.id,
+        (liveTrip as { payment_session_id?: string | null }).payment_session_id
+          ?? paymentSessionId,
+      );
       return new Response(JSON.stringify({
         success: true,
         ride_id: liveTrip.id,
@@ -919,7 +976,7 @@ serveWithEdgeTiming("create-trip-after-payment", corsHeaders, async (req) => {
         if (body.client_action_id) {
           const { data: byCa } = await supabase
             .from("trips")
-            .select("id, trip_code, status")
+            .select("id, trip_code, status, payment_session_id")
             .eq("client_action_id", body.client_action_id)
             .limit(1)
             .maybeSingle();
@@ -928,6 +985,11 @@ serveWithEdgeTiming("create-trip-after-payment", corsHeaders, async (req) => {
               tripId: byCa.id,
               by: "client_action_id",
             });
+            await ensureBookingSnapOnIdempotent(
+              byCa.id,
+              (byCa as { payment_session_id?: string | null }).payment_session_id
+                ?? paymentSessionId,
+            );
             return new Response(JSON.stringify({
               success: true,
               ride_id: byCa.id,
@@ -1526,6 +1588,7 @@ serveWithEdgeTiming("create-trip-after-payment", corsHeaders, async (req) => {
             "create-trip-after-payment/index.ts:trips.insert(idempotent)",
             { trip_id: retryTrips[0].id, idempotent: true },
           );
+          await ensureBookingSnapOnIdempotent(retryTrips[0].id, paymentSessionId);
           return new Response(JSON.stringify({
             success: true,
             ride_id: retryTrips[0].id,
@@ -1562,6 +1625,7 @@ serveWithEdgeTiming("create-trip-after-payment", corsHeaders, async (req) => {
               .limit(1)
               .maybeSingle();
             if (byCa) {
+              await ensureBookingSnapOnIdempotent(byCa.id, paymentSessionId);
               return new Response(JSON.stringify({
                 success: true,
                 ride_id: byCa.id,
