@@ -34,6 +34,7 @@ import {
   revisedPayablePenceForModification,
 } from "./modificationHoldLivenessSSOT.ts";
 import { upsertModificationUnchangedNotice } from "./customerPaymentFailureNoticeSSOT.ts";
+import { writePayableSnapshotOrLog } from "./writePayableSnapshotOrLogSSOT.ts";
 
 export const CUSTOMER_PAYMENT_INCREMENT_UNRESOLVED =
   "CUSTOMER_PAYMENT_INCREMENT_UNRESOLVED";
@@ -741,19 +742,13 @@ export async function executeFareIncreaseModificationPayment(
     tripUpdated = broadcastResult?.payload ?? null;
     if (updatedTrip) {
       await upsertTripRoutePolyline(supabase, String(trip.id), polyline, updatedTrip);
-      try {
-        const { writeAuthoritativePayableSnapshot } = await import(
-          "./writeAuthoritativePayableSnapshotSSOT.ts"
-        );
-        await writeAuthoritativePayableSnapshot(supabase, {
-          tripId: String(trip.id),
-          trip: updatedTrip as Record<string, unknown>,
-          source: "modification",
-          waitingBasis: "columns",
-        });
-      } catch (snapErr) {
-        console.warn("[executeFareIncreaseModificationPayment] payable snapshot soft fail", snapErr);
-      }
+      await writePayableSnapshotOrLog(supabase, {
+        tripId: String(trip.id),
+        trip: updatedTrip as Record<string, unknown>,
+        source: "modification",
+        waitingBasis: "columns",
+        logPrefix: "executeFareIncreaseModificationPayment",
+      });
     }
   }
 

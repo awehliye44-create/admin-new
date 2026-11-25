@@ -31,6 +31,8 @@ import { extractConfirmedCaptureAmountPence } from "../_shared/paymentHoldProvid
 import { transitionPaymentSession } from "../_shared/paymentSessionTransitionFacade.ts";
 import { reclaimExpiredPaymentSessionFinancialLock } from "../_shared/paymentSessionFinancialLockSSOT.ts";
 import { reconcilePendingIncrementAuthorisationsFromProvider } from "../_shared/reconcilePendingIncrementAuthorisationSSOT.ts";
+import { sweepPlatformCollectedFinancialIntegrity } from "../_shared/platformCollectedFinancialIntegrityRecoverySSOT.ts";
+import { reconcileIncrementOperationsToCoverConfirmed } from "../_shared/reconcileFinancialOperationFromEvidenceSSOT.ts";
 import {
   expiryFareOnlyTipPence,
   expiredUnclosedTipWindowForbidsTipCapture,
@@ -742,6 +744,30 @@ serve(async (req) => {
           verifiedBy: "sweep-revolut-stale-holds:pending_increment_reconcile",
           requestedTargetTotalPence: target,
         });
+        // #92H: PSA confirm must also resolve INCREMENT financial_operations (no POST).
+        const { data: sessTrip } = await supabase
+          .from("payment_sessions")
+          .select("trip_id")
+          .eq("id", sessionId)
+          .maybeSingle();
+        const tripId = String(sessTrip?.trip_id ?? "").trim();
+        for (const r of rec.results) {
+          if (
+            tripId
+            && (r.action === "confirmed" || r.action === "already_confirmed")
+            && r.providerConfirmedTotalPence != null
+            && r.requestedTargetTotalPence > 0
+          ) {
+            await reconcileIncrementOperationsToCoverConfirmed(supabase, {
+              tripId,
+              paymentSessionId: sessionId,
+              providerOrderId: orderId,
+              targetAmountPence: r.requestedTargetTotalPence,
+              confirmedAmountPence: r.providerConfirmedTotalPence,
+              reason: "sweep_pending_increment_reconcile",
+            }).catch(() => undefined);
+          }
+        }
         pendingIncrementReconcile.push({
           authorisation_id: row.id,
           payment_session_id: sessionId,
@@ -758,6 +784,21 @@ serve(async (req) => {
     }
   }
 
+  // #92H: generic PC integrity recovery (snapshots / ops / coverage / abandoned TCR).
+  // Evidence-only — never customer capture POST.
+  let pcIntegrityRecovery: Awaited<
+    ReturnType<typeof sweepPlatformCollectedFinancialIntegrity>
+  > = { scanned: 0, results: [] };
+  try {
+    if (!dryRun) {
+      pcIntegrityRecovery = await sweepPlatformCollectedFinancialIntegrity(supabase, {
+        limit: Math.min(15, limit),
+      });
+    }
+  } catch (e) {
+    console.error("[sweep-revolut-stale-holds] pc integrity recovery failed", e);
+  }
+
   return new Response(JSON.stringify({
     success: true,
     dry_run: dryRun,
@@ -769,6 +810,7 @@ serve(async (req) => {
     completed_authorised_retries: retryResults,
     missing_ten_recovery: missingTenRecovery,
     pending_increment_reconcile: pendingIncrementReconcile,
+    pc_integrity_recovery: pcIntegrityRecovery,
     watchdog: {
       unresolved_count: watchdog.length,
       by_currency: byCurrency,

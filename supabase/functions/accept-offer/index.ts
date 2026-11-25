@@ -32,6 +32,7 @@ import {
   finishEdgeRequestLog,
 } from "../_shared/edgeRequestTiming.ts";
 import { requireAuthenticatedUser } from "../_shared/edgeAuth.ts";
+import { writePayableSnapshotOrLog } from "../_shared/writePayableSnapshotOrLogSSOT.ts";
 import {
   buildMinimalAcceptedTripSeed,
   createAcceptOfferPerfClock,
@@ -767,22 +768,16 @@ Deno.serve(async (req) => {
       if (!cover.ok) {
         return businessFailureResponse(cover.code, cover.message);
       }
-      try {
-        const { writeAuthoritativePayableSnapshot } = await import(
-          "../_shared/writeAuthoritativePayableSnapshotSSOT.ts"
-        );
-        await writeAuthoritativePayableSnapshot(supabase, {
-          tripId: tripIdForCover,
-          trip: {
-            locked_base_fare_pence: Math.round(customerCounterFare),
-            final_customer_fare_pence: Math.round(customerCounterFare),
-          },
-          source: "negotiation_commit",
-          waitingBasis: "none",
-        });
-      } catch (snapErr) {
-        console.warn("[accept-offer] payable snapshot soft fail", snapErr);
-      }
+      await writePayableSnapshotOrLog(supabase, {
+        tripId: tripIdForCover,
+        trip: {
+          locked_base_fare_pence: Math.round(customerCounterFare),
+          final_customer_fare_pence: Math.round(customerCounterFare),
+        },
+        source: "negotiation_commit",
+        waitingBasis: "none",
+        logPrefix: "accept-offer",
+      });
     }
 
     console.log("[accept-offer] ACCEPT_ORIGINAL_RPC_REQUEST", {

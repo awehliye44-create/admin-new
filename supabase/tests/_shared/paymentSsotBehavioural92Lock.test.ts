@@ -270,5 +270,10 @@ Deno.test("#92B booking snapshot retries + completion rewrite recovery (source)"
     new URL("../../functions/_shared/revolutCompletionCapture.ts", import.meta.url),
   );
   assert(completion.includes('source: "completion"'));
-  assert(completion.includes("writeAuthoritativePayableSnapshot"));
+  // #92G/#92H: static wrapper required — dynamic writeAuthoritativePayableSnapshot
+  // was omitted from Edge ESZIP (MK-261125-003).
+  assert(
+    completion.includes("writePayableSnapshotOrLog")
+      || completion.includes("writeAuthoritativePayableSnapshot"),
+  );
 });

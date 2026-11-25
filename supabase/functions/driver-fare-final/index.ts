@@ -47,6 +47,7 @@ import {
 } from "../_shared/edgeRequestTiming.ts";
 import { scheduleReliableEdgeNotify } from "../_shared/scheduleReliableEdgeNotify.ts";
 import { clearCustomerNegotiationViewOnTrip } from "../_shared/stampCustomerNegotiationView.ts";
+import { writePayableSnapshotOrLog } from "../_shared/writePayableSnapshotOrLogSSOT.ts";
 
 const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "https://thazislrdkjpvvghtvzo.supabase.co";
 const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -451,10 +452,7 @@ Deno.serve(async (req) => {
       }
 
       try {
-        const { writeAuthoritativePayableSnapshot } = await import(
-          "../_shared/writeAuthoritativePayableSnapshotSSOT.ts"
-        );
-        await writeAuthoritativePayableSnapshot(supabase, {
+        await writePayableSnapshotOrLog(supabase, {
           tripId: trip.id,
           trip: {
             ...trip,
@@ -463,9 +461,10 @@ Deno.serve(async (req) => {
           },
           source: "negotiation_commit",
           waitingBasis: "none",
+          logPrefix: "driver-fare-final",
         });
       } catch (snapErr) {
-        console.warn("[driver-fare-final] payable snapshot soft fail", snapErr);
+        console.error("[driver-fare-final] payable snapshot failed", snapErr);
       }
 
       const { data: acceptResult, error: acceptErr } = await supabase.rpc("accept_ride_offer", {

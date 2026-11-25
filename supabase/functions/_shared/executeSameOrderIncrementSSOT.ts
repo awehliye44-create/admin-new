@@ -1244,6 +1244,16 @@ export async function executeSameOrderIncrement(args: {
         elapsed_ms: elapsed,
       });
 
+      // #92G: POST-time INCREMENT_UNKNOWN must flip to COVER_CONFIRMED after retrieve evidence.
+      if (fenceOp) {
+        await completeFinancialOperationFromProvider(args.supabase, {
+          operationId: fenceOp.operationId,
+          fence: fenceOp.fence,
+          state: "COVER_CONFIRMED",
+          confirmedAmountPence: confirmed,
+        }).catch(() => undefined);
+      }
+
       return {
         ok: true,
         kind: "confirmed",

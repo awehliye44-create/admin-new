@@ -1,0 +1,46 @@
+/**
+ * #92H locks — generic PC integrity recovery + wallet realtime publication.
+ */
+import { assert, assertEquals } from "https://deno.land/std@0.224.0/assert/mod.ts";
+
+const ROOT = new URL("../../../", import.meta.url).pathname;
+
+Deno.test("92H: generic integrity recovery never POSTs money or duplicates TEN", () => {
+  const src = Deno.readTextFileSync(
+    `${ROOT}supabase/functions/_shared/platformCollectedFinancialIntegrityRecoverySSOT.ts`,
+  );
+  assert(src.includes("Never POSTs CAPTURE/INCREMENT") || src.includes("Never POSTs"));
+  assert(src.includes("Never creates a second TEN") || src.includes("second TEN"));
+  assert(src.includes("recoverPlatformCollectedTripFinancialIntegrity"));
+  assert(src.includes("sweepPlatformCollectedFinancialIntegrity"));
+  assert(!/incrementRevolutOrderAuthorisation|captureRevolutOrder\(/.test(src));
+  assert(src.includes('source: "recovery"'));
+});
+
+Deno.test("92H: sweep wires pc integrity recovery without capture POST", () => {
+  const src = Deno.readTextFileSync(
+    `${ROOT}supabase/functions/sweep-revolut-stale-holds/index.ts`,
+  );
+  assert(src.includes("sweepPlatformCollectedFinancialIntegrity"));
+  assert(src.includes("pc_integrity_recovery"));
+  assert(src.includes("reconcileIncrementOperationsToCoverConfirmed"));
+});
+
+Deno.test("92H: wallet realtime publication migration present", () => {
+  const mig = Deno.readTextFileSync(
+    `${ROOT}supabase/migrations/20261125160000_driver_wallet_realtime_publication_92h.sql`,
+  );
+  assert(mig.includes("ALTER PUBLICATION supabase_realtime ADD TABLE public.driver_wallet_ledger"));
+  assert(mig.includes("ALTER PUBLICATION supabase_realtime ADD TABLE public.driver_wallets"));
+  assert(mig.includes("REPLICA IDENTITY FULL"));
+  assertEquals(mig.includes("clearing"), true); // comment preserves clearing policy
+});
+
+Deno.test("92H: MK-261125-003 recovery delegates to generic SSOT", () => {
+  const src = Deno.readTextFileSync(
+    `${ROOT}supabase/functions/_shared/mk261125003RecoverySSOT.ts`,
+  );
+  assert(src.includes("recoverPlatformCollectedTripFinancialIntegrity"));
+  assert(src.includes("tenCount"));
+  assert(!/from\("driver_wallet_ledger"\)\.insert/.test(src));
+});
