@@ -28,11 +28,17 @@ import {
 } from "./paymentSessionFinancialLockSSOT.ts";
 import { reconcilePendingIncrementAuthorisationsFromProvider } from "./reconcilePendingIncrementAuthorisationSSOT.ts";
 import { decideCaptureAfterRetrieve, tripHasConflictingFinalCapture } from "./revolutCaptureIdempotencySSOT.ts";
-import { isProviderCaptureTerminalState } from "./paymentSessionsCaptureConfirmationSSOT.ts";
+import {
+  buildTripPaymentProjectionAfterCapture,
+  isProviderCaptureTerminalState,
+} from "./paymentSessionsCaptureConfirmationSSOT.ts";
 import {
   resolveProviderConfirmedCapturePence,
 } from "./providerConfirmedCaptureEvidenceSSOT.ts";
 import { applyCanonicalSettlementAfterCapture } from "./applyCanonicalSettlementAfterCapture.ts";
+import { writePayableSnapshotOrLog } from "./writePayableSnapshotOrLogSSOT.ts";
+import { terminalizeAbandonedTripChangeRequests } from "./terminalizeAbandonedModificationSSOT.ts";
+import { reconcileIncrementOperationsToCoverConfirmed } from "./reconcileFinancialOperationFromEvidenceSSOT.ts";
 import {
   buildProviderSettleEvidenceFromGet,
   readCaptureCompositionComponents,
@@ -46,6 +52,62 @@ import {
 /** MK-260922-001: never stamp local captured while Revolut is still AUTHORISED. */
 function providerCaptureConfirmed(state: unknown): boolean {
   return isProviderCaptureTerminalState(String(state ?? ""));
+}
+
+/** #92G — trip money projection after provider-confirmed capture (clears stale coverage). */
+function tripPatchAfterConfirmedCapture(args: {
+  captureAmountPence: number;
+  authorisedHoldPence?: number | null;
+  finalFarePence?: number | null;
+  tipCollectedPence?: number | null;
+  arrivalWaitingPence?: number | null;
+  stopWaitingPence?: number | null;
+  providerChargeId?: string | null;
+  paymentProvider?: string | null;
+  paymentMethod?: string | null;
+  nowIso: string;
+}): Record<string, unknown> {
+  const projection = buildTripPaymentProjectionAfterCapture({
+    canonicalPayablePence: args.captureAmountPence,
+    totalAuthorisedPence: args.authorisedHoldPence,
+    totalCapturedPence: args.captureAmountPence,
+    paymentProvider: args.paymentProvider ?? "revolut",
+    paymentMethod: args.paymentMethod ?? null,
+  });
+  const tip = Math.max(0, Math.round(Number(args.tipCollectedPence ?? 0) || 0));
+  const arrival = Math.max(0, Math.round(Number(args.arrivalWaitingPence ?? 0) || 0));
+  const stop = Math.max(0, Math.round(Number(args.stopWaitingPence ?? 0) || 0));
+  return {
+    payment_status: projection.payment_status,
+    payment_hold_status: "captured",
+    payment_coverage_status: projection.payment_coverage_status,
+    capture_amount_pence: projection.capture_amount_pence,
+    outstanding_balance_pence: projection.outstanding_balance_pence,
+    ...(args.finalFarePence != null
+      ? { final_fare_pence: Math.round(Number(args.finalFarePence) || 0) }
+      : {}),
+    tip_pence: tip,
+    tip_amount_pence: tip,
+    pickup_waiting_charge_pence: arrival,
+    stop_waiting_charge_pence: stop,
+    total_waiting_charge_pence: arrival + stop,
+    ...(args.providerChargeId
+      ? { provider_charge_id: args.providerChargeId }
+      : {}),
+    updated_at: args.nowIso,
+  };
+}
+
+async function afterSuccessfulCaptureHousekeeping(
+  supabase: SupabaseClient,
+  tripId: string,
+): Promise<void> {
+  await terminalizeAbandonedTripChangeRequests(supabase, {
+    tripId,
+    reason: "abandoned_unapplied_at_trip_completion",
+  }).catch((err) => {
+    console.error("[revolutCompletionCapture] TCR terminalize failed", err);
+  });
 }
 import {
   attachCapturedPostCaptureFields,
@@ -224,20 +286,18 @@ export async function executeRevolutTripCompletionCapture(args: {
 
   const safeTipPence = Math.max(0, Math.round(args.tipPence ?? 0));
   const tripForFare = { ...args.trip, tip_pence: safeTipPence, tip_amount_pence: safeTipPence };
-  try {
-    const { writeAuthoritativePayableSnapshot } = await import(
-      "./writeAuthoritativePayableSnapshotSSOT.ts"
-    );
-    await writeAuthoritativePayableSnapshot(args.supabase, {
-      tripId,
-      trip: tripForFare,
-      source: "completion",
-      tipPence: safeTipPence,
-      waitingBasis: "columns",
-    });
-  } catch (snapErr) {
-    console.warn("[revolutCompletionCapture] payable snapshot soft fail", snapErr);
-  }
+  // #92G: static import required — dynamic import was omitted from Edge ESZIP (MK-261125-003).
+  await writePayableSnapshotOrLog(args.supabase, {
+    tripId,
+    trip: tripForFare,
+    source: "completion",
+    tipPence: safeTipPence,
+    waitingBasis: "columns",
+    paymentSessionId: args.trip.payment_session_id
+      ? String(args.trip.payment_session_id)
+      : null,
+    logPrefix: "revolutCompletionCapture",
+  });
   const resolvedFare = resolveTripFare(tripForFare, safeTipPence);
   const captureResolution = computeCaptureAmount(tripForFare, "completed", safeTipPence);
   // Fare+tip only — receivables are composed via planCaptureComposition (MK-260925-002).
@@ -277,12 +337,32 @@ export async function executeRevolutTripCompletionCapture(args: {
   // Never POSTs increment / capture / wallet credit — evidence reconcile only.
   if (compositionSessionId) {
     try {
-      await reconcilePendingIncrementAuthorisationsFromProvider(args.supabase, {
-        paymentSessionId: compositionSessionId,
-        providerOrderId: orderId,
-        order: orderBefore,
-        verifiedBy: "revolutCompletionCapture:pending_increment_reconcile",
-      });
+      const pending = await reconcilePendingIncrementAuthorisationsFromProvider(
+        args.supabase,
+        {
+          paymentSessionId: compositionSessionId,
+          providerOrderId: orderId,
+          order: orderBefore,
+          verifiedBy: "revolutCompletionCapture:pending_increment_reconcile",
+        },
+      );
+      // #92G: PSA confirm must also resolve INCREMENT_UNKNOWN financial_operations.
+      for (const r of pending.results) {
+        if (
+          (r.action === "confirmed" || r.action === "already_confirmed")
+          && r.providerConfirmedTotalPence != null
+          && r.requestedTargetTotalPence > 0
+        ) {
+          await reconcileIncrementOperationsToCoverConfirmed(args.supabase, {
+            tripId,
+            paymentSessionId: compositionSessionId,
+            providerOrderId: orderId,
+            targetAmountPence: r.requestedTargetTotalPence,
+            confirmedAmountPence: r.providerConfirmedTotalPence,
+            reason: "completion_pending_increment_reconcile",
+          }).catch(() => undefined);
+        }
+      }
     } catch (reconcileErr) {
       console.error(
         "[revolutCompletionCapture] pending increment reconcile failed",
@@ -552,12 +632,20 @@ export async function executeRevolutTripCompletionCapture(args: {
     let paymentSessionPersisted = false;
     try {
       await args.supabase.from("trips").update({
-        payment_status: "captured",
-        payment_hold_status: "captured",
-        capture_amount_pence: captureAmountPence,
-        provider_charge_id: orderBefore.id ?? orderId,
-        updated_at: now,
+        ...tripPatchAfterConfirmedCapture({
+          captureAmountPence,
+          authorisedHoldPence: authorisedHoldPence,
+          providerChargeId: orderBefore.id ?? orderId,
+          paymentProvider: args.trip.payment_provider
+            ? String(args.trip.payment_provider)
+            : "revolut",
+          paymentMethod: args.trip.payment_method
+            ? String(args.trip.payment_method)
+            : null,
+          nowIso: now,
+        }),
       }).eq("id", tripId);
+      await afterSuccessfulCaptureHousekeeping(args.supabase, tripId);
       await args.supabase.from("payments").update({
         status: "captured",
         captured_amount_pence: captureAmountPence,
@@ -1598,20 +1686,25 @@ export async function executeRevolutTripCompletionCapture(args: {
         });
       }
 
-      await args.supabase.from("trips").update({
-        payment_status: "captured",
-        payment_hold_status: "captured",
-        capture_amount_pence: confirmedLockedPence,
-        final_fare_pence: resolvedFare.final_fare_pence,
-        tip_pence: tipCoverageFor(confirmedLockedPence).tipCollectedPence,
-        tip_amount_pence: tipCoverageFor(confirmedLockedPence).tipCollectedPence,
-        pickup_waiting_charge_pence: resolvedFare.arrival_waiting_charge_pence,
-        stop_waiting_charge_pence: resolvedFare.stop_waiting_charge_pence,
-        total_waiting_charge_pence:
-          resolvedFare.arrival_waiting_charge_pence + resolvedFare.stop_waiting_charge_pence,
-        provider_charge_id: confirmedOrder.id ?? orderId,
-        updated_at: nowLocked,
-      }).eq("id", tripId);
+      await args.supabase.from("trips").update(
+        tripPatchAfterConfirmedCapture({
+          captureAmountPence: confirmedLockedPence,
+          authorisedHoldPence: authorisedHoldPence,
+          finalFarePence: resolvedFare.final_fare_pence,
+          tipCollectedPence: tipCoverageFor(confirmedLockedPence).tipCollectedPence,
+          arrivalWaitingPence: resolvedFare.arrival_waiting_charge_pence,
+          stopWaitingPence: resolvedFare.stop_waiting_charge_pence,
+          providerChargeId: confirmedOrder.id ?? orderId,
+          paymentProvider: args.trip.payment_provider
+            ? String(args.trip.payment_provider)
+            : "revolut",
+          paymentMethod: args.trip.payment_method
+            ? String(args.trip.payment_method)
+            : null,
+          nowIso: nowLocked,
+        }),
+      ).eq("id", tripId);
+      await afterSuccessfulCaptureHousekeeping(args.supabase, tripId);
 
       await args.supabase.from("payments").update({
         status: "captured",
@@ -1785,20 +1878,25 @@ export async function executeRevolutTripCompletionCapture(args: {
     });
   }
 
-  await args.supabase.from("trips").update({
-    payment_status: "captured",
-    payment_hold_status: "captured",
-    capture_amount_pence: confirmedUnguardedPence,
-    final_fare_pence: resolvedFare.final_fare_pence,
-    tip_pence: tipCoverageFor(confirmedUnguardedPence).tipCollectedPence,
-    tip_amount_pence: tipCoverageFor(confirmedUnguardedPence).tipCollectedPence,
-    pickup_waiting_charge_pence: resolvedFare.arrival_waiting_charge_pence,
-    stop_waiting_charge_pence: resolvedFare.stop_waiting_charge_pence,
-    total_waiting_charge_pence:
-      resolvedFare.arrival_waiting_charge_pence + resolvedFare.stop_waiting_charge_pence,
-    provider_charge_id: confirmedUnguarded.id ?? orderId,
-    updated_at: now,
-  }).eq("id", tripId);
+  await args.supabase.from("trips").update(
+    tripPatchAfterConfirmedCapture({
+      captureAmountPence: confirmedUnguardedPence,
+      authorisedHoldPence: authorisedHoldPence,
+      finalFarePence: resolvedFare.final_fare_pence,
+      tipCollectedPence: tipCoverageFor(confirmedUnguardedPence).tipCollectedPence,
+      arrivalWaitingPence: resolvedFare.arrival_waiting_charge_pence,
+      stopWaitingPence: resolvedFare.stop_waiting_charge_pence,
+      providerChargeId: confirmedUnguarded.id ?? orderId,
+      paymentProvider: args.trip.payment_provider
+        ? String(args.trip.payment_provider)
+        : "revolut",
+      paymentMethod: args.trip.payment_method
+        ? String(args.trip.payment_method)
+        : null,
+      nowIso: now,
+    }),
+  ).eq("id", tripId);
+  await afterSuccessfulCaptureHousekeeping(args.supabase, tripId);
 
   await args.supabase.from("payments").update({
     status: "captured",

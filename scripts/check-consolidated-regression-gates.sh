@@ -68,6 +68,9 @@ deno test --no-check --allow-read --allow-env \
   supabase/tests/_shared/financialProductionWorkerInventory92DLock.test.ts \
   supabase/tests/_shared/tripCaptureJobDeferralLock.test.ts \
   supabase/tests/_shared/captureOutcomeTipVsShortfallLock.test.ts \
+  supabase/tests/_shared/payableSnapshotStaticImport92GLock.test.ts \
+  supabase/tests/_shared/reconcileFinancialOpEvidence92GLock.test.ts \
+  supabase/tests/_shared/platformCollectedIntegrityRecovery92HLock.test.ts \
   supabase/functions/_shared/cancelTripCallerAuthSSOT.test.ts \
   supabase/functions/_shared/bookingOwnershipRoleIsolationLock.test.ts \
   supabase/functions/_shared/sessionAccessRoleSSOT.test.ts \

@@ -108,6 +108,45 @@ CREATE TABLE IF NOT EXISTS public.payment_sessions (
 );
 CREATE OR REPLACE FUNCTION public.trip_has_unresolved_fare_increase_modification(p_trip_id uuid)
 RETURNS boolean LANGUAGE sql AS $$ SELECT false $$;
+-- #92H stub: abandoned TCR terminalise + wallet clearing consistency
+CREATE TABLE IF NOT EXISTS public.trip_change_requests (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  trip_id uuid NOT NULL REFERENCES public.trips(id) ON DELETE CASCADE,
+  requested_by text NOT NULL DEFAULT 'customer',
+  requester_id uuid,
+  change_type text NOT NULL,
+  before_route_snapshot jsonb NOT NULL DEFAULT '{}'::jsonb,
+  after_route_snapshot jsonb NOT NULL DEFAULT '{}'::jsonb,
+  original_fare_pence integer,
+  new_fare_pence integer,
+  fare_delta_pence integer,
+  status text NOT NULL DEFAULT 'pending_driver_approval',
+  payment_status text,
+  rejection_reason text,
+  responded_at timestamptz,
+  expires_at timestamptz NOT NULL DEFAULT (now() + interval '1 minute'),
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE TABLE IF NOT EXISTS public.driver_wallet_ledger (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  driver_id uuid NOT NULL,
+  related_trip_id uuid,
+  type text NOT NULL,
+  amount_pence integer NOT NULL,
+  currency text NOT NULL DEFAULT 'GBP',
+  description text,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE UNIQUE INDEX IF NOT EXISTS driver_wallet_ledger_ten_once_uidx
+  ON public.driver_wallet_ledger (related_trip_id)
+  WHERE type = 'TRIP_EARNING_NET';
+SQL
+# Ensure exactly-once TEN unique index on full harness schemas too.
+"${PSQL[@]}" <<'SQL' >/dev/null
+CREATE UNIQUE INDEX IF NOT EXISTS driver_wallet_ledger_ten_once_uidx
+  ON public.driver_wallet_ledger (related_trip_id)
+  WHERE type = 'TRIP_EARNING_NET';
 SQL
 
 # Re-ensure trigger after stub table create (isolated path only)
@@ -217,6 +256,111 @@ else
   pass "same_owner_inflight_reentry_blocked"
 fi
 
+# ── #92H behavioural: sequential increments + late COVER_CONFIRMED ────────────
+echo "=== #92H sequential increments + late provider confirm ==="
+TRIP_H='00000000-0000-4000-9200-000000000001'
+SESS_H='00000000-0000-4000-9200-000000000010'
+"${PSQL[@]}" <<SQL >/dev/null
+DELETE FROM public.payment_financial_operations WHERE payment_session_id = '$SESS_H';
+INSERT INTO public.payment_financial_operations (
+  execution_id, fence, payment_session_id, trip_id, op_type,
+  logical_idempotency_key, state, requested_amount_pence, provider_order_id,
+  lease_expires_at, provider_post_inflight
+) VALUES
+  ('INCREMENT:$TRIP_H:seq1', gen_random_uuid(), '$SESS_H', '$TRIP_H', 'INCREMENT',
+   'INCREMENT:fare:$SESS_H:ord-seq:570:v1:e0', 'COVER_CONFIRMED', 570, 'ord-seq',
+   now() + interval '2 minutes', false),
+  ('INCREMENT:$TRIP_H:seq2', gen_random_uuid(), '$SESS_H', '$TRIP_H', 'INCREMENT',
+   'INCREMENT:fare:$SESS_H:ord-seq:1482:v1:e0', 'INCREMENT_UNKNOWN', 1482, 'ord-seq',
+   now() + interval '2 minutes', false);
+-- Late provider confirm (no second POST): flip UNKNOWN → COVER_CONFIRMED
+UPDATE public.payment_financial_operations
+SET state = 'COVER_CONFIRMED',
+    provider_confirmed_amount_pence = requested_amount_pence,
+    provider_post_inflight = false,
+    updated_at = now()
+WHERE payment_session_id = '$SESS_H'
+  AND logical_idempotency_key = 'INCREMENT:fare:$SESS_H:ord-seq:1482:v1:e0'
+  AND state = 'INCREMENT_UNKNOWN';
+SQL
+SEQ_CNT=$("${PSQL[@]}" -At -c "select count(*) from payment_financial_operations where payment_session_id='$SESS_H' and op_type='INCREMENT' and state='COVER_CONFIRMED'")
+if [ "$SEQ_CNT" = "2" ]; then pass "sequential_increments_late_confirm"; else fail "sequential_increments_late_confirm" "cnt=$SEQ_CNT"; fi
+
+# ── #92H duplicate settlement / exactly-once TEN ─────────────────────────────
+echo "=== #92H exactly-once TEN + duplicate insert blocked ==="
+# Single psql session: prove unique index exists + duplicate insert is rejected.
+# Avoids session_replication_role (denied for CI non-superuser) and drivers FK.
+"${PSQL[@]}" -v ON_ERROR_STOP=1 <<SQL >"$WORK/ten_once.out" 2>"$WORK/ten_once.err"
+SELECT CASE WHEN EXISTS (
+  SELECT 1 FROM pg_indexes
+  WHERE schemaname='public'
+    AND indexname IN (
+      'driver_wallet_ledger_trip_earning_net_unique',
+      'driver_wallet_ledger_ten_once_uidx'
+    )
+) THEN 'TEN_IDX_OK' ELSE 'TEN_IDX_MISSING' END;
+
+CREATE TEMP TABLE ten_once_probe (
+  related_trip_id uuid NOT NULL,
+  type text NOT NULL,
+  amount_pence integer NOT NULL
+);
+CREATE UNIQUE INDEX ten_once_probe_uidx
+  ON ten_once_probe (related_trip_id) WHERE type = 'TRIP_EARNING_NET';
+INSERT INTO ten_once_probe (related_trip_id, type, amount_pence)
+VALUES ('$TRIP_H'::uuid, 'TRIP_EARNING_NET', 484);
+
+DO \$\$
+BEGIN
+  BEGIN
+    INSERT INTO ten_once_probe (related_trip_id, type, amount_pence)
+    VALUES ('$TRIP_H'::uuid, 'TRIP_EARNING_NET', 484);
+    RAISE EXCEPTION 'TEN_DUP_ALLOWED';
+  EXCEPTION
+    WHEN unique_violation THEN
+      RAISE NOTICE 'TEN_DUP_BLOCKED';
+  END;
+END \$\$;
+
+SELECT 'TEN_COUNT=' || count(*)::text
+FROM ten_once_probe
+WHERE related_trip_id = '$TRIP_H'::uuid AND type = 'TRIP_EARNING_NET';
+SQL
+if [ $? -ne 0 ]; then
+  fail "ten_exactly_once_session" "psql failed"
+  cat "$WORK/ten_once.err" | head -20
+else
+  grep -q 'TEN_IDX_OK' "$WORK/ten_once.out" && pass "ten_unique_index_present" || fail "ten_unique_index_present" "missing"
+  grep -q 'TEN_DUP_BLOCKED' "$WORK/ten_once.out" "$WORK/ten_once.err" && pass "ten_exactly_once_duplicate_blocked" || fail "ten_exactly_once_duplicate_blocked" "dup not blocked"
+  grep -q 'TEN_COUNT=1' "$WORK/ten_once.out" && pass "ten_row_count_exactly_one" || fail "ten_row_count_exactly_one" "$(grep TEN_COUNT "$WORK/ten_once.out" || echo missing)"
+fi
+
+# ── #92H crash recovery: CAPTURE_UNKNOWN then settle without second POST ─────
+echo "=== #92H crash recovery before settle (CAPTURE_UNKNOWN → FULLY_CAPTURED) ==="
+"${PSQL[@]}" <<SQL >/dev/null
+DELETE FROM public.payment_financial_operations WHERE payment_session_id = '$SESS_H' AND op_type = 'CAPTURE';
+INSERT INTO public.payment_financial_operations (
+  execution_id, fence, payment_session_id, trip_id, op_type,
+  logical_idempotency_key, state, requested_amount_pence, provider_order_id,
+  lease_expires_at, provider_post_inflight
+) VALUES (
+  'CAPTURE:$TRIP_H:crash1', gen_random_uuid(), '$SESS_H', '$TRIP_H', 'CAPTURE',
+  'CAPTURE:fare:$SESS_H:ord-seq:570:v1:e0', 'CAPTURE_UNKNOWN', 570, 'ord-seq',
+  now() + interval '2 minutes', false
+);
+-- Reconcile from provider evidence only (no second capture POST)
+UPDATE public.payment_financial_operations
+SET state = 'FULLY_CAPTURED',
+    provider_confirmed_amount_pence = 570,
+    provider_post_inflight = false,
+    updated_at = now()
+WHERE payment_session_id = '$SESS_H'
+  AND op_type = 'CAPTURE'
+  AND state = 'CAPTURE_UNKNOWN';
+SQL
+CAP_STATE=$("${PSQL[@]}" -At -c "select state from payment_financial_operations where payment_session_id='$SESS_H' and op_type='CAPTURE' order by created_at desc limit 1")
+[ "$CAP_STATE" = "FULLY_CAPTURED" ] && pass "crash_recovery_capture_unknown_to_fully_captured" || fail "crash_recovery_capture_unknown_to_fully_captured" "state=$CAP_STATE"
+
 # Rollback Stage D → C compatibility (flags only; schema retained)
 echo "=== Stage D → C rollback flag compatibility ==="
 "${PSQL[@]}" <<'SQL' >/dev/null
@@ -241,6 +385,12 @@ DELETE FROM public.payment_financial_operations
     OR trip_id::text LIKE '00000000-0000-4000-9200-%';
 DELETE FROM public.payment_payable_snapshots
  WHERE trip_id::text LIKE '00000000-0000-4000-9200-%';
+DELETE FROM public.trip_change_requests
+ WHERE id::text LIKE '00000000-0000-4000-9200-%'
+    OR trip_id::text LIKE '00000000-0000-4000-9200-%';
+DELETE FROM public.driver_wallet_ledger
+ WHERE related_trip_id::text LIKE '00000000-0000-4000-9200-%'
+    OR driver_id::text LIKE '00000000-0000-4000-9200-%';
 DELETE FROM public.payment_sessions WHERE id::text LIKE '00000000-0000-4000-9200-%';
 DELETE FROM public.trips WHERE id::text LIKE '00000000-0000-4000-9200-%';
 UPDATE public.payment_financial_operations

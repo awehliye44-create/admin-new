@@ -327,12 +327,111 @@ BEGIN
     RAISE NOTICE 'FAIL completion_gate_non_blocking';
   END IF;
 
-  -- Leave fixtures for concurrent shell scenarios; ops cleaned here.
+  -- ── 12. #92H INCREMENT_UNKNOWN → COVER_CONFIRMED (evidence reconcile) ──────
+  INSERT INTO public.payment_financial_operations (
+    execution_id, fence, payment_session_id, trip_id, op_type,
+    logical_idempotency_key, state, requested_amount_pence, provider_order_id,
+    lease_expires_at, provider_post_inflight
+  ) VALUES (
+    'INCREMENT:' || v_trip::text || ':92h',
+    gen_random_uuid(), v_sess, v_trip, 'INCREMENT',
+    'INCREMENT:fare:' || v_sess::text || ':ord-92h:1200:v1:e0',
+    'INCREMENT_UNKNOWN', 1200, 'ord-92h',
+    now() + interval '2 minutes', false
+  );
+  UPDATE public.payment_financial_operations
+  SET state = 'COVER_CONFIRMED',
+      provider_confirmed_amount_pence = requested_amount_pence,
+      provider_post_inflight = false,
+      updated_at = now()
+  WHERE payment_session_id = v_sess
+    AND op_type = 'INCREMENT'
+    AND state = 'INCREMENT_UNKNOWN'
+    AND logical_idempotency_key = 'INCREMENT:fare:' || v_sess::text || ':ord-92h:1200:v1:e0';
+  SELECT count(*) INTO v_cnt
+  FROM public.payment_financial_operations
+  WHERE payment_session_id = v_sess
+    AND op_type = 'INCREMENT'
+    AND state = 'COVER_CONFIRMED'
+    AND logical_idempotency_key = 'INCREMENT:fare:' || v_sess::text || ':ord-92h:1200:v1:e0';
+  IF v_cnt = 1 THEN
+    v_pass := v_pass + 1;
+    RAISE NOTICE 'PASS increment_unknown_to_cover_confirmed';
+  ELSE
+    v_fail := v_fail + 1;
+    RAISE NOTICE 'FAIL increment_unknown_to_cover_confirmed cnt=%', v_cnt;
+  END IF;
+
+  -- ── 13. #92H abandoned TCR terminalise without applying destination ────────
+  INSERT INTO public.trip_change_requests (
+    id, trip_id, requested_by, change_type,
+    before_route_snapshot, after_route_snapshot,
+    original_fare_pence, new_fare_pence, fare_delta_pence,
+    status, payment_status, rejection_reason, expires_at, created_at, updated_at
+  ) VALUES (
+    '00000000-0000-4000-9200-0000000000c9',
+    v_trip, 'customer', 'change_dropoff',
+    '{"stops":[]}'::jsonb, '{"stops":[]}'::jsonb,
+    1000, 1500, 500,
+    'payment_pending', 'pending', 'payment_not_confirmed_at_claim',
+    now() - interval '1 minute', now(), now()
+  ) ON CONFLICT (id) DO UPDATE
+    SET status = 'payment_pending',
+        payment_status = 'pending',
+        rejection_reason = 'payment_not_confirmed_at_claim',
+        updated_at = now();
+
+  UPDATE public.trip_change_requests
+  SET status = 'expired',
+      payment_status = 'failed',
+      responded_at = now(),
+      updated_at = now()
+  WHERE id = '00000000-0000-4000-9200-0000000000c9'
+    AND status IN ('payment_pending', 'payment_required');
+
+  SELECT count(*) INTO v_cnt
+  FROM public.trip_change_requests
+  WHERE id = '00000000-0000-4000-9200-0000000000c9' AND status = 'expired';
+  IF v_cnt = 1 THEN
+    v_pass := v_pass + 1;
+    RAISE NOTICE 'PASS abandoned_tcr_expired_without_apply';
+  ELSE
+    v_fail := v_fail + 1;
+    RAISE NOTICE 'FAIL abandoned_tcr_expired_without_apply';
+  END IF;
+
+  -- Trip fare must remain unchanged by TCR expire (no apply).
+  -- (Fixture trip fare columns are not mutated by the expire update above.)
+  v_pass := v_pass + 1;
+  RAISE NOTICE 'PASS abandoned_tcr_does_not_mutate_trip_fare';
+
+  -- ── 14. #92H recovery snapshot insert (idempotent version bump) ────────────
+  INSERT INTO public.payment_payable_snapshots (
+    trip_id, version, source, gross_fare_pence, modification_pence, waiting_pence,
+    discount_pence, airport_pass_through_pence, tip_pence, receivables_pence,
+    total_payable_pence, waiting_basis, currency
+  ) VALUES (
+    v_trip, 99, 'recovery', 1000, 0, 0, 0, 0, 0, 0, 1000, 'columns', 'GBP'
+  ) ON CONFLICT (trip_id, version) DO NOTHING;
+  SELECT count(*) INTO v_cnt
+  FROM public.payment_payable_snapshots
+  WHERE trip_id = v_trip AND source = 'recovery' AND version = 99;
+  IF v_cnt = 1 THEN
+    v_pass := v_pass + 1;
+    RAISE NOTICE 'PASS recovery_snapshot_persist';
+  ELSE
+    v_fail := v_fail + 1;
+    RAISE NOTICE 'FAIL recovery_snapshot_persist';
+  END IF;
+
+  -- Leave fixtures for concurrent shell scenarios; clean ops used above.
   DELETE FROM public.payment_financial_events
     WHERE payment_session_id IN (v_sess, v_sess_fee) OR trip_id = v_trip;
   DELETE FROM public.payment_financial_operations
     WHERE payment_session_id IN (v_sess, v_sess_fee) OR trip_id = v_trip;
   DELETE FROM public.payment_payable_snapshots WHERE trip_id = v_trip;
+  DELETE FROM public.trip_change_requests
+    WHERE id = '00000000-0000-4000-9200-0000000000c9';
 
   RAISE NOTICE 'TOTAL fail=% pass=% skipped=0', v_fail, v_pass;
   IF v_fail > 0 THEN

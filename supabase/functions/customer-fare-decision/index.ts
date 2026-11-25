@@ -58,6 +58,7 @@ import {
   withDuration,
 } from "../_shared/edgeRequestTiming.ts";
 import { scheduleReliableEdgeNotify } from "../_shared/scheduleReliableEdgeNotify.ts";
+import { writePayableSnapshotOrLog } from "../_shared/writePayableSnapshotOrLogSSOT.ts";
 import {
   clearCustomerNegotiationViewOnTrip,
   stampNegotiationViewFromOfferId,
@@ -412,10 +413,7 @@ Deno.serve(async (req) => {
       }
 
       try {
-        const { writeAuthoritativePayableSnapshot } = await import(
-          "../_shared/writeAuthoritativePayableSnapshotSSOT.ts"
-        );
-        await writeAuthoritativePayableSnapshot(supabase, {
+        await writePayableSnapshotOrLog(supabase, {
           tripId: trip.id,
           trip: {
             ...trip,
@@ -424,9 +422,10 @@ Deno.serve(async (req) => {
           },
           source: "negotiation_commit",
           waitingBasis: "none",
+          logPrefix: "customer-fare-decision",
         });
       } catch (snapErr) {
-        console.warn("[customer-fare-decision] payable snapshot soft fail", snapErr);
+        console.error("[customer-fare-decision] payable snapshot failed", snapErr);
       }
 
       // Same atomic assignment path as driver Accept — supports countered preset offers.

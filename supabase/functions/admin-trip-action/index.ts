@@ -22,6 +22,7 @@ import { closeAllOpenWaitingSegmentsForTrip } from "../_shared/waitingSegmentClo
 import { notifyCustomerTripLifecycle } from "../_shared/customerTripLifecycleNotify.ts";
 import { assertPlatformCollectedCompletionPaymentGate } from "../_shared/executeFareIncreaseModificationPayment.ts";
 import { recordTripBonusProgressAfterCompletion } from "../_shared/driverTripBonusProgressWriter.ts";
+import { writePayableSnapshotOrLog } from "../_shared/writePayableSnapshotOrLogSSOT.ts";
 
 const ACTIVE_STATUSES = new Set([
   "pending",
@@ -255,10 +256,7 @@ Deno.serve(async (req) => {
           ? `${note} [force_complete waiting preserved: pickup=${priorPickupWaiting}p stop=${priorStopWaiting}p; folded into payable ${farePence}p]`
           : note;
       try {
-        const { writeAuthoritativePayableSnapshot } = await import(
-          "../_shared/writeAuthoritativePayableSnapshotSSOT.ts"
-        );
-        await writeAuthoritativePayableSnapshot(gate.supabase, {
+        await writePayableSnapshotOrLog(gate.supabase, {
           tripId,
           trip: trip as Record<string, unknown>,
           source: "force_complete",
@@ -268,10 +266,11 @@ Deno.serve(async (req) => {
             0,
             Math.round(Number(trip.tip_amount_pence ?? trip.tip_pence ?? 0) || 0),
           ),
+          logPrefix: "admin-trip-action",
         });
         void priorWaitingTotal;
       } catch (snapErr) {
-        console.warn("[admin-trip-action] force_complete snapshot archive skipped", snapErr);
+        console.error("[admin-trip-action] force_complete snapshot failed", snapErr);
       }
 
       const { error: tripUpdateErr } = await gate.supabase

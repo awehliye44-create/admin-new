@@ -50,6 +50,7 @@ import {
 import { resolveTripFare } from "../../_shared/tripFareSSOT.ts";
 import { planCaptureComposition } from "../../_shared/captureCompositionSSOT.ts";
 import { acquireLockAndResolveCaptureComposition } from "../../_shared/captureCompositionAcquireSSOT.ts";
+import { writePayableSnapshotOrLog } from "../../_shared/writePayableSnapshotOrLogSSOT.ts";
 void planCaptureComposition;
 
 export type AdminCaptureTripPaymentDeps = {
@@ -353,18 +354,16 @@ export async function executeAdminCaptureTripPayment(args: {
       // G2: canonical guarded capture (claim → POST → GET confirm).
       void captureOrder;
       try {
-        const { writeAuthoritativePayableSnapshot } = await import(
-          "../../_shared/writeAuthoritativePayableSnapshotSSOT.ts"
-        );
-        await writeAuthoritativePayableSnapshot(args.supabase, {
+        await writePayableSnapshotOrLog(args.supabase, {
           tripId,
           trip: args.trip,
           source: "admin_capture",
           waitingBasis: "columns",
           totalPayableOverridePence: decision.captureAmountPence,
+          logPrefix: "admin-capture",
         });
       } catch (snapErr) {
-        console.warn("[admin-capture] payable snapshot soft fail", snapErr);
+        console.error("[admin-capture] payable snapshot failed", snapErr);
       }
       const guarded = await guardedCaptureRevolutOrder({
         supabase: args.supabase,
