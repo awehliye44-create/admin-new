@@ -30,6 +30,8 @@ Example: hold 495p, final 595p → increment existing order to 595 → provider 
 
 Lock tests: `supabase/functions/_shared/revolutIncrementAuthorisationSSOT.test.ts`  
 Coverage: `supabase/functions/_shared/revolutIncrementCoverage018.test.ts` + `tripModificationPaymentGateSSOT.test.ts`  
+Production-verified contract (#91): `supabase/tests/_shared/successfulIncrementalAuthorisation91Lock.test.ts`  
+(MK-261125-001 / MK-261125-002 — POST total on same order, API `2026-04-20`, provider-confirmed authorised before apply/capture).  
 **If they fail, fix the code — never delete or soften the lock.**
 
 ## Do not
