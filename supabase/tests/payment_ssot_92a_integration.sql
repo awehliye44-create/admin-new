@@ -25,23 +25,16 @@ DECLARE
   v_cutover_stage text;
   v_strict boolean;
 BEGIN
-  -- Cleanup leftovers
+  -- Fixtures created by payment_ssot_92a_integration.setup.sql
+  IF NOT EXISTS (SELECT 1 FROM public.payment_sessions WHERE id = v_sess) THEN
+    RAISE EXCEPTION 'BLOCKER: fixtures missing — run payment_ssot_92a_integration.setup.sql first';
+  END IF;
+
   DELETE FROM public.payment_financial_events
-    WHERE payment_session_id IN (v_sess, v_sess_fee)
-       OR trip_id = v_trip;
+    WHERE payment_session_id IN (v_sess, v_sess_fee) OR trip_id = v_trip;
   DELETE FROM public.payment_financial_operations
     WHERE payment_session_id IN (v_sess, v_sess_fee) OR trip_id = v_trip;
   DELETE FROM public.payment_payable_snapshots WHERE trip_id = v_trip;
-  DELETE FROM public.payment_sessions WHERE id IN (v_sess, v_sess_fee);
-  DELETE FROM public.trips WHERE id = v_trip;
-
-  INSERT INTO public.trips (id, final_customer_fare_pence, locked_base_fare_pence, financial_model)
-  VALUES (v_trip, 1000, 1000, 'PLATFORM_COLLECTED');
-
-  INSERT INTO public.payment_sessions (id, trip_id, purpose, authorised_amount_pence, captured_amount_pence)
-  VALUES
-    (v_sess, v_trip, 'TRIP_FARE', 1000, NULL),
-    (v_sess_fee, v_trip, 'TERMINAL_FEE', 500, NULL);
 
   -- ── 1. Unique logical operation (active) ───────────────────────────────────
   INSERT INTO public.payment_financial_operations (
@@ -333,14 +326,12 @@ BEGIN
     RAISE NOTICE 'FAIL completion_gate_non_blocking';
   END IF;
 
-  -- Cleanup synthetic
+  -- Leave fixtures for concurrent shell scenarios; ops cleaned here.
   DELETE FROM public.payment_financial_events
     WHERE payment_session_id IN (v_sess, v_sess_fee) OR trip_id = v_trip;
   DELETE FROM public.payment_financial_operations
     WHERE payment_session_id IN (v_sess, v_sess_fee) OR trip_id = v_trip;
   DELETE FROM public.payment_payable_snapshots WHERE trip_id = v_trip;
-  DELETE FROM public.payment_sessions WHERE id IN (v_sess, v_sess_fee);
-  DELETE FROM public.trips WHERE id = v_trip;
 
   RAISE NOTICE 'TOTAL fail=% pass=% skipped=0', v_fail, v_pass;
   IF v_fail > 0 THEN

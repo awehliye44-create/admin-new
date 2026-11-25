@@ -110,14 +110,25 @@ CREATE OR REPLACE FUNCTION public.trip_has_unresolved_fare_increase_modification
 RETURNS boolean LANGUAGE sql AS $$ SELECT false $$;
 SQL
 
-# Re-ensure trigger after stub table create (isolated path)
-"${PSQL[@]}" <<'SQL' >/dev/null
-DROP TRIGGER IF EXISTS trg_trips_capture_amount_confirmed_only ON public.trips;
-CREATE TRIGGER trg_trips_capture_amount_confirmed_only
-  BEFORE UPDATE OF capture_amount_pence ON public.trips
-  FOR EACH ROW
-  EXECUTE FUNCTION public.trips_capture_amount_confirmed_only();
+# Re-ensure trigger after stub table create (isolated path only)
+if [ "$("${PSQL[@]}" -At -c "select to_regprocedure('public.trips_capture_amount_confirmed_only()') is not null")" = "t" ]; then
+  "${PSQL[@]}" <<'SQL' >/dev/null
+  DROP TRIGGER IF EXISTS trg_trips_capture_amount_confirmed_only ON public.trips;
+  CREATE TRIGGER trg_trips_capture_amount_confirmed_only
+    BEFORE UPDATE OF capture_amount_pence ON public.trips
+    FOR EACH ROW
+    EXECUTE FUNCTION public.trips_capture_amount_confirmed_only();
 SQL
+fi
+
+echo "=== fixture bootstrap (full schema or stub) ==="
+if ! "${PSQL[@]}" -f "$HERE/payment_ssot_92a_integration.setup.sql" >"$WORK/setup.log" 2>&1; then
+  fail "fixture_setup" "setup sql failed"
+  cat "$WORK/setup.log"
+  echo "TOTAL fail=$FAIL pass=$PASS skipped=0"
+  exit 1
+fi
+grep -q '92A_FIXTURE_READY' "$WORK/setup.log" && pass "fixture_setup" || fail "fixture_setup" "ready marker missing"
 
 echo "=== sequential constraint / lifecycle SQL ==="
 if "${PSQL[@]}" -f "$HERE/payment_ssot_92a_integration.sql" >"$WORK/seq.log" 2>&1; then
@@ -126,20 +137,15 @@ else
   fail "sequential_sql" "psql exited non-zero"
   tail -n 40 "$WORK/seq.log"
 fi
-grep -E '^(PASS|FAIL) ' "$WORK/seq.log" || true
+grep -E 'NOTICE:  (PASS|FAIL) ' "$WORK/seq.log" || true
 
 # ── Concurrent claims from two independent connections ───────────────────────
 echo "=== concurrent claim race (two psql sessions) ==="
 TRIP='00000000-0000-4000-9200-0000000000c1'
 SESS='00000000-0000-4000-9200-0000000000c2'
+# Fixtures already created by setup.sql for race ids
 "${PSQL[@]}" <<SQL >/dev/null
 DELETE FROM public.payment_financial_operations WHERE payment_session_id = '$SESS';
-DELETE FROM public.payment_sessions WHERE id = '$SESS';
-DELETE FROM public.trips WHERE id = '$TRIP';
-INSERT INTO public.trips (id, final_customer_fare_pence, locked_base_fare_pence, financial_model)
-VALUES ('$TRIP', 500, 500, 'PLATFORM_COLLECTED');
-INSERT INTO public.payment_sessions (id, trip_id, purpose, authorised_amount_pence)
-VALUES ('$SESS', '$TRIP', 'TRIP_FARE', 500);
 SQL
 
 LOGICAL="CAPTURE:fare:${SESS}:ord-race:500:v1:e0"
@@ -225,11 +231,18 @@ else
   # postgres may print t/f
   if echo "$STAGE" | grep -q '^C:f'; then pass "stage_d_to_c_flag_rollback"; else fail "stage_d_to_c_flag_rollback" "got $STAGE"; fi
 fi
-# Cleanup race rows BEFORE Stage D restore (enablement refuses inflight)
-"${PSQL[@]}" <<SQL >/dev/null
-DELETE FROM public.payment_financial_operations WHERE payment_session_id = '$SESS';
-DELETE FROM public.payment_sessions WHERE id = '$SESS';
-DELETE FROM public.trips WHERE id = '$TRIP';
+# Cleanup ALL synthetic fixtures BEFORE Stage D restore (enablement refuses inflight)
+"${PSQL[@]}" <<'SQL' >/dev/null
+DELETE FROM public.payment_financial_events
+ WHERE payment_session_id::text LIKE '00000000-0000-4000-9200-%'
+    OR trip_id::text LIKE '00000000-0000-4000-9200-%';
+DELETE FROM public.payment_financial_operations
+ WHERE payment_session_id::text LIKE '00000000-0000-4000-9200-%'
+    OR trip_id::text LIKE '00000000-0000-4000-9200-%';
+DELETE FROM public.payment_payable_snapshots
+ WHERE trip_id::text LIKE '00000000-0000-4000-9200-%';
+DELETE FROM public.payment_sessions WHERE id::text LIKE '00000000-0000-4000-9200-%';
+DELETE FROM public.trips WHERE id::text LIKE '00000000-0000-4000-9200-%';
 UPDATE public.payment_financial_operations
 SET provider_post_inflight = false, state = 'CANCELLED'
 WHERE provider_post_inflight = true
@@ -245,6 +258,9 @@ else
   pass "stage_d_restore_after_quiesce"
 fi
 
+left=$("${PSQL[@]}" -At -c "select (select count(*) from trips where id::text like '00000000-0000-4000-9200-%')+(select count(*) from payment_sessions where id::text like '00000000-0000-4000-9200-%')" 2>/dev/null || echo "?")
+echo "SYNTHETIC_ROWS_REMAINING=$left"
+
 echo
 echo "TOTAL fail=$FAIL pass=$PASS skipped=0"
 rm -rf "$WORK"
@@ -253,6 +269,5 @@ if [ "$FAIL" -ne 0 ]; then
   exit 1
 fi
 echo "SCENARIO 92A => PASS"
-echo "SYNTHETIC_ROWS_REMAINING=0"
 echo "ALL payment_ssot_92a_integration_isolated CHECKS PASSED"
 exit 0
