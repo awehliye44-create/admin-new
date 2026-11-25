@@ -7,6 +7,7 @@ import {
   resolveCancelNotifyAssignedDriverId,
 } from "../_shared/driverCancelNotifyRecipientSSOT.ts";
 import { disposeTerminalTripPayment } from "../_shared/terminalTripPaymentDisposition.ts";
+import { finalizeWaitingSegmentsAtTerminal } from "../_shared/waitingSegmentClock.ts";
 
 const corsHeaders: Record<string, string> = {
   "Access-Control-Allow-Origin": "*",
@@ -98,7 +99,7 @@ Deno.serve(async (req) => {
     const { data: current } = await supabase
       .from("trips")
       .select(
-        "status, completed_at, driver_id, confirmed_driver_id, previous_driver_id, cancelled_driver_ids, excluded_driver_ids, passenger_id",
+        "status, completed_at, arrived_at, pickup_arrived_at, driver_id, confirmed_driver_id, previous_driver_id, cancelled_driver_ids, excluded_driver_ids, passenger_id",
       )
       .eq("id", trip_id)
       .maybeSingle();
@@ -122,6 +123,7 @@ Deno.serve(async (req) => {
     );
     const passengerIdBefore =
       typeof current.passenger_id === "string" ? current.passenger_id : null;
+    const decisionAtIso = new Date().toISOString();
 
     // 3) Terminal trip state via existing RPC (same as prior Admin cancel).
     const { data: cancelResult, error: cancelErr } = await supabase.rpc(
@@ -155,6 +157,37 @@ Deno.serve(async (req) => {
         error: rpcError,
         result: cancelResult,
       }, rpcError === "COMPLETED_TRIP_NOT_CANCELLABLE" ? 409 : 400);
+    }
+
+    // #92J / MK-261125-005 — admin cancel previously skipped waiting finalize
+    // (cancel-trip had it; admin-trip-actions did not). Close open clocks so
+    // accrued waiting cannot keep running after NO_FEE_FULL_RELEASE.
+    if (current.arrived_at || current.pickup_arrived_at) {
+      const frozen = await finalizeWaitingSegmentsAtTerminal(supabase, {
+        tripId: trip_id,
+        locationType: "pickup",
+        atIso: decisionAtIso,
+      });
+      if (!frozen.ok) {
+        console.error("[admin-trip-actions] waiting segment finalize failed", {
+          trip_id,
+          ...frozen,
+        });
+      }
+    }
+    // Also close any open stop waiting segments (multi-stop arrived).
+    {
+      const frozenStops = await finalizeWaitingSegmentsAtTerminal(supabase, {
+        tripId: trip_id,
+        locationType: "stop",
+        atIso: decisionAtIso,
+      });
+      if (!frozenStops.ok && frozenStops.reason !== "invalid_evaluation_time") {
+        console.error("[admin-trip-actions] stop waiting finalize failed", {
+          trip_id,
+          ...frozenStops,
+        });
+      }
     }
 
     // #55C — notify Driver immediately after terminal cancel commit (before

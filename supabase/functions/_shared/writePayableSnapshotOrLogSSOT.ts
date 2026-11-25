@@ -40,30 +40,28 @@ export async function writePayableSnapshotOrLog(
     });
     if (!result.ok) {
       console.error(`[${args.logPrefix}] payable snapshot persist failed`, result.error);
-      if (args.paymentSessionId) {
-        await recordPaymentFinancialEvent(supabase, {
-          paymentSessionId: args.paymentSessionId,
-          tripId: args.tripId,
-          opType: "RECONCILE",
-          eventType: "payable_snapshot_persist_failed",
-          detail: { source: args.source, error: result.error },
-        }).catch(() => undefined);
-      }
+      // Durable detection: trip_id alone is enough (MK-261125-006 booking path
+      // omitted paymentSessionId → zero payable_snapshot_persist_failed events).
+      await recordPaymentFinancialEvent(supabase, {
+        paymentSessionId: args.paymentSessionId ?? null,
+        tripId: args.tripId,
+        opType: "RECONCILE",
+        eventType: "payable_snapshot_persist_failed",
+        detail: { source: args.source, error: result.error, log_prefix: args.logPrefix },
+      }).catch(() => undefined);
       return result;
     }
     return { ok: true, id: result.id, version: result.version };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     console.error(`[${args.logPrefix}] payable snapshot threw`, msg);
-    if (args.paymentSessionId) {
-      await recordPaymentFinancialEvent(supabase, {
-        paymentSessionId: args.paymentSessionId,
-        tripId: args.tripId,
-        opType: "RECONCILE",
-        eventType: "payable_snapshot_persist_failed",
-        detail: { source: args.source, error: msg },
-      }).catch(() => undefined);
-    }
+    await recordPaymentFinancialEvent(supabase, {
+      paymentSessionId: args.paymentSessionId ?? null,
+      tripId: args.tripId,
+      opType: "RECONCILE",
+      eventType: "payable_snapshot_persist_failed",
+      detail: { source: args.source, error: msg, log_prefix: args.logPrefix },
+    }).catch(() => undefined);
     return { ok: false, error: msg };
   }
 }

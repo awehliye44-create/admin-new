@@ -15,6 +15,11 @@ Deno.test("92H: generic integrity recovery never POSTs money or duplicates TEN",
   assert(src.includes("sweepPlatformCollectedFinancialIntegrity"));
   assert(!/incrementRevolutOrderAuthorisation|captureRevolutOrder\(/.test(src));
   assert(src.includes('source: "recovery"'));
+  // #92J/#92K: missing booking source is a recovery trigger (MK-261125-006).
+  assert(src.includes('.eq("source", "booking")'));
+  assert(src.includes("pc-integrity-recovery-booking-gap"));
+  assert(src.includes("resolveBookingTimePayableEvidence"));
+  assert(src.includes("payable_snapshot_booking_gap_unrecoverable"));
 });
 
 Deno.test("92H: sweep wires pc integrity recovery without capture POST", () => {

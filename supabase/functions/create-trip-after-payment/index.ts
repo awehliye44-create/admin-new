@@ -10,7 +10,10 @@ import {
 import { assertBookingSurgeAtPickup } from "../_shared/demandZoneSurgeSSOT.ts";
 import { resolveScheduledDispatchConfig } from "../_shared/scheduledDispatchConfig.ts";
 import { findPassengerScheduleOverlap } from "../_shared/passengerScheduleOverlapSSOT.ts";
-import { buildBookingPostCommitTasks } from "./lib/bookingPostCommit.ts";
+import {
+  buildBookingPostCommitTasks,
+  persistBookingPayableSnapshotAfterInsert,
+} from "./lib/bookingPostCommit.ts";
 import {
   evaluateAirportPersistReadiness,
   resolveAuthoritativeAirportSplitForBooking,
@@ -1605,6 +1608,26 @@ serveWithEdgeTiming("create-trip-after-payment", corsHeaders, async (req) => {
       "create-trip-after-payment/index.ts:trips.insert",
       { trip_id: trip.id },
     );
+
+    // #92J — PLATFORM_COLLECTED booking payable snapshot on the request path.
+    // waitUntil-only enrich (pre-#92J) could abort with zero snap and no fail event
+    // (MK-261125-006). All PC channels enter via CTAP (customer/scheduled/guest/
+    // corporate/admin/WhatsApp). Soft-fail stays non-blocking; durable event +
+    // integrity recovery cover gaps. Driver-collected skips (no session).
+    if (!skipPlatformPreauth) {
+      const bookingSnap = await persistBookingPayableSnapshotAfterInsert(supabase, {
+        tripId: trip.id,
+        paymentSessionId,
+        log,
+      });
+      if (!bookingSnap.ok) {
+        log("payable_snapshot_booking_sync_soft_fail", {
+          trip_id: trip.id,
+          error: bookingSnap.error,
+          recovery: "pc_integrity_recovery_or_completion_rewrite",
+        });
+      }
+    }
 
     const ctapResponseAt = Date.now();
     bookingWaterfall.recordStep({

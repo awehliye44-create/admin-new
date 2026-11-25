@@ -266,6 +266,13 @@ Deno.test("#92B booking snapshot retries + completion rewrite recovery (source)"
   );
   assert(booking.includes("payable_snapshot_booking_soft_fail"));
   assert(booking.includes("completion_or_admin_capture_rewrites_before_post"));
+  // #92J: sync after-insert + paymentSessionId on booking writes.
+  assert(booking.includes("persistBookingPayableSnapshotAfterInsert"));
+  assert(booking.includes("paymentSessionId"));
+  const ctap = await Deno.readTextFile(
+    new URL("../../functions/create-trip-after-payment/index.ts", import.meta.url),
+  );
+  assert(ctap.includes("persistBookingPayableSnapshotAfterInsert"));
   const completion = await Deno.readTextFile(
     new URL("../../functions/_shared/revolutCompletionCapture.ts", import.meta.url),
   );

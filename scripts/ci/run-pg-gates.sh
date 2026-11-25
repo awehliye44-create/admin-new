@@ -161,6 +161,13 @@ if run "#92A payment SSOT PostgreSQL integration" "$OUT/payment92a.log" \
   grep -qE '^TOTAL fail=0 pass=[0-9]+' "$OUT/payment92a.log" || fail "payment92a: TOTAL line missing"
 fi
 
+# --- 8. #92J terminal cancel closes waiting segments (behavioural PG) ------------------------------
+if run "#92J terminal cancel waiting-close" "$OUT/twc92j.log" \
+     bash supabase/tests/terminal_cancel_waiting_close_92j_isolated.sh; then
+  grep -q 'ALL terminal_cancel_waiting_close_92j_isolated CHECKS PASSED' "$OUT/twc92j.log" \
+    || fail "twc92j: success marker missing"
+fi
+
 echo
 if [ "$FAILED" -ne 0 ]; then
   echo "PG GATES: FAILED (logs in $OUT)" >&2

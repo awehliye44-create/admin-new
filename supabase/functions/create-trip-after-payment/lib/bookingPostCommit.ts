@@ -39,6 +39,7 @@ import {
 } from "../../_shared/dynamicPaymentWorkflow.ts";
 import { finalizeRevolutTokenCapture } from "../../_shared/revolutSavedCardWalletLink.ts";
 import { writePayableSnapshotOrLog } from "../../_shared/writePayableSnapshotOrLogSSOT.ts";
+import { recordPaymentFinancialEvent } from "../../_shared/paymentFinancialDiagnosticsSSOT.ts";
 import { resolveRevolutMerchantContext } from "../../_shared/revolutMerchantContext.ts";
 import {
   markPaymentSessionDispatching,
@@ -123,6 +124,118 @@ const AIRPORT_ABSENT_DISPATCH: FareEnrichDispatchDecision = {
   holdBroadcast: false,
   reason: "airport_absent",
 };
+
+const BOOKING_PAYABLE_TRIP_SELECT =
+  "locked_base_fare_pence, final_customer_fare_pence, final_fare_pence, gross_fare_pence, pickup_waiting_charge_pence, stop_waiting_charge_pence, offer_discount_pence, voucher_discount_pence, airport_charge_pence, other_pass_through_charges_pence, tip_pence, tip_amount_pence, currency_code";
+
+/**
+ * #92J — Booking payable snapshot writer (PLATFORM_COLLECTED).
+ * Must run on the request path after trip insert (not waitUntil-only).
+ * MK-261125-006: waitUntil enrich aborted → zero booking snap, zero fail event.
+ */
+export async function persistBookingPayableSnapshot(
+  supabase: SupabaseClient,
+  args: {
+    tripId: string;
+    trip: Record<string, unknown>;
+    paymentSessionId?: string | null;
+    logPrefix: string;
+    log?: (step: string, details?: unknown) => void;
+    /**
+     * Sync after-insert path: skip if a booking snap already exists (retry /
+     * crash recovery). Enrich rewrite may pass false to append a new version
+     * after airport/discount patch — never creates a second trip or payment.
+     */
+    skipIfBookingExists?: boolean;
+  },
+): Promise<{ ok: true; id: string; version: number } | { ok: false; error: string }> {
+  if (args.skipIfBookingExists !== false) {
+    const { data: existing } = await supabase
+      .from("payment_payable_snapshots")
+      .select("id, version")
+      .eq("trip_id", args.tripId)
+      .eq("source", "booking")
+      .order("version", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (existing?.id) {
+      args.log?.("payable_snapshot_booking_already_present", {
+        trip_id: args.tripId,
+        snapshot_id: existing.id,
+        version: existing.version,
+      });
+      return {
+        ok: true,
+        id: String(existing.id),
+        version: Number(existing.version) || 1,
+      };
+    }
+  }
+  let lastErr: string | null = null;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const snap = await writePayableSnapshotOrLog(supabase, {
+      tripId: args.tripId,
+      trip: args.trip,
+      source: "booking",
+      waitingBasis: "columns",
+      paymentSessionId: args.paymentSessionId ?? null,
+      logPrefix: args.logPrefix,
+    });
+    if (snap.ok) {
+      args.log?.("payable_snapshot_booking_ok", {
+        trip_id: args.tripId,
+        snapshot_id: snap.id,
+        version: snap.version,
+        attempt: attempt + 1,
+      });
+      return snap;
+    }
+    lastErr = snap.error;
+  }
+  return { ok: false, error: lastErr ?? "booking_snapshot_persist_failed" };
+}
+
+/**
+ * Sync booking snapshot immediately after trips.insert for PLATFORM_COLLECTED.
+ * Uses committed insert fare columns; enrich may rewrite after airport/discount.
+ */
+export async function persistBookingPayableSnapshotAfterInsert(
+  supabase: SupabaseClient,
+  args: {
+    tripId: string;
+    paymentSessionId?: string | null;
+    log?: (step: string, details?: unknown) => void;
+  },
+): Promise<{ ok: true; id: string; version: number } | { ok: false; error: string }> {
+  const { data: snapTrip, error } = await supabase
+    .from("trips")
+    .select(BOOKING_PAYABLE_TRIP_SELECT)
+    .eq("id", args.tripId)
+    .maybeSingle();
+  if (error || !snapTrip) {
+    const msg = error?.message ?? "booking_snapshot_trip_row_missing";
+    args.log?.("payable_snapshot_booking_sync_read_failed", {
+      trip_id: args.tripId,
+      error: msg,
+    });
+    await recordPaymentFinancialEvent(supabase, {
+      paymentSessionId: args.paymentSessionId ?? null,
+      tripId: args.tripId,
+      opType: "RECONCILE",
+      eventType: "payable_snapshot_persist_failed",
+      detail: { source: "booking", error: msg, phase: "sync_after_insert_read" },
+    }).catch(() => undefined);
+    return { ok: false, error: msg };
+  }
+  return persistBookingPayableSnapshot(supabase, {
+    tripId: args.tripId,
+    trip: snapTrip as Record<string, unknown>,
+    paymentSessionId: args.paymentSessionId,
+    logPrefix: "bookingPayableSnapshotSync",
+    log: args.log,
+    skipIfBookingExists: true,
+  });
+}
 
 async function enrichTripFareAsync(
   ctx: BookingPostCommitContext,
@@ -357,32 +470,26 @@ async function enrichTripFareAsync(
   } else {
     const { data: snapTrip } = await supabase
       .from("trips")
-      .select(
-        "locked_base_fare_pence, final_customer_fare_pence, final_fare_pence, gross_fare_pence, pickup_waiting_charge_pence, stop_waiting_charge_pence, offer_discount_pence, voucher_discount_pence, airport_charge_pence, other_pass_through_charges_pence, tip_pence, tip_amount_pence, currency_code",
-      )
+      .select(BOOKING_PAYABLE_TRIP_SELECT)
       .eq("id", tripId)
       .maybeSingle();
     if (snapTrip) {
-      // Durable: retry insert; completion/admin capture also rewrite before POST.
-      let lastErr: string | null = null;
-      for (let attempt = 0; attempt < 3; attempt++) {
-        const snap = await writePayableSnapshotOrLog(supabase, {
-          tripId,
-          trip: snapTrip,
-          source: "booking",
-          waitingBasis: "columns",
-          logPrefix: "bookingPostCommit",
-        });
-        if (snap.ok) {
-          lastErr = null;
-          break;
-        }
-        lastErr = snap.error;
-      }
-      if (lastErr) {
+      // Post-enrich rewrite (airport/discount). Primary booking snap is sync
+      // after insert — see persistBookingPayableSnapshotAfterInsert.
+      // Enrich may append a new booking version after airport/discount patch.
+      // Never posts CAPTURE / never creates a second trip.
+      const snap = await persistBookingPayableSnapshot(supabase, {
+        tripId,
+        trip: snapTrip as Record<string, unknown>,
+        paymentSessionId: ctx.paymentSessionId,
+        logPrefix: "bookingPostCommit",
+        log,
+        skipIfBookingExists: false,
+      });
+      if (!snap.ok) {
         log("payable_snapshot_booking_soft_fail", {
           trip_id: tripId,
-          error: lastErr,
+          error: snap.error,
           recovery: "completion_or_admin_capture_rewrites_before_post",
         });
       }
