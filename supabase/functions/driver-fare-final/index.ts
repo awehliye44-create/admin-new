@@ -450,6 +450,24 @@ Deno.serve(async (req) => {
         return errorResponse(cover.code, cover.message, cover.status);
       }
 
+      try {
+        const { writeAuthoritativePayableSnapshot } = await import(
+          "../_shared/writeAuthoritativePayableSnapshotSSOT.ts"
+        );
+        await writeAuthoritativePayableSnapshot(supabase, {
+          tripId: trip.id,
+          trip: {
+            ...trip,
+            locked_base_fare_pence: finalFarePence,
+            final_customer_fare_pence: finalFarePence,
+          },
+          source: "negotiation_commit",
+          waitingBasis: "none",
+        });
+      } catch (snapErr) {
+        console.warn("[driver-fare-final] payable snapshot soft fail", snapErr);
+      }
+
       const { data: acceptResult, error: acceptErr } = await supabase.rpc("accept_ride_offer", {
         p_offer_id: offer_id,
         p_driver_id: driver_id,

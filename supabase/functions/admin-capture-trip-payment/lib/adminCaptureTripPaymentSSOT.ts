@@ -25,6 +25,7 @@ import {
   retrieveRevolutOrder,
   revolutProviderAuthorisedTotalPence,
 } from "../../_shared/revolutOrders.ts";
+import { guardedCaptureRevolutOrder } from "../../_shared/guardedProviderCaptureSSOT.ts";
 import { assertFareCaptureAllowedAtProvider } from "../../_shared/scheduledFareCaptureGateSSOT.ts";
 import { resolveRevolutMerchantContext } from "../../_shared/revolutMerchantContext.ts";
 import {
@@ -349,15 +350,46 @@ export async function executeAdminCaptureTripPayment(args: {
         });
         return earlyFail;
       }
-      const captured = await captureOrder(
-        merchant.environment,
-        merchant.secretKey,
-        orderId,
-        decision.captureAmountPence,
-      );
-      captureAmountPence = decision.captureAmountPence;
-      revolutState = String(captured.state ?? "").toUpperCase();
-      providerPayload = captured as unknown as Record<string, unknown>;
+      // G2: canonical guarded capture (claim → POST → GET confirm).
+      void captureOrder;
+      try {
+        const { writeAuthoritativePayableSnapshot } = await import(
+          "../../_shared/writeAuthoritativePayableSnapshotSSOT.ts"
+        );
+        await writeAuthoritativePayableSnapshot(args.supabase, {
+          tripId,
+          trip: args.trip,
+          source: "admin_capture",
+          waitingBasis: "columns",
+          totalPayableOverridePence: decision.captureAmountPence,
+        });
+      } catch (snapErr) {
+        console.warn("[admin-capture] payable snapshot soft fail", snapErr);
+      }
+      const guarded = await guardedCaptureRevolutOrder({
+        supabase: args.supabase,
+        environment: merchant.environment,
+        secretKey: merchant.secretKey,
+        tripId,
+        paymentSessionId,
+        providerOrderId: orderId,
+        amountPence: decision.captureAmountPence,
+        purpose: "fare",
+      });
+      if (!guarded.ok) {
+        earlyFail = fail({
+          success: false,
+          error_code: guarded.code,
+          error: guarded.message,
+          payment_session_id: paymentSessionId,
+          provider_order_id: orderId,
+          revolut_state: String(guarded.order?.state ?? revolutState),
+        });
+        return earlyFail;
+      }
+      revolutState = String(guarded.order.state ?? "").toUpperCase();
+      captureAmountPence = guarded.confirmedCapturedPence;
+      providerPayload = guarded.order as unknown as Record<string, unknown>;
     } else {
       earlyFail = fail({
         success: false,

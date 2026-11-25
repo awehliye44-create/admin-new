@@ -23,6 +23,8 @@ import {
   getRevolutMerchantConfig,
   mapRevolutStateToPaymentStatus,
 } from "./revolutOrders.ts";
+import { guardedCaptureRevolutOrder } from "./guardedProviderCaptureSSOT.ts";
+void captureRevolutOrder;
 import {
   assertHoldReleaseAllowed,
   stampReleaseTrigger,
@@ -1044,8 +1046,38 @@ export async function disposeTerminalTripPayment(
             provider_order_id_mask: maskOrderId(orderId),
           };
         }
-        await captureRevolutOrder(environment, secretKey, orderId, fee);
-        const afterCap = await retrieveRevolutOrder(environment, secretKey, orderId);
+        if (!paymentSession?.id) {
+          return {
+            outcome: "PROVIDER_PENDING_RECONCILIATION",
+            trip_id: args.tripId,
+            disposition_key: dispositionKey,
+            decision,
+            message: "fee_capture_requires_payment_session",
+            provider_order_id_mask: maskOrderId(orderId),
+          };
+        }
+        const guardedFee = await guardedCaptureRevolutOrder({
+          supabase,
+          environment,
+          secretKey,
+          tripId: args.tripId,
+          paymentSessionId: String(paymentSession.id),
+          providerOrderId: orderId,
+          amountPence: fee,
+          purpose: "terminal_fee",
+        });
+        if (!guardedFee.ok) {
+          return {
+            outcome: "PROVIDER_PENDING_RECONCILIATION",
+            trip_id: args.tripId,
+            disposition_key: dispositionKey,
+            decision,
+            provider_state: String(guardedFee.order?.state ?? "").toUpperCase() || null,
+            message: guardedFee.message || "partial_capture_unconfirmed",
+            provider_order_id_mask: maskOrderId(orderId),
+          };
+        }
+        const afterCap = guardedFee.order;
         const stateAfterCap = String(afterCap.state ?? "").toUpperCase();
         if (stateAfterCap !== "COMPLETED" && !RELEASED_PROVIDER.has(stateAfterCap)) {
           return {

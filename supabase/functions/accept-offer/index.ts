@@ -767,6 +767,22 @@ Deno.serve(async (req) => {
       if (!cover.ok) {
         return businessFailureResponse(cover.code, cover.message);
       }
+      try {
+        const { writeAuthoritativePayableSnapshot } = await import(
+          "../_shared/writeAuthoritativePayableSnapshotSSOT.ts"
+        );
+        await writeAuthoritativePayableSnapshot(supabase, {
+          tripId: tripIdForCover,
+          trip: {
+            locked_base_fare_pence: Math.round(customerCounterFare),
+            final_customer_fare_pence: Math.round(customerCounterFare),
+          },
+          source: "negotiation_commit",
+          waitingBasis: "none",
+        });
+      } catch (snapErr) {
+        console.warn("[accept-offer] payable snapshot soft fail", snapErr);
+      }
     }
 
     console.log("[accept-offer] ACCEPT_ORIGINAL_RPC_REQUEST", {

@@ -31,6 +31,13 @@ import {
   providerIncrementOutcome,
   type RevolutIncrementProviderEvidence,
 } from "./revolutIncrementEvidenceSSOT.ts";
+import { loadPaymentSsotCutoverConfig } from "./paymentSsotCutoverSSOT.ts";
+import {
+  claimFinancialOperationForPost,
+  completeFinancialOperationFromProvider,
+  markFinancialOperationPostDispatched,
+} from "./paymentFinancialOperationPersistSSOT.ts";
+import { recordPaymentFinancialEvent } from "./paymentFinancialDiagnosticsSSOT.ts";
 
 export type SameOrderIncrementSource =
   | "trip_modification"
@@ -336,7 +343,7 @@ export async function executeSameOrderIncrement(args: {
   const { data: session } = await args.supabase
     .from("payment_sessions")
     .select(
-      "id, provider_order_id, authorised_amount_pence, total_authorised_amount_pence, "
+      "id, trip_id, provider_order_id, authorised_amount_pence, total_authorised_amount_pence, "
         + "captured_amount_pence, currency, status, metadata, financial_operation_state, "
         + "hold_release_state, provider_state, released_at, captured_at",
     )
@@ -928,8 +935,73 @@ export async function executeSameOrderIncrement(args: {
       source: args.source,
     });
 
+    // #92 financial-op fence — protects existing same-order increment; does not change amount semantics.
+    const cutover = await loadPaymentSsotCutoverConfig(args.supabase);
+    let fenceOp: {
+      operationId: string;
+      fence: string;
+      executionId: string;
+    } | null = null;
+    const claim = await claimFinancialOperationForPost(args.supabase, {
+      opType: "INCREMENT",
+      tripId: String(session.trip_id ?? args.paymentSessionId),
+      paymentSessionId: sessionId,
+      providerOrderId: orderId,
+      targetAmountPence: plan.targetTotalPence,
+      payableSnapshotVersion: Math.max(
+        1,
+        Math.round(Number(
+          (session.metadata as { payable_snapshot_version?: number } | null)
+            ?.payable_snapshot_version,
+        ) || 1),
+      ),
+      currency,
+    }).catch((err) => ({
+      ok: false as const,
+      reason: err instanceof Error ? err.message : String(err),
+      action: "error" as const,
+    }));
+    if (claim.ok) {
+      fenceOp = {
+        operationId: claim.operationId,
+        fence: claim.fence,
+        executionId: claim.executionId,
+      };
+    } else if (cutover.require_financial_op_claim) {
+      await releasePaymentSessionFinancialLock(args.supabase, {
+        paymentSessionId: sessionId,
+        owner: args.owner,
+        nextState: "IDLE",
+      }).catch(() => undefined);
+      return {
+        ok: false,
+        kind: claim.action === "reconcile_only" ? "unknown" : "persist_failed",
+        message: `Financial operation claim refused: ${claim.reason}`,
+        providerConfirmedTotalPence: providerTotal,
+        eligibility,
+        errorClassification: claim.action === "reconcile_only"
+          ? "AUTHORISATION_RECONCILIATION_PENDING"
+          : "PERSIST_FAILED",
+      };
+    } else {
+      await recordPaymentFinancialEvent(args.supabase, {
+        paymentSessionId: sessionId,
+        opType: "INCREMENT",
+        eventType: "claim_soft_skip",
+        requestedAmountPence: plan.targetTotalPence,
+        detail: { reason: claim.reason, stage: cutover.stage },
+      });
+    }
+
     const requestStartedAtIso = new Date().toISOString();
     const started = Date.now();
+    if (fenceOp) {
+      await markFinancialOperationPostDispatched(args.supabase, {
+        operationId: fenceOp.operationId,
+        fence: fenceOp.fence,
+        opType: "INCREMENT",
+      });
+    }
     const result = await incrementRevolutOrderAuthorisation({
       environment: args.environment,
       secretKey: args.secretKey,
@@ -940,6 +1012,31 @@ export async function executeSameOrderIncrement(args: {
       previousAuthorisedPence: providerTotal,
     });
     const elapsed = Date.now() - started;
+    if (fenceOp) {
+      // Preserve #91 coverage: processing/unknown never count as confirmed cover.
+      let outcomeState = "INCREMENT_UNKNOWN";
+      if (result.ok && result.outcome === "confirmed") {
+        outcomeState = "COVER_CONFIRMED";
+      } else if (result.ok && result.outcome === "processing") {
+        outcomeState = "INCREMENT_UNKNOWN";
+      } else if (!result.ok) {
+        const http = result.httpStatus;
+        outcomeState = http != null && http >= 500
+          ? "INCREMENT_UNKNOWN"
+          : (result.outcome === "declined" || result.outcome === "terminal")
+          ? "INCREMENT_DECLINED"
+          : "INCREMENT_UNKNOWN";
+      }
+      await completeFinancialOperationFromProvider(args.supabase, {
+        operationId: fenceOp.operationId,
+        fence: fenceOp.fence,
+        state: outcomeState,
+        confirmedAmountPence: result.ok && result.outcome === "confirmed"
+          ? result.providerConfirmedTotalPence
+          : null,
+        httpStatus: result.ok ? null : result.httpStatus,
+      }).catch(() => undefined);
+    }
     const incrementRowId = inserted?.id ?? existingAuth?.id ?? null;
     const sessionMetadata = (session.metadata && typeof session.metadata === "object")
       ? session.metadata as Record<string, unknown>

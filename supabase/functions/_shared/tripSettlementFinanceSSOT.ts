@@ -64,10 +64,13 @@ function isCardPaymentCaptured(
   paymentCapturedPence: number | null | undefined,
 ): boolean {
   if (!isCardTrip(trip)) return false;
+  // G4: never treat trips.capture_amount_pence as capture proof.
+  // Only provider/session confirmed amount or finalised payment_status.
   const status = (trip.payment_status ?? "").toLowerCase();
-  if (CAPTURED_PAYMENT_STATUSES.has(status)) return true;
-  const captured = paymentCapturedPence ?? (trip.capture_amount_pence ?? 0);
-  return captured > 0;
+  if (CAPTURED_PAYMENT_STATUSES.has(status) && (paymentCapturedPence ?? 0) > 0) {
+    return true;
+  }
+  return (paymentCapturedPence ?? 0) > 0;
 }
 
 /** Settlement / customer-paid total for finance displays. */
@@ -79,9 +82,6 @@ export function getTripSettlementFarePence(
 
   if (isCardPaymentCaptured(trip, paymentCaptured)) {
     if (paymentCaptured != null && paymentCaptured > 0) return paymentCaptured;
-    if (trip.capture_amount_pence != null && trip.capture_amount_pence > 0) {
-      return trip.capture_amount_pence;
-    }
     if (trip.final_fare_pence != null && trip.final_fare_pence > 0) {
       return trip.final_fare_pence;
     }
@@ -95,9 +95,6 @@ export function getTripSettlementFarePence(
         return trip.final_fare_pence;
       }
       if (paymentCaptured != null && paymentCaptured > 0) return paymentCaptured;
-      if (trip.capture_amount_pence != null && trip.capture_amount_pence > 0) {
-        return trip.capture_amount_pence;
-      }
     }
   }
 
@@ -106,9 +103,6 @@ export function getTripSettlementFarePence(
   }
 
   if (paymentCaptured != null && paymentCaptured > 0) return paymentCaptured;
-  if (trip.capture_amount_pence != null && trip.capture_amount_pence > 0) {
-    return trip.capture_amount_pence;
-  }
 
   return 0;
 }

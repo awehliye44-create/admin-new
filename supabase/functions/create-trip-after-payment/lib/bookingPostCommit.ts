@@ -353,6 +353,50 @@ async function enrichTripFareAsync(
   const { error } = await supabase.from("trips").update(patch).eq("id", tripId);
   if (error) {
     log("post-commit trip fare patch warning", { error: error.message });
+  } else {
+    try {
+      const { writeAuthoritativePayableSnapshot } = await import(
+        "../../_shared/writeAuthoritativePayableSnapshotSSOT.ts"
+      );
+      const { data: snapTrip } = await supabase
+        .from("trips")
+        .select(
+          "locked_base_fare_pence, final_customer_fare_pence, final_fare_pence, gross_fare_pence, pickup_waiting_charge_pence, stop_waiting_charge_pence, offer_discount_pence, voucher_discount_pence, airport_charge_pence, other_pass_through_charges_pence, tip_pence, tip_amount_pence, currency_code",
+        )
+        .eq("id", tripId)
+        .maybeSingle();
+      if (snapTrip) {
+        // Durable: retry insert; completion/admin capture also rewrite before POST.
+        // Never invent evidence — failure leaves trip columns as recoverable basis.
+        let lastErr: string | null = null;
+        for (let attempt = 0; attempt < 3; attempt++) {
+          const snap = await writeAuthoritativePayableSnapshot(supabase, {
+            tripId,
+            trip: snapTrip,
+            source: "booking",
+            waitingBasis: "columns",
+          });
+          if (snap.ok) {
+            lastErr = null;
+            break;
+          }
+          lastErr = snap.error;
+        }
+        if (lastErr) {
+          log("payable_snapshot_booking_soft_fail", {
+            trip_id: tripId,
+            error: lastErr,
+            recovery: "completion_or_admin_capture_rewrites_before_post",
+          });
+        }
+      }
+    } catch (snapErr) {
+      log("payable_snapshot_booking_exception", {
+        trip_id: tripId,
+        error: snapErr instanceof Error ? snapErr.message : String(snapErr),
+        recovery: "completion_or_admin_capture_rewrites_before_post",
+      });
+    }
   }
 
   let persistedAirportPence: number | null = existingAirportPence > 0

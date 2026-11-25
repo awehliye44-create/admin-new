@@ -411,6 +411,24 @@ Deno.serve(async (req) => {
         return errorResponse(cover.code, cover.message, cover.status);
       }
 
+      try {
+        const { writeAuthoritativePayableSnapshot } = await import(
+          "../_shared/writeAuthoritativePayableSnapshotSSOT.ts"
+        );
+        await writeAuthoritativePayableSnapshot(supabase, {
+          tripId: trip.id,
+          trip: {
+            ...trip,
+            locked_base_fare_pence: finalFarePence,
+            final_customer_fare_pence: finalFarePence,
+          },
+          source: "negotiation_commit",
+          waitingBasis: "none",
+        });
+      } catch (snapErr) {
+        console.warn("[customer-fare-decision] payable snapshot soft fail", snapErr);
+      }
+
       // Same atomic assignment path as driver Accept — supports countered preset offers.
       const { data: acceptResult, error: acceptErr } = await supabase.rpc("accept_ride_offer", {
         p_offer_id: offer_id,
@@ -688,17 +706,9 @@ Deno.serve(async (req) => {
         );
       }
 
-      const coverStartedAt = Date.now();
-      const cover = await ensureNegotiationPayableAuthorised({
-        supabase,
-        tripId: trip.id,
-        requiredFarePence: selected_fare_pence,
-        owner: `negotiation_counter_z:${trip.id}:${offer_id}`,
-      });
-      coverMs = Date.now() - coverStartedAt;
-      if (!cover.ok) {
-        return errorResponse(cover.code, cover.message, cover.status);
-      }
+      // COUNTER must never initiate incremental authorisation (Coverage SSOT).
+      // Cover runs only when the driver accepts the counteroffer.
+      coverMs = 0;
 
       console.log("[customer-fare-decision] CUSTOMER_SEND_COUNTER", {
         ride_id: trip.id,

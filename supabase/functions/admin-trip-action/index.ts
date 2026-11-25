@@ -238,6 +238,42 @@ Deno.serve(async (req) => {
         .eq("trip_id", tripId)
         .neq("status", "completed");
 
+      // G-FC: preserve waiting evidence; admin fare is full payable (waiting folded in).
+      // Archive waiting into payable snapshot + note; clear columns only so capture
+      // does not double-count (computeFinalFarePence adds waiting to final_customer).
+      const priorPickupWaiting = Math.max(
+        0,
+        Math.round(Number(trip.pickup_waiting_charge_pence ?? 0) || 0),
+      );
+      const priorStopWaiting = Math.max(
+        0,
+        Math.round(Number(trip.stop_waiting_charge_pence ?? 0) || 0),
+      );
+      const priorWaitingTotal = priorPickupWaiting + priorStopWaiting;
+      const forceNote =
+        priorWaitingTotal > 0
+          ? `${note} [force_complete waiting preserved: pickup=${priorPickupWaiting}p stop=${priorStopWaiting}p; folded into payable ${farePence}p]`
+          : note;
+      try {
+        const { writeAuthoritativePayableSnapshot } = await import(
+          "../_shared/writeAuthoritativePayableSnapshotSSOT.ts"
+        );
+        await writeAuthoritativePayableSnapshot(gate.supabase, {
+          tripId,
+          trip: trip as Record<string, unknown>,
+          source: "force_complete",
+          waitingBasis: "included_in_fare",
+          totalPayableOverridePence: farePence,
+          tipPence: Math.max(
+            0,
+            Math.round(Number(trip.tip_amount_pence ?? trip.tip_pence ?? 0) || 0),
+          ),
+        });
+        void priorWaitingTotal;
+      } catch (snapErr) {
+        console.warn("[admin-trip-action] force_complete snapshot archive skipped", snapErr);
+      }
+
       const { error: tripUpdateErr } = await gate.supabase
         .from("trips")
         .update({
@@ -246,8 +282,11 @@ Deno.serve(async (req) => {
           fare: fareMajor,
           final_fare_pence: farePence,
           final_customer_fare_pence: farePence,
+          pickup_waiting_charge_pence: 0,
+          stop_waiting_charge_pence: 0,
+          total_waiting_charge_pence: 0,
           completed_at: now,
-          special_instructions: note,
+          special_instructions: forceNote,
           updated_at: now,
           ...tripSettlementDbColumns(settlement),
           tip_amount_pence: settlement.tips_pence,

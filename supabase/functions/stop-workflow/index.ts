@@ -4647,30 +4647,15 @@ Deno.serve(async (req) => {
               captureAmountPence: fareTrip.capture_amount_pence,
             });
 
+          // G8 / CaptureSSOT: never post TEN during tip-window deferral.
+          // SettlementSSOT posts TRIP_EARNING_NET only after provider-confirmed capture
+          // (finalize / tip submit / tip-window expiry). Operational Complete→Rate stays non-blocking.
           const queueTipWindowTen = (label: string) => {
-            const tenPence = Math.max(
-              0,
-              settlement.driver_net_pence + settlement.airport_charge_pence,
-            );
-            if (tenPence <= 0) return;
-            scheduleEdgeBackground(async () => {
-              try {
-                await postTripEarningNetCanonical(supabase, {
-                  driverId: driver_id,
-                  tripId: trip_id,
-                  driverNetPence: tenPence,
-                  tipPence: 0,
-                  currency: ledgerCurrency ?? "GBP",
-                  commissionPct: settlement.tier_percent_used,
-                  paymentId: providerOrderId,
-                });
-              } catch (tenErr) {
-                console.error(`[stop-workflow] ${label}`, {
-                  trip_id,
-                  error: tenErr instanceof Error ? tenErr.message : String(tenErr),
-                });
-              }
-            }, label);
+            console.log("[stop-workflow] tip-window TEN deferred until capture confirmed", {
+              trip_id,
+              label,
+              driver_net_pence: settlement.driver_net_pence,
+            });
           };
 
           let tipWindowDeferred = false;

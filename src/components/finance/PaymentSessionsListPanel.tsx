@@ -58,19 +58,19 @@ function releasedCellDisplay(row: AdminPaymentSessionsListRow): {
   primary: string;
   secondary: string | null;
 } {
+  const confirmedCapture = row.capture_confirmed_pence ?? row.captured_amount_pence;
   const expected = expectedResidualReleasePenceForRow({
     authorised_amount_pence: row.authorised_amount_pence,
-    captured_amount_pence: row.captured_amount_pence,
+    captured_amount_pence: confirmedCapture,
   });
   return formatReleasedAmountDisplay({
     released_amount_pence: row.released_amount_pence,
     released_at: row.released_at,
     release_evidence_status: row.release_evidence_status,
     currencyFormatter: (pence) => formatNullablePence(pence),
-    captureConfirmed: row.captured_amount_pence != null
-      && Number(row.captured_amount_pence) > 0,
+    captureConfirmed: confirmedCapture != null && Number(confirmedCapture) > 0,
     providerState: row.provider_state,
-    capturedAmountPence: row.captured_amount_pence,
+    capturedAmountPence: confirmedCapture,
     expectedReleasePence: expected,
   });
 }
@@ -222,7 +222,27 @@ export function PaymentSessionsListPanel({
                       {formatNullablePence(row.authorised_amount_pence)}
                     </TableCell>
                     <TableCell className="text-xs tabular-nums">
-                      {formatNullablePence(row.captured_amount_pence)}
+                      <div className="space-y-0.5">
+                        <p title="Provider-confirmed capture only">
+                          {formatNullablePence(row.capture_confirmed_pence ?? row.captured_amount_pence)}
+                        </p>
+                        {row.capture_requested_pence != null
+                          && Number(row.capture_requested_pence)
+                            !== Number(row.capture_confirmed_pence ?? row.captured_amount_pence ?? NaN) ? (
+                          <p className="text-[10px] text-muted-foreground" title="Requested — not money taken">
+                            req {formatNullablePence(row.capture_requested_pence)}
+                          </p>
+                        ) : null}
+                        {row.capture_class_ssot ? (
+                          <p className="text-[10px] text-muted-foreground">{row.capture_class_ssot}</p>
+                        ) : null}
+                        {row.outstanding_capture_pence != null
+                          && Number(row.outstanding_capture_pence) > 0 ? (
+                          <p className="text-[10px] text-amber-700 dark:text-amber-400">
+                            out {formatNullablePence(row.outstanding_capture_pence)}
+                          </p>
+                        ) : null}
+                      </div>
                     </TableCell>
                     <TableCell className="text-xs tabular-nums">
                       {(() => {
@@ -278,17 +298,91 @@ export function PaymentSessionsListPanel({
                     <TableRow>
                       <TableCell colSpan={13} className="bg-muted/40 text-xs">
                         <div className="space-y-2" data-testid="payment-session-evidence">
-                          {row.authorised_amount_pence != null && Number(row.authorised_amount_pence) > 0 ? (
+                          <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
                             <div className="rounded border bg-background px-3 py-2">
-                              <p className="text-muted-foreground">Authorised hold amount</p>
+                              <p className="text-muted-foreground">Final payable</p>
+                              <p className="text-sm font-semibold tabular-nums">
+                                {formatNullablePence(row.customer_payable_pence)}
+                              </p>
+                            </div>
+                            <div className="rounded border bg-background px-3 py-2">
+                              <p className="text-muted-foreground">Authorised</p>
                               <p className="text-sm font-semibold tabular-nums">
                                 {formatNullablePence(row.authorised_amount_pence)}
                               </p>
+                              <p className="text-[11px] text-muted-foreground mt-0.5">Not revenue</p>
+                            </div>
+                            <div className="rounded border bg-background px-3 py-2">
+                              <p className="text-muted-foreground">Capture requested</p>
+                              <p className="text-sm font-semibold tabular-nums">
+                                {formatNullablePence(row.capture_requested_pence ?? null)}
+                              </p>
                               <p className="text-[11px] text-muted-foreground mt-0.5">
-                                Not captured · Not revenue
+                                Not money taken
                               </p>
                             </div>
-                          ) : null}
+                            <div className="rounded border bg-background px-3 py-2">
+                              <p className="text-muted-foreground">Provider-confirmed capture</p>
+                              <p className="text-sm font-semibold tabular-nums">
+                                {formatNullablePence(
+                                  row.capture_confirmed_pence ?? row.captured_amount_pence,
+                                )}
+                              </p>
+                              <p className="text-[11px] text-muted-foreground mt-0.5">
+                                {row.capture_confirmation_state
+                                  ?? row.capture_class_ssot
+                                  ?? '—'}
+                              </p>
+                            </div>
+                            <div className="rounded border bg-background px-3 py-2">
+                              <p className="text-muted-foreground">Outstanding capture</p>
+                              <p className="text-sm font-semibold tabular-nums">
+                                {formatNullablePence(row.outstanding_capture_pence ?? null)}
+                              </p>
+                            </div>
+                            <div className="rounded border bg-background px-3 py-2">
+                              <p className="text-muted-foreground">Outstanding authorisation</p>
+                              <p className="text-sm font-semibold tabular-nums">
+                                {formatNullablePence(row.outstanding_authorisation_pence ?? null)}
+                              </p>
+                              <p className="text-[11px] text-muted-foreground mt-0.5">Not revenue</p>
+                            </div>
+                            <div className="rounded border bg-background px-3 py-2">
+                              <p className="text-muted-foreground">Customer receivable</p>
+                              <p className="text-sm font-semibold tabular-nums">
+                                {formatNullablePence(row.customer_receivable_pence ?? null)}
+                              </p>
+                            </div>
+                            <div className="rounded border bg-background px-3 py-2">
+                              <p className="text-muted-foreground">Capture classification</p>
+                              <p className="text-sm font-semibold">
+                                {row.capture_classification_label
+                                  ?? row.capture_classification
+                                  ?? row.capture_class_ssot
+                                  ?? '—'}
+                              </p>
+                            </div>
+                            <div className="rounded border bg-background px-3 py-2">
+                              <p className="text-muted-foreground">Financial operation state</p>
+                              <p className="text-sm font-semibold">
+                                {row.financial_operation_state ?? '—'}
+                              </p>
+                            </div>
+                            <div className="rounded border bg-background px-3 py-2">
+                              <p className="text-muted-foreground">Last provider reconciliation</p>
+                              <p className="text-sm font-semibold">
+                                {row.last_provider_reconciliation_at
+                                  ?? row.provider_state_verified_at
+                                  ?? '—'}
+                              </p>
+                            </div>
+                            <div className="rounded border bg-background px-3 py-2">
+                              <p className="text-muted-foreground">Recovery required</p>
+                              <p className="text-sm font-semibold">
+                                {row.recovery_required === true ? 'Yes' : 'No'}
+                              </p>
+                            </div>
+                          </div>
                           <div className="rounded border bg-background px-3 py-2 space-y-1">
                             <p className="font-medium text-foreground">ONECAB stored breakdown</p>
                             <p className="text-[11px] text-muted-foreground">

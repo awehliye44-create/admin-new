@@ -153,7 +153,8 @@ Deno.test("D2: completion capture source acquires composition after increment pa
   );
   assertEquals(incrementIdx > 0, true);
   assertEquals(compositionAfter > incrementIdx, true);
-  assertStringIncludes(src, "Recover abandoned CAPTURING lock");
+  assertStringIncludes(src, "reclaimExpiredPaymentSessionFinancialLock");
+  assertStringIncludes(src, "revolutCompletionCapture:stale_lock_reclaim");
   assertStringIncludes(src, 'incrementResult.kind === "lock_busy"');
 });
 
