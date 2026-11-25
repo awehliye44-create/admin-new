@@ -34,6 +34,10 @@ import {
   readCaptureCompositionComponents,
   LOCAL_APPLICATION_INCOMPLETE,
 } from "./captureCompositionLocalApplySSOT.ts";
+import {
+  parseBookingFinancialPolicy,
+  resolveFrozenPreauthBufferPence,
+} from "./bookingFinancialPolicySSOT.ts";
 
 /** MK-260922-001: never stamp local captured while Revolut is still AUTHORISED. */
 function providerCaptureConfirmed(state: unknown): boolean {
@@ -241,7 +245,7 @@ export async function executeRevolutTripCompletionCapture(args: {
       "id, metadata, authorised_amount_pence, total_authorised_amount_pence, "
         + "provider_order_id, capture_idempotency_key, provider_capture_target_pence, "
         + "trip_fare_component_pence, tip_component_pence, receivable_component_pence, "
-        + "capture_composition_frozen_at, buffer_pence",
+        + "capture_composition_frozen_at, buffer_pence, booking_financial_policy_json",
     )
     .eq("provider_order_id", orderId)
     .eq("trip_id", tripId)
@@ -324,7 +328,16 @@ export async function executeRevolutTripCompletionCapture(args: {
     }
   }
 
-  const bufferPence = Math.max(0, Number(args.trip.preauth_buffer_pence ?? 0));
+  // #89D — frozen booking buffer only (policy → session → trip). Never live Admin.
+  const frozenBuffer = resolveFrozenPreauthBufferPence({
+    policy: parseBookingFinancialPolicy(
+      args.trip.booking_financial_policy_json
+        ?? compositionSession?.booking_financial_policy_json,
+    ),
+    sessionBufferPence: compositionSession?.buffer_pence as number | null | undefined,
+    tripPreauthBufferPence: args.trip.preauth_buffer_pence as number | null | undefined,
+  });
+  const bufferPence = frozenBuffer.bufferPence;
 
   // D3/D4: never treat trips.capture_amount_pence as confirmed capture evidence.
   let storedSessionCapture = 0;
@@ -1142,10 +1155,7 @@ export async function executeRevolutTripCompletionCapture(args: {
       provider_order_id: orderId,
       trip_fare_component_pence: tripFareOnly,
       tip_component_pence: safeTipPence,
-      preauth_buffer_component_pence: Math.max(
-        0,
-        Number(args.trip.preauth_buffer_pence ?? sessionRow.buffer_pence ?? 0),
-      ),
+      preauth_buffer_component_pence: bufferPence,
       authorised_total_pence: Math.max(
         authorisedHoldPence,
         Math.round(Number(sessionRow.total_authorised_amount_pence) || 0),

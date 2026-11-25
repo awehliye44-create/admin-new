@@ -102,12 +102,22 @@ serve(async (req) => {
       const { data: userData } = await userClient.auth.getUser();
       const userId = userData?.user?.id ?? null;
       if (userId) {
+        // trips.passenger_id is customers.id (CTAP SSOT), not auth.users id.
+        const { data: customerRow } = await supabase
+          .from("customers")
+          .select("id")
+          .eq("user_id", userId)
+          .maybeSingle();
+        const passengerKeys = [
+          customerRow?.id ? String(customerRow.id) : "",
+          userId,
+        ].filter(Boolean);
         const { data: existing, error: ovErr } = await supabase
           .from("trips")
           .select(
             "id, scheduled_at, estimated_duration_minutes, status, passenger_id, created_at, is_scheduled",
           )
-          .eq("passenger_id", userId)
+          .in("passenger_id", passengerKeys)
           .limit(200);
         if (ovErr) {
           console.error("[validate-scheduled-booking] overlap query failed:", ovErr);

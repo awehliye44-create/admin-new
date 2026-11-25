@@ -121,5 +121,23 @@ Deno.test("#89 completion capture must not call resolvePreauthBuffer live", asyn
   );
   assertEquals(src.includes("resolvePreauthBuffer"), false);
   assertEquals(src.includes('from("service_area_preauth_settings")'), false);
-  assertEquals(src.includes("sessionRow.buffer_pence") || src.includes("preauth_buffer_pence"), true);
+  assertEquals(src.includes("resolveFrozenPreauthBufferPence"), true);
+  assertEquals(src.includes("parseBookingFinancialPolicy"), true);
+});
+
+Deno.test("#89D frozen policy consumption map — buffer/model/provider via trip+session stamps", async () => {
+  // Buffer: completion uses resolveFrozenPreauthBufferPence (policy/session/trip).
+  // Commission / airport / discounts / financial_model: stamped on trips at accept/fold;
+  // settlement reads trip.driver_net_pence / accepted_commission_percent / airport_charge.
+  // Waiting: live accrual clocks; buffer headroom remains frozen.
+  // Collection model: trips.financial_model immutable after insert.
+  const capture = await Deno.readTextFile(
+    new URL("../../functions/_shared/revolutCompletionCapture.ts", import.meta.url),
+  );
+  const settlement = await Deno.readTextFile(
+    new URL("../../functions/_shared/missingTripEarningNetRecoverySSOT.ts", import.meta.url),
+  );
+  assertEquals(capture.includes("resolveFrozenPreauthBufferPence"), true);
+  assertEquals(settlement.includes("driver_net_pence"), true);
+  assertEquals(settlement.includes("PLATFORM_COLLECTED"), true);
 });

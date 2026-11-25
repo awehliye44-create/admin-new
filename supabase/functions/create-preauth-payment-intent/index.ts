@@ -59,6 +59,10 @@ import {
 import { quoteFareServerSide } from "./lib/serverFareQuote.ts";
 import { resolvePreauthBuffer } from "../_shared/preauthBufferResolverSSOT.ts";
 import { buildBookingFinancialPolicy } from "../_shared/bookingFinancialPolicySSOT.ts";
+import {
+  assertPassengerClearForNewPreauth,
+  preauthOverlapConflictResponse,
+} from "../_shared/preauthPassengerOverlapGateSSOT.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -782,6 +786,26 @@ serveWithEdgeTiming("create-preauth-payment-intent", corsHeaders, async (req) =>
           .filter((part) => typeof part === "string" && part.trim())
           .join(" ")
           .trim() || null;
+      }
+
+      // #89D — refuse NEW Revolut auth when passenger schedule already conflicts.
+      // Overlap used to run only after payment in create-trip-after-payment,
+      // which orphaned AUTHORISED holds (MK-261124-002). Same-trip reauth
+      // excludes trip_id; same client_action_id reuse still happens inside
+      // createRevolutPreauthResponse before a second provider order.
+      const overlapGate = await assertPassengerClearForNewPreauth(supabaseClient, {
+        passengerUserId: user.id,
+        customerId: dbCustomerForSessionId,
+        body: body as Record<string, unknown>,
+        excludeTripId: tripId,
+      });
+      if (!overlapGate.ok) {
+        logStep("PREAUTH_SCHEDULE_OVERLAP_BLOCKED", {
+          code: overlapGate.code,
+          conflicting_trip_id: overlapGate.conflicting_trip_id ?? null,
+          exclude_trip_id: tripId,
+        });
+        return preauthOverlapConflictResponse(overlapGate, corsHeaders);
       }
 
       // Receivable fold: createRevolutPreauthResponse creates the pending
