@@ -176,3 +176,14 @@ Deno.test("#89E missing TEN recovery remains wired", async () => {
   );
   assertStringIncludes(sweep, "sweepRecoverMissingTripEarningNet");
 });
+
+Deno.test("#90A admin capture never treats trip stamp as confirmed capture", async () => {
+  const admin = await Deno.readTextFile(
+    new URL(
+      "../../functions/admin-capture-trip-payment/lib/adminCaptureTripPaymentSSOT.ts",
+      import.meta.url,
+    ),
+  );
+  assertEquals(admin.includes("storedTripCapture > 0 ? storedTripCapture"), false);
+  assertStringIncludes(admin, "resolveProviderConfirmedCapturePence");
+});

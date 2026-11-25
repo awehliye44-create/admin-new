@@ -228,7 +228,7 @@ export async function reclaimExpiredPaymentSessionFinancialLock(
       financial_operation_started_at: null,
       updated_at: new Date().toISOString(),
     },
-    "financial_lock_reclaim",
+    "financial_lock",
   );
   return {
     reclaimed: true,

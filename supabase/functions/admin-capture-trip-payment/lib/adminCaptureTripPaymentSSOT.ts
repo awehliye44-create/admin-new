@@ -19,6 +19,7 @@ import {
   type FinancialLockClaim,
 } from "../../_shared/paymentSessionFinancialLockSSOT.ts";
 import { decideCaptureAfterRetrieve, tripHasConflictingFinalCapture } from "../../_shared/revolutCaptureIdempotencySSOT.ts";
+import { resolveProviderConfirmedCapturePence } from "../../_shared/providerConfirmedCaptureEvidenceSSOT.ts";
 import {
   captureRevolutOrder,
   retrieveRevolutOrder,
@@ -312,17 +313,15 @@ export async function executeAdminCaptureTripPayment(args: {
       captureAmountPence = decision.captureAmountPence;
       providerPayload = orderBefore as unknown as Record<string, unknown>;
     } else if (decision.action === "retry_capture") {
-      const storedTripCapture = Math.round(Number(args.trip.capture_amount_pence) || 0);
+      // #89E/#90A: trips.capture_amount_pence is never confirmed capture evidence.
       const sessionStatus = String(bookingSession.status ?? "").toLowerCase();
-      const sessionCaptured = (
-        sessionStatus === "captured"
-        || sessionStatus === "completed"
-        || sessionStatus === "capture_confirmed"
-        || sessionStatus === "partial_capture_only"
-      )
-        ? Math.round(Number(bookingSession.captured_amount_pence) || 0)
-        : 0;
-      const confirmed = storedTripCapture > 0 ? storedTripCapture : sessionCaptured;
+      const confirmed = resolveProviderConfirmedCapturePence({
+        providerState: String((orderBefore as { state?: string }).state ?? ""),
+        providerCapturedPence: null,
+        sessionStatus,
+        sessionCapturedPence: bookingSession.captured_amount_pence as number | null | undefined,
+        paymentCapturedPence: null,
+      });
       if (tripHasConflictingFinalCapture({
         confirmedCapturePence: confirmed,
         requestedCapturePence: decision.captureAmountPence,
