@@ -12,6 +12,8 @@ import {
 import { resolveRevolutMerchantContext } from "./revolutMerchantContext.ts";
 import { markPaymentSessionReleased } from "./paymentSessionSSOT.ts";
 import { assertFareCaptureAllowedAtProvider } from "./scheduledFareCaptureGateSSOT.ts";
+import { guardedCaptureRevolutOrder } from "./guardedProviderCaptureSSOT.ts";
+void captureRevolutOrder;
 
 export type RevolutHoldReconciliationStatus =
   | "authorised_hold"
@@ -110,12 +112,38 @@ export async function releaseRevolutPreauthForTrip(
         if (!feeGate.ok) {
           return { released: false, status: "fee_capture_blocked", error: feeGate.error };
         }
-        await captureRevolutOrder(
-          merchant.environment,
-          merchant.secretKey,
-          orderId,
-          captureAmount,
-        );
+        const { data: feeSession } = await supabase
+          .from("payment_sessions")
+          .select("id")
+          .eq("trip_id", args.tripId)
+          .neq("purpose", "PAYMENT_RECOVERY")
+          .order("created_at", { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        if (!feeSession?.id) {
+          return {
+            released: false,
+            status: "fee_capture_blocked",
+            error: "lifecycle_fee_capture_requires_payment_session",
+          };
+        }
+        const guardedFee = await guardedCaptureRevolutOrder({
+          supabase,
+          environment: merchant.environment,
+          secretKey: merchant.secretKey,
+          tripId: args.tripId,
+          paymentSessionId: String(feeSession.id),
+          providerOrderId: orderId,
+          amountPence: captureAmount,
+          purpose: "lifecycle_fee",
+        });
+        if (!guardedFee.ok) {
+          return {
+            released: false,
+            status: "fee_capture_unconfirmed",
+            error: guardedFee.message,
+          };
+        }
       }
       const refreshed = await retrieveRevolutOrder(merchant.environment, merchant.secretKey, orderId);
       const afterState = String(refreshed.state ?? "").toUpperCase();

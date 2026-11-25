@@ -131,19 +131,12 @@ export function createRevolutAdapter(
       return { status: order.state ?? "pending" };
     },
 
-    async capturePayment(providerPaymentId, amountPence) {
-      const secrets = await getSecrets();
-      const sk = merchantSecret(secrets);
-      const order = await revolutMerchantRequest<{ state?: string }>(
-        environment,
-        sk,
-        `/orders/${providerPaymentId}/capture`,
-        {
-          method: "POST",
-          body: JSON.stringify(amountPence ? { amount: amountPence } : {}),
-        },
+    async capturePayment(_providerPaymentId, _amountPence) {
+      // #92A: refuse unprotected CAPTURE POSTs. Live fare/fee captures must use
+      // guardedCaptureRevolutOrder (claim → fence → POST → GET confirm).
+      throw new Error(
+        "PAYMENT_PROVIDER_CAPTURE_BLOCKED: use guardedCaptureRevolutOrder",
       );
-      return { status: order.state ?? "completed" };
     },
 
     async refundPayment(providerPaymentId, amountPence) {

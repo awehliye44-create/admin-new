@@ -80,6 +80,9 @@ const COMPLETED_CAPTURE_RETRY_PAYMENT_STATUSES = new Set([
   // #89E: local trip may be falsely stamped captured while Revolut remains AUTHORISED
   // (premature capture_amount + false already_captured). Still eligible for GET-first retry.
   "captured",
+  // G9: force_complete / gate may stamp recovery_required — still GET-first reconcile.
+  "recovery_required",
+  "payment_recovery_required",
 ]);
 
 serve(async (req) => {

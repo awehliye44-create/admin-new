@@ -91,14 +91,22 @@ export function isTripPaymentFinalised(paymentStatus: string | null | undefined)
 
 /**
  * MK-260926-001: fare already taken — tip window must not open / tip UI must not run.
- * payment_status can lag as authorised while capture_amount_pence is already > 0.
+ * Prefer provider-confirmed capture_confirmed_pence. Legacy trips.capture_amount_pence
+ * is untrusted unless captureConfirmedPence is supplied (CaptureSSOT reader migration).
  */
 export function isFareCapturedBlockingTipWindow(args: {
   paymentStatus?: string | null;
   captureAmountPence?: number | null;
+  /** Authoritative confirmed capture — preferred when present. */
+  captureConfirmedPence?: number | null;
 }): boolean {
   if (isTripPaymentFinalised(args.paymentStatus)) return true;
-  return Math.round(Number(args.captureAmountPence) || 0) > 0;
+  // G4: financial decisions require captureConfirmedPence (or finalised status).
+  // trips.capture_amount_pence alone never opens/blocks tip window as proof of money.
+  if (args.captureConfirmedPence != null) {
+    return Math.round(Number(args.captureConfirmedPence) || 0) > 0;
+  }
+  return false;
 }
 
 /**
@@ -336,14 +344,16 @@ export function tipWindowCloseAllowedAfterFinalize(
 
 /**
  * Close-only path: a captured/paid status is not proof. Card rows need a
- * positive stored capture. Cash has no platform capture to prove.
+ * positive *confirmed* capture. Cash has no platform capture to prove.
  */
 export function storedCaptureAllowsTipWindowClose(args: {
   paymentMethod?: string | null;
   paymentStatus?: string | null;
   captureAmountPence?: number | null;
+  captureConfirmedPence?: number | null;
 }): boolean {
   const status = String(args.paymentStatus ?? "").trim().toLowerCase();
   if (isCashTripPaymentMethod(args.paymentMethod) || status === "collected_cash") return true;
-  return Math.round(Number(args.captureAmountPence) || 0) > 0;
+  // G4: confirmed capture only — legacy trip stamp is never sufficient.
+  return Math.round(Number(args.captureConfirmedPence) || 0) > 0;
 }

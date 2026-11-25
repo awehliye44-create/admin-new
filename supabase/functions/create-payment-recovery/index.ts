@@ -162,13 +162,8 @@ Deno.serve(async (req) => {
     const netRefunded = sumVerifiedRefundedFromSessions(captureSessions ?? []);
     let originalCaptured = verified.original_captured_pence;
     const recoveryCaptured = verified.recaptured_pence;
-    // Trip projection may hold confirmed capture when session rows are legacy-incomplete.
-    if (originalCaptured <= 0 && Number(trip.capture_amount_pence ?? 0) > 0) {
-      const ps = String(trip.payment_status ?? "").toLowerCase();
-      if (!ps.includes("cancel") && !ps.includes("fail") && !ps.includes("void")) {
-        originalCaptured = Math.round(Number(trip.capture_amount_pence));
-      }
-    }
+    // G4: never invent confirmed capture from trips.capture_amount_pence.
+    // Historical rows without verified session/provider evidence stay unverified.
 
     const outstanding = computeOutstandingBalancePence({
       canonicalPayablePence: payableResolved.payable_pence,

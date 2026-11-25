@@ -148,6 +148,19 @@ if run "ack-timeout sweep lock order + concurrency (L, LB, A1, A1b, A2, A3)" "$O
   grep -qE '^SYNTHETIC_ROWS_REMAINING=0' "$OUT/acktimeout.log" || fail "ack-timeout harness left synthetic rows behind"
 fi
 
+# --- 7. #92A payment SSOT real PostgreSQL integration -----------------------------------------------
+# Requires Stage A–D migrations (applied by pg-harness-bootstrap for versions > baseline).
+if [ "$(psql "$DB_URL" -X -q -At -c "select to_regclass('public.payment_financial_operations') is not null")" != "t" ]; then
+  fail "public.payment_financial_operations missing — apply 20270301120000_payment_coverage_capture_ssot_p0.sql"
+fi
+if run "#92A payment SSOT PostgreSQL integration" "$OUT/payment92a.log" \
+     bash supabase/tests/payment_ssot_92a_integration_isolated.sh; then
+  grep -q 'ALL payment_ssot_92a_integration_isolated CHECKS PASSED' "$OUT/payment92a.log" \
+    || fail "payment92a: success marker missing"
+  grep -qE '^SCENARIO 92A => PASS' "$OUT/payment92a.log" || fail "payment92a: scenario not PASS"
+  grep -qE '^TOTAL fail=0 pass=[0-9]+' "$OUT/payment92a.log" || fail "payment92a: TOTAL line missing"
+fi
+
 echo
 if [ "$FAILED" -ne 0 ]; then
   echo "PG GATES: FAILED (logs in $OUT)" >&2

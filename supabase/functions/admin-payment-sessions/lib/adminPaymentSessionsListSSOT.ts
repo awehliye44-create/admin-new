@@ -33,6 +33,7 @@ import {
 import {
   classifyCaptureConfirmation,
 } from "../../_shared/paymentSessionsCaptureConfirmationSSOT.ts";
+import { resolveAdminPaymentFinancialVisibility } from "../../_shared/adminPaymentFinancialVisibilitySSOT.ts";
 import { derivePaymentSessionAllowedActions, isOpenTripPaymentRecoverySession } from "../../_shared/paymentSessionsAllowedActionsSSOT.ts";
 import { isValidConfirmedCapturePence } from "../../_shared/paymentCaptureEvidenceSSOT.ts";
 import {
@@ -109,6 +110,11 @@ type SessionExtra = {
   buffer_pence: number | null;
   authorised_amount_pence: number | null;
   captured_amount_pence: number | null;
+  capture_requested_pence: number | null;
+  capture_confirmed_pence: number | null;
+  capture_confirmation_state: string | null;
+  outstanding_pence: number | null;
+  capture_class: string | null;
   released_amount_pence: number | null;
   refunded_amount_pence: number | null;
   provider_processing_fee_pence: number | null;
@@ -124,6 +130,10 @@ type SessionExtra = {
   payment_resolution_type: string | null;
   payment_resolution_status: string | null;
   recovery_required: boolean | null;
+  financial_operation_state: string | null;
+  last_provider_reconciliation_at: string | null;
+  customer_receivable_pence: number | null;
+  outstanding_authorisation_pence: number | null;
   hold_release_state: string | null;
   provider_release_reference: string | null;
   recovery_attempt_count: number;
@@ -300,6 +310,11 @@ function mapHoldToSessionRow(
     buffer_pence: extra.buffer_pence,
     authorised_amount_pence: extra.authorised_amount_pence ?? hold.amount_pence,
     captured_amount_pence: capturedAmount,
+    capture_requested_pence: extra.capture_requested_pence ?? null,
+    capture_confirmed_pence: extra.capture_confirmed_pence ?? null,
+    capture_confirmation_state: extra.capture_confirmation_state ?? null,
+    outstanding_capture_pence: extra.outstanding_pence ?? null,
+    capture_class_ssot: extra.capture_class ?? null,
     released_amount_pence: releasedAmount,
     refunded_amount_pence: extra.refunded_amount_pence,
     provider_processing_fee_pence: feePence,
@@ -315,6 +330,13 @@ function mapHoldToSessionRow(
     release_evidence_status: extra.release_evidence_status ?? null,
     release_evidence_source: extra.release_evidence_source ?? null,
     release_verified_at: extra.release_verified_at ?? null,
+    recovery_required: extra.recovery_required ?? null,
+    financial_operation_state: extra.financial_operation_state ?? null,
+    last_provider_reconciliation_at: extra.last_provider_reconciliation_at
+      ?? hold.provider_state_verified_at
+      ?? null,
+    customer_receivable_pence: extra.customer_receivable_pence ?? null,
+    outstanding_authorisation_pence: extra.outstanding_authorisation_pence ?? null,
     provider_verification_status: verification,
     session_status: operatorLabel,
     session_status_display: display.session_status_display,
@@ -476,6 +498,10 @@ export async function listAdminPaymentSessions(
     payment_resolution_type: string | null;
     payment_resolution_status: string | null;
     recovery_required: boolean | null;
+    financial_operation_state: string | null;
+    last_provider_reconciliation_at: string | null;
+    customer_receivable_pence: number | null;
+    outstanding_authorisation_pence: number | null;
     hold_release_state: string | null;
     provider_release_reference: string | null;
     recovery_attempt_count: number;
@@ -488,7 +514,7 @@ export async function listAdminPaymentSessions(
     const { data: sessions } = await supabase
       .from("payment_sessions")
       .select(
-        "id, client_action_id, service_area_id, payment_method, purpose, estimated_total_pence, buffer_pence, authorised_amount_pence, total_authorised_amount_pence, captured_amount_pence, released_amount_pence, refunded_amount_pence, provider_processing_fee_pence, fee_status, provider_capture_id, provider_payment_id, provider_order_id, provider_state, provider_state_verified_at, provider_state_verified_by, status, captured_at, released_at, refunded_at, release_evidence_status, release_evidence_source, release_verified_at, payment_resolution_type, payment_resolution_status, recovery_required, metadata, hold_release_state, provider_release_reference, recovery_attempt_count",
+        "id, client_action_id, service_area_id, payment_method, purpose, estimated_total_pence, buffer_pence, authorised_amount_pence, total_authorised_amount_pence, captured_amount_pence, capture_requested_pence, capture_confirmed_pence, capture_confirmation_state, released_amount_pence, refunded_amount_pence, provider_processing_fee_pence, fee_status, provider_capture_id, provider_payment_id, provider_order_id, provider_state, provider_state_verified_at, provider_state_verified_by, status, captured_at, released_at, refunded_at, release_evidence_status, release_evidence_source, release_verified_at, payment_resolution_type, payment_resolution_status, recovery_required, financial_operation_state, metadata, hold_release_state, provider_release_reference, recovery_attempt_count",
       )
       .in("id", sessionIds);
 
@@ -611,6 +637,65 @@ export async function listAdminPaymentSessions(
         payment_resolution_type: (s.payment_resolution_type as string | null) ?? null,
         payment_resolution_status: (s.payment_resolution_status as string | null) ?? null,
         recovery_required: s.recovery_required == null ? null : Boolean(s.recovery_required),
+        financial_operation_state: (s.financial_operation_state as string | null)
+          ?? (typeof meta.financial_operation_state === "string"
+            ? meta.financial_operation_state
+            : null),
+        last_provider_reconciliation_at: (s.provider_state_verified_at as string | null)
+          ?? (typeof meta.provider_state_verified_at === "string"
+            ? meta.provider_state_verified_at
+            : null),
+        customer_receivable_pence: (() => {
+          const fromMeta = Number(meta.customer_receivables_pence);
+          return Number.isFinite(fromMeta) && fromMeta > 0 ? Math.round(fromMeta) : null;
+        })(),
+        outstanding_authorisation_pence: (() => {
+          const auth = s.total_authorised_amount_pence != null
+            ? Number(s.total_authorised_amount_pence)
+            : s.authorised_amount_pence != null
+            ? Number(s.authorised_amount_pence)
+            : null;
+          const confirmed = s.capture_confirmed_pence != null
+            ? Number(s.capture_confirmed_pence)
+            : s.captured_amount_pence != null
+            ? Number(s.captured_amount_pence)
+            : 0;
+          if (auth == null || !Number.isFinite(auth)) return null;
+          const out = Math.round(auth) - Math.max(0, Math.round(confirmed) || 0);
+          return out > 0 ? out : 0;
+        })(),
+        ...(() => {
+          const vis = resolveAdminPaymentFinancialVisibility({
+            captureRequestedPence: s.capture_requested_pence == null
+              ? null
+              : Number(s.capture_requested_pence),
+            captureConfirmedPence: s.capture_confirmed_pence == null
+              ? null
+              : Number(s.capture_confirmed_pence),
+            sessionCapturedAmountPence: s.captured_amount_pence == null
+              ? null
+              : Number(s.captured_amount_pence),
+            providerAuthorisedPence: s.total_authorised_amount_pence == null
+              ? (s.authorised_amount_pence == null ? null : Number(s.authorised_amount_pence))
+              : Number(s.total_authorised_amount_pence),
+            payablePence: s.capture_requested_pence == null
+              ? (s.estimated_total_pence == null ? null : Number(s.estimated_total_pence))
+              : Number(s.capture_requested_pence),
+            refundedPence: s.refunded_amount_pence == null
+              ? null
+              : Number(s.refunded_amount_pence),
+            captureConfirmationState: (s.capture_confirmation_state as string | null) ?? null,
+            recoveryRequired: s.recovery_required == null ? null : Boolean(s.recovery_required),
+            paymentStatus: (s.status as string | null) ?? null,
+          });
+          return {
+            capture_requested_pence: vis.capture_requested_pence,
+            capture_confirmed_pence: vis.capture_confirmed_pence,
+            capture_confirmation_state: vis.capture_confirmation_state,
+            outstanding_pence: vis.outstanding_pence,
+            capture_class: vis.capture_class,
+          };
+        })(),
         hold_release_state: (s.hold_release_state as string | null) ?? null,
         provider_release_reference: (s.provider_release_reference as string | null)
           ?? (typeof meta.provider_release_reference === "string"
@@ -681,6 +766,10 @@ export async function listAdminPaymentSessions(
       payment_resolution_type: extra?.payment_resolution_type ?? null,
       payment_resolution_status: extra?.payment_resolution_status ?? null,
       recovery_required: extra?.recovery_required ?? null,
+      financial_operation_state: extra?.financial_operation_state ?? null,
+      last_provider_reconciliation_at: extra?.last_provider_reconciliation_at ?? null,
+      customer_receivable_pence: extra?.customer_receivable_pence ?? null,
+      outstanding_authorisation_pence: extra?.outstanding_authorisation_pence ?? null,
       hold_release_state: extra?.hold_release_state ?? hold.hold_release_state ?? null,
       provider_release_reference: extra?.provider_release_reference ?? null,
       recovery_attempt_count: extra?.recovery_attempt_count

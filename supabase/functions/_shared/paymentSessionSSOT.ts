@@ -554,6 +554,10 @@ export async function markPaymentSessionCaptured(
     totalAuthorisedAmountPence?: number | null;
     authorisedAmountPence?: number | null;
     /**
+     * Immutable payable total for exact FULLY vs PARTIAL classification (no 1p tolerance).
+     */
+    payablePence?: number | null;
+    /**
      * Receivable settlement requires explicit provider evidence.
      * Local mark alone / AUTHORISED / capture-POST-without-GET must NOT settle.
      */
@@ -577,16 +581,54 @@ export async function markPaymentSessionCaptured(
   const metadata = session?.metadata && typeof session.metadata === "object"
     ? { ...(session.metadata as Record<string, unknown>) }
     : {};
-  metadata.capture_amount_pence = args.captureAmountPence;
+  const requested = Math.max(0, Math.round(Number(args.captureAmountPence) || 0));
+  const hasBoundEvidence = !!(
+    args.providerEvidence
+    && args.providerEvidence.amountFromProviderGet === true
+    && Math.round(Number(args.providerEvidence.confirmedCapturedPence) || 0) > 0
+    && (args.providerEvidence.terminalState === "COMPLETED"
+      || args.providerEvidence.terminalState === "CAPTURED")
+  );
+  // Requested vs confirmed split (CaptureSSOT). Never treat request as confirm.
+  metadata.capture_requested_pence = requested;
+  if (hasBoundEvidence) {
+    metadata.capture_confirmed_pence = Math.round(
+      Number(args.providerEvidence!.confirmedCapturedPence),
+    );
+  }
 
   const now = args.capturedAt ?? new Date().toISOString();
+  if (!hasBoundEvidence) {
+    // Refuse durable "captured" without provider GET evidence.
+    const err = new Error(
+      "CAPTURE_CONFIRM_REFUSED:missing_bound_provider_evidence",
+    );
+    (err as Error & { code?: string }).code = "CAPTURE_CONFIRM_REFUSED";
+    throw err;
+  }
+  const confirmed = Math.round(Number(args.providerEvidence!.confirmedCapturedPence));
+  const payableForClass = args.payablePence != null
+    ? Math.max(0, Math.round(Number(args.payablePence) || 0))
+    : requested;
+  let confirmationState = "FULLY_CAPTURED";
+  if (confirmed <= 0) {
+    confirmationState = "CAPTURE_FAILED";
+  } else if (confirmed < payableForClass) {
+    confirmationState = "PARTIALLY_CAPTURED";
+  } else if (confirmed > payableForClass) {
+    confirmationState = "OVERCAPTURE_ANOMALY";
+  }
   const patch: Record<string, unknown> = {
     trip_id: args.tripId,
     captured_at: now,
-    captured_amount_pence: args.captureAmountPence,
+    // Gross confirmed capture projection (existing column) — equals capture_confirmed_pence.
+    captured_amount_pence: confirmed,
+    capture_requested_pence: requested,
+    capture_confirmed_pence: confirmed,
+    capture_confirmation_state: confirmationState,
     hold_terminal_reason: "provider_captured",
     release_failure_reason: null,
-    provider_state: "COMPLETED",
+    provider_state: args.providerEvidence!.terminalState,
     provider_state_verified_at: now,
     provider_state_verified_by: "markPaymentSessionCaptured",
     metadata,

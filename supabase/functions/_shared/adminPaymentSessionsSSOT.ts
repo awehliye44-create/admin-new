@@ -102,6 +102,12 @@ export type AdminPaymentSessionsListRow = {
   buffer_pence: number | null;
   authorised_amount_pence: number | null;
   captured_amount_pence: number | null;
+  /** P3 CaptureSSOT visibility */
+  capture_requested_pence?: number | null;
+  capture_confirmed_pence?: number | null;
+  capture_confirmation_state?: string | null;
+  outstanding_capture_pence?: number | null;
+  capture_class_ssot?: string | null;
   released_amount_pence: number | null;
   refunded_amount_pence: number | null;
   provider_processing_fee_pence: number | null;
@@ -122,6 +128,14 @@ export type AdminPaymentSessionsListRow = {
   payment_resolution_status?: string | null;
   /** True when session needs manual recovery attention. */
   recovery_required?: boolean | null;
+  /** Durable financial operation state (session column / metadata). */
+  financial_operation_state?: string | null;
+  /** Last provider reconciliation / verified-at stamp. */
+  last_provider_reconciliation_at?: string | null;
+  /** Outstanding customer receivable (pence) when reserved/open. */
+  customer_receivable_pence?: number | null;
+  /** Outstanding authorisation above confirmed capture (pence). */
+  outstanding_authorisation_pence?: number | null;
   provider_verification_status: "VERIFIED" | "STALE" | "UNKNOWN" | "UNAVAILABLE";
   session_status: string | null;
   session_status_display: string | null;

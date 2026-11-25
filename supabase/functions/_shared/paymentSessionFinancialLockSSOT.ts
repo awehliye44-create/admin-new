@@ -17,7 +17,7 @@ export type FinancialOperationState =
 const LOCK_TTL_MS = 90_000;
 
 export type FinancialLockClaim =
-  | { ok: true; owner: string; state: FinancialOperationState }
+  | { ok: true; owner: string; state: FinancialOperationState; fence: string }
   | {
     ok: false;
     reason: "busy" | "missing_session" | "claim_failed";
@@ -89,19 +89,9 @@ export async function claimPaymentSessionFinancialLock(
   }
 
   const current = readLock(session as Record<string, unknown>);
-  if (
-    current.state !== "IDLE"
-    && current.state !== "CAPTURED"
-    && !lockExpired(current.startedAtMs)
-    && current.owner !== owner
-  ) {
-    return {
-      ok: false,
-      reason: "busy",
-      currentState: current.state,
-      currentOwner: current.owner,
-    };
-  }
+  // Unique execution owners: same owner string must NOT re-enter.
+  // Lease expiry alone never authorises a new financial POST — callers must
+  // GET-reconcile when provider_post_inflight; reclaim only clears abandoned locks.
   if (current.state === "CAPTURED") {
     return {
       ok: false,
@@ -110,14 +100,24 @@ export async function claimPaymentSessionFinancialLock(
       currentOwner: current.owner,
     };
   }
+  if (current.state !== "IDLE" && !lockExpired(current.startedAtMs)) {
+    return {
+      ok: false,
+      reason: "busy",
+      currentState: current.state,
+      currentOwner: current.owner,
+    };
+  }
 
   const now = new Date().toISOString();
+  const fence = crypto.randomUUID();
   const metadata = session.metadata && typeof session.metadata === "object"
     ? { ...(session.metadata as Record<string, unknown>) }
     : {};
   metadata.financial_operation_state = args.state;
   metadata.financial_operation_owner = owner;
   metadata.financial_operation_started_at = now;
+  metadata.financial_operation_fence = fence;
   if (args.operationKey) metadata.financial_operation_key = args.operationKey;
 
   const patch: Record<string, unknown> = {
@@ -125,24 +125,21 @@ export async function claimPaymentSessionFinancialLock(
     financial_operation_state: args.state,
     financial_operation_owner: owner,
     financial_operation_started_at: now,
+    financial_operation_fence: fence,
     updated_at: now,
   };
 
   // Compare-and-set on the started_at this caller observed: two concurrent
-  // claimers that both read IDLE cannot both win.
+  // claimers that both read IDLE cannot both win. Never re-enter via owner match.
   const observedStartedAt = (session as { financial_operation_started_at?: string | null })
     .financial_operation_started_at ?? null;
   const claimFilter: {
     sessionId: string;
-    expectFinancialOperationOwner?: string;
     expectFinancialOperationStartedAt: string | null;
   } = {
     sessionId,
     expectFinancialOperationStartedAt: observedStartedAt,
   };
-  if (current.state !== "IDLE" && !lockExpired(current.startedAtMs) && current.owner === owner) {
-    claimFilter.expectFinancialOperationOwner = owner;
-  }
 
   const claim = await mutatePaymentSessionReturningId(
     supabase,
@@ -167,7 +164,7 @@ export async function claimPaymentSessionFinancialLock(
     };
   }
 
-  return { ok: true, owner, state: args.state };
+  return { ok: true, owner, state: args.state, fence };
 }
 
 /**
