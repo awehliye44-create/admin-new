@@ -1,0 +1,90 @@
+{
+  "version": 2,
+  "purpose": "#92E permanent financial deployment inventory — CAPTURE/INCREMENT paths, cron consumers, and remote drift detection.",
+  "class_a_capture_increment_hubs": [
+    "supabase/functions/_shared/executeSameOrderIncrementSSOT.ts",
+    "supabase/functions/_shared/revolutCompletionCapture.ts",
+    "supabase/functions/_shared/guardedProviderCaptureSSOT.ts",
+    "supabase/functions/admin-capture-trip-payment/lib/adminCaptureTripPaymentSSOT.ts",
+    "supabase/functions/_shared/terminalTripPaymentDisposition.ts",
+    "supabase/functions/_shared/revolutPreauthReleaseSSOT.ts"
+  ],
+  "canonical_finalize_entrypoints": [
+    "finalize-trip-and-capture",
+    "admin-capture-trip-payment",
+    "stop-workflow",
+    "capture-expired-tip-windows",
+    "revolut-webhook",
+    "sweep-revolut-stale-holds",
+    "process-trip-capture-jobs"
+  ],
+  "financial_cron_consumers": [
+    {
+      "jobname": "process-trip-capture-jobs-every-1-min",
+      "invokes": "process-trip-capture-jobs",
+      "mechanism": "net.http_post",
+      "responsibility": "Drain trip_capture_jobs via finalize-trip-and-capture; never direct Revolut CAPTURE/INCREMENT"
+    },
+    {
+      "jobname": "capture-expired-tip-windows-sweep",
+      "invokes": "capture-expired-tip-windows",
+      "mechanism": "SQL capture_expired_tip_windows_sweep → net.http_post",
+      "responsibility": "Tip-window expiry capture via finalize-trip-and-capture"
+    },
+    {
+      "jobname": "sweep-revolut-stale-holds-every-5min",
+      "invokes": "sweep-revolut-stale-holds",
+      "mechanism": "SQL sweep_revolut_stale_holds (may Edge-call)",
+      "responsibility": "Stale hold release / #91A pending increment reconcile"
+    },
+    {
+      "jobname": "sweep-pending-trip-invoices-every-5min",
+      "invokes": "sweep-pending-trip-invoices",
+      "mechanism": "net.http_post",
+      "responsibility": "Invoice PDF/email — not CAPTURE/INCREMENT"
+    },
+    {
+      "jobname": "weekly-payout-scheduler",
+      "invokes": "admin-weekly-payout-scheduler",
+      "mechanism": "SQL invoke_weekly_payout_scheduler",
+      "responsibility": "Driver payout — not trip CAPTURE/INCREMENT"
+    }
+  ],
+  "orphan_or_remote_only_watchlist": [
+    {
+      "slug": "process-trip-capture-jobs",
+      "production_version_at_92d": 5,
+      "source_commit": "4ec8f101da3198b16cee8e5c28c9ed02bf73a230",
+      "must_have_local_entrypoint": true,
+      "capture_path": "HTTP invoke finalize-trip-and-capture only",
+      "eszip_unsafe_path_note": "Prod v5 ESZIP referenced source/shared/bookingDispatchRadiusSSOT.ts (repo-root shared). Canonical redeploy uses supabase/functions/_shared/bookingDispatchRadiusSSOT.ts only."
+    }
+  ],
+  "remote_only_non_mutation_classified": [
+    {
+      "slug": "corporate-trip-invoice",
+      "classification": "read_delegate_invoice_pdf",
+      "notes": "Delegates to trip-invoice-process download; no Revolut CAPTURE/INCREMENT"
+    },
+    {
+      "slug": "driver-passenger-fare-records",
+      "classification": "read_only_fare_records",
+      "notes": "Explicitly does not mutate finance; SELECT fare columns only"
+    },
+    {
+      "slug": "password-recovery-link",
+      "classification": "auth_non_financial",
+      "notes": "Name matched financial regex falsely; no payment mutation"
+    }
+  ],
+  "retired_capture_entrypoints": [
+    "capture-trip-payment",
+    "revolut-capture-order"
+  ],
+  "compare_tool": "scripts/compare-financial-edge-inventory.py",
+  "notes": [
+    "Do not assume a prior deploy set is complete — always diff remote list vs local.",
+    "Stage D migration 20270301130000 remains separately approved.",
+    "Immediate Complete Trip capture is primary; process-trip-capture-jobs is complementary recovery."
+  ]
+}

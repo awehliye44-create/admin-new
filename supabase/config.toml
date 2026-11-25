@@ -120,6 +120,9 @@ verify_jwt = false
 [functions.capture-trip-payment]
 verify_jwt = false
 
+[functions.process-trip-capture-jobs]
+verify_jwt = false
+
 
 [functions.public-content]
 verify_jwt = false

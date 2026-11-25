@@ -65,6 +65,9 @@ deno test --no-check --allow-read --allow-env \
   supabase/tests/_shared/paymentCoverageCaptureSsotLock.test.ts \
   supabase/tests/_shared/paymentSsotBehavioural92Lock.test.ts \
   supabase/tests/_shared/paymentSurfaceInventory92Lock.test.ts \
+  supabase/tests/_shared/financialProductionWorkerInventory92DLock.test.ts \
+  supabase/tests/_shared/tripCaptureJobDeferralLock.test.ts \
+  supabase/tests/_shared/captureOutcomeTipVsShortfallLock.test.ts \
   supabase/functions/_shared/cancelTripCallerAuthSSOT.test.ts \
   supabase/functions/_shared/bookingOwnershipRoleIsolationLock.test.ts \
   supabase/functions/_shared/sessionAccessRoleSSOT.test.ts \
