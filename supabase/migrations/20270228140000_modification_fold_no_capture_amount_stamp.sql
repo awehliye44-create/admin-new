@@ -234,8 +234,7 @@ BEGIN
     WHERE id = p_trip_id;
   END IF;
 END;
-$function$
-
+$function$;
 
 REVOKE ALL ON FUNCTION public.apply_trip_modification_to_trip(uuid, text, integer, integer, integer, integer, jsonb, jsonb, jsonb) FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.apply_trip_modification_to_trip(uuid, text, integer, integer, integer, integer, jsonb, jsonb, jsonb) FROM anon;
