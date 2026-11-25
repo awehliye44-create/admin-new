@@ -24,6 +24,7 @@ import {
   reclaimExpiredPaymentSessionFinancialLock,
   releasePaymentSessionFinancialLock,
 } from "./paymentSessionFinancialLockSSOT.ts";
+import { reconcilePendingIncrementAuthorisationsFromProvider } from "./reconcilePendingIncrementAuthorisationSSOT.ts";
 import { decideCaptureAfterRetrieve, tripHasConflictingFinalCapture } from "./revolutCaptureIdempotencySSOT.ts";
 import { isProviderCaptureTerminalState } from "./paymentSessionsCaptureConfirmationSSOT.ts";
 import {
@@ -255,6 +256,24 @@ export async function executeRevolutTripCompletionCapture(args: {
     .limit(1)
     .maybeSingle();
   const compositionSessionId = String(compositionSession?.id ?? "").trim();
+  // #91A: if a prior increment POST left PSA PENDING while provider later
+  // confirmed coverage (or capture completed), flip the row before planning.
+  // Never POSTs increment / capture / wallet credit — evidence reconcile only.
+  if (compositionSessionId) {
+    try {
+      await reconcilePendingIncrementAuthorisationsFromProvider(args.supabase, {
+        paymentSessionId: compositionSessionId,
+        providerOrderId: orderId,
+        order: orderBefore,
+        verifiedBy: "revolutCompletionCapture:pending_increment_reconcile",
+      });
+    } catch (reconcileErr) {
+      console.error(
+        "[revolutCompletionCapture] pending increment reconcile failed",
+        reconcileErr,
+      );
+    }
+  }
   let finalFarePence = farePlusTipPence;
   let compositionLockOwner: string | null = null;
   let compositionLockClaimedHere = false;

@@ -30,6 +30,7 @@ import { getRevolutMerchantConfig, retrieveRevolutOrder } from "../_shared/revol
 import { extractConfirmedCaptureAmountPence } from "../_shared/paymentHoldProviderTerminalPure.ts";
 import { transitionPaymentSession } from "../_shared/paymentSessionTransitionFacade.ts";
 import { reclaimExpiredPaymentSessionFinancialLock } from "../_shared/paymentSessionFinancialLockSSOT.ts";
+import { reconcilePendingIncrementAuthorisationsFromProvider } from "../_shared/reconcilePendingIncrementAuthorisationSSOT.ts";
 import {
   expiryFareOnlyTipPence,
   expiredUnclosedTipWindowForbidsTipCapture,
@@ -694,6 +695,66 @@ serve(async (req) => {
     console.error("[sweep-revolut-stale-holds] missing TEN recovery failed", tenSweepErr);
   }
 
+  // #91A: PENDING PSA rows whose provider order already confirms coverage (or
+  // terminal decline/fail). GET-only — no increment POST / capture / credit.
+  const pendingIncrementReconcile: Array<Record<string, unknown>> = [];
+  {
+    const { data: pendingRows } = await supabase
+      .from("payment_session_authorisations")
+      .select(
+        "id, payment_session_id, provider_order_id, requested_target_total_pence, status, created_at",
+      )
+      .eq("status", "ADDITIONAL_AUTHORISATION_PENDING")
+      .not("provider_order_id", "is", null)
+      .order("created_at", { ascending: true })
+      .limit(limit);
+
+    for (const row of pendingRows ?? []) {
+      const sessionId = String(row.payment_session_id ?? "").trim();
+      const orderId = String(row.provider_order_id ?? "").trim();
+      const target = Math.round(Number(row.requested_target_total_pence) || 0);
+      if (!sessionId || !orderId || target <= 0) continue;
+      if (dryRun) {
+        pendingIncrementReconcile.push({
+          authorisation_id: row.id,
+          payment_session_id: sessionId,
+          provider_order_id: orderId,
+          requested_target_total_pence: target,
+          dry_run: true,
+          action: "would_reconcile_pending_increment_from_provider",
+        });
+        continue;
+      }
+      try {
+        const { secretKey, environment } = getRevolutMerchantConfig();
+        const order = await retrieveRevolutOrder(
+          environment,
+          secretKey,
+          orderId,
+        );
+        const rec = await reconcilePendingIncrementAuthorisationsFromProvider(supabase, {
+          paymentSessionId: sessionId,
+          providerOrderId: orderId,
+          order,
+          verifiedBy: "sweep-revolut-stale-holds:pending_increment_reconcile",
+          requestedTargetTotalPence: target,
+        });
+        pendingIncrementReconcile.push({
+          authorisation_id: row.id,
+          payment_session_id: sessionId,
+          provider_order_id: orderId,
+          results: rec.results,
+        });
+      } catch (e) {
+        pendingIncrementReconcile.push({
+          authorisation_id: row.id,
+          action: "reconcile_failed",
+          message: e instanceof Error ? e.message : String(e),
+        });
+      }
+    }
+  }
+
   return new Response(JSON.stringify({
     success: true,
     dry_run: dryRun,
@@ -704,6 +765,7 @@ serve(async (req) => {
     completed_capture_heals: healResults,
     completed_authorised_retries: retryResults,
     missing_ten_recovery: missingTenRecovery,
+    pending_increment_reconcile: pendingIncrementReconcile,
     watchdog: {
       unresolved_count: watchdog.length,
       by_currency: byCurrency,

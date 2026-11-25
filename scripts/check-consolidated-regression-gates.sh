@@ -60,6 +60,7 @@ deno test --no-check --allow-read --allow-env \
   supabase/tests/_shared/towardsDestinationDispatchFilterLock.test.ts \
   supabase/tests/_shared/successfulIncrementalAuthorisation91Lock.test.ts \
   supabase/tests/_shared/autoCapture89ELock.test.ts \
+  supabase/tests/_shared/pendingIncrementReconcile91ALock.test.ts \
   supabase/functions/_shared/cancelTripCallerAuthSSOT.test.ts \
   supabase/functions/_shared/bookingOwnershipRoleIsolationLock.test.ts \
   supabase/functions/_shared/sessionAccessRoleSSOT.test.ts \
