@@ -33,6 +33,7 @@ import { reclaimExpiredPaymentSessionFinancialLock } from "../_shared/paymentSes
 import { reconcilePendingIncrementAuthorisationsFromProvider } from "../_shared/reconcilePendingIncrementAuthorisationSSOT.ts";
 import { sweepPlatformCollectedFinancialIntegrity } from "../_shared/platformCollectedFinancialIntegrityRecoverySSOT.ts";
 import { reconcileIncrementOperationsToCoverConfirmed } from "../_shared/reconcileFinancialOperationFromEvidenceSSOT.ts";
+import { reconcileAuthorisationProjectionsBatch } from "../_shared/reconcileAuthorisationProjectionSSOT.ts";
 import {
   expiryFareOnlyTipPence,
   expiredUnclosedTipWindowForbidsTipCapture,
@@ -111,7 +112,7 @@ serve(async (req) => {
   const { data: sessions, error } = await supabase
     .from("payment_sessions")
     .select(
-      "id, trip_id, provider_order_id, authorised_amount_pence, captured_amount_pence, provider_state, created_at, metadata, currency",
+      "id, trip_id, provider_order_id, authorised_amount_pence, total_authorised_amount_pence, captured_amount_pence, provider_state, created_at, metadata, currency",
     )
     .eq("purpose", "RIDE_BOOKING")
     .in("provider_state", ["AUTHORISED", "AUTHORIZED"])
@@ -251,7 +252,7 @@ serve(async (req) => {
   const { data: completedDrift } = await supabase
     .from("payment_sessions")
     .select(
-      "id, trip_id, provider_order_id, authorised_amount_pence, captured_amount_pence, provider_state, status",
+      "id, trip_id, provider_order_id, authorised_amount_pence, total_authorised_amount_pence, captured_amount_pence, provider_state, status",
     )
     .eq("purpose", "RIDE_BOOKING")
     .eq("provider_state", "COMPLETED")
@@ -799,6 +800,29 @@ serve(async (req) => {
     console.error("[sweep-revolut-stale-holds] pc integrity recovery failed", e);
   }
 
+  // #103: advance stale total_authorised mirrors from PSA/provider; never rewrite original hold.
+  let authProjectionReconcile: Awaited<
+    ReturnType<typeof reconcileAuthorisationProjectionsBatch>
+  > = { scanned: 0, results: [] };
+  try {
+    if (!dryRun) {
+      let env: ReturnType<typeof getRevolutMerchantConfig> | null = null;
+      try {
+        env = getRevolutMerchantConfig();
+      } catch {
+        env = null;
+      }
+      authProjectionReconcile = await reconcileAuthorisationProjectionsBatch(supabase, {
+        limit: Math.min(20, limit),
+        environment: env?.environment ?? null,
+        secretKey: env?.secretKey ?? null,
+        lookbackHours: 48,
+      });
+    }
+  } catch (e) {
+    console.error("[sweep-revolut-stale-holds] auth projection reconcile failed", e);
+  }
+
   return new Response(JSON.stringify({
     success: true,
     dry_run: dryRun,
@@ -811,6 +835,7 @@ serve(async (req) => {
     missing_ten_recovery: missingTenRecovery,
     pending_increment_reconcile: pendingIncrementReconcile,
     pc_integrity_recovery: pcIntegrityRecovery,
+    auth_projection_reconcile_103: authProjectionReconcile,
     watchdog: {
       unresolved_count: watchdog.length,
       by_currency: byCurrency,

@@ -140,6 +140,24 @@ describe('#75A residual release SSOT', () => {
     ).toBe(200);
   });
 
+  it('#103 MK-009: residual uses total coverage (800) not original hold (700)', () => {
+    // Capture between original and total would understate residual if authorised-only.
+    expect(
+      expectedResidualReleasePenceForRow({
+        authorised_amount_pence: 700,
+        total_authorised_amount_pence: 800,
+        captured_amount_pence: 750,
+      }),
+    ).toBe(50);
+    expect(
+      expectedResidualReleasePenceForRow({
+        authorised_amount_pence: 700,
+        total_authorised_amount_pence: 800,
+        captured_amount_pence: 800,
+      }),
+    ).toBeNull();
+  });
+
   it('historical eligibility + never downgrade CONFIRMED', () => {
     expect(
       isEligibleHistoricalReleaseEvidenceSession({

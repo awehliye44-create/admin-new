@@ -981,9 +981,15 @@ export function mapTripToFinancialAuditRow(
     })
     : null;
 
-  const authorisedPence = session?.authorised_amount_pence != null
-    ? Math.max(0, session.authorised_amount_pence)
-    : null;
+  // #103: settlement authorised display prefers confirmed coverage mirror over original hold.
+  const authorisedPence = (() => {
+    const total = session?.total_authorised_amount_pence;
+    if (total != null && Number(total) > 0) return Math.max(0, Math.round(Number(total)));
+    if (session?.authorised_amount_pence != null) {
+      return Math.max(0, Math.round(Number(session.authorised_amount_pence)));
+    }
+    return null;
+  })();
   const releasedPence = session?.released_amount_pence != null
     ? Math.max(0, session.released_amount_pence)
     : null;

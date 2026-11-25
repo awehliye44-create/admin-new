@@ -14,7 +14,9 @@ import {
   mapRevolutStateToPaymentStatus,
   retrieveRevolutOrder,
   cancelRevolutOrder,
+  revolutProviderAuthorisedTotalPence,
 } from "../_shared/revolutOrders.ts";
+import { buildAuthorisationMirrorPatch } from "../_shared/authorisationProjectionSSOT.ts";
 import { revolutMerchantRequest, extractRevolutProviderFeeMinor } from "../_shared/revolutApi.ts";
 import { logAuditEvent } from "../_shared/security.ts";
 import { creditCapturedCardTripLedger } from "../_shared/onecabFinanceLedger.ts";
@@ -122,26 +124,33 @@ function numericMinor(...values: unknown[]): number | null {
   return null;
 }
 
-async function resolveAuthorisedAmountMinor(
+/**
+ * #103 — Resolve confirmed authorised TOTAL for coverage mirror.
+ * Prefer payments[] / incremental_authorisations via revolutProviderAuthorisedTotalPence.
+ * Never use bare order.amount as a reason to overwrite original hold.
+ */
+async function resolveConfirmedAuthorisedCoverageMinor(
   orderId: string,
   eventData: Record<string, unknown> | undefined,
 ): Promise<number | null> {
-  const direct = numericMinor(
-    eventData?.authorised_amount,
-    eventData?.authorized_amount,
-    eventData?.amount,
-  );
-  if (direct != null && direct > 0) return direct;
-
   try {
     const { secretKey, environment } = getRevolutMerchantConfig();
     const order = await retrieveRevolutOrder(environment, secretKey, orderId);
-    const fromOrder = numericMinor(order.amount);
-    return fromOrder != null && fromOrder > 0 ? fromOrder : null;
+    const fromProvider = revolutProviderAuthorisedTotalPence(order as Record<string, unknown>);
+    if (fromProvider != null && fromProvider > 0) return fromProvider;
   } catch (error) {
-    console.error(`[revolut-webhook] authorised amount lookup failed for ${orderId}:`, (error as Error).message);
-    return null;
+    console.error(
+      `[revolut-webhook] authorised coverage lookup failed for ${orderId}:`,
+      (error as Error).message,
+    );
   }
+
+  const direct = numericMinor(
+    eventData?.authorised_amount,
+    eventData?.authorized_amount,
+  );
+  if (direct != null && direct > 0) return direct;
+  return null;
 }
 
 Deno.serve(async (req) => {
@@ -624,10 +633,20 @@ Deno.serve(async (req) => {
             `[revolut-webhook] ignoring regressive provider_state ${effectiveStateUpper} after ${priorProvider} for session ${session.id}`,
           );
         } else if (["AUTHORISED", "COMPLETED", "CAPTURED"].includes(effectiveStateUpper)) {
-          const authorisedAmount = await resolveAuthorisedAmountMinor(orderId, event.data);
-          if (authorisedAmount != null && authorisedAmount > 0) {
-            statusAdvanceExtras.authorised_amount_pence = authorisedAmount;
-            statusAdvanceExtras.total_authorised_amount_pence = authorisedAmount;
+          // #103: mirror confirmed coverage onto total_authorised only.
+          // Seed authorised_amount_pence solely when original hold is still unset
+          // (initial AUTHORISED). Never promote live total into original hold.
+          const coverageAmount = await resolveConfirmedAuthorisedCoverageMinor(orderId, event.data);
+          if (coverageAmount != null && coverageAmount > 0) {
+            Object.assign(
+              statusAdvanceExtras,
+              buildAuthorisationMirrorPatch({
+                existingAuthorisedPence: session.authorised_amount_pence as number | null,
+                existingTotalAuthorisedPence: session.total_authorised_amount_pence as number | null,
+                confirmedCoveragePence: coverageAmount,
+                seedOriginalIfMissing: effectiveStateUpper === "AUTHORISED",
+              }),
+            );
           }
           if (PROVIDER_AUTHORISED_STATES.has(effectiveStateUpper) || effectiveStateUpper === "AUTHORISED") {
             statusAdvanceExtras.authorised_at = nowIso;

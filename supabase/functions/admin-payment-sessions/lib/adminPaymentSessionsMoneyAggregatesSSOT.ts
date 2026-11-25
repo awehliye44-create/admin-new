@@ -59,6 +59,7 @@ type MoneyRow = {
   hold_release_state: string | null;
   fee_status: string | null;
   authorised_amount_pence: number | null;
+  total_authorised_amount_pence: number | null;
   captured_amount_pence: number | null;
   released_amount_pence: number | null;
   refunded_amount_pence: number | null;
@@ -166,7 +167,7 @@ export async function fetchPaymentSessionsMoneyAggregates(
     let query = supabase
       .from("payment_sessions")
       .select(
-        "id, status, provider_state, purpose, payment_method, hold_release_state, fee_status, authorised_amount_pence, captured_amount_pence, released_amount_pence, refunded_amount_pence, provider_processing_fee_pence, captured_at, released_at, refunded_at, trip_id, service_area_id, release_evidence_status",
+        "id, status, provider_state, purpose, payment_method, hold_release_state, fee_status, authorised_amount_pence, total_authorised_amount_pence, captured_amount_pence, released_amount_pence, refunded_amount_pence, provider_processing_fee_pence, captured_at, released_at, refunded_at, trip_id, service_area_id, release_evidence_status",
       )
       .order("created_at", { ascending: false })
       .range(offset, offset + PAGE_SIZE - 1);

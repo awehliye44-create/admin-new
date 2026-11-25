@@ -642,16 +642,28 @@ export async function markPaymentSessionCaptured(
     && Number(args.totalAuthorisedAmountPence) > 0
   ) {
     const total = Math.round(Number(args.totalAuthorisedAmountPence));
-    patch.total_authorised_amount_pence = total;
-    patch.authorised_amount_pence = args.authorisedAmountPence != null
-      ? Math.round(Number(args.authorisedAmountPence))
-      : total;
+    // #103: never promote confirmed total into original hold on capture.
+    const existingAuth = Math.round(Number(session?.authorised_amount_pence ?? 0));
+    patch.total_authorised_amount_pence = Math.max(
+      Math.round(Number(session?.total_authorised_amount_pence ?? 0)),
+      total,
+    );
+    if (args.authorisedAmountPence != null && Number.isFinite(Number(args.authorisedAmountPence))) {
+      const nextAuth = Math.round(Number(args.authorisedAmountPence));
+      if (existingAuth <= 0 || nextAuth === existingAuth) {
+        patch.authorised_amount_pence = nextAuth;
+      }
+    }
   } else if (
     args.authorisedAmountPence != null
     && Number.isFinite(Number(args.authorisedAmountPence))
     && Number(args.authorisedAmountPence) > 0
   ) {
-    patch.authorised_amount_pence = Math.round(Number(args.authorisedAmountPence));
+    const existingAuth = Math.round(Number(session?.authorised_amount_pence ?? 0));
+    const nextAuth = Math.round(Number(args.authorisedAmountPence));
+    if (existingAuth <= 0 || nextAuth === existingAuth) {
+      patch.authorised_amount_pence = nextAuth;
+    }
   }
   if (session?.hold_release_state == null) {
     patch.hold_release_state = null;

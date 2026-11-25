@@ -537,7 +537,7 @@ export async function disposeTerminalTripPayment(
 
   const { data: sessionFallback } = await supabase
     .from("payment_sessions")
-    .select("id, provider_state, authorised_amount_pence, captured_amount_pence, released_amount_pence, metadata")
+    .select("id, provider_state, authorised_amount_pence, total_authorised_amount_pence, captured_amount_pence, released_amount_pence, metadata")
     .eq("trip_id", args.tripId)
     .eq("purpose", "RIDE_BOOKING")
     .order("created_at", { ascending: false })
@@ -547,7 +547,7 @@ export async function disposeTerminalTripPayment(
   const sessionByOrder = orderId
     ? (await supabase
       .from("payment_sessions")
-      .select("id, provider_state, authorised_amount_pence, captured_amount_pence, released_amount_pence, metadata")
+      .select("id, provider_state, authorised_amount_pence, total_authorised_amount_pence, captured_amount_pence, released_amount_pence, metadata")
       .eq("trip_id", args.tripId)
       .eq("provider_order_id", orderId)
       .eq("purpose", "RIDE_BOOKING")
@@ -561,8 +561,12 @@ export async function disposeTerminalTripPayment(
     trip.vehicle_type_id as string | null,
   );
 
+  // #103: prefer confirmed coverage mirror over original hold for disposition sizing.
   const authPenceLocal = Number(
-    paymentSession?.authorised_amount_pence ?? trip.authorised_amount_pence ?? 0,
+    paymentSession?.total_authorised_amount_pence
+      ?? paymentSession?.authorised_amount_pence
+      ?? trip.authorised_amount_pence
+      ?? 0,
   );
   const priorCaptured = Number(paymentSession?.captured_amount_pence ?? 0);
 

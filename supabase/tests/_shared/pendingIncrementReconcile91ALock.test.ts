@@ -127,6 +127,14 @@ Deno.test("#91A sources wired: completion + sweep, no increment POST change", as
   );
   assertStringIncludes(sweep, "reconcilePendingIncrementAuthorisationsFromProvider");
   assertStringIncludes(sweep, "pending_increment_reconcile");
+  assertStringIncludes(sweep, "reconcileAuthorisationProjectionsBatch");
+  assertStringIncludes(sweep, "auth_projection_reconcile_103");
+
+  // #103: reconcile must not promote live total into original hold.
+  const reconcileSrc = await Deno.readTextFile(
+    new URL("../../functions/_shared/reconcilePendingIncrementAuthorisationSSOT.ts", import.meta.url),
+  );
+  assertEquals(/authorised_amount_pence:\s*Math\.max\(/.test(reconcileSrc), false);
 
   const orders = await Deno.readTextFile(
     new URL("../../functions/_shared/revolutOrders.ts", import.meta.url),

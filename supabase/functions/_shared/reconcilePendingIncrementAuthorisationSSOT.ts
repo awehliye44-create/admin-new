@@ -338,14 +338,14 @@ export async function reconcilePendingIncrementAuthorisationsFromProvider(
 
       // Never downgrade captured/completed sessions back to authorised_hold.
       if (!terminalSession) {
+        // #103: advance total coverage mirror only — never overwrite original hold
+        // (authorised_amount_pence / original_authorised_pence).
+        const existingTotal = nonNeg(session.total_authorised_amount_pence);
+        const nextTotal = Math.max(existingTotal, nonNeg(decision.confirmedTotalPence));
         await supabase
           .from("payment_sessions")
           .update({
-            total_authorised_amount_pence: decision.confirmedTotalPence,
-            authorised_amount_pence: Math.max(
-              nonNeg(session.authorised_amount_pence),
-              decision.confirmedTotalPence,
-            ),
+            total_authorised_amount_pence: nextTotal,
             provider_state: decision.providerState || "AUTHORISED",
             status: "authorised_hold",
             provider_state_verified_at: nowIso,

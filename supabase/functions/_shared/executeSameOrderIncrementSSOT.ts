@@ -343,7 +343,8 @@ export async function executeSameOrderIncrement(args: {
   const { data: session } = await args.supabase
     .from("payment_sessions")
     .select(
-      "id, trip_id, provider_order_id, authorised_amount_pence, total_authorised_amount_pence, "
+      "id, trip_id, provider_order_id, authorised_amount_pence, original_authorised_pence, "
+        + "total_authorised_amount_pence, "
         + "captured_amount_pence, currency, status, metadata, financial_operation_state, "
         + "hold_release_state, provider_state, released_at, captured_at",
     )
@@ -580,10 +581,18 @@ export async function executeSameOrderIncrement(args: {
       .eq("provider_order_id", orderId)
       .in("status", ["confirmed", "pending", "ADDITIONAL_AUTHORISATION_PENDING", "ADDITIONAL_AUTHORISATION_CONFIRMED"]);
 
+    // #103: 5× baseline uses original hold — never promoted live total.
+    const initialHoldPence = Math.round(
+      Number(
+        (session as { original_authorised_pence?: unknown }).original_authorised_pence
+          ?? session.authorised_amount_pence
+          ?? 0,
+      ),
+    );
     const eligibility = evaluateRevolutIncrementEligibility({
       order,
       targetTotalAuthorisedPence: plan.targetTotalPence,
-      initialAuthorisedPence: session.authorised_amount_pence,
+      initialAuthorisedPence: initialHoldPence > 0 ? initialHoldPence : session.authorised_amount_pence,
       localIncrementCount: localIncCount ?? 0,
       fallbackPaymentMethodType: args.fallbackPaymentMethodType ?? null,
     });

@@ -6,6 +6,10 @@
 import { paymentResolutionUiLabel, type PaymentResolutionStatus, type PaymentResolutionType } from "./finalFareAuthorisationSSOT.ts";
 import { isValidConfirmedCapturePence } from "./paymentCaptureEvidenceSSOT.ts";
 import { isHealthyPostCaptureResidualRelease } from "./paymentSessionsCaptureConfirmationSSOT.ts";
+import {
+  expectedResidualFromCoveragePence,
+  resolveLocalConfirmedCoveragePence,
+} from "./authorisationProjectionSSOT.ts";
 
 export type PaymentSessionsCanonicalStatus =
   | "AUTHORISED"
@@ -696,6 +700,7 @@ export function formatReleasedAmountDisplay(args: {
 export function sumReleasedBufferTotalPence(
   providerRows: Array<{
     authorised_amount_pence?: number | null;
+    total_authorised_amount_pence?: number | null;
     captured_amount_pence?: number | null;
     released_amount_pence?: number | null;
   }>,
@@ -703,10 +708,8 @@ export function sumReleasedBufferTotalPence(
   let releasedBuffer: number | null = null;
   for (const row of providerRows) {
     const cap = confirmedCapturedRevenuePence(row);
-    const authRaw = row.authorised_amount_pence == null ? null : Number(row.authorised_amount_pence);
-    const auth = authRaw != null && Number.isFinite(authRaw) && authRaw > 0
-      ? Math.round(authRaw)
-      : null;
+    // #103: coverage = total preferred over original hold.
+    const auth = resolveLocalConfirmedCoveragePence(row);
     if (cap == null || auth == null || auth <= cap) continue;
     const releasedRaw = row.released_amount_pence == null ? null : Number(row.released_amount_pence);
     if (releasedRaw == null || !Number.isFinite(releasedRaw) || releasedRaw <= 0) continue;
@@ -716,7 +719,7 @@ export function sumReleasedBufferTotalPence(
 }
 
 /**
- * Expected residual authorisation (audit) — auth − capture when capture confirmed and auth > cap.
+ * Expected residual authorisation (audit) — confirmed coverage − capture when coverage > cap.
  * Never a confirmed released total. Distinct from sumReleasedBufferTotalPence.
  * Returns 0 when the scope was scanned and no residual is expected (genuine zero).
  * Returns null only when there were no scannable captured rows to evaluate.
@@ -724,6 +727,7 @@ export function sumReleasedBufferTotalPence(
 export function sumExpectedResidualReleasePence(
   providerRows: Array<{
     authorised_amount_pence?: number | null;
+    total_authorised_amount_pence?: number | null;
     captured_amount_pence?: number | null;
     release_evidence_status?: string | null;
     provider_state?: string | null;
@@ -735,12 +739,12 @@ export function sumExpectedResidualReleasePence(
     const cap = confirmedCapturedRevenuePence(row);
     if (cap == null) continue;
     anyCaptured = true;
-    const authRaw = row.authorised_amount_pence == null ? null : Number(row.authorised_amount_pence);
-    const auth = authRaw != null && Number.isFinite(authRaw) && authRaw > 0
-      ? Math.round(authRaw)
-      : null;
-    if (auth == null || auth <= cap) continue;
-    expectedSum += auth - cap;
+    // #103: use confirmed coverage mirror, not original hold alone.
+    const residual = expectedResidualFromCoveragePence({
+      coveragePence: resolveLocalConfirmedCoveragePence(row),
+      capturedPence: cap,
+    });
+    if (residual != null) expectedSum += residual;
   }
   if (!anyCaptured) return null;
   return expectedSum;
@@ -749,14 +753,13 @@ export function sumExpectedResidualReleasePence(
 /** Row-level expected residual for Released column display. */
 export function expectedResidualReleasePenceForRow(row: {
   authorised_amount_pence?: number | null;
+  total_authorised_amount_pence?: number | null;
   captured_amount_pence?: number | null;
 }): number | null {
   const cap = confirmedCapturedRevenuePence(row);
-  const authRaw = row.authorised_amount_pence == null ? null : Number(row.authorised_amount_pence);
-  const auth = authRaw != null && Number.isFinite(authRaw) && authRaw > 0
-    ? Math.round(authRaw)
-    : null;
-  if (cap == null || auth == null || auth <= cap) return null;
-  return auth - cap;
+  return expectedResidualFromCoveragePence({
+    coveragePence: resolveLocalConfirmedCoveragePence(row),
+    capturedPence: cap,
+  });
 }
 
