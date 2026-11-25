@@ -128,7 +128,8 @@ BEGIN
             THEN payment_hold_status
           ELSE 'payment_shortfall'
         END,
-        payment_coverage_status = 'recovery_required',
+        -- Enum payment_coverage_status has no 'recovery_required' value.
+        payment_coverage_status = 'authorization_insufficient',
         updated_at = now()
     WHERE id = p_trip_id
       AND lower(COALESCE(payment_status, '')) IS DISTINCT FROM 'paid'
