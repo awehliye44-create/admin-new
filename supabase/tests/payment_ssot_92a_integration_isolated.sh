@@ -142,6 +142,12 @@ CREATE UNIQUE INDEX IF NOT EXISTS driver_wallet_ledger_ten_once_uidx
   ON public.driver_wallet_ledger (related_trip_id)
   WHERE type = 'TRIP_EARNING_NET';
 SQL
+# Ensure exactly-once TEN unique index on full harness schemas too.
+"${PSQL[@]}" <<'SQL' >/dev/null
+CREATE UNIQUE INDEX IF NOT EXISTS driver_wallet_ledger_ten_once_uidx
+  ON public.driver_wallet_ledger (related_trip_id)
+  WHERE type = 'TRIP_EARNING_NET';
+SQL
 
 # Re-ensure trigger after stub table create (isolated path only)
 if [ "$("${PSQL[@]}" -At -c "select to_regprocedure('public.trips_capture_amount_confirmed_only()') is not null")" = "t" ]; then
@@ -282,15 +288,30 @@ if [ "$SEQ_CNT" = "2" ]; then pass "sequential_increments_late_confirm"; else fa
 
 # ── #92H duplicate settlement / exactly-once TEN ─────────────────────────────
 echo "=== #92H exactly-once TEN + duplicate insert blocked ==="
-DRV='00000000-0000-4000-9200-0000000000d1'
+# Full schema requires a real drivers.id FK; stub DB has no drivers table.
+DRV=$("${PSQL[@]}" -At -c "SELECT id::text FROM public.drivers LIMIT 1" 2>/dev/null || true)
+if [ -z "$DRV" ]; then
+  DRV='00000000-0000-4000-9200-0000000000d1'
+fi
 "${PSQL[@]}" <<SQL >/dev/null
 DELETE FROM public.driver_wallet_ledger WHERE related_trip_id = '$TRIP_H';
-INSERT INTO public.driver_wallet_ledger (driver_id, related_trip_id, type, amount_pence, description)
-VALUES ('$DRV', '$TRIP_H', 'TRIP_EARNING_NET', 484, 'test ten');
+-- Bypass FK only when inserting synthetic driver on stub/full without matching row.
+DO \$\$
+BEGIN
+  PERFORM set_config('session_replication_role', 'replica', true);
+  INSERT INTO public.driver_wallet_ledger (driver_id, related_trip_id, type, amount_pence, description)
+  VALUES ('$DRV'::uuid, '$TRIP_H'::uuid, 'TRIP_EARNING_NET', 484, 'test ten');
+  PERFORM set_config('session_replication_role', 'origin', true);
+END \$\$;
 SQL
 if "${PSQL[@]}" -v ON_ERROR_STOP=1 <<SQL >/dev/null 2>"$WORK/ten_dup.err"
-INSERT INTO public.driver_wallet_ledger (driver_id, related_trip_id, type, amount_pence)
-VALUES ('$DRV', '$TRIP_H', 'TRIP_EARNING_NET', 484);
+DO \$\$
+BEGIN
+  PERFORM set_config('session_replication_role', 'replica', true);
+  INSERT INTO public.driver_wallet_ledger (driver_id, related_trip_id, type, amount_pence)
+  VALUES ('$DRV'::uuid, '$TRIP_H'::uuid, 'TRIP_EARNING_NET', 484);
+  PERFORM set_config('session_replication_role', 'origin', true);
+END \$\$;
 SQL
 then
   fail "ten_exactly_once_duplicate_blocked" "second TEN insert succeeded"
