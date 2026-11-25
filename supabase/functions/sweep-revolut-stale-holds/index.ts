@@ -29,6 +29,7 @@ import { invokeFinalizeTripCapture } from "../_shared/invokeFinalizeTripCapture.
 import { getRevolutMerchantConfig, retrieveRevolutOrder } from "../_shared/revolutOrders.ts";
 import { extractConfirmedCaptureAmountPence } from "../_shared/paymentHoldProviderTerminalPure.ts";
 import { transitionPaymentSession } from "../_shared/paymentSessionTransitionFacade.ts";
+import { reclaimExpiredPaymentSessionFinancialLock } from "../_shared/paymentSessionFinancialLockSSOT.ts";
 import {
   expiryFareOnlyTipPence,
   expiredUnclosedTipWindowForbidsTipCapture,
@@ -75,6 +76,9 @@ const COMPLETED_CAPTURE_RETRY_PAYMENT_STATUSES = new Set([
   "preauth_authorised",
   "preauth_created",
   "preauth_updated",
+  // #89E: local trip may be falsely stamped captured while Revolut remains AUTHORISED
+  // (premature capture_amount + false already_captured). Still eligible for GET-first retry.
+  "captured",
 ]);
 
 serve(async (req) => {
@@ -436,10 +440,11 @@ serve(async (req) => {
 
   for (const row of completedAuthorised ?? []) {
     const tripId = String(row.trip_id);
+    const sessionId = String(row.id ?? "").trim();
     const { data: trip } = await supabase
       .from("trips")
       .select(
-        "id, status, payment_status, completed_at, tip_window_expires_at, tip_window_closed_at, tip_window_status, tip_amount_pence, tip_pence",
+        "id, status, payment_status, payment_hold_status, completed_at, tip_window_expires_at, tip_window_closed_at, tip_window_status, tip_amount_pence, tip_pence",
       )
       .eq("id", tripId)
       .maybeSingle();
@@ -465,20 +470,47 @@ serve(async (req) => {
       });
       continue;
     }
+    const falseLocalCaptured = pay === "captured" &&
+      Math.round(Number(row.captured_amount_pence) || 0) <= 0;
     const expiredUnclosed = expiredUnclosedTipWindowForbidsTipCapture(trip, nowMs);
     if (dryRun) {
       retryResults.push({
         trip_id: tripId,
         dry_run: true,
-        action: expiredUnclosed
+        action: falseLocalCaptured
+          ? "would_retry_false_local_captured_authorised"
+          : expiredUnclosed
           ? "would_retry_completed_authorised_capture_fare_only"
           : "would_retry_completed_authorised_capture",
         tip_pence: expiredUnclosed
           ? expiryFareOnlyTipPence(trip.tip_amount_pence ?? trip.tip_pence)
           : Math.max(0, Math.round(Number(trip.tip_amount_pence ?? trip.tip_pence ?? 0) || 0)),
         payment_status: trip.payment_status,
+        reclaim_stale_capturing: true,
       });
       continue;
+    }
+    if (sessionId) {
+      const reclaim = await reclaimExpiredPaymentSessionFinancialLock(supabase, {
+        paymentSessionId: sessionId,
+        source: "sweep-revolut-stale-holds:completed_authorised_retry",
+      });
+      if (reclaim.reclaimed) {
+        retryResults.push({
+          trip_id: tripId,
+          action: "reclaimed_stale_financial_lock",
+          previous_state: reclaim.previousState,
+          previous_owner: reclaim.previousOwner,
+        });
+      }
+    }
+    // #89E: undo false local captured so Admin/ops see capture_requested until provider confirms.
+    if (falseLocalCaptured) {
+      await supabase.from("trips").update({
+        payment_status: "capture_requested",
+        payment_hold_status: "capture_requested",
+        updated_at: new Date(nowMs).toISOString(),
+      }).eq("id", tripId);
     }
     const tipPence = expiredUnclosed
       ? expiryFareOnlyTipPence(trip.tip_amount_pence ?? trip.tip_pence)
@@ -498,7 +530,9 @@ serve(async (req) => {
       serviceRoleKey,
       tripId,
       tipPence,
-      source: "sweep-revolut-stale-holds:completed_authorised_retry",
+      source: falseLocalCaptured
+        ? "sweep-revolut-stale-holds:false_local_captured_retry"
+        : "sweep-revolut-stale-holds:completed_authorised_retry",
     });
     if (
       tipWindowCloseAllowedAfterFinalize(rec.body)

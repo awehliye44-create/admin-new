@@ -14,10 +14,14 @@ export function durableSettlementColumns(
   success: boolean,
 ): DurableSettlementColumns {
   const s = String(status ?? "").toLowerCase();
+  // already_captured may only stamp trips captured when the producer used
+  // provider-confirmed COMPLETED/CAPTURED evidence (#89E / MK-261125-002).
+  // A premature trips.capture_amount_pence stamp must never reach this path.
   if (
     success &&
     (s === "captured" || s === "completed" || s === "already_captured" ||
-      (s.includes("captured") && !s.includes("shortfall") && !s.includes("partial")))
+      (s.includes("captured") && !s.includes("shortfall") && !s.includes("partial") &&
+        !s.includes("unconfirmed")))
   ) {
     return { payment_status: "captured", payment_hold_status: "captured" };
   }

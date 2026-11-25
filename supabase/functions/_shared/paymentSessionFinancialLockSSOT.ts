@@ -170,6 +170,73 @@ export async function claimPaymentSessionFinancialLock(
   return { ok: true, owner, state: args.state };
 }
 
+/**
+ * Force-clear an expired CAPTURING/INCREMENTING lock so automatic capture can retry.
+ * Only when lock TTL has elapsed — never interrupts a live in-TTL worker.
+ */
+export async function reclaimExpiredPaymentSessionFinancialLock(
+  supabase: SupabaseClient,
+  args: { paymentSessionId: string; source?: string },
+): Promise<{ reclaimed: boolean; previousState: string | null; previousOwner: string | null }> {
+  const sessionId = String(args.paymentSessionId).trim();
+  if (!sessionId) {
+    return { reclaimed: false, previousState: null, previousOwner: null };
+  }
+  const { data: session } = await supabase
+    .from("payment_sessions")
+    .select(
+      "id, metadata, financial_operation_state, financial_operation_owner, financial_operation_started_at",
+    )
+    .eq("id", sessionId)
+    .maybeSingle();
+  if (!session) {
+    return { reclaimed: false, previousState: null, previousOwner: null };
+  }
+  const current = readLock(session as Record<string, unknown>);
+  if (current.state === "IDLE" || current.state === "CAPTURED") {
+    return {
+      reclaimed: false,
+      previousState: current.state,
+      previousOwner: current.owner,
+    };
+  }
+  if (!lockExpired(current.startedAtMs)) {
+    return {
+      reclaimed: false,
+      previousState: current.state,
+      previousOwner: current.owner,
+    };
+  }
+  const metadata = session.metadata && typeof session.metadata === "object"
+    ? { ...(session.metadata as Record<string, unknown>) }
+    : {};
+  metadata.financial_operation_state = "IDLE";
+  metadata.stale_lock_reclaimed_at = new Date().toISOString();
+  metadata.stale_lock_reclaim_source = args.source ?? "reclaim_expired_lock";
+  metadata.stale_lock_previous_state = current.state;
+  metadata.stale_lock_previous_owner = current.owner;
+  delete metadata.financial_operation_owner;
+  delete metadata.financial_operation_started_at;
+  delete metadata.financial_operation_key;
+  await mutatePaymentSession(
+    supabase,
+    { sessionId },
+    {
+      metadata,
+      financial_operation_state: "IDLE",
+      financial_operation_owner: null,
+      financial_operation_started_at: null,
+      updated_at: new Date().toISOString(),
+    },
+    "financial_lock_reclaim",
+  );
+  return {
+    reclaimed: true,
+    previousState: current.state,
+    previousOwner: current.owner,
+  };
+}
+
 export async function releasePaymentSessionFinancialLock(
   supabase: SupabaseClient,
   args: {

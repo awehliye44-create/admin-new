@@ -21,6 +21,7 @@ import { executeSameOrderIncrement } from "./executeSameOrderIncrementSSOT.ts";
 import { safeCaptureAfterIncrementDecline } from "./paymentRecoveryGuardSSOT.ts";
 import {
   claimPaymentSessionFinancialLock,
+  reclaimExpiredPaymentSessionFinancialLock,
   releasePaymentSessionFinancialLock,
 } from "./paymentSessionFinancialLockSSOT.ts";
 import { decideCaptureAfterRetrieve, tripHasConflictingFinalCapture } from "./revolutCaptureIdempotencySSOT.ts";
@@ -302,30 +303,13 @@ export async function executeRevolutTripCompletionCapture(args: {
     compositionLockClaimedHere = false;
   };
 
-  // Recover abandoned CAPTURING lock from a prior failed attempt on this trip
-  // so increment can claim INCREMENTING (D2 / MK-261125-002).
+  // #89E: reclaim any expired CAPTURING/INCREMENTING lock so completion is not
+  // permanently dead-ended (MK-261125-002 stale CAPTURING after false already_captured).
   if (compositionSessionId) {
-    const { data: lockRow } = await args.supabase
-      .from("payment_sessions")
-      .select("financial_operation_state, financial_operation_owner, financial_operation_started_at")
-      .eq("id", compositionSessionId)
-      .maybeSingle();
-    const lockState = String(lockRow?.financial_operation_state ?? "").toUpperCase();
-    const lockOwner = String(lockRow?.financial_operation_owner ?? "").trim();
-    const startedMs = lockRow?.financial_operation_started_at
-      ? Date.parse(String(lockRow.financial_operation_started_at))
-      : NaN;
-    const abandoned =
-      lockState === "CAPTURING" &&
-      lockOwner === `capture:${tripId}` &&
-      (!Number.isFinite(startedMs) || Date.now() - startedMs > 90_000);
-    if (abandoned) {
-      await releasePaymentSessionFinancialLock(args.supabase, {
-        paymentSessionId: compositionSessionId,
-        owner: lockOwner,
-        nextState: "IDLE",
-      }).catch(() => undefined);
-    }
+    await reclaimExpiredPaymentSessionFinancialLock(args.supabase, {
+      paymentSessionId: compositionSessionId,
+      source: "revolutCompletionCapture:stale_lock_reclaim",
+    }).catch(() => undefined);
   }
 
   // #89D — frozen booking buffer only (policy → session → trip). Never live Admin.
