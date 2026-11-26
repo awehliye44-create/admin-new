@@ -768,10 +768,24 @@ Deno.serve(async (req) => {
       });
       return errorResponse("INTERNAL_ERROR", "Vehicle type resolve failed", 500);
     }
+    // #118A — prefer catalog slug for the effective id; trip.vehicle_type text may
+    // still be DEFAULT 'economy' on pre-trigger rows while vehicle_type_id is pet/SUV.
+    let catalogSlugForAudit: string | null = trip.vehicle_type ?? null;
+    try {
+      const { data: vtRow } = await supabase
+        .from("vehicle_types")
+        .select("slug")
+        .eq("id", effectiveVehicleTypeId)
+        .maybeSingle();
+      if (vtRow?.slug) catalogSlugForAudit = String(vtRow.slug);
+    } catch {
+      /* audit-only */
+    }
     audit("vehicle_type_selected", {
       effective_vehicle_type_id: effectiveVehicleTypeId,
       from_trip_vehicle_type_id: trip.vehicle_type_id,
       from_trip_vehicle_type_slug: trip.vehicle_type,
+      catalog_slug_for_effective_id: catalogSlugForAudit,
     });
 
     const abortDispatch = (

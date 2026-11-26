@@ -344,6 +344,8 @@ export function buildMinimalTripInsertRow(input: MinimalTripBuildInput): Record<
     service_area_id: input.serviceAreaId,
     service_area_code: input.serviceAreaCode,
     vehicle_type_id: body.vehicle_type_id || null,
+    // #118A — vehicle_type text is synced from vehicle_type_id by
+    // trips_sync_vehicle_type_slug_from_id (DEFAULT 'economy' must not lie).
     searching_expires_at: isScheduled ? null : defaultSearchExpiresAt,
     // Absolute sequences (Max Dispatch Rounds × 3). Same for scheduled + instant so
     // convert→instant can wave through the find-driver window. Post-commit refreshes
