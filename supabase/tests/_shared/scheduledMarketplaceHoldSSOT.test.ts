@@ -244,3 +244,23 @@ Deno.test("DB migration enforces airport broadcast hold trigger + persist releas
   assertStringIncludes(sql, "Existing mandatory airport charge has not been persisted yet");
   assertStringIncludes(sql, "decideDispatchAfterFareEnrich");
 });
+
+Deno.test("#116 rematch reopen migration keeps airport refuse and allows NULL-hold reopen", async () => {
+  const sql = await Deno.readTextFile(
+    new URL(
+      "../../migrations/20270304120000_bug116_negotiation_rematch_broadcast_reopen.sql",
+      import.meta.url,
+    ),
+  );
+  assertStringIncludes(sql, "trips_enforce_airport_broadcast_hold");
+  assertStringIncludes(sql, "airport_pricing");
+  assertStringIncludes(sql, "onecab.release_airport_broadcast_hold");
+  assertStringIncludes(
+    sql,
+    "ELSIF COALESCE(NEW.scheduled_hold_reason, OLD.scheduled_hold_reason, '') <> '' THEN",
+  );
+  assert(
+    !sql.includes("ELSE\n      NEW.broadcast_enabled := FALSE;"),
+    "#116 must not keep blanket ELSE refuse",
+  );
+});

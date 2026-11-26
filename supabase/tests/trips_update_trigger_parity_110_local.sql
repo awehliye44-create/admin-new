@@ -34,7 +34,7 @@ BEGIN
   END IF;
 END $$;
 
--- ── airport broadcast hold ──────────────────────────────────────────────────
+-- ── airport broadcast hold (#116: allow NULL-hold rematch reopen) ────────────
 CREATE OR REPLACE FUNCTION public.trips_enforce_airport_broadcast_hold()
 RETURNS trigger
 LANGUAGE plpgsql
@@ -52,7 +52,7 @@ BEGIN
       NEW.scheduled_hold_reason := 'airport_pricing';
     ELSIF current_setting('onecab.release_airport_broadcast_hold', true) = '1' THEN
       NULL;
-    ELSE
+    ELSIF COALESCE(NEW.scheduled_hold_reason, OLD.scheduled_hold_reason, '') <> '' THEN
       NEW.broadcast_enabled := FALSE;
     END IF;
   END IF;

@@ -99,6 +99,8 @@ BEGIN
 END;
 $function$;
 -- trips_enforce_airport_broadcast_hold
+-- #116: refuse reopen only for airport_pricing / active scheduled_hold_reason /
+-- without release opt-in. NULL hold reason must allow negotiation rematch reopen.
 CREATE OR REPLACE FUNCTION public.trips_enforce_airport_broadcast_hold()
  RETURNS trigger
  LANGUAGE plpgsql
@@ -109,9 +111,6 @@ BEGIN
      AND OLD.broadcast_enabled IS FALSE
      AND NEW.broadcast_enabled IS DISTINCT FROM FALSE
   THEN
-    -- Stay held until an authorised release clears scheduled_hold_reason away from
-    -- airport_pricing AND leaves broadcast_enabled false→true only via explicit
-    -- release helper (below). Default: refuse the reopen.
     IF COALESCE(NEW.scheduled_hold_reason, '') = 'airport_pricing'
        OR COALESCE(OLD.scheduled_hold_reason, '') = 'airport_pricing'
     THEN
@@ -120,7 +119,7 @@ BEGIN
     ELSIF current_setting('onecab.release_airport_broadcast_hold', true) = '1' THEN
       -- Explicit SECURITY DEFINER release path opted in for this transaction.
       NULL;
-    ELSE
+    ELSIF COALESCE(NEW.scheduled_hold_reason, OLD.scheduled_hold_reason, '') <> '' THEN
       NEW.broadcast_enabled := FALSE;
     END IF;
   END IF;

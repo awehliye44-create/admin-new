@@ -12,24 +12,31 @@ function num(v: unknown): number | null {
   return null;
 }
 
-/** Driver net pence from offer snapshot or trip row â never customer gross. */
+/** Driver net pence from offer snapshot or trip row — never customer gross. */
 export function driverNetPenceFromOfferContext(args: {
   offerSnapshot?: Record<string, unknown> | null;
   trip?: Record<string, unknown> | null;
+  /** Column written at offer insert — preferred when snapshot was stripped. */
+  offeredDriverNetPence?: number | null;
 }): number | null {
   const snap = args.offerSnapshot ?? null;
   const trip = args.trip ?? null;
+  const fromOffered = num(args.offeredDriverNetPence);
+  if (fromOffered != null && fromOffered > 0) return Math.round(fromOffered);
   const fromSnap =
     num(snap?.driver_net_preview_pence)
     ?? num(snap?.driverNetPreviewPence)
     ?? num(snap?.driver_earnings_pence)
     ?? num(snap?.driverEarningsPence)
+    ?? num(snap?.driver_net_fare_pence)
     ?? num(snap?.driver_net_pence)
-    ?? num(snap?.driverNetPence);
+    ?? num(snap?.driverNetPence)
+    ?? num(snap?.offered_driver_net_pence);
   if (fromSnap != null && fromSnap > 0) return Math.round(fromSnap);
   const fromTrip =
     num(trip?.driver_net_preview_pence)
-    ?? num(trip?.driver_net_pence);
+    ?? num(trip?.driver_net_pence)
+    ?? num(trip?.driver_net_fare_pence);
   if (fromTrip != null && fromTrip > 0) return Math.round(fromTrip);
   return null;
 }

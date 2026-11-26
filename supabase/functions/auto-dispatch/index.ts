@@ -3352,10 +3352,18 @@ Deno.serve(async (req) => {
       .eq("id", trip_id)
       .lt("max_wave_commission_reduction_percent", waveCommission.reductionPercent);
 
-    const createdOffers = (waveResult.inserted_offers || []).map((o: any) => ({
-      id: o.offer_id,
-      driver_id: o.driver_id,
-    }));
+    // #116: carry net + snapshot into the push loop. Mapping only {id,driver_id}
+    // made offer.offer_snapshot undefined → false driver_net_not_ready skips and
+    // push_sent_count=0 even when offered_driver_net_pence was already known.
+    const createdOffers = (waveResult.inserted_offers || []).map((o: any) => {
+      const row = offersToCreate.find((r) => r.driver_id === o.driver_id);
+      return {
+        id: o.offer_id,
+        driver_id: o.driver_id,
+        offer_snapshot: (row?.offer_snapshot ?? null) as Record<string, unknown> | null,
+        offered_driver_net_pence: row?.offered_driver_net_pence ?? null,
+      };
+    });
 
     for (const o of createdOffers) {
       const offerRow = offersToCreate.find((row) => row.driver_id === o.driver_id);
@@ -3715,6 +3723,7 @@ Deno.serve(async (req) => {
         const driverNetPence = driverNetPenceFromOfferContext({
           offerSnapshot: offerSnap,
           trip: tripRec,
+          offeredDriverNetPence: offer.offered_driver_net_pence,
         });
         if (driverNetPence == null || driverNetPence <= 0) {
           auditPromises.push(
