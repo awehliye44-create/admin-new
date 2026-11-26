@@ -1099,13 +1099,38 @@ async function enrichArrivalWaitingSnapshot(
     waiting_geofence_status:
       (ctx.trip as { waiting_geofence_status?: string | null }).waiting_geofence_status ??
       null,
+    // #100 — Driver stale guards + free-window SSOT
+    waiting_geofence_checked_at:
+      (ctx.trip as { waiting_geofence_checked_at?: string | null })
+        .waiting_geofence_checked_at ?? new Date().toISOString(),
+    server_now: new Date().toISOString(),
+    free_waiting_seconds:
+      typeof (config as { free_pickup_waiting_seconds?: number } | null)
+        ?.free_pickup_waiting_seconds === "number"
+        ? (config as { free_pickup_waiting_seconds: number }).free_pickup_waiting_seconds
+        : null,
     stop_arrived_at: stopSnapshot.stop_arrived_at,
     stop_waiting_state: stopSnapshot.stop_waiting_state,
     stop_waiting_free_expires_at: stopSnapshot.stop_waiting_free_expires_at,
     stop_waiting_elapsed_seconds: stopSnapshot.stop_waiting_elapsed_seconds,
     stop_waiting_grace_remaining_seconds: stopSnapshot.stop_waiting_grace_remaining_seconds,
     admin_waiting_config_snapshot: config,
-    waiting_snapshot: ctx.scope === "pickup" ? pickupSnapshot : stopSnapshot,
+    waiting_snapshot: {
+      ...(ctx.scope === "pickup" ? pickupSnapshot : stopSnapshot),
+      pickup_waiting_counted_seconds: pickupCountedSeconds,
+      waiting_geofence_status:
+        (ctx.trip as { waiting_geofence_status?: string | null }).waiting_geofence_status ??
+        null,
+      waiting_geofence_checked_at:
+        (ctx.trip as { waiting_geofence_checked_at?: string | null })
+          .waiting_geofence_checked_at ?? new Date().toISOString(),
+      scheduled_at: scheduledAtIso,
+      free_waiting_seconds:
+        typeof (config as { free_pickup_waiting_seconds?: number } | null)
+          ?.free_pickup_waiting_seconds === "number"
+          ? (config as { free_pickup_waiting_seconds: number }).free_pickup_waiting_seconds
+          : null,
+    },
   };
 }
 
