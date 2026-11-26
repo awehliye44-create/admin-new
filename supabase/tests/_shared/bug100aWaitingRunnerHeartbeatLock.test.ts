@@ -46,4 +46,5 @@ Deno.test("#100A cron migration schedules advance-active-waiting-ssot", async ()
   );
   assertStringIncludes(src, "advance-active-waiting-ssot");
   assertStringIncludes(src, "advance-active-waiting-ssot-every-1-min");
+  assertStringIncludes(src, "to_regclass('cron.job')");
 });

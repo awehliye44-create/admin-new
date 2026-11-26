@@ -6,6 +6,12 @@ DECLARE
   v_job_name text := 'advance-active-waiting-ssot-every-1-min';
   v_existing bigint;
 BEGIN
+  -- CI / local harness may lack pg_cron (same pattern as stacked_promote cron).
+  IF to_regclass('cron.job') IS NULL THEN
+    RAISE NOTICE 'pg_cron not available — skipping % schedule.', v_job_name;
+    RETURN;
+  END IF;
+
   SELECT jobid INTO v_existing FROM cron.job WHERE jobname = v_job_name LIMIT 1;
   IF FOUND THEN
     RAISE NOTICE 'pg_cron job % already exists (jobid=%), skipping.', v_job_name, v_existing;
