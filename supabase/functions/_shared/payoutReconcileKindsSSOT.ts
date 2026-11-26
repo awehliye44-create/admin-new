@@ -41,3 +41,31 @@ export function payoutKindAllowsAutoFailRelease(kind: string | null | undefined)
 
 export const WEEKLY_TERMINAL_FAILURE_REPORT_ONLY_ERROR =
   "WEEKLY_PROVIDER_TERMINAL_FAILURE_REPORT_ONLY";
+
+/**
+ * P7 M3 — durable escalation for weekly provider terminal failure (report-and-leave).
+ *
+ * The reconcile still never fails/releases a weekly item automatically. It records a
+ * durable payment_financial_events row and stamps payout_items (existing columns
+ * manual_review_required / manual_review_reason / provider_status) so ops can query
+ * stranded items. Resolution is an explicit admin action per item:
+ * `admin-resolve-weekly-terminal-payout-item` → `fail_submitted_weekly_payout_item`
+ * (fails ONE item, releases ONE reservation, never resends /pay).
+ */
+export const WEEKLY_PAYOUT_PROVIDER_TERMINAL_FAILURE_EVENT =
+  "WEEKLY_PAYOUT_PROVIDER_TERMINAL_FAILURE";
+
+export const WEEKLY_PAYOUT_PROVIDER_TERMINAL_FAILURE_REVIEW_REASON_PREFIX =
+  "WEEKLY_PAYOUT_PROVIDER_TERMINAL_FAILURE";
+
+export const FAIL_SUBMITTED_WEEKLY_PAYOUT_ITEM_RPC = "fail_submitted_weekly_payout_item";
+
+export function weeklyTerminalFailureReviewReason(providerState: string): string {
+  return `${WEEKLY_PAYOUT_PROVIDER_TERMINAL_FAILURE_REVIEW_REASON_PREFIX}:${
+    String(providerState).toLowerCase()
+  }`;
+}
+
+export function weeklyTerminalFailureDedupeKey(payoutItemId: string, providerState: string): string {
+  return `weekly_terminal:${payoutItemId}:${String(providerState).toLowerCase()}`;
+}

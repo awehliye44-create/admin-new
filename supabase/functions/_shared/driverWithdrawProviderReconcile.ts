@@ -14,8 +14,12 @@ import {
 import {
   DEFAULT_RECONCILE_BATCH_KINDS,
   payoutKindAllowsAutoFailRelease,
+  WEEKLY_PAYOUT_PROVIDER_TERMINAL_FAILURE_EVENT,
   WEEKLY_TERMINAL_FAILURE_REPORT_ONLY_ERROR,
+  weeklyTerminalFailureDedupeKey,
+  weeklyTerminalFailureReviewReason,
 } from "./payoutReconcileKindsSSOT.ts";
+import { recordPaymentFinancialEvent } from "./paymentFinancialDiagnosticsSSOT.ts";
 
 export type ReconcileSubmittedPayoutResult = {
   ok: boolean;
@@ -38,12 +42,86 @@ export type ReconcileSubmittedPayoutResult = {
 type SupabaseClientLike = any;
 
 /**
+ * P7 M3 — durable escalation for a weekly provider terminal failure. Report-and-leave:
+ * never fails the item, never releases the reservation, never calls /pay. Best-effort
+ * (never throws) so a diagnostics failure cannot break the reconcile loop; the stamp is
+ * idempotent and the event is de-duplicated per (item, provider_state).
+ */
+export async function escalateWeeklyTerminalFailure(args: {
+  supabase: SupabaseClientLike;
+  payoutItemId: string;
+  batchKind: string;
+  providerState: string;
+  providerPaymentId: string | null;
+  driverId: string | null;
+  amountPence: number | null;
+}): Promise<void> {
+  const dedupeKey = weeklyTerminalFailureDedupeKey(args.payoutItemId, args.providerState);
+  try {
+    // Stamp existing columns so ops can query stranded items
+    // (manual_review_required = true AND manual_review_reason LIKE 'WEEKLY_PAYOUT_PROVIDER_TERMINAL_FAILURE%').
+    // Only while the item is still SUBMITTED; never touches status / reservation / ledger.
+    const { error: stampError } = await args.supabase
+      .from("payout_items")
+      .update({
+        manual_review_required: true,
+        manual_review_reason: weeklyTerminalFailureReviewReason(args.providerState),
+        provider_status: args.providerState,
+      })
+      .eq("id", args.payoutItemId)
+      .eq("status", "SUBMITTED");
+    if (stampError) {
+      console.error("[payout-reconcile] weekly terminal stamp failed", stampError);
+    }
+  } catch (err) {
+    console.error("[payout-reconcile] weekly terminal stamp threw", err);
+  }
+
+  try {
+    const { data: existing } = await args.supabase
+      .from("payment_financial_events")
+      .select("id")
+      .eq("execution_id", dedupeKey)
+      .eq("event_type", WEEKLY_PAYOUT_PROVIDER_TERMINAL_FAILURE_EVENT)
+      .limit(1)
+      .maybeSingle();
+    if (existing?.id) return;
+  } catch (err) {
+    console.error("[payout-reconcile] weekly terminal dedupe lookup failed (recording anyway)", err);
+  }
+
+  await recordPaymentFinancialEvent(args.supabase, {
+    eventType: WEEKLY_PAYOUT_PROVIDER_TERMINAL_FAILURE_EVENT,
+    opType: "weekly_payout_reconcile",
+    executionId: dedupeKey,
+    idempotencyReference: dedupeKey,
+    providerResponseState: args.providerState,
+    declineCode: `PROVIDER_${args.providerState.toUpperCase()}`,
+    requestedAmountPence: args.amountPence,
+    detail: {
+      payout_item_id: args.payoutItemId,
+      kind: args.batchKind,
+      provider_state: args.providerState,
+      provider_payment_id_masked: maskProviderId(args.providerPaymentId),
+      driver_id: args.driverId,
+      action: "report_and_leave",
+      revolut_pay_called: false,
+      auto_failed: false,
+      reservation_released: false,
+      resolve_via: "admin-resolve-weekly-terminal-payout-item",
+    },
+  });
+}
+
+/**
  * Sync Revolut GET /transaction/:id for a SUBMITTED payout item.
  * If provider_state === completed, call finalize_driver_payout_completion once.
  *
  * `allowedBatchKinds` defaults to EARLY_CASHOUT (driver-withdraw edge). The scheduled
  * poller passes POLLER_RECONCILE_BATCH_KINDS to include weekly batches (P6 M3).
  * Provider terminal failure auto-fails/releases ONLY for EARLY_CASHOUT.
+ * Weekly terminal failure is report-and-leave + durable escalation (P7 M3); operators resolve per
+ * item via admin-resolve-weekly-terminal-payout-item (fail_submitted_weekly_payout_item).
  */
 export async function reconcileSubmittedDriverWithdrawPayout(args: {
   supabase: SupabaseClientLike;
@@ -252,6 +330,15 @@ export async function reconcileSubmittedDriverWithdrawPayout(args: {
       `[payout-reconcile] ALERT weekly provider terminal failure report-only ` +
         `item=${payoutItemId} kind=${batchKind} provider_state=${liveState}`,
     );
+    await escalateWeeklyTerminalFailure({
+      supabase: args.supabase,
+      payoutItemId,
+      batchKind,
+      providerState: liveState,
+      providerPaymentId,
+      driverId: item.driver_id ? String(item.driver_id) : null,
+      amountPence: typeof item.amount_pence === "number" ? item.amount_pence : null,
+    });
     return {
       ok: false,
       payout_item_id: payoutItemId,

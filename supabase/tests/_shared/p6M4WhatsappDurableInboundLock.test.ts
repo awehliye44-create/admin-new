@@ -17,6 +17,7 @@ import {
 
 const read = (rel: string) => Deno.readTextFile(new URL(rel, import.meta.url));
 const src = await read("../../functions/whatsapp-webhook/index.ts");
+const durabilitySrc = await read("../../functions/_shared/whatsappInboundDurability.ts");
 const mig = await read("../../migrations/20270302100000_whatsapp_inbound_durable_retry_p6_m4.sql");
 
 Deno.test("failure patch never contains processed_at and releases the claim", () => {
@@ -64,7 +65,11 @@ Deno.test("webhook: markInboundProcessed is only invoked after a successful work
   const tryIdx = src.indexOf("action = await processWhatsAppInboundMessage");
   const contIdx = src.indexOf("continue;", src.indexOf("recordInboundFailure(client, message.metaMessageId"));
   assert(tryIdx > 0 && contIdx > tryIdx && idx > contIdx, "mark must follow the failure branch's continue");
-  assertStringIncludes(src, '.is("processed_at", null)');
+  // P7 M4: markInboundProcessed / recordInboundFailure live in the shared durability module
+  // (shared with whatsapp-inbound-retry-sweep); the CAS guard must stay there.
+  assertStringIncludes(durabilitySrc, '.is("processed_at", null)');
+  assertEquals((durabilitySrc.match(/\.is\("processed_at", null\)/g) ?? []).length, 2);
+  assertStringIncludes(src, "markInboundProcessed,");
 });
 
 Deno.test("webhook: 23505 duplicate claims via CAS RPC, capped, otherwise skips", () => {

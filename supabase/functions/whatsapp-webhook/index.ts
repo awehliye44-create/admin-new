@@ -19,9 +19,10 @@ import {
 } from "./lib/whatsappWebhookVerify.ts";
 import { processWhatsAppInboundMessage } from "../_shared/whatsappWorkflow.ts";
 import {
-  buildInboundFailurePatch,
-  buildInboundSuccessPatch,
   isInboundAttemptsExhausted,
+  isInboundSendFailureAction,
+  markInboundProcessed,
+  recordInboundFailure,
   WHATSAPP_INBOUND_CLAIM_RPC,
   WHATSAPP_INBOUND_MAX_ATTEMPTS,
   WHATSAPP_INBOUND_STALE_CLAIM_SECONDS,
@@ -52,53 +53,6 @@ function scheduleBackground(task: Promise<unknown>): void {
   });
 }
 
-/**
- * Mark processed ONLY after the workflow succeeded. Never call from a failure path:
- * a processed_at on a failed message makes the 23505 duplicate path drop the retry.
- */
-// deno-lint-ignore no-explicit-any
-async function markInboundProcessed(
-  client: SupabaseClient<any>,
-  metaMessageId: string,
-  workflowAction: string,
-): Promise<void> {
-  const { error } = await client
-    .from("whatsapp_inbound_messages")
-    .update(buildInboundSuccessPatch({
-      workflowAction,
-      nowIso: new Date().toISOString(),
-    }))
-    .eq("meta_message_id", metaMessageId)
-    .is("processed_at", null);
-  if (error) {
-    console.error("[whatsapp-webhook] markInboundProcessed failed", {
-      meta_message_id_prefix: metaMessageId.slice(0, 24),
-      error: error.message,
-    });
-  }
-}
-
-/** Failure: record error + release claim. processed_at stays NULL (retryable until cap). */
-// deno-lint-ignore no-explicit-any
-async function recordInboundFailure(
-  client: SupabaseClient<any>,
-  metaMessageId: string,
-  attemptCount: number,
-  error: unknown,
-): Promise<void> {
-  const { error: updateErr } = await client
-    .from("whatsapp_inbound_messages")
-    .update(buildInboundFailurePatch({ attemptCount, error }))
-    .eq("meta_message_id", metaMessageId)
-    .is("processed_at", null);
-  if (updateErr) {
-    console.error("[whatsapp-webhook] recordInboundFailure failed", {
-      meta_message_id_prefix: metaMessageId.slice(0, 24),
-      error: updateErr.message,
-    });
-  }
-}
-
 type AcceptedInbound = { message: WhatsAppInboundMessage; attemptCount: number };
 
 /** Returns the number of messages that failed and can still be retried by Meta redelivery. */
@@ -120,7 +74,29 @@ async function processAcceptedMessages(
         attempt_count: attemptCount,
         elapsed_ms: Date.now() - t0,
       });
-      await recordInboundFailure(client, message.metaMessageId, attemptCount, error);
+      await recordInboundFailure(client, message.metaMessageId, attemptCount, error, {
+        messageType: message.messageType,
+        source: "whatsapp-webhook",
+      });
+      if (!isInboundAttemptsExhausted(attemptCount)) retryableFailures++;
+      continue;
+    }
+    // P7 M4: a workflow that RETURNS a send-failure action (e.g. `welcome_send_failed`) did not
+    // reply to the customer. Treat it exactly like a thrown failure: never mark processed.
+    if (isInboundSendFailureAction(action)) {
+      console.error("[whatsapp-webhook] workflow send failure", {
+        meta_message_id_prefix: message.metaMessageId.slice(0, 24),
+        action,
+        attempt_count: attemptCount,
+        elapsed_ms: Date.now() - t0,
+      });
+      await recordInboundFailure(
+        client,
+        message.metaMessageId,
+        attemptCount,
+        new Error(`send_failed:${action}`),
+        { messageType: message.messageType, source: "whatsapp-webhook" },
+      );
       if (!isInboundAttemptsExhausted(attemptCount)) retryableFailures++;
       continue;
     }
