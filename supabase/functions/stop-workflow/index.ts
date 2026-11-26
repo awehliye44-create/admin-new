@@ -84,6 +84,7 @@ import {
   creditTripEarningPending,
   pendingEntitlementAmountPence,
 } from "../_shared/tripEarningPendingSSOT.ts";
+import { recoverMissingPendingOnIdempotentComplete } from "./lib/idempotentCompletePendingRecovery.ts";
 import { isCustomerAppTipChannelEligible } from "../_shared/tipChannelEligibilitySSOT.ts";
 import {
   TIP_WINDOW_MS,
@@ -4293,6 +4294,15 @@ Deno.serve(async (req) => {
           } else if (tipWindowOwnsCapture) {
             paymentCaptureDeferred = true;
           }
+          // P6: heal a Complete that wrote status=completed then died before
+          // TRIP_EARNING_PENDING. Skips when TEN exists / capture settled. Never throws.
+          const idemPending = await recoverMissingPendingOnIdempotentComplete(supabase, trip_id);
+          if (idemPending.outcome === "inserted" || idemPending.outcome === "failed") {
+            console.log("[stop-workflow] idempotent complete pending recovery", {
+              trip_id,
+              ...idemPending,
+            });
+          }
           completeTripStagesMs = stages.snapshot();
           return await respondOk({
             success: true,
@@ -4570,6 +4580,11 @@ Deno.serve(async (req) => {
               updated_at: now,
             })
             .eq("id", trip_id)
+            // P6: authoritative completion is conditional. A concurrent Complete
+            // that lost the race matches 0 rows and takes the idempotent branch,
+            // so it can never re-stamp completed_at / tip_window_expires_at.
+            .neq("status", "completed")
+            .is("completed_at", null)
             .select(
               "id, status, completed_at, tip_window_opened_at, tip_window_expires_at, tip_window_status, tip_window_closed_at",
             )
@@ -4608,6 +4623,9 @@ Deno.serve(async (req) => {
             .maybeSingle();
           if (String(racedTrip?.status ?? "").toLowerCase() === "completed") {
             stages.mark('idempotent_race_completed');
+            // The winning Complete owns PENDING; only heal if it is still missing
+            // (helper no-ops when TEN exists or capture settled).
+            await recoverMissingPendingOnIdempotentComplete(supabase, trip_id);
             completeTripStagesMs = stages.snapshot();
             return await respondOk({
               success: true,

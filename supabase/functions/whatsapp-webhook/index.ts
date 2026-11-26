@@ -18,6 +18,14 @@ import {
   verifyWhatsAppWebhookSignature,
 } from "./lib/whatsappWebhookVerify.ts";
 import { processWhatsAppInboundMessage } from "../_shared/whatsappWorkflow.ts";
+import {
+  buildInboundFailurePatch,
+  buildInboundSuccessPatch,
+  isInboundAttemptsExhausted,
+  WHATSAPP_INBOUND_CLAIM_RPC,
+  WHATSAPP_INBOUND_MAX_ATTEMPTS,
+  WHATSAPP_INBOUND_STALE_CLAIM_SECONDS,
+} from "./lib/inboundDurabilitySSOT.ts";
 
 declare const EdgeRuntime:
   | { waitUntil?: (promise: Promise<unknown>) => void }
@@ -44,48 +52,89 @@ function scheduleBackground(task: Promise<unknown>): void {
   });
 }
 
+/**
+ * Mark processed ONLY after the workflow succeeded. Never call from a failure path:
+ * a processed_at on a failed message makes the 23505 duplicate path drop the retry.
+ */
 // deno-lint-ignore no-explicit-any
 async function markInboundProcessed(
   client: SupabaseClient<any>,
   metaMessageId: string,
   workflowAction: string,
 ): Promise<void> {
-  await client
+  const { error } = await client
     .from("whatsapp_inbound_messages")
-    .update({
-      processed_at: new Date().toISOString(),
-      workflow_action: workflowAction,
-    })
-    .eq("meta_message_id", metaMessageId);
+    .update(buildInboundSuccessPatch({
+      workflowAction,
+      nowIso: new Date().toISOString(),
+    }))
+    .eq("meta_message_id", metaMessageId)
+    .is("processed_at", null);
+  if (error) {
+    console.error("[whatsapp-webhook] markInboundProcessed failed", {
+      meta_message_id_prefix: metaMessageId.slice(0, 24),
+      error: error.message,
+    });
+  }
 }
 
+/** Failure: record error + release claim. processed_at stays NULL (retryable until cap). */
+// deno-lint-ignore no-explicit-any
+async function recordInboundFailure(
+  client: SupabaseClient<any>,
+  metaMessageId: string,
+  attemptCount: number,
+  error: unknown,
+): Promise<void> {
+  const { error: updateErr } = await client
+    .from("whatsapp_inbound_messages")
+    .update(buildInboundFailurePatch({ attemptCount, error }))
+    .eq("meta_message_id", metaMessageId)
+    .is("processed_at", null);
+  if (updateErr) {
+    console.error("[whatsapp-webhook] recordInboundFailure failed", {
+      meta_message_id_prefix: metaMessageId.slice(0, 24),
+      error: updateErr.message,
+    });
+  }
+}
+
+type AcceptedInbound = { message: WhatsAppInboundMessage; attemptCount: number };
+
+/** Returns the number of messages that failed and can still be retried by Meta redelivery. */
 // deno-lint-ignore no-explicit-any
 async function processAcceptedMessages(
   client: SupabaseClient<any>,
-  messages: WhatsAppInboundMessage[],
-): Promise<void> {
-  for (const message of messages) {
+  accepted: AcceptedInbound[],
+): Promise<{ retryableFailures: number }> {
+  let retryableFailures = 0;
+  for (const { message, attemptCount } of accepted) {
     const t0 = Date.now();
+    let action: string;
     try {
-      const action = await processWhatsAppInboundMessage(client, message);
-      const workflowMs = Date.now() - t0;
-      // Mark processed after Graph send so customer reply is already in flight.
-      await markInboundProcessed(client, message.metaMessageId, action);
-      console.info("[whatsapp-webhook] latency", {
-        meta_message_id_prefix: message.metaMessageId.slice(0, 24),
-        action,
-        workflow_ms: workflowMs,
-        total_ms: Date.now() - t0,
-      });
+      action = await processWhatsAppInboundMessage(client, message);
     } catch (error) {
       console.error("[whatsapp-webhook] workflow failed", {
         meta_message_id_prefix: message.metaMessageId.slice(0, 24),
         error: String(error),
+        attempt_count: attemptCount,
         elapsed_ms: Date.now() - t0,
       });
-      await markInboundProcessed(client, message.metaMessageId, "workflow_error");
+      await recordInboundFailure(client, message.metaMessageId, attemptCount, error);
+      if (!isInboundAttemptsExhausted(attemptCount)) retryableFailures++;
+      continue;
     }
+    const workflowMs = Date.now() - t0;
+    // Mark processed after Graph send so customer reply is already in flight.
+    await markInboundProcessed(client, message.metaMessageId, action);
+    console.info("[whatsapp-webhook] latency", {
+      meta_message_id_prefix: message.metaMessageId.slice(0, 24),
+      action,
+      workflow_ms: workflowMs,
+      total_ms: Date.now() - t0,
+    });
   }
+  return { retryableFailures };
 }
 
 Deno.serve(async (req) => {
@@ -166,7 +215,7 @@ Deno.serve(async (req) => {
   }
   const client = createClient(supabaseUrl, serviceKey);
 
-  const acceptedMessages: WhatsAppInboundMessage[] = [];
+  const acceptedMessages: AcceptedInbound[] = [];
 
   for (const message of parsed.messages) {
     const { error } = await client.from("whatsapp_inbound_messages").insert({
@@ -176,16 +225,36 @@ Deno.serve(async (req) => {
       inbound_text: message.textBody,
       phone_number_id: message.phoneNumberId,
       raw_payload: message.valueBlock,
+      attempt_count: 1,
+      processing_started_at: new Date().toISOString(),
     });
     if (error) {
       if (error.code === "23505") {
-        // Duplicate — already processed or in-flight; skip silently.
+        // Duplicate delivery. Only an UNPROCESSED, non-exhausted, non-in-flight row
+        // (previous workflow failed or its worker crashed) is re-claimed — atomic CAS.
+        const { data: claimRows, error: claimErr } = await client.rpc(
+          WHATSAPP_INBOUND_CLAIM_RPC,
+          {
+            p_meta_message_id: message.metaMessageId,
+            p_max_attempts: WHATSAPP_INBOUND_MAX_ATTEMPTS,
+            p_stale_after_seconds: WHATSAPP_INBOUND_STALE_CLAIM_SECONDS,
+          },
+        );
+        if (claimErr) {
+          console.error("[whatsapp-webhook] retry claim failed", claimErr.message);
+          return json(500, { error: "retry_claim_failed" });
+        }
+        const claimed = Array.isArray(claimRows) ? claimRows[0] : claimRows;
+        const attemptCount = Math.round(Number(claimed?.attempt_count ?? 0));
+        if (attemptCount > 0) {
+          acceptedMessages.push({ message, attemptCount });
+        }
         continue;
       }
       console.error("[whatsapp-webhook] dedupe insert failed", error.message);
       return json(500, { error: "dedupe_failed" });
     }
-    acceptedMessages.push(message);
+    acceptedMessages.push({ message, attemptCount: 1 });
   }
 
   if (acceptedMessages.length > 0) {
@@ -194,7 +263,11 @@ Deno.serve(async (req) => {
     // Meta accepts a few seconds of webhook latency; our Hi path targets <3s backend.
     // Multi-message batches stay on waitUntil so we still ACK quickly.
     if (acceptedMessages.length === 1) {
-      await processAcceptedMessages(client, acceptedMessages);
+      const { retryableFailures } = await processAcceptedMessages(client, acceptedMessages);
+      if (retryableFailures > 0) {
+        // Non-2xx → Meta redelivers; the duplicate path re-claims via CAS (attempts capped).
+        return json(500, { error: "workflow_failed_retryable" });
+      }
     } else {
       scheduleBackground(processAcceptedMessages(client, acceptedMessages));
     }

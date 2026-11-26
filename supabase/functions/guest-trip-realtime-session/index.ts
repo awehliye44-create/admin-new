@@ -1,12 +1,15 @@
 /**
- * guest-trip-realtime-session — booking-scoped Realtime access for Guest Web.
+ * guest-trip-realtime-session — poll-only live tracking contract for Guest Web (P6 H3).
  *
- * Verifies the opaque WhatsApp tracking token + wa_id ownership, then mints a
- * short-lived passenger Auth JWT so the client can subscribe to the same
- * postgres_changes channels as the native Customer app (RLS passenger-only).
+ * Verifies the opaque WhatsApp tracking token + wa_id ownership, then returns a
+ * poll-only contract. It deliberately mints NO passenger Auth JWT: a tracking
+ * link must never yield a bearer token usable against Realtime / RLS / Edge.
+ * Clients poll guest-trip-status (service role + tracking token) for live
+ * driver lat/lng.
  *
  * Never grants anon SELECT on trip_driver_live_location.
  * Never accepts trip_id without a verified tracking token.
+ * Cancel/modify still go through guest-trip-action (which may mint for Edge invoke).
  */
 
 import { createClient } from "npm:@supabase/supabase-js@2.57.2";
@@ -16,7 +19,6 @@ import {
   verifyWhatsAppContinuationToken,
 } from "../_shared/whatsappContinuationToken.ts";
 import { phonesExactlyMatch } from "../_shared/whatsappGuestBookingSSOT.ts";
-import { mintTripPassengerAccessToken } from "../_shared/whatsappPassengerInvoke.ts";
 
 const LIVE_TRACKABLE = new Set([
   "accepted",
@@ -42,7 +44,6 @@ const LIVE_TRACKABLE = new Set([
 
 /** Customer App activeTripTrackingConfig parity. */
 const RESTORE_POLL_MS = 3_500;
-const REALTIME_GPS_STALE_MS = 8_000;
 const LOCATION_MAX_STALE_MS = 120_000;
 
 function json(payload: Record<string, unknown>, status = 200): Response {
@@ -157,24 +158,12 @@ Deno.serve(async (req) => {
     }, 409);
   }
 
-  const minted = await mintTripPassengerAccessToken(supabase, trip.passenger_id);
-  if (!minted.ok) {
-    return json({ error: minted.error }, minted.status);
-  }
-
   return json({
     tripId: trip.id,
     driverId,
-    accessToken: minted.accessToken,
-    expiresAtIso: minted.expiresAtIso,
-    /** Native Customer channel name — postgres_changes on trip_driver_live_location. */
-    locationChannel: `customer-driver-loc:${trip.id}:${driverId}`,
-    /** Native Customer trip lifecycle channel. */
-    tripChannel: `customer-trip:${trip.id}`,
+    pollMode: "required",
     restorePollIntervalMs: RESTORE_POLL_MS,
-    realtimeGpsStaleMs: REALTIME_GPS_STALE_MS,
     locationMaxStaleMs: LOCATION_MAX_STALE_MS,
-    /** Poll is recovery only while Realtime GPS is fresh. */
-    pollMode: "stale_fallback",
+    trackingTokenReuse: true,
   });
 });

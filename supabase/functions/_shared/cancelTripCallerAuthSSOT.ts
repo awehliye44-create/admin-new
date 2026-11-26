@@ -4,6 +4,9 @@
  * Never trust body `cancelled_by` as proof of authority.
  * Never fall through from a failed Customer (rider) check to Driver assignment.
  * Verified role is the only source of fee / payment / notification semantics.
+ *
+ * #110 P6 H1: corporate members and trip-managing staff are resolved server-side
+ * (membership / page access), never from body cancelled_by_role.
  */
 
 export type CancelTripClaimedRole = "rider" | "driver" | "admin";
@@ -31,7 +34,9 @@ export type CancelTripAuthDecision = CancelTripAuthOk | CancelTripAuthDenied;
 
 function normalizeClaimedRole(raw: unknown): CancelTripClaimedRole | null {
   const v = typeof raw === "string" ? raw.trim().toLowerCase() : "";
-  if (v === "rider" || v === "passenger" || v === "customer") return "rider";
+  if (v === "rider" || v === "passenger" || v === "customer" || v === "corporate") {
+    return "rider";
+  }
   if (v === "driver") return "driver";
   if (v === "admin") return "admin";
   return null;
@@ -55,6 +60,16 @@ function isAssignedDriver(args: {
 export function resolveCancelTripCallerAuthority(input: {
   claimedCancelledBy: unknown;
   isAdmin: boolean;
+  /**
+   * Staff with active-trips / corporate-accounts page access (server-verified).
+   * Same fee semantics as isAdmin when claiming admin/rider.
+   */
+  isStaffTripManager?: boolean;
+  /**
+   * Caller is a verified member of the trip's corporate_account_id.
+   * May cancel with rider fee semantics (corporate booking on behalf of rider).
+   */
+  isCorporateMemberOfTrip?: boolean;
   callerUserId: string;
   customerId: string | null;
   driverId: string | null;
@@ -72,8 +87,10 @@ export function resolveCancelTripCallerAuthority(input: {
     };
   }
 
-  if (input.isAdmin) {
-    // Admins may run rider-fee or admin workflows; body selects fee path only.
+  const staffLike = input.isAdmin || input.isStaffTripManager === true;
+
+  if (staffLike) {
+    // Admins / trip staff may run rider-fee or admin workflows; body selects fee path only.
     if (claimed !== "admin" && claimed !== "rider") {
       return {
         ok: false,
@@ -99,6 +116,13 @@ export function resolveCancelTripCallerAuthority(input: {
   }
 
   if (claimed === "rider") {
+    if (input.isCorporateMemberOfTrip === true) {
+      return {
+        ok: true,
+        cancelledBy: "rider",
+        cancelledById: input.callerUserId,
+      };
+    }
     const passengerId =
       typeof input.tripPassengerId === "string" ? input.tripPassengerId : null;
     if (!input.customerId || !passengerId || input.customerId !== passengerId) {

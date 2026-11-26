@@ -37,11 +37,11 @@ Deno.test("#60B cancel-trip statically imports #57 SSOT (MK-261120-004)", async 
 
 Deno.test("#60B guest-trip-realtime-session is booking-scoped (no anon location)", async () => {
   const src = await Deno.readTextFile(`${ROOT}/guest-trip-realtime-session/index.ts`);
-  assertStringIncludes(src, "mintTripPassengerAccessToken");
+  // P6 H3: poll-only contract — no passenger JWT mint, no realtime channel names.
+  assertEquals(src.includes("mintTripPassengerAccessToken"), false);
   assertStringIncludes(src, "verifyWhatsAppContinuationToken");
   assertStringIncludes(src, "phonesExactlyMatch");
-  assertStringIncludes(src, "customer-driver-loc:");
-  assertStringIncludes(src, 'pollMode: "stale_fallback"');
+  assertStringIncludes(src, 'pollMode: "required"');
 });
 
 Deno.test("#60 guest-trip-action cancel requires confirm and returns terminal trip", async () => {

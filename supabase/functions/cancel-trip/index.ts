@@ -156,7 +156,7 @@ serve(async (req) => {
     const { data: trip, error: tripErr } = await supabase
       .from("trips")
       .select(
-        "id, status, driver_id, confirmed_driver_id, previous_driver_id, cancelled_driver_ids, excluded_driver_ids, passenger_id, service_area_id, vehicle_type_id, assigned_at, arrived_at, cancellation_grace_expires_at, free_wait_expires_at, payment_method, waiting_minutes, waiting_charge_pence, scheduled_at, started_at, is_scheduled, scheduled_status, completed_at, authorised_amount_pence, payment_session_id, payment_provider"
+        "id, status, driver_id, confirmed_driver_id, previous_driver_id, cancelled_driver_ids, excluded_driver_ids, passenger_id, corporate_account_id, service_area_id, vehicle_type_id, assigned_at, arrived_at, cancellation_grace_expires_at, free_wait_expires_at, payment_method, waiting_minutes, waiting_charge_pence, scheduled_at, started_at, is_scheduled, scheduled_status, completed_at, authorised_amount_pence, payment_session_id, payment_provider"
       )
       .eq("id", trip_id)
       .maybeSingle();
@@ -197,9 +197,39 @@ serve(async (req) => {
       .limit(1)
       .maybeSingle();
 
+    // #110 P6 H1 — corporate / staff trip managers (server-verified, never body role).
+    let isCorporateMemberOfTrip = false;
+    const corporateAccountId = typeof trip.corporate_account_id === "string"
+      ? trip.corporate_account_id
+      : null;
+    if (corporateAccountId) {
+      const [{ data: cu }, { data: cua }] = await Promise.all([
+        supabase.from("corporate_users").select("id")
+          .eq("user_id", callerUserId).eq("corporate_account_id", corporateAccountId).limit(1),
+        supabase.from("corporate_user_accounts").select("id")
+          .eq("user_id", callerUserId).eq("corporate_account_id", corporateAccountId).limit(1),
+      ]);
+      isCorporateMemberOfTrip = (cu?.length ?? 0) > 0 || (cua?.length ?? 0) > 0;
+    }
+    let isStaffTripManager = false;
+    if (!adminRole) {
+      try {
+        const { requireAnyPageAccess } = await import("../_shared/adminPaymentGate.ts");
+        const staffGate = await requireAnyPageAccess(
+          { ok: true, supabase, userId: callerUserId },
+          ["active-trips", "corporate-accounts"],
+        );
+        isStaffTripManager = staffGate.ok === true;
+      } catch {
+        isStaffTripManager = false;
+      }
+    }
+
     const authz = resolveCancelTripCallerAuthority({
       claimedCancelledBy,
       isAdmin: Boolean(adminRole),
+      isStaffTripManager,
+      isCorporateMemberOfTrip,
       callerUserId,
       customerId: customer?.id ?? null,
       driverId: driver?.id ?? null,

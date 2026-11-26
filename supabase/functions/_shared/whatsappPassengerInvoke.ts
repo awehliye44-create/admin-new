@@ -4,12 +4,32 @@
  *
  * Guest Web / WhatsApp cancel + modify go through the same cancel-trip /
  * request-trip-modification paths as the native Customer app (#57 authority).
- * Guest Realtime reuses the same mint so RLS passenger policies apply —
- * never open anon SELECT on trip_driver_live_location.
+ * Live tracking does NOT mint (P6 H3): guest-trip-realtime-session is
+ * poll-only and returns no accessToken. Only guest-trip-action (cancel/modify)
+ * mints, and the minted session is bound to role `customer` in
+ * onecab_auth_session_roles.
+ *
+ * Token lifetime: Supabase access tokens expire ~1h. JWTs issued earlier by the
+ * old realtime-session mint expire naturally; there is no mass-revoke API.
  */
 
 import { createClient } from "npm:@supabase/supabase-js@2.57.2";
 import { whatsAppWaIdToE164 } from "./whatsappGuestBookingSSOT.ts";
+import { resolveAuthSessionIdFromClaims } from "./sessionAccessRoleSSOT.ts";
+
+/** Decode (without verifying) JWT claims of a token we just received from GoTrue. */
+function decodeJwtClaims(token: string): Record<string, unknown> | null {
+  try {
+    const part = token.split(".")[1];
+    if (!part) return null;
+    const b64 = part.replace(/-/g, "+").replace(/_/g, "/");
+    const padded = b64 + "=".repeat((4 - (b64.length % 4)) % 4);
+    const parsed = JSON.parse(atob(padded));
+    return parsed && typeof parsed === "object" ? parsed as Record<string, unknown> : null;
+  } catch {
+    return null;
+  }
+}
 
 export type MintPassengerAccessResult =
   | {
@@ -27,7 +47,9 @@ export type MintPassengerAccessResult =
 
 /**
  * Mint a short-lived Auth access token for the trip passenger.
- * Used by guest-trip-action (cancel/modify) and guest-trip-realtime-session.
+ * Used by guest-trip-action (cancel/modify) only — NOT by live tracking (P6 H3).
+ * After a successful mint the session is explicitly bound to role `customer`
+ * (same upsert as bind-onecab-access-role) so it is customer-scoped.
  */
 export async function mintTripPassengerAccessToken(
   service: ReturnType<typeof createClient>,
@@ -106,6 +128,24 @@ export async function mintTripPassengerAccessToken(
   });
   const accessToken = otp.session?.access_token;
   if (otpErr || !accessToken) {
+    return { ok: false, status: 503, error: "Couldn't authorise this trip change." };
+  }
+
+  // Bind THIS session to the customer role (same row shape as bind-onecab-access-role).
+  const sessionId = resolveAuthSessionIdFromClaims(decodeJwtClaims(accessToken));
+  if (!sessionId) {
+    return { ok: false, status: 503, error: "Couldn't authorise this trip change." };
+  }
+  const { error: bindErr } = await service.from("onecab_auth_session_roles").upsert(
+    {
+      session_id: sessionId,
+      user_id: userId,
+      access_role: "customer",
+      updated_at: new Date().toISOString(),
+    },
+    { onConflict: "session_id" },
+  );
+  if (bindErr) {
     return { ok: false, status: 503, error: "Couldn't authorise this trip change." };
   }
 

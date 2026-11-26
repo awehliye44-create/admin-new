@@ -24,6 +24,7 @@
 import { createClient } from "npm:@supabase/supabase-js@2.57.2";
 import { reconcileSubmittedDriverWithdrawPayout } from "../_shared/driverWithdrawProviderReconcile.ts";
 import { assertCronOrServiceRoleAuth } from "../_shared/cronEdgeAuth.ts";
+import { POLLER_RECONCILE_BATCH_KINDS } from "../_shared/payoutReconcileKindsSSOT.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -92,6 +93,7 @@ export type ReconcileFn = (args: {
   // deno-lint-ignore no-explicit-any
   supabase: any;
   payoutItemId: string;
+  allowedBatchKinds?: readonly string[];
 }) => Promise<{
   ok: boolean;
   provider_state: string | null;
@@ -220,9 +222,12 @@ export async function processOneCandidate(
   runToken: string,
   reconcileFn: ReconcileFn = reconcileSubmittedDriverWithdrawPayout,
 ): Promise<ItemResult> {
+  // P6 M3: poller reconciles EARLY_CASHOUT + weekly batches (GET-only; weekly terminal
+  // failure is report-and-leave inside the shared reconcile).
   const result = await reconcileFn({
     supabase,
     payoutItemId: claimed.payout_item_id,
+    allowedBatchKinds: POLLER_RECONCILE_BATCH_KINDS,
   });
 
   let outcome: ReconcileOutcome = "error";

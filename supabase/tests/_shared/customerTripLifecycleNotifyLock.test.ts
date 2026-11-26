@@ -208,7 +208,9 @@ Deno.test("producers send after authoritative success; rematch does not cancel",
   );
   assertStringIncludes(scheduledUi, "notify_driver_assigned");
   assertStringIncludes(expire, "expireTripWhenSearchExhaustedAndNotifyCustomer");
-  assertStringIncludes(corporateCancel, "event: 'trip_cancelled'");
+  // #110 P6 H1: corporate cancel forwards to cancel-trip (canonical notify owner).
+  assertStringIncludes(corporateCancel, "/functions/v1/cancel-trip");
+  assertStringIncludes(cancel, 'event: "trip_cancelled"');
   const decline = await read("../decline-offer/index.ts");
   assertStringIncludes(decline, 'event: "trip_cancelled"');
   assertEquals(decline.includes("send-customer-notification"), false);

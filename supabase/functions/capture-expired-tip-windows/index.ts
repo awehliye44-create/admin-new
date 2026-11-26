@@ -47,6 +47,12 @@ import {
   decideExpiredStaleReclaimAfterGet,
   shouldThrottleProviderGet,
 } from "./lib/expiredTipWindowStaleReclaimSSOT.ts";
+import {
+  buildProviderGetCasFilter,
+  buildTipExpiryDeferral,
+  buildTipExpiryDueFilter,
+  isTipExpiryDeferred,
+} from "./lib/tipExpiryRetryBackoffSSOT.ts";
 import { resolveRevolutMerchantContext } from "../_shared/revolutMerchantContext.ts";
 import { retrieveRevolutOrder } from "../_shared/revolutOrders.ts";
 import { extractConfirmedCaptureAmountPence } from "../_shared/paymentHoldProviderTerminalPure.ts";
@@ -110,12 +116,38 @@ Deno.serve(async (req) => {
 
     log("Sweep started", { dryRun, limit, nowIso, auth: auth.source });
 
+    // P6 M1: eligibility filters (Revolut-only, not driver-collected, backoff due) live in
+    // SQL WHERE so non-eligible / deferred oldest rows cannot starve the limit window.
+    // tip_window_last_provider_get_at MUST be selected: the CLAIM_HELD stale-reclaim
+    // throttle reads it from this row (it was omitted before — throttle never fired).
     const { data: candidates, error: queryErr } = await supabase
       .from("trips")
       .select(
-        "id, status, payment_method, payment_status, payment_provider, financial_model, payment_intent_id, provider_order_id, payment_session_id, tip_window_expires_at, tip_window_closed_at, tip_amount_pence, tip_pence, completed_at",
+        "id, status, payment_method, payment_status, payment_provider, financial_model, payment_intent_id, provider_order_id, payment_session_id, tip_window_expires_at, tip_window_closed_at, tip_amount_pence, tip_pence, completed_at, tip_window_last_provider_get_at, tip_window_next_attempt_at, tip_window_expiry_attempt_count",
       )
       .eq("status", "completed")
+      .ilike("payment_provider", "revolut")
+      .or("financial_model.is.null,financial_model.neq.DRIVER_COLLECTED_COMMISSION_WALLET")
+      .or("payment_intent_id.not.is.null,provider_order_id.not.is.null,payment_session_id.not.is.null")
+      .lt("tip_window_expires_at", nowIso)
+      .is("tip_window_closed_at", null)
+      .or(
+        "tip_window_status.eq.open,tip_window_status.is.null,tip_window_status.eq.processing",
+      )
+      .or(buildTipExpiryDueFilter(nowIso))
+      .in("payment_status", UNCAPPED_PAYMENT_STATUSES)
+      .order("tip_window_expires_at", { ascending: true })
+      .limit(limit);
+
+    if (queryErr) throw new Error(`Trip query failed: ${queryErr.message}`);
+
+    // Driver-collected trips never capture on the platform: close their windows.
+    // Own query so the Revolut candidate window above is not consumed by them.
+    const { data: driverCollectedRows, error: driverCollectedErr } = await supabase
+      .from("trips")
+      .select("id, financial_model")
+      .eq("status", "completed")
+      .eq("financial_model", "DRIVER_COLLECTED_COMMISSION_WALLET")
       .or("payment_intent_id.not.is.null,provider_order_id.not.is.null,payment_session_id.not.is.null")
       .lt("tip_window_expires_at", nowIso)
       .is("tip_window_closed_at", null)
@@ -125,8 +157,27 @@ Deno.serve(async (req) => {
       .in("payment_status", UNCAPPED_PAYMENT_STATUSES)
       .order("tip_window_expires_at", { ascending: true })
       .limit(limit);
+    if (driverCollectedErr) {
+      log("Driver-collected query failed (non-blocking)", { error: driverCollectedErr.message });
+    }
 
-    if (queryErr) throw new Error(`Trip query failed: ${queryErr.message}`);
+    const deferExpiryRetry = async (
+      trip: Record<string, unknown>,
+      reason: string,
+    ): Promise<void> => {
+      if (dryRun) return;
+      const deferral = buildTipExpiryDeferral({
+        priorAttempts: Number(trip.tip_window_expiry_attempt_count ?? 0),
+        nowMs: Date.now(),
+      });
+      const { error: deferErr } = await supabase.from("trips").update({
+        ...deferral,
+        updated_at: new Date().toISOString(),
+      }).eq("id", String(trip.id)).is("tip_window_closed_at", null);
+      if (deferErr) {
+        log("Expiry deferral stamp failed", { trip_id: trip.id, reason, error: deferErr.message });
+      }
+    };
 
     // Session-only stamps have no trip order id. Copy the session order so
     // finalize can capture; do not close a window we still cannot capture.
@@ -161,6 +212,10 @@ Deno.serve(async (req) => {
     }
 
     const eligible = (candidates ?? []).filter((row) => {
+      // Defence in depth: SQL already excludes deferred rows.
+      if (isTipExpiryDeferred(row.tip_window_next_attempt_at as string | null, Date.now())) {
+        return false;
+      }
       if (!needsServerTipWindowFareCapture(row, Date.now())) return false;
       // Revolut-only capture path — skip any non-Revolut trip.
       if (String(row.payment_provider ?? "").toLowerCase() !== "revolut") return false;
@@ -173,15 +228,24 @@ Deno.serve(async (req) => {
       return true;
     });
 
+    // Rows we still cannot capture (no provider order even after the session copy) would
+    // otherwise sit at the head of the oldest-first window forever — back them off.
+    for (const row of candidates ?? []) {
+      const hasOrder = String(row.provider_order_id ?? "").trim() ||
+        String(row.payment_intent_id ?? "").trim();
+      if (!hasOrder) await deferExpiryRetry(row as Record<string, unknown>, "no_provider_order");
+    }
+
     // Hygiene: payment already finalised but tip window never closed (e.g. close failed after capture).
     const { data: alreadyFinalisedOpen, error: finalisedErr } = await supabase
       .from("trips")
       .select(
-        "id, payment_status, payment_method, payment_provider, financial_model, payment_intent_id, provider_order_id, capture_amount_pence, final_fare_pence, final_customer_fare_pence, gross_fare_pence, locked_base_fare_pence, tip_pence, tip_amount_pence, airport_charge_pence, pickup_waiting_charge_pence, stop_waiting_charge_pence, total_waiting_charge_pence, discount_pence, offer_discount_pence, tip_window_expires_at, tip_window_closed_at, tip_window_last_provider_get_at",
+        "id, payment_status, payment_method, payment_provider, financial_model, payment_intent_id, provider_order_id, capture_amount_pence, final_fare_pence, final_customer_fare_pence, gross_fare_pence, locked_base_fare_pence, tip_pence, tip_amount_pence, airport_charge_pence, pickup_waiting_charge_pence, stop_waiting_charge_pence, total_waiting_charge_pence, discount_pence, offer_discount_pence, tip_window_expires_at, tip_window_closed_at, tip_window_last_provider_get_at, tip_window_next_attempt_at, tip_window_expiry_attempt_count",
       )
       .eq("status", "completed")
       .lt("tip_window_expires_at", nowIso)
       .is("tip_window_closed_at", null)
+      .or(buildTipExpiryDueFilter(nowIso))
       .in("payment_status", ["captured", "paid", "collected_cash"])
       .order("tip_window_expires_at", { ascending: true })
       .limit(limit);
@@ -230,9 +294,7 @@ Deno.serve(async (req) => {
       return Boolean(row.provider_order_id || row.payment_intent_id);
     });
 
-    const driverCollectedSkip = (candidates ?? []).filter((row) =>
-      String(row.financial_model ?? "").toUpperCase() === "DRIVER_COLLECTED_COMMISSION_WALLET"
-    );
+    const driverCollectedSkip = driverCollectedRows ?? [];
 
     log("Candidates", {
       queried: candidates?.length ?? 0,
@@ -335,6 +397,7 @@ Deno.serve(async (req) => {
           if (!orderId) {
             failedCount++;
             results.push({ trip_id: tripId, action: "stale_recover_missing_order" });
+            await deferExpiryRetry(trip as Record<string, unknown>, "stale_recover_missing_order");
             continue;
           }
           const lastGetRaw = (trip as { tip_window_last_provider_get_at?: string | null })
@@ -354,17 +417,43 @@ Deno.serve(async (req) => {
             continue;
           }
           try {
+            // L2: stamp BEFORE the GET with a compare-and-set (null or older than the
+            // throttle). Zero rows ⇒ another sweep owns this GET window — skip the GET.
+            const casNowMs = Date.now();
+            const casIso = new Date(casNowMs).toISOString();
+            const { data: stampedRows, error: stampErr } = await supabase
+              .from("trips")
+              .update({
+                tip_window_last_provider_get_at: casIso,
+                updated_at: casIso,
+              })
+              .eq("id", tripId)
+              .is("tip_window_closed_at", null)
+              .or(buildProviderGetCasFilter(casNowMs))
+              .select("id");
+            if (stampErr) {
+              failedCount++;
+              results.push({
+                trip_id: tripId,
+                action: "provider_get_stamp_failed",
+                error: stampErr.message,
+              });
+              continue;
+            }
+            if (!Array.isArray(stampedRows) || stampedRows.length === 0) {
+              results.push({
+                trip_id: tripId,
+                action: "provider_reconcile_throttled",
+                reason: "claim_held_stale_get_cas_lost",
+              });
+              continue;
+            }
             const merchant = await resolveRevolutMerchantContext(supabase, "live");
             const order = await retrieveRevolutOrder(
               merchant.environment,
               merchant.secretKey,
               orderId,
             );
-            // Stamp GET time concurrency-safely so parallel sweeps cannot hammer Revolut.
-            await supabase.from("trips").update({
-              tip_window_last_provider_get_at: nowIso,
-              updated_at: nowIso,
-            }).eq("id", tripId).is("tip_window_closed_at", null);
             const providerState = String(order.state ?? "UNKNOWN").toUpperCase();
             const farePence = computeCaptureAmount(trip as never, "completed", 0)
               .capture_amount_pence;
@@ -393,6 +482,7 @@ Deno.serve(async (req) => {
                 reason: decision.reason,
                 provider_state: providerState,
               });
+              await deferExpiryRetry(trip as Record<string, unknown>, "provider_unknown_claim_retained");
               continue;
             }
 
@@ -409,6 +499,7 @@ Deno.serve(async (req) => {
                   action: "stale_finalize_failed",
                   code: sealed.code,
                 });
+                await deferExpiryRetry(trip as Record<string, unknown>, "stale_finalize_failed");
                 continue;
               }
               capturedCount++;
@@ -448,6 +539,7 @@ Deno.serve(async (req) => {
                 action: "stale_reclaim_denied",
                 code: reclaimed.code,
               });
+              await deferExpiryRetry(trip as Record<string, unknown>, "stale_reclaim_denied");
               continue;
             }
             activeClaimToken = reclaimed.claimToken;
@@ -460,6 +552,7 @@ Deno.serve(async (req) => {
               action: "stale_recover_error",
               error: recoverErr instanceof Error ? recoverErr.message : String(recoverErr),
             });
+            await deferExpiryRetry(trip as Record<string, unknown>, "stale_recover_error");
             continue;
           }
         } else if (!mutex.ok) {
@@ -469,7 +562,10 @@ Deno.serve(async (req) => {
             code: mutex.code,
             tip_window_trigger: mutex.tipWindowTrigger,
           });
-          if (mutex.code !== "ALREADY_CLOSED") failedCount++;
+          if (mutex.code !== "ALREADY_CLOSED") {
+            failedCount++;
+            await deferExpiryRetry(trip as Record<string, unknown>, `claim_denied:${mutex.code}`);
+          }
           continue;
         } else {
           activeClaimToken = mutex.claimToken;
@@ -490,6 +586,7 @@ Deno.serve(async (req) => {
             action: "clear_claim_failed",
             error: clearClaimErr.message,
           });
+          await deferExpiryRetry(trip as Record<string, unknown>, "clear_claim_failed");
           continue;
         }
 
@@ -573,6 +670,7 @@ Deno.serve(async (req) => {
               action: "finalize_window_failed",
               code: sealed.code,
             });
+            await deferExpiryRetry(trip as Record<string, unknown>, "finalize_window_failed");
             continue;
           }
           // Tip window now expired-closed + capture confirmed — canonical invoice owner.
@@ -594,12 +692,16 @@ Deno.serve(async (req) => {
           // Provider UNKNOWN retains the claim. Other failures leave PROCESSING so a
           // racing customer trigger cannot open a second capture mid-flight.
           failedCount++;
+          // Permanent shortfall / provider unknown / deferred: back off so the row does
+          // not monopolise the oldest-first window (retry stays bounded, never abandoned).
+          await deferExpiryRetry(trip as Record<string, unknown>, "capture_not_confirmed");
         }
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         log("Capture invoke failed", { trip_id: tripId, error: msg });
         results.push({ trip_id: tripId, action: "error", error: msg });
         failedCount++;
+        await deferExpiryRetry(trip as Record<string, unknown>, "capture_invoke_error");
       }
     }
 

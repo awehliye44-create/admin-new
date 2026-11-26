@@ -156,19 +156,18 @@ export function needsDurableSettlementPersist(args: {
   return false;
 }
 
-/** Unconditional durable stamp (provider_authorisation_missing / catch paths). */
+/**
+ * Durable stamp for provider_authorisation_missing / catch paths.
+ * #110 P6 L3: never downgrade a confirmed captured trip via unconditional write —
+ * route through needsDurableSettlementPersist (captured sticky per #108).
+ */
 export async function persistDurableSettlementOutcome(
   supabase: AnySupabaseClient,
   tripId: string,
   status: string,
   success: boolean,
 ): Promise<void> {
-  const cols = durableSettlementColumns(status, success);
-  await supabase.from("trips").update({
-    payment_status: cols.payment_status,
-    payment_hold_status: cols.payment_hold_status,
-    updated_at: new Date().toISOString(),
-  }).eq("id", tripId);
+  await persistDurableSettlementOutcomeIfNeeded(supabase, tripId, success, status);
 }
 
 /**

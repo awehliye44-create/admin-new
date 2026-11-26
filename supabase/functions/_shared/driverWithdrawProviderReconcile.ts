@@ -11,6 +11,11 @@ import {
   FAIL_SUBMITTED_EARLY_CASHOUT_RPC,
   isEarlyCashoutProviderTerminalFailure,
 } from "./earlyCashoutInvariantSSOT.ts";
+import {
+  DEFAULT_RECONCILE_BATCH_KINDS,
+  payoutKindAllowsAutoFailRelease,
+  WEEKLY_TERMINAL_FAILURE_REPORT_ONLY_ERROR,
+} from "./payoutReconcileKindsSSOT.ts";
 
 export type ReconcileSubmittedPayoutResult = {
   ok: boolean;
@@ -33,14 +38,19 @@ export type ReconcileSubmittedPayoutResult = {
 type SupabaseClientLike = any;
 
 /**
- * Sync Revolut GET /transaction/:id for a SUBMITTED EARLY_CASHOUT item.
+ * Sync Revolut GET /transaction/:id for a SUBMITTED payout item.
  * If provider_state === completed, call finalize_driver_payout_completion once.
+ *
+ * `allowedBatchKinds` defaults to EARLY_CASHOUT (driver-withdraw edge). The scheduled
+ * poller passes POLLER_RECONCILE_BATCH_KINDS to include weekly batches (P6 M3).
+ * Provider terminal failure auto-fails/releases ONLY for EARLY_CASHOUT.
  */
 export async function reconcileSubmittedDriverWithdrawPayout(args: {
   supabase: SupabaseClientLike;
   payoutItemId: string;
   /** When set, reject if item.driver_id mismatches (driver-auth path). */
   expectedDriverId?: string;
+  allowedBatchKinds?: readonly string[];
 }): Promise<ReconcileSubmittedPayoutResult> {
   const payoutItemId = args.payoutItemId;
 
@@ -93,7 +103,9 @@ export async function reconcileSubmittedDriverWithdrawPayout(args: {
     .select("kind")
     .eq("id", item.batch_id)
     .maybeSingle();
-  if (String(batch?.kind ?? "") !== "EARLY_CASHOUT") {
+  const batchKind = String(batch?.kind ?? "");
+  const allowedKinds = args.allowedBatchKinds ?? DEFAULT_RECONCILE_BATCH_KINDS;
+  if (!allowedKinds.includes(batchKind)) {
     return {
       ok: false,
       payout_item_id: payoutItemId,
@@ -108,7 +120,7 @@ export async function reconcileSubmittedDriverWithdrawPayout(args: {
       financially_applied: false,
       already_applied: false,
       error: "NOT_EARLY_CASHOUT",
-      message: "Only Driver Withdraw items can be reconciled here.",
+      message: "This payout batch kind cannot be reconciled here.",
     };
   }
 
@@ -227,6 +239,35 @@ export async function reconcileSubmittedDriverWithdrawPayout(args: {
       already_applied: false,
       error: statusRes.error ?? "PROVIDER_STATUS_UNAVAILABLE",
       message: "Could not read provider payment status.",
+    };
+  }
+
+  if (
+    isEarlyCashoutProviderTerminalFailure(liveState) &&
+    !payoutKindAllowsAutoFailRelease(batchKind)
+  ) {
+    // Weekly (multi-item batch): report-and-leave. No fail/release RPC, no retry of the
+    // transfer, no wallet movement. Item stays SUBMITTED with its reservation ACTIVE.
+    console.error(
+      `[payout-reconcile] ALERT weekly provider terminal failure report-only ` +
+        `item=${payoutItemId} kind=${batchKind} provider_state=${liveState}`,
+    );
+    return {
+      ok: false,
+      payout_item_id: payoutItemId,
+      provider_payment_id: providerPaymentId,
+      provider_payment_id_masked: maskProviderId(providerPaymentId),
+      provider_state: liveState,
+      previous_provider_state: previousState,
+      revolut_pay_called: false,
+      wallet_debited: false,
+      reservation_consumed: false,
+      item_status: String(item.status ?? ""),
+      financially_applied: false,
+      already_applied: false,
+      error: WEEKLY_TERMINAL_FAILURE_REPORT_ONLY_ERROR,
+      message:
+        `Provider state is ${liveState}; weekly payout left SUBMITTED for operator review (no release, no resend).`,
     };
   }
 

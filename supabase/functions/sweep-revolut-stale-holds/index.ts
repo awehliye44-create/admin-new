@@ -49,6 +49,16 @@ import {
 import { computeCaptureAmount } from "../_shared/tripFareSSOT.ts";
 import { planCaptureComposition } from "../_shared/captureCompositionSSOT.ts";
 import { TIP_WINDOW_STATUS } from "../_shared/tipWindowConstants.ts";
+import {
+  buildSweepRetryStamp,
+  decideSweepReconcileOnly,
+  isAmbiguousFeeCaptureOutcome,
+  isSweepDeferred,
+  isSweepEscalated,
+  isSweepResolvedOutcome,
+  parseSweepRetryMeta,
+  SWEEP_STAMP_RPC,
+} from "./lib/sweepRetryBackoffSSOT.ts";
 void planCaptureComposition;
 
 const cors = {
@@ -68,6 +78,11 @@ const TERMINAL = new Set([
   "failed",
   "declined",
 ]);
+
+/** Embedded trip filter — payment_sessions has two FKs with trips, the hint is mandatory (PGRST201). */
+const TRIP_EMBED_INNER =
+  "trips!payment_sessions_trip_id_fkey!inner(id, status, started_at, payment_status)";
+const TERMINAL_TRIP_STATUSES = [...TERMINAL];
 
 /** Pending disposition grace — after this, sweep retries and reports watchdog age. */
 const PENDING_GRACE_MS = 5 * 60 * 1000;
@@ -113,17 +128,24 @@ serve(async (req) => {
     Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
   );
 
+  const nowMs = Date.now();
+  const nowIsoForSweep = new Date(nowMs).toISOString();
+  // P6 M1: terminal-trip + backoff filters live in SQL so the oldest AUTHORISED rows
+  // that are NOT eligible (active / in-progress trips, deferred retries) cannot
+  // starve the limit window. sweep_next_at is always written as toISOString (UTC, ms).
   const { data: sessions, error } = await supabase
     .from("payment_sessions")
     .select(
-      "id, trip_id, provider_order_id, authorised_amount_pence, total_authorised_amount_pence, captured_amount_pence, provider_state, created_at, metadata, currency",
+      `id, trip_id, provider_order_id, authorised_amount_pence, total_authorised_amount_pence, captured_amount_pence, provider_state, created_at, metadata, currency, ${TRIP_EMBED_INNER}`,
     )
     .eq("purpose", "RIDE_BOOKING")
     .in("provider_state", ["AUTHORISED", "AUTHORIZED"])
     .not("provider_order_id", "is", null)
     .not("trip_id", "is", null)
+    .in("trips.status", TERMINAL_TRIP_STATUSES)
+    .or(`metadata->>sweep_next_at.is.null,metadata->>sweep_next_at.lte.${nowIsoForSweep}`)
     .order("created_at", { ascending: true })
-    .limit(Math.min(150, limit * 5));
+    .limit(limit);
 
   if (error) {
     return new Response(JSON.stringify({ success: false, error: error.message }), {
@@ -132,40 +154,51 @@ serve(async (req) => {
     });
   }
 
-  const sessionRows = sessions ?? [];
-  const tripIds = [...new Set(sessionRows.map((s) => s.trip_id as string).filter(Boolean))];
-  let tripById = new Map<string, { id: string; status: string; started_at: string | null }>();
-
-  if (tripIds.length > 0) {
-    const { data: trips, error: tripErr } = await supabase
-      .from("trips")
-      .select("id, status, started_at")
-      .in("id", tripIds);
-    if (tripErr) {
-      return new Response(JSON.stringify({ success: false, error: tripErr.message }), {
-        status: 500,
-        headers: { ...cors, "Content-Type": "application/json" },
-      });
-    }
-    tripById = new Map(
-      (trips ?? []).map((t) => [t.id as string, t as { id: string; status: string; started_at: string | null }]),
-    );
+  type EmbeddedTrip = { id: string; status: string; started_at: string | null };
+  const sessionRows = (sessions ?? []) as Array<Record<string, unknown>>;
+  const tripById = new Map<string, EmbeddedTrip>();
+  for (const s of sessionRows) {
+    const t = s.trips as EmbeddedTrip | EmbeddedTrip[] | null | undefined;
+    const one = Array.isArray(t) ? t[0] : t;
+    if (one?.id) tripById.set(String(one.id), one);
   }
 
-  const nowMs = Date.now();
-  const candidates = sessionRows.filter((s) => {
-    const trip = tripById.get(s.trip_id as string);
-    if (!trip) {
-      // Authorised payment with no valid trip row — still candidate for dispose safety skip / orphan handling
-      return true;
+  const stampSweepRetry = async (
+    sessionId: string,
+    meta: unknown,
+    outcome: string,
+    captureAmbiguous: boolean,
+  ) => {
+    if (dryRun) return;
+    const prior = parseSweepRetryMeta(meta);
+    const stamp = buildSweepRetryStamp({
+      priorAttempts: prior.attempts,
+      nowMs: Date.now(),
+      outcome,
+      captureAmbiguous,
+    });
+    const { error: stampErr } = await supabase.rpc(SWEEP_STAMP_RPC, {
+      p_session_id: sessionId,
+      p_attempts: stamp.attempts,
+      p_next_at: stamp.nextAtIso,
+      p_last_outcome: stamp.outcome,
+      p_capture_ambiguous: stamp.captureAmbiguous,
+    });
+    if (stampErr) {
+      console.error("[sweep-revolut-stale-holds] sweep retry stamp failed", stampErr.message);
     }
-    const status = String(trip.status ?? "").toLowerCase();
+  };
+
+  // Defence in depth: SQL already excludes deferred rows and non-terminal / completed trips.
+  // A completed trip must never reach the disposer (it would void a live fare hold).
+  const candidates = sessionRows.filter((s) => {
+    if (isSweepDeferred(s.metadata, nowMs)) return false;
+    const trip = tripById.get(s.trip_id as string);
+    const status = String(trip?.status ?? "").toLowerCase();
     if (status === "completed") return false;
-    if (!TERMINAL.has(status)) return false;
-    // Terminal cancelled/expired/no_show after Start Trip must still void
-    // uncaptured auth (classifyTerminalHoldDisposition ignores started_at).
+    if (trip && !TERMINAL.has(status)) return false;
     return true;
-  }).slice(0, limit);
+  });
 
   const results: Array<Record<string, unknown>> = [];
   const watchdog: Array<Record<string, unknown>> = [];
@@ -202,12 +235,77 @@ serve(async (req) => {
       continue;
     }
 
+    const sessionId = String(row.id);
+    const retryMeta = parseSweepRetryMeta(row.metadata);
     try {
+      // P6 M1: a row whose last attempt left an ambiguous fee capture is RECONCILE-ONLY.
+      // GET the order; the disposer (which may POST a capture) is not called while the
+      // provider order is still open — never a blind POST.
+      if (retryMeta.captureAmbiguous) {
+        let providerState: string | null = null;
+        try {
+          const { secretKey, environment } = getRevolutMerchantConfig();
+          const order = await retrieveRevolutOrder(
+            environment,
+            secretKey,
+            String(row.provider_order_id),
+          );
+          providerState = String(order.state ?? "").toUpperCase() || null;
+        } catch (getErr) {
+          results.push({
+            trip_id: tripId,
+            action: "reconcile_only_get_failed",
+            message: getErr instanceof Error ? getErr.message : String(getErr),
+            capture_posts: 0,
+          });
+          await stampSweepRetry(sessionId, row.metadata, "RECONCILE_ONLY_GET_FAILED", true);
+          continue;
+        }
+        const gate = decideSweepReconcileOnly({
+          captureAmbiguous: true,
+          attempts: retryMeta.attempts,
+          providerState,
+        });
+        if (gate.action === "defer") {
+          results.push({
+            trip_id: tripId,
+            action: "reconcile_only_provider_open",
+            provider_state: providerState,
+            capture_posts: 0,
+            sweep_attempts: retryMeta.attempts,
+          });
+          await stampSweepRetry(sessionId, row.metadata, "RECONCILE_ONLY_PROVIDER_OPEN", true);
+          if (isSweepEscalated(retryMeta.attempts + 1)) {
+            watchdog.push({
+              provider: "revolut",
+              currency: row.currency ?? "GBP",
+              amount_pence: row.authorised_amount_pence,
+              oldest_age_ms: ageMs,
+              trip_status: trip?.status ?? null,
+              failure_reason: "reconcile_only_provider_open",
+              sweep_escalated: true,
+              trip_mask: tripId.slice(0, 8) + "…",
+              order_mask: String(row.provider_order_id).slice(0, 8) + "…",
+            });
+          }
+          continue;
+        }
+      }
+
       const result = await disposeTerminalTripPayment(supabase, {
         tripId,
         reason: "sweep_fallback",
       });
       results.push(result as unknown as Record<string, unknown>);
+
+      if (!isSweepResolvedOutcome(result.outcome)) {
+        await stampSweepRetry(
+          sessionId,
+          row.metadata,
+          String(result.outcome),
+          isAmbiguousFeeCaptureOutcome(result),
+        );
+      }
 
       if (
         result.outcome === "PROVIDER_PENDING_RECONCILIATION" ||
@@ -223,6 +321,7 @@ serve(async (req) => {
           fee_category: result.decision?.disposition_reason ?? meta.terminal_disposition_reason ?? null,
           trip_status: trip?.status ?? null,
           failure_reason: result.message ?? result.outcome,
+          sweep_escalated: isSweepEscalated(retryMeta.attempts + 1),
           trip_mask: tripId.slice(0, 8) + "…",
           order_mask: String(row.provider_order_id).slice(0, 8) + "…",
         });
@@ -233,6 +332,8 @@ serve(async (req) => {
         outcome: "PROVIDER_FAILED",
         message: e instanceof Error ? e.message : String(e),
       });
+      // Unknown whether a capture reached the provider — keep the prior ambiguity flag.
+      await stampSweepRetry(sessionId, row.metadata, "SWEEP_EXCEPTION", retryMeta.captureAmbiguous);
       watchdog.push({
         provider: "revolut",
         currency: row.currency ?? "GBP",
@@ -261,12 +362,14 @@ serve(async (req) => {
   const { data: completedDrift } = await supabase
     .from("payment_sessions")
     .select(
-      "id, trip_id, provider_order_id, authorised_amount_pence, total_authorised_amount_pence, captured_amount_pence, provider_state, status",
+      `id, trip_id, provider_order_id, authorised_amount_pence, total_authorised_amount_pence, captured_amount_pence, provider_state, status, ${TRIP_EMBED_INNER}`,
     )
     .eq("purpose", "RIDE_BOOKING")
     .eq("provider_state", "COMPLETED")
     .not("provider_order_id", "is", null)
     .not("trip_id", "is", null)
+    // P6 M1: only completed trips can be healed here — filter in SQL, not after the limit.
+    .eq("trips.status", "completed")
     .neq("status", "captured")
     .is("captured_amount_pence", null)
     .order("created_at", { ascending: true })
@@ -389,13 +492,16 @@ serve(async (req) => {
   const { data: capturedAuthorisedDrift } = await supabase
     .from("payment_sessions")
     .select(
-      "id, trip_id, provider_state, status, captured_amount_pence",
+      `id, trip_id, provider_state, status, captured_amount_pence, ${TRIP_EMBED_INNER}`,
     )
     .eq("purpose", "RIDE_BOOKING")
     .in("provider_state", ["AUTHORISED", "AUTHORIZED"])
     .eq("status", "captured")
     .gt("captured_amount_pence", 0)
     .not("trip_id", "is", null)
+    // P6 M1: eligible trips only (completed + payment_status captured) — in SQL.
+    .eq("trips.status", "completed")
+    .eq("trips.payment_status", "captured")
     .order("created_at", { ascending: true })
     .limit(limit);
 
@@ -440,13 +546,19 @@ serve(async (req) => {
   const { data: completedAuthorised } = await supabase
     .from("payment_sessions")
     .select(
-      "id, trip_id, provider_order_id, captured_amount_pence, provider_state, status",
+      `id, trip_id, provider_order_id, captured_amount_pence, provider_state, status, metadata, ${TRIP_EMBED_INNER}`,
     )
     .eq("purpose", "RIDE_BOOKING")
     .in("provider_state", ["AUTHORISED", "AUTHORIZED"])
     .not("provider_order_id", "is", null)
     .not("trip_id", "is", null)
     .is("captured_amount_pence", null)
+    // P6 M1: only completed trips + retry-due rows. Before this the oldest AUTHORISED
+    // rows of active/in-progress trips filled the window and starved real retries.
+    .eq("trips.status", "completed")
+    .in("trips.payment_status", [...COMPLETED_CAPTURE_RETRY_PAYMENT_STATUSES])
+    .lt("trips.completed_at", new Date(nowMs - COMPLETED_AUTHORISED_RETRY_GRACE_MS).toISOString())
+    .or(`metadata->>sweep_next_at.is.null,metadata->>sweep_next_at.lte.${nowIsoForSweep}`)
     .order("created_at", { ascending: true })
     .limit(limit);
 
@@ -565,6 +677,16 @@ serve(async (req) => {
         tip_window_status: TIP_WINDOW_STATUS.CLOSED,
         updated_at: new Date(nowMs).toISOString(),
       }).eq("id", tripId).is("tip_window_closed_at", null);
+    }
+    if (!(rec.ok && tipWindowCloseAllowedAfterFinalize(rec.body))) {
+      // P6 M1: bounded exponential backoff so a permanently failing row cannot
+      // monopolise the window. finalize-trip-and-capture stays GET-first/idempotent.
+      await stampSweepRetry(
+        sessionId,
+        row.metadata,
+        "FINALIZE_NOT_CONFIRMED",
+        false,
+      );
     }
     retryResults.push({
       trip_id: tripId,
