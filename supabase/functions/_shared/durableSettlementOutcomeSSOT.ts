@@ -120,8 +120,14 @@ export function needsDurableSettlementPersist(args: {
 
   if (TERMINAL_SETTLEMENT_STATUSES.has(status) && hold && hold !== "draft") {
     if (cols.payment_status === status) return false;
-    // Upgrade authorized → shortfall/failed/captured when finalize says so.
-    if (status === "captured" && cols.payment_status !== "captured") return true;
+    // Confirmed capture is sticky. A later finalize that is not itself captured
+    // must not downgrade payment_status to authorized (#108).
+    // Explicit shortfall / refund outcomes may still be persisted.
+    if (status === "captured" && cols.payment_status !== "captured") {
+      const next = cols.payment_status;
+      if (next === "payment_shortfall" || next === "refunded") return true;
+      return false;
+    }
   }
 
   if (UNSETTLED_PAYMENT_STATUSES.has(status)) return true;

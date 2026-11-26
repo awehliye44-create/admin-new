@@ -35,6 +35,7 @@ import { sweepPlatformCollectedFinancialIntegrity } from "../_shared/platformCol
 import { reconcileIncrementOperationsToCoverConfirmed } from "../_shared/reconcileFinancialOperationFromEvidenceSSOT.ts";
 import { reconcileAuthorisationProjectionsBatch } from "../_shared/reconcileAuthorisationProjectionSSOT.ts";
 import { recoverMissingTripEarningPendingBatch } from "../_shared/missingTripEarningPendingRecoverySSOT.ts";
+import { reconcileConfirmedCapturePaymentStatus } from "../_shared/reconcileConfirmedCapturePaymentStatusSSOT.ts";
 import { recoverPostCaptureLedgerIntegrityBatch } from "../_shared/postCaptureLedgerIntegrityRecoverySSOT.ts";
 import { reconcileStaleCaptureOperationsBatch } from "../_shared/reconcileStaleCaptureOperationsSSOT.ts";
 import {
@@ -729,6 +730,32 @@ serve(async (req) => {
     console.error("[sweep-revolut-stale-holds] missing PENDING recovery failed", pendingSweepErr);
   }
 
+  // #108: trip payment_status left authorised after provider-confirmed capture.
+  // Uses session + trip evidence already stored. No provider mutation.
+  let capturePaymentStatusReconcile: {
+    updated: number;
+    trip_ids: string[];
+    dry_run: boolean;
+    error?: string;
+  } = { updated: 0, trip_ids: [], dry_run: dryRun };
+  try {
+    capturePaymentStatusReconcile = await reconcileConfirmedCapturePaymentStatus(supabase, {
+      limit: Math.min(25, limit),
+      dryRun,
+    });
+    if (capturePaymentStatusReconcile.updated > 0 || capturePaymentStatusReconcile.trip_ids.length > 0) {
+      console.log("[sweep-revolut-stale-holds] capture_payment_status_108", {
+        updated: capturePaymentStatusReconcile.updated,
+        dry_run: capturePaymentStatusReconcile.dry_run,
+        trip_ids: capturePaymentStatusReconcile.trip_ids.slice(0, 10),
+      });
+    }
+  } catch (captureStatusErr) {
+    const message = captureStatusErr instanceof Error ? captureStatusErr.message : String(captureStatusErr);
+    capturePaymentStatusReconcile = { updated: 0, trip_ids: [], dry_run: dryRun, error: message };
+    console.error("[sweep-revolut-stale-holds] capture payment_status reconcile failed", message);
+  }
+
   // #94A: TEN present but missing tip credit and/or PENDING RELEASE.
   let postCaptureLedgerIntegrity: Awaited<
     ReturnType<typeof recoverPostCaptureLedgerIntegrityBatch>
@@ -904,6 +931,7 @@ serve(async (req) => {
     completed_authorised_retries: retryResults,
     missing_ten_recovery: missingTenRecovery,
     missing_pending_recovery_98: missingPendingRecovery,
+    capture_payment_status_108: capturePaymentStatusReconcile,
     post_capture_ledger_integrity_94a: postCaptureLedgerIntegrity,
     stale_capture_op_reconcile_94a: staleCaptureOpReconcile,
     pending_increment_reconcile: pendingIncrementReconcile,

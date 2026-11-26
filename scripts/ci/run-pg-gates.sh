@@ -181,6 +181,19 @@ if run "#93E/#98 pending entitlement RPC integration (A–I)" "$OUT/pending98.lo
   done
 fi
 
+# --- 10. #108 payment_status capture regression (real PostgreSQL concurrency) -------------------
+if run "#108 payment_status capture regression" "$OUT/pay108.log" \
+     bash supabase/tests/trip_payment_status_regression_108_isolated.sh; then
+  grep -q 'ALL trip_payment_status_regression_108_isolated CHECKS PASSED' "$OUT/pay108.log" \
+    || fail "pay108: success marker missing"
+  grep -qE '^SCENARIO 108 => PASS' "$OUT/pay108.log" || fail "pay108: scenario not PASS"
+  grep -qE '^TOTAL fail=0 pass=[0-9]+' "$OUT/pay108.log" || fail "pay108: TOTAL line missing"
+  for s in A-late-authorised-kept-captured B-split-row-promoted C-concurrent-authorised-after-capture \
+           D-reconcile-from-session E-refund-still-allowed F-anon-denied G-stage-d-untouched; do
+    grep -qE "^PASS $s" "$OUT/pay108.log" || fail "pay108: missing PASS $s"
+  done
+fi
+
 echo
 if [ "$FAILED" -ne 0 ]; then
   echo "PG GATES: FAILED (logs in $OUT)" >&2

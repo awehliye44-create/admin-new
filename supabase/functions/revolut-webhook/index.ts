@@ -32,6 +32,7 @@ import {
   isRevolutProviderStateRegression,
   revolutProviderStateRank,
 } from "../_shared/revolutProviderStateRankSSOT.ts";
+import { resolveTripPaymentStatusWrite } from "../_shared/tripPaymentStatusProjectionSSOT.ts";
 import {
   isCanonicalAuthorisedOrCaptured,
   normalizeLifecycleProviderState,
@@ -246,6 +247,8 @@ Deno.serve(async (req) => {
   // Locate the trip. Prefer provider_order_id, fall back to the ext_ref (trip id)
   // written by create-payment-intent. For recovery orders, use the linked session's trip.
   let tripId: string | null = null;
+  let tripPaymentStatusApplied: string | null = null;
+  let paymentStatusRegressionRefused = false;
   if (recoverySession?.trip_id) {
     tripId = recoverySession.trip_id;
   } else {
@@ -1225,39 +1228,57 @@ Deno.serve(async (req) => {
       }
     }
 
+    const { data: tripPayRow } = await supabase
+      .from("trips")
+      .select("status, payment_status, payment_hold_status, capture_amount_pence")
+      .eq("id", tripId)
+      .maybeSingle();
+
     // MK-261106-004: never stamp trips.payment_status=captured while the ride
     // is still pre-completion (webhook mirror ≠ fare capture request).
     if (effectiveStatus === "captured") {
-      const { data: tripForCaptureGate } = await supabase
-        .from("trips")
-        .select("status")
-        .eq("id", tripId)
-        .maybeSingle();
       if (
         !shouldMirrorRideBookingProviderCapture({
-          tripStatus: tripForCaptureGate?.status,
+          tripStatus: tripPayRow?.status,
           purpose: "RIDE_BOOKING",
         })
       ) {
         console.warn("[revolut-webhook] skip trip payment_status=captured before completion", {
           trip_id: tripId,
-          trip_status: tripForCaptureGate?.status ?? null,
+          trip_status: tripPayRow?.status ?? null,
         });
         effectiveStatus = "authorized";
       }
     }
 
-    const update: Record<string, unknown> = {
-      payment_status: effectiveStatus,
-      updated_at: new Date().toISOString(),
-    };
-    // On terminal capture, keep provider_charge_id fresh from the webhook payload.
-    if (effectiveStatus === "captured" && orderId) {
-      update.provider_charge_id = orderId;
-    }
-    const { error } = await supabase.from("trips").update(update).eq("id", tripId);
-    if (error) {
-      console.error(`[revolut-webhook] trip update failed for ${tripId}:`, error.message);
+    // #108: a late ORDER_AUTHORISED must not overwrite a confirmed capture.
+    const decision = resolveTripPaymentStatusWrite({
+      currentStatus: tripPayRow?.payment_status,
+      currentHoldStatus: tripPayRow?.payment_hold_status,
+      captureAmountPence: tripPayRow?.capture_amount_pence,
+      incomingStatus: effectiveStatus,
+    });
+    tripPaymentStatusApplied = decision.status;
+    paymentStatusRegressionRefused = decision.refusedRegression;
+    if (!decision.write) {
+      console.warn("[revolut-webhook] refuse regressive trip payment_status", {
+        trip_id: tripId,
+        incoming: effectiveStatus,
+        kept: decision.status,
+        event: eventName,
+      });
+    } else {
+      const update: Record<string, unknown> = {
+        payment_status: decision.status,
+        updated_at: new Date().toISOString(),
+      };
+      if (decision.status === "captured" && orderId) {
+        update.provider_charge_id = orderId;
+      }
+      const { error } = await supabase.from("trips").update(update).eq("id", tripId);
+      if (error) {
+        console.error(`[revolut-webhook] trip update failed for ${tripId}:`, error.message);
+      }
     }
     }
   }
@@ -1353,7 +1374,8 @@ Deno.serve(async (req) => {
     metadata: {
       event: eventName,
       state: stateFromEvent ?? null,
-      applied_status: nextStatus,
+      applied_status: tripPaymentStatusApplied ?? nextStatus,
+      payment_status_regression: paymentStatusRegressionRefused ? "refused" : null,
       provider_fee_pence: feeMinor,
       data: event.data ?? null,
     },
@@ -1361,10 +1383,14 @@ Deno.serve(async (req) => {
   if (auditError) console.error("[revolut-webhook] audit insert failed:", auditError.message);
 
   console.log(
-    `[revolut-webhook] verified event=${eventName ?? "?"} order=${orderId ?? "?"} trip=${tripId ?? "?"} → status=${nextStatus ?? "none"}`,
+    `[revolut-webhook] verified event=${eventName ?? "?"} order=${orderId ?? "?"} trip=${tripId ?? "?"} → status=${tripPaymentStatusApplied ?? nextStatus ?? "none"}`,
   );
 
-  return new Response(JSON.stringify({ received: true, applied_status: nextStatus }), {
+  return new Response(JSON.stringify({
+    received: true,
+    applied_status: tripPaymentStatusApplied ?? nextStatus,
+    payment_status_regression: paymentStatusRegressionRefused ? "refused" : null,
+  }), {
     status: 200,
     headers: { ...corsHeaders, "Content-Type": "application/json" },
   });
