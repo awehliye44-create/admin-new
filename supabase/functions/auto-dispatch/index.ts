@@ -85,6 +85,8 @@ import {
   driverNetPenceFromOfferContext,
   rideOfferPushBodyDriverNet,
 } from "../_shared/driverOfferPushCopy.ts";
+import { reconcileStaleDriverCurrentTrip } from "../_shared/clearDriverCurrentTripSSOT.ts";
+import { clearDriverCurrentTripIfMatches } from "../_shared/clearDriverCurrentTripSSOT.ts";
 import { DRIVER_NEW_RIDE_OFFER_TITLE } from "../_shared/negotiationPushCopy.ts";
 import { deriveOfferOptionsPence } from "../_shared/presetOptionsCanonical.ts";
 import {
@@ -1486,6 +1488,21 @@ Deno.serve(async (req) => {
         updated_at
       `);
 
+    // #118 — heal terminal/missing current_trip_id before eligibility so idle
+    // drivers are not hard-excluded as stacked_active_count_invalid / busy_on_trip.
+    try {
+      const healed = await reconcileStaleDriverCurrentTrip(supabase, { limit: 100 });
+      if (healed.clearedCount > 0) {
+        audit("stale_current_trip_reconciled", {
+          cleared_count: healed.clearedCount,
+        });
+      }
+    } catch (healErr) {
+      console.warn("[auto-dispatch] stale current_trip reconcile failed", {
+        message: healErr instanceof Error ? healErr.message : String(healErr),
+      });
+    }
+
     // Pull driver rows with all hard-gate fields. We deliberately do NOT pre-
     // filter by status/approval here so every "almost eligible" candidate gets
     // a structured rejection row.
@@ -1745,6 +1762,25 @@ Deno.serve(async (req) => {
 
           if (!currentTrip) {
             logEligibility(driver.id, false, "stacked_no_current_trip", { stacked_gate: true, current_trip_id: driver.current_trip_id });
+            continue;
+          }
+
+          // #118 — terminal pointer must not enter stacked pool; CAS-heal and skip.
+          const curStatus = String(currentTrip.status ?? "").toLowerCase();
+          if (
+            ["completed", "cancelled", "no_show", "expired", "customer_cancelled"].includes(
+              curStatus,
+            )
+          ) {
+            void clearDriverCurrentTripIfMatches(supabase, {
+              driverId: driver.id,
+              tripId: String(driver.current_trip_id),
+            });
+            logEligibility(driver.id, false, "stacked_stale_terminal_current_trip", {
+              stacked_gate: true,
+              current_trip_id: driver.current_trip_id,
+              trip_status: curStatus,
+            });
             continue;
           }
 

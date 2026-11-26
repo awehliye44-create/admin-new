@@ -32,6 +32,8 @@ export type StackedPromoteReconcileCounts = {
   promoted: number;
   skipped: number;
   cleared_stale_links: number;
+  /** #118 — drivers.current_trip_id pointing at terminal/missing trips. */
+  cleared_stale_current_trip: number;
   alerted: number;
   errors: number;
 };
@@ -331,11 +333,26 @@ export async function runStackedPromotionReconcilePass(
     promoted: 0,
     skipped: 0,
     cleared_stale_links: 0,
+    cleared_stale_current_trip: 0,
     alerted: 0,
     errors: 0,
   };
 
   counts.cleared_stale_links = await clearStaleStackedTripLinks(supabase, limit);
+
+  // #118 — heal terminal current_trip_id before promote attempts (same cron).
+  try {
+    const { reconcileStaleDriverCurrentTrip } = await import(
+      "./clearDriverCurrentTripSSOT.ts"
+    );
+    const healed = await reconcileStaleDriverCurrentTrip(supabase, { limit });
+    counts.cleared_stale_current_trip = healed.clearedCount;
+  } catch (err) {
+    counts.errors += 1;
+    console.warn("[stackedPromotionReconcile] stale current_trip heal failed", {
+      message: err instanceof Error ? err.message : String(err),
+    });
+  }
 
   const { data: queuedRows, error: queuedErr } = await supabase
     .from("trips")

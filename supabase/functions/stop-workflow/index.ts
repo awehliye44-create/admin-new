@@ -114,6 +114,7 @@ import { notifyCustomerTripLifecycle } from "../_shared/customerTripLifecycleNot
 import { finalizeRideAssignmentSideEffects } from "../_shared/rideAssignmentFinalize.ts";
 import { assertPlatformCollectedCompletionPaymentGate } from "../_shared/executeFareIncreaseModificationPayment.ts";
 import { scheduleEdgeBackground } from "../_shared/scheduleEdgeBackground.ts";
+import { clearDriverCurrentTripIfMatches } from "../_shared/clearDriverCurrentTripSSOT.ts";
 import {
   createStopWorkflowLifecyclePerfClock,
   normalizeLifecyclePerfId,
@@ -4220,6 +4221,13 @@ Deno.serve(async (req) => {
         if (trip.status === 'completed') {
           console.log("[stop-workflow] Trip already completed (idempotent)");
           stages.mark('idempotent_already_completed');
+          // #118 — heal stale pointer even when financial p2 never ran (#113).
+          if (driver_id) {
+            void clearDriverCurrentTripIfMatches(supabase, {
+              driverId: driver_id,
+              tripId: trip_id,
+            });
+          }
           // Bug #23: CAPTURE_QUEUE_FAILED can leave status=completed without
           // capture_requested. Recover the durable queue stamp + background
           // finalize without re-running completion / settlement writes.
@@ -4623,6 +4631,13 @@ Deno.serve(async (req) => {
             .maybeSingle();
           if (String(racedTrip?.status ?? "").toLowerCase() === "completed") {
             stages.mark('idempotent_race_completed');
+            // #118 — CAS heal pointer if the winner's p2 never ran.
+            if (driver_id) {
+              void clearDriverCurrentTripIfMatches(supabase, {
+                driverId: driver_id,
+                tripId: trip_id,
+              });
+            }
             // The winning Complete owns PENDING; only heal if it is still missing
             // (helper no-ops when TEN exists or capture settled).
             await recoverMissingPendingOnIdempotentComplete(supabase, trip_id);
@@ -4680,6 +4695,20 @@ Deno.serve(async (req) => {
             },
             "- keeping current_trip_id for post-trip promotion",
           );
+        } else if (driver_id) {
+          // #118 — CAS-clear BEFORE tip/payment side-effects. Completion write is
+          // already durable; do not leave dispatch blocked if a later throw (#113)
+          // skips complete_trip_p2. Trigger also clears; this is fail-closed Edge.
+          const cleared = await clearDriverCurrentTripIfMatches(supabase, {
+            driverId: driver_id,
+            tripId: trip_id,
+          });
+          if (cleared.error) {
+            console.warn("[stop-workflow] early clear current_trip_id failed", {
+              trip_id,
+              error: cleared.error,
+            });
+          }
         }
 
         // ── PHASE 2: SSOT fare + payment (P0: card → finalize-trip-and-capture) ──
@@ -5298,15 +5327,16 @@ Deno.serve(async (req) => {
             tripId: trip_id,
             event: "trip_completed",
           });
-          if (!hasStackedTrip) {
-            const { error: clearCurrentErr } = await supabase
-              .from("drivers")
-              .update({ current_trip_id: null, updated_at: new Date().toISOString() })
-              .eq("id", driver_id);
-            if (clearCurrentErr) {
+          if (!hasStackedTrip && driver_id) {
+            // #118 — CAS duplicate of early clear (safe if already null / reassigned).
+            const cleared = await clearDriverCurrentTripIfMatches(supabase, {
+              driverId: driver_id,
+              tripId: trip_id,
+            });
+            if (cleared.error) {
               console.warn("[stop-workflow] clear current_trip_id after complete failed", {
                 trip_id,
-                error: clearCurrentErr.message,
+                error: cleared.error,
               });
             }
           } else {
