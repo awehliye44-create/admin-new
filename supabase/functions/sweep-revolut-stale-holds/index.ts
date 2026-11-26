@@ -704,7 +704,8 @@ serve(async (req) => {
     console.error("[sweep-revolut-stale-holds] missing TEN recovery failed", tenSweepErr);
   }
 
-  // #98: missing PENDING after completed PC card trips (pre-capture visibility).
+  // #98 / #93E: missing PENDING after completed PC card trips (pre-capture visibility).
+  // Immediate eligibility — tip-window age is NOT a delay before recovery attempts.
   let missingPendingRecovery: Awaited<
     ReturnType<typeof recoverMissingTripEarningPendingBatch>
   > = { scanned: 0, results: [] };
@@ -713,6 +714,16 @@ serve(async (req) => {
       missingPendingRecovery = await recoverMissingTripEarningPendingBatch(supabase, {
         limit: Math.min(15, limit),
       });
+      const failedPending = missingPendingRecovery.results.filter((r) => r.status === "FAILED");
+      const insertedPending = missingPendingRecovery.results.filter((r) => r.status === "INSERTED");
+      if (failedPending.length > 0 || insertedPending.length > 0) {
+        console.log("[sweep-revolut-stale-holds] missing_pending_recovery_98", {
+          scanned: missingPendingRecovery.scanned,
+          inserted: insertedPending.length,
+          failed: failedPending.length,
+          failed_rows: failedPending.slice(0, 10),
+        });
+      }
     }
   } catch (pendingSweepErr) {
     console.error("[sweep-revolut-stale-holds] missing PENDING recovery failed", pendingSweepErr);

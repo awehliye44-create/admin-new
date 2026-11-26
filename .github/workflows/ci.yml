@@ -122,7 +122,9 @@ jobs:
 
     services:
       postgres:
-        image: public.ecr.aws/supabase/postgres:17.6.1.140
+        # Docker Hub — public.ecr.aws/supabase/postgres hits intermittent
+        # "Data limit exceeded" on GitHub-hosted runners (#93C / #93E).
+        image: supabase/postgres:17.6.1.140
         env:
           POSTGRES_PASSWORD: postgres
         ports:

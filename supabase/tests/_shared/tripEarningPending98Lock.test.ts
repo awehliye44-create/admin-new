@@ -127,6 +127,32 @@ Deno.test("#98 stop-workflow posts PENDING; capture ledger RELEASE then TEN", as
   assertStringIncludes(mig, "TRIP_EARNING_PENDING_RELEASE");
   assertStringIncludes(mig, "TRIP_EARNING_PENDING_AFTER_TEN_FORBIDDEN");
 
+  // #93E — enum COALESCE fix + deploy contract must exist (MK-261126-003).
+  const mig93e = await Deno.readTextFile(
+    new URL(
+      "../../migrations/20270301200000_fix_credit_trip_earning_pending_enum_coalesce_93e.sql",
+      import.meta.url,
+    ),
+  );
+  assertStringIncludes(mig93e, "financial_model::text");
+  assertStringIncludes(mig93e, "assert_credit_trip_earning_pending_contract");
+  assertStringIncludes(mig93e, "invalid_text_representation");
+
+  const pendingSsot = await Deno.readTextFile(
+    new URL("../../functions/_shared/tripEarningPendingSSOT.ts", import.meta.url),
+  );
+  assertStringIncludes(pendingSsot, "pending_entitlement_rpc_failed");
+  assertStringIncludes(pendingSsot, "recordPaymentFinancialEvent");
+
+  const recovery = await Deno.readTextFile(
+    new URL(
+      "../../functions/_shared/missingTripEarningPendingRecoverySSOT.ts",
+      import.meta.url,
+    ),
+  );
+  assertStringIncludes(recovery, "PENDING_RECOVERY_AWAITING_CAPTURE_STATUSES");
+  assertStringIncludes(recovery, "missing_pending_recovery_failed");
+
   const sweep = await Deno.readTextFile(
     new URL("../../functions/sweep-revolut-stale-holds/index.ts", import.meta.url),
   );

@@ -168,6 +168,19 @@ if run "#92J terminal cancel waiting-close" "$OUT/twc92j.log" \
     || fail "twc92j: success marker missing"
 fi
 
+# --- 9. #93E / #98 pending entitlement RPC + concurrency (real PostgreSQL) -----------------------
+if run "#93E/#98 pending entitlement RPC integration (A–I)" "$OUT/pending98.log" \
+     bash supabase/tests/trip_earning_pending_98_rpc_isolated.sh; then
+  grep -q 'ALL trip_earning_pending_98_rpc_isolated CHECKS PASSED' "$OUT/pending98.log" \
+    || fail "pending98: success marker missing"
+  grep -qE '^SCENARIO 93E98 => PASS' "$OUT/pending98.log" || fail "pending98: scenario not PASS"
+  grep -qE '^TOTAL fail=0 pass=[0-9]+' "$OUT/pending98.log" || fail "pending98: TOTAL line missing"
+  for s in A-pending-before-capture A-no-22P02 C-recovery-insert E-concurrent-unique \
+           F-release-and-ten-once G-no-pending-after-ten D-contract; do
+    grep -qE "^PASS $s" "$OUT/pending98.log" || fail "pending98: missing PASS $s"
+  done
+fi
+
 echo
 if [ "$FAILED" -ne 0 ]; then
   echo "PG GATES: FAILED (logs in $OUT)" >&2

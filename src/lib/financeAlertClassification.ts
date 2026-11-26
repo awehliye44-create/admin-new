@@ -39,7 +39,19 @@ export function isFailedRecoveryMismatch(m: FinanceMismatchInput): boolean {
   const kind = String(m.kind ?? '').toLowerCase();
   const text = lowerMsg(m);
   if (kind === 'failed_recovery' || kind === 'recovery_failed') return true;
+  if (
+    kind === 'pending_entitlement_rpc_failed'
+    || kind === 'pending_entitlement_persist_failed'
+    || kind === 'missing_pending_recovery_failed'
+    || kind === 'missing_pending'
+  ) {
+    return true;
+  }
   if (text.includes('failed recovery') || text.includes('recovery failed')) return true;
+  if (text.includes('pending entitlement') && (text.includes('fail') || text.includes('missing'))) {
+    return true;
+  }
+  if (text.includes('trip_earning_pending') && text.includes('fail')) return true;
   return text.includes('recovery') && (text.includes('failed') || text.includes('fail'));
 }
 

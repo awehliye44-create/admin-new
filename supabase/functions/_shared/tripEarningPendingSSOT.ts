@@ -9,6 +9,7 @@
 import type { SupabaseClient } from "npm:@supabase/supabase-js@2.57.2";
 import { tripBlocksDriverWalletLedgerPosting } from "./commissionWalletDeduction.ts";
 import { FINANCIAL_MODEL_VIOLATION } from "./commissionWalletSSOT.ts";
+import { recordPaymentFinancialEvent } from "./paymentFinancialDiagnosticsSSOT.ts";
 
 export const TRIP_EARNING_PENDING_TYPE = "TRIP_EARNING_PENDING";
 export const TRIP_EARNING_PENDING_RELEASE_TYPE = "TRIP_EARNING_PENDING_RELEASE";
@@ -83,16 +84,36 @@ export async function creditTripEarningPending(
   });
 
   if (error) {
+    const message = error.message;
+    console.error("[tripEarningPendingSSOT] credit_trip_earning_pending rpc_error", {
+      trip_id: args.tripId,
+      driver_id: args.driverId,
+      amount_pence: amount,
+      message,
+      code: (error as { code?: string }).code ?? null,
+    });
+    await recordPaymentFinancialEvent(supabase, {
+      tripId: args.tripId,
+      eventType: "pending_entitlement_rpc_failed",
+      declineCode: "rpc_error",
+      requestedAmountPence: amount,
+      detail: {
+        reason: "rpc_error",
+        message,
+        source: "creditTripEarningPending",
+        recovery_failed: true,
+      },
+    });
     return {
       ok: false,
       inserted: false,
       reason: "rpc_error",
-      message: error.message,
+      message,
     };
   }
 
   const row = (data && typeof data === "object") ? data as Record<string, unknown> : {};
-  return {
+  const result: CreditTripEarningPendingResult = {
     ok: row.ok === true,
     inserted: row.inserted === true,
     reason: String(row.reason ?? "unknown"),
@@ -100,6 +121,25 @@ export async function creditTripEarningPending(
     amount_pence: row.amount_pence != null ? Math.round(Number(row.amount_pence)) : amount,
     message: row.message != null ? String(row.message) : undefined,
   };
+
+  // Soft RPC success with ok:false (e.g. check_violation) must still escalate.
+  if (!result.ok && result.reason !== "amount_non_positive" &&
+    result.reason !== "financial_model_violation") {
+    await recordPaymentFinancialEvent(supabase, {
+      tripId: args.tripId,
+      eventType: "pending_entitlement_persist_failed",
+      declineCode: result.reason,
+      requestedAmountPence: amount,
+      detail: {
+        reason: result.reason,
+        message: result.message ?? null,
+        source: "creditTripEarningPending",
+        recovery_failed: true,
+      },
+    });
+  }
+
+  return result;
 }
 
 export type ReleaseTripEarningPendingResult = {
