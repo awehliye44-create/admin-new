@@ -280,7 +280,14 @@ Deno.test("CI workflow has a mandatory PG job: REQUIRE_PG_HARNESS=1, A-F + negot
   assertStringIncludes(yml, "REQUIRE_PG_HARNESS");
   assertStringIncludes(yml, "REQUIRE_PG_HARNESS: \"1\"");
   assertStringIncludes(yml, "timeout-minutes: 45");
-  assertStringIncludes(yml, "public.ecr.aws/supabase/postgres:");
+  // Prefer Docker Hub supabase/postgres (ECR public hits intermittent Data limit exceeded).
+  assertStringIncludes(yml, "supabase/postgres:");
+  assertEquals(
+    yml.includes("supabase/postgres:") &&
+      (yml.includes("image: supabase/postgres:") ||
+        yml.includes("public.ecr.aws/supabase/postgres:")),
+    true,
+  );
   assertStringIncludes(yml, "scripts/ci/pg-harness-bootstrap.sh");
   assertStringIncludes(yml, "scripts/ci/run-pg-gates.sh");
   const gates = await read("../../../scripts/ci/run-pg-gates.sh");
@@ -291,6 +298,7 @@ Deno.test("CI workflow has a mandatory PG job: REQUIRE_PG_HARNESS=1, A-F + negot
     "airport_split_commissionable_follows_payable.sql",
     "REQUIRE_PG_HARNESS",
     "skipped=0",
+    "trip_earning_pending_98_rpc_isolated.sh",
   ]) {
     assertStringIncludes(gates, needle);
   }
