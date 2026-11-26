@@ -687,6 +687,17 @@ serveWithEdgeTiming("get-active-trip", corsHeaders, async (req) => {
         )
       : null;
 
+    // #100A — single server clock stamp for Customer offset sync.
+    const serverNowIso = new Date().toISOString();
+    const freePickupSeconds = Math.max(
+      0,
+      Math.floor(Number(waitingConfig.free_pickup_waiting_seconds ?? 0) || 0),
+    );
+    const graceRemainingSeconds = Math.max(
+      0,
+      freePickupSeconds - pickupWaitingCountedSeconds,
+    );
+
     return new Response(
       JSON.stringify({
         activeTrip: {
@@ -819,10 +830,17 @@ serveWithEdgeTiming("get-active-trip", corsHeaders, async (req) => {
           stopChargeTotalPence: trip.stop_charge_total_pence ?? null,
           waitingGeofenceStatus: trip.waiting_geofence_status ?? null,
           waiting_geofence_status: trip.waiting_geofence_status ?? null,
+          waitingGeofenceCheckedAt: trip.waiting_geofence_checked_at ?? null,
+          waiting_geofence_checked_at: trip.waiting_geofence_checked_at ?? null,
           pickupWaitingCountedSeconds: trip.pickup_waiting_counted_seconds ?? 0,
           pickup_waiting_counted_seconds: trip.pickup_waiting_counted_seconds ?? 0,
           stopWaitingCountedSeconds: trip.stop_waiting_counted_seconds ?? 0,
           stop_waiting_counted_seconds: trip.stop_waiting_counted_seconds ?? 0,
+          // #100A — Customer free-wait countdown must share Driver clock anchors.
+          server_now: serverNowIso,
+          serverNow: serverNowIso,
+          grace_remaining_seconds: graceRemainingSeconds,
+          remaining_free_waiting_seconds: graceRemainingSeconds,
           tripStops: (tripStopsRows ?? []).map((stop) => ({
             id: stop.id,
             stop_index: stop.stop_index,

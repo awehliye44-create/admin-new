@@ -17,7 +17,6 @@ import {
   loadNoShowPricingRules,
 } from "./lib/tripNoShowRules.ts";
 import { isCashPayment, settleNoShowFee } from "./lib/noShowSettlement.ts";
-import { computeCaptureAmount } from "../_shared/tripFareSSOT.ts";
 import { handleQueuedTripAfterCurrentTripFailure } from "../_shared/stackedRideLifecycle.ts";
 import { notifyCustomerTripLifecycle } from "../_shared/customerTripLifecycleNotify.ts";
 import {
@@ -29,6 +28,9 @@ import {
   WAITING_EVIDENCE_UNAVAILABLE,
 } from "../_shared/waitingSegmentClock.ts";
 import { loadAdminWaitingConfig } from "../_shared/waitingAdminConfig.ts";
+import { disposeTerminalTripPayment } from "../_shared/terminalTripPaymentDisposition.ts";
+import { maybeResumeTerminalFeeSettlementAfterProviderFee } from "../_shared/terminalFeeSettlementResumptionSSOT.ts";
+import { scheduleEdgeBackground } from "../_shared/scheduleEdgeBackground.ts";
 
 const RATE_LIMIT_CONFIG = {
   limit: 10,
@@ -362,34 +364,75 @@ Deno.serve(async (req) => {
       );
     }
 
+    // #111A — Immediate settlement after terminal transition: same-order dispose
+    // then resume TEN. Never depend on the legacy lifecycle fee charger or the
+    // recovery sweep as the primary path (MK-261126-001 8h+ delay). Pending/failed
+    // capture keeps fee stamps and schedules a background dispose retry; sweep
+    // remains backup only.
     let cardCharged = false;
     if (effectiveNoShowFeePence > 0 && !cashTrip && trip.payment_method !== "wallet") {
-      const noShowCapture = computeCaptureAmount(
-        { ...trip, no_show_charge_pence: effectiveNoShowFeePence },
-        "card_no_show",
-      );
-      const captureAmountPence = noShowCapture.capture_amount_pence;
-      try {
-        const chargeRes = await fetch(`${supabaseUrl}/functions/v1/charge-lifecycle-fee`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${serviceRoleKey}`,
-          },
-          body: JSON.stringify({
-            trip_id,
-            fee_type: "no_show",
-            amount_pence: captureAmountPence,
-            description: "No-show fee",
-          }),
+      const runDisposeAndResume = async (source: string) => {
+        const holdDisposition = await disposeTerminalTripPayment(supabase, {
+          tripId: trip_id,
+          reason: "driver_cancel_terminal",
+          feePence: effectiveNoShowFeePence,
+          forceFeePenceOverride: true,
+          canonicalPickupWaitingSeconds: countedInRadiusSeconds,
         });
-        const chargeResult = await chargeRes.json();
-        cardCharged =
-          chargeResult?.success === true &&
-          (chargeResult?.charged === true || chargeResult?.already_charged === true);
-        console.log("[pickup-no-show] charge-lifecycle-fee:", JSON.stringify(chargeResult));
-      } catch (chargeErr) {
-        console.error("[pickup-no-show] charge-lifecycle-fee failed (non-fatal):", chargeErr);
+        console.log("[PAYMENT_AUDIT] pickup-no-show hold disposition", {
+          trip_id,
+          source,
+          fee_pence: effectiveNoShowFeePence,
+          ...holdDisposition,
+        });
+        const capturedFeePence = Math.max(
+          0,
+          Math.round(Number(holdDisposition?.captured_fee_pence ?? 0)),
+        );
+        const captureConfirmed = capturedFeePence > 0 && (
+          holdDisposition?.outcome === "FEE_CAPTURED_AND_REMAINDER_RELEASED" ||
+          holdDisposition?.outcome === "LOCAL_RECONCILIATION_FAILED_AFTER_PROVIDER_SUCCESS"
+        );
+        if (captureConfirmed) {
+          await maybeResumeTerminalFeeSettlementAfterProviderFee(supabase, {
+            tripId: trip_id,
+            source,
+          });
+        }
+        return { holdDisposition, captureConfirmed };
+      };
+
+      try {
+        const first = await runDisposeAndResume("pickup-no-show");
+        cardCharged = first.captureConfirmed;
+        const outcome = first.holdDisposition?.outcome;
+        if (
+          !cardCharged &&
+          (outcome === "PROVIDER_PENDING_RECONCILIATION" ||
+            outcome === "PROVIDER_FAILED" ||
+            first.holdDisposition == null)
+        ) {
+          scheduleEdgeBackground(async () => {
+            const retry = await runDisposeAndResume("pickup-no-show_pending_retry");
+            console.log("[PAYMENT_AUDIT] pickup-no-show pending disposition retry", {
+              trip_id,
+              capture_confirmed: retry.captureConfirmed,
+              outcome: retry.holdDisposition?.outcome,
+            });
+          }, "pickup_no_show_pending_disposition_retry");
+        }
+      } catch (disposeErr) {
+        console.error("[pickup-no-show] dispose failed (non-fatal; fee stamps retained):", disposeErr);
+        scheduleEdgeBackground(async () => {
+          try {
+            await runDisposeAndResume("pickup-no-show_dispose_exception_retry");
+          } catch (retryErr) {
+            console.error("[pickup-no-show] dispose exception retry failed", {
+              trip_id,
+              error: retryErr instanceof Error ? retryErr.message : String(retryErr),
+            });
+          }
+        }, "pickup_no_show_dispose_exception_retry");
       }
     }
 

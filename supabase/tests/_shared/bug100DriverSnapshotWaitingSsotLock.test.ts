@@ -58,3 +58,22 @@ Deno.test("Bug #100 tick exposes checked_at and server_now", async () => {
   assertStringIncludes(tick, "free_waiting_seconds");
   assertStringIncludes(tick, "clockFields");
 });
+
+Deno.test("#100A tick checked_at is evaluation nowIso not pre-sync trip stamp", async () => {
+  const tick = await Deno.readTextFile(
+    new URL("../../functions/tick-pickup-waiting-charge/index.ts", import.meta.url),
+  );
+  assertStringIncludes(tick, "#100A");
+  assertStringIncludes(tick, "waiting_geofence_checked_at: nowIso");
+  assert(
+    !/waiting_geofence_checked_at:\s*\n?\s*\(trip as/.test(tick),
+    "must not read pre-sync trip.waiting_geofence_checked_at into clockFields",
+  );
+  // Chargeable final response must include the same clock anchors.
+  const chargeableIdx = tick.lastIndexOf("pickup_waiting_charge_pence");
+  const clockOnChargeable = tick.indexOf("...clockFields", chargeableIdx);
+  assert(
+    clockOnChargeable > chargeableIdx,
+    "final chargeable tick response must spread clockFields",
+  );
+});

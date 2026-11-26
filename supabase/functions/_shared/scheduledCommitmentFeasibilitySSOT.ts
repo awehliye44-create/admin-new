@@ -116,10 +116,24 @@ export function composeInstantAdditionalWorkRemainingMinutes(input: {
 export function resolveCommitmentPickupWaitingMinutes(
   globalDispatchSettings?: Record<string, unknown> | null,
 ): number {
+  // #120: GDS stores expected_pickup_waiting_minutes (minutes). The seconds
+  // column lives on dispatch_settings only — do not require it on GDS.
+  const expectedMins = Number(
+    globalDispatchSettings?.expected_pickup_waiting_minutes,
+  );
+  if (Number.isFinite(expectedMins) && expectedMins > 0) {
+    return Math.max(0, Math.ceil(expectedMins));
+  }
   const secRaw = globalDispatchSettings?.pickup_waiting_grace_period_seconds;
   const sec = Number(secRaw);
   if (Number.isFinite(sec) && sec > 0) {
     return Math.max(0, Math.ceil(sec / 60));
+  }
+  const graceMins = Number(
+    globalDispatchSettings?.waiting_time_grace_period_minutes,
+  );
+  if (Number.isFinite(graceMins) && graceMins > 0) {
+    return Math.max(0, Math.ceil(graceMins));
   }
   return COMMITMENT_INSTANT_PICKUP_WAITING_MINUTES_DEFAULT;
 }

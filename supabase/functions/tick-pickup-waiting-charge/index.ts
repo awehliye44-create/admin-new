@@ -347,14 +347,20 @@ Deno.serve(async (req) => {
       scheduled_at: scheduledAtIso,
     };
 
-    // #100 — Stale-response guards on Driver need checked_at + server_now.
+    // #100 / #100A — checked_at MUST be this evaluation instant (nowIso).
+    // Reading trip.waiting_geofence_checked_at here is the PRE-sync stamp and
+    // pairs a fresh countedSeconds with a stale anchor → Driver over-advances
+    // by ~one tick gap (MK-261126-006 / 31s Customer↔Driver skew).
     const clockFields = {
-      waiting_geofence_checked_at:
-        (trip as { waiting_geofence_checked_at?: string | null }).waiting_geofence_checked_at ??
-        nowIso,
+      waiting_geofence_checked_at: nowIso,
       server_now: nowIso,
       free_waiting_seconds: gracePeriodSeconds,
       pickup_waiting_counted_seconds: countedSeconds,
+      grace_remaining_seconds: Math.max(0, gracePeriodSeconds - countedSeconds),
+      remaining_free_waiting_seconds: Math.max(
+        0,
+        gracePeriodSeconds - countedSeconds,
+      ),
     };
 
     if (!waitingEvidenceComplete) {
@@ -506,7 +512,8 @@ Deno.serve(async (req) => {
       waiting_geofence_status: geofenceStatus,
       admin_waiting_config_snapshot: config,
       ...noShowFields,
-        ...pauseFields,
+      ...pauseFields,
+      ...clockFields,
       ...liveFareFields(trip as Record<string, unknown>, charged.charge_pence),
     });
   } catch (err) {

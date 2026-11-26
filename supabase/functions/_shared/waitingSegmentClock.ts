@@ -825,6 +825,13 @@ export async function syncWaitingGeofenceClock(
   if (canonical.ok) {
     tripPatch[counterColumn] = countedSeconds;
   }
+  // #100A — Heartbeat of waiting SSOT evaluation (free + chargeable).
+  // Previously only the chargeable tick write path stamped last_tick_at, so
+  // free-wait runs left pickup_waiting_last_tick_at NULL even while the
+  // runner was live (MK-261126-023).
+  if (input.locationType === "pickup") {
+    tripPatch.pickup_waiting_last_tick_at = nowIso;
+  }
   await supabase.from("trips").update(tripPatch).eq("id", input.tripId);
 
   const pauseReason: "before_scheduled_pickup" | "outside_radius" | "no_trusted_location" | null =

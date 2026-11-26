@@ -4,6 +4,7 @@
  */
 import type { SupabaseClient } from "npm:@supabase/supabase-js@2.57.2";
 import {
+  computeTerminalOutcomeEntitlement,
   loadTerminalCaptureEvidence,
   postTerminalEntitlementFromSettlement,
   stampTerminalOutcomeTripRow,
@@ -200,17 +201,18 @@ export async function maybeResumeTerminalFeeSettlementAfterProviderFee(
 
   const currency = String(trip.currency_code ?? "GBP").toUpperCase();
 
-  // #110 P4C / MK-261126-001: credit may succeed while Stage D trip stamp fails
-  // (capture_confirmed_pence race). Always retry stamp; never double-post ledger.
-  const stamp = await stampTerminalOutcomeTripRow({
-    supabase,
-    tripId,
-    outcome,
-    evidence,
-    paymentMethod: trip.payment_method,
-  });
-
+  // #110 P4C / #111A (MK-261126-001): never stamp before first ledger credit.
+  // Stamp-before-post left durable stamp + missing TEN; completed-only sweep
+  // could not heal no_show. Order: credit first (exactly-once), then stamp;
+  // if stamp fails after credit, alreadyPosted path repairs stamp only.
   if (alreadyPosted) {
+    const stamp = await stampTerminalOutcomeTripRow({
+      supabase,
+      tripId,
+      outcome,
+      evidence,
+      paymentMethod: trip.payment_method,
+    });
     console.log(
       `[terminal-fee-resume] source=${args.source} trip=${tripId} outcome=${outcome} credited=false entitlement=0p fee=${evidence.provider_fee_pence}p stamp=${stamp.stamp_status} reason=entitlement_already_posted`,
     );
@@ -223,7 +225,8 @@ export async function maybeResumeTerminalFeeSettlementAfterProviderFee(
         ? "stamp_repaired_after_credit"
         : "entitlement_already_posted",
       outcome,
-      entitlement_pence: evidence.expected_driver_entitlement_pence ?? null,
+      entitlement_pence:
+        computeTerminalOutcomeEntitlement(evidence).expected_driver_entitlement_pence,
       stamp_status: stamp.stamp_status,
     };
   }
@@ -248,6 +251,14 @@ export async function maybeResumeTerminalFeeSettlementAfterProviderFee(
       entitlement_pence: null,
     };
   }
+
+  const stamp = await stampTerminalOutcomeTripRow({
+    supabase,
+    tripId,
+    outcome,
+    evidence,
+    paymentMethod: trip.payment_method,
+  });
 
   const paymentStatus = String(trip.payment_status ?? "").toLowerCase();
   if (paymentStatus === "fee_pending_settlement" && posted.credited) {

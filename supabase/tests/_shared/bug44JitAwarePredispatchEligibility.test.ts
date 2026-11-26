@@ -199,10 +199,10 @@ Deno.test("stale / missing ETA falls back conservatively to 30 minutes", () => {
   );
 });
 
-Deno.test("waiting minutes prefer dispatch grace seconds", () => {
+Deno.test("waiting minutes prefer GDS expected minutes (#120)", () => {
   assertEquals(
     resolveCommitmentPickupWaitingMinutes({
-      pickup_waiting_grace_period_seconds: 300,
+      expected_pickup_waiting_minutes: 5,
     }),
     5,
   );
@@ -211,6 +211,12 @@ Deno.test("waiting minutes prefer dispatch grace seconds", () => {
       pickup_waiting_grace_period_seconds: 180,
     }),
     3,
+  );
+  assertEquals(
+    resolveCommitmentPickupWaitingMinutes({
+      waiting_time_grace_period_minutes: 4,
+    }),
+    4,
   );
 });
 

@@ -13,6 +13,7 @@
  * Run: deno test --allow-read --no-check supabase/tests/_shared/noShowPendingDisposition111Lock.test.ts
  */
 import {
+  assertEquals,
   assertStringIncludes,
 } from "https://deno.land/std@0.224.0/assert/mod.ts";
 
@@ -25,6 +26,21 @@ Deno.test("#111 cancel-trip retries PROVIDER_PENDING_RECONCILIATION off-request"
   assertStringIncludes(cancel, "scheduleEdgeBackground");
   assertStringIncludes(cancel, "cancel-trip_pending_retry");
   assertStringIncludes(cancel, "maybeResumeTerminalFeeSettlementAfterProviderFee");
+  // #111A — terminal fee stamps retained on PROVIDER_FAILED so retry/sweep can settle.
+  assertStringIncludes(cancel, "terminal fee stamps retained for retry");
+  assertStringIncludes(cancel, "PROVIDER_FAILED");
+});
+
+Deno.test("#111A pickup-no-show settles via dispose+resume (not charge-lifecycle)", async () => {
+  const src = await Deno.readTextFile(
+    new URL("../../functions/pickup-no-show/index.ts", import.meta.url),
+  );
+  assertStringIncludes(src, "disposeTerminalTripPayment");
+  assertStringIncludes(src, "maybeResumeTerminalFeeSettlementAfterProviderFee");
+  assertStringIncludes(src, "pickup_no_show_pending_disposition_retry");
+  assertStringIncludes(src, "scheduleEdgeBackground");
+  assertEquals(src.includes("functions/v1/charge-lifecycle-fee"), false);
+  assertEquals(src.includes('fee_type: "no_show"'), false);
 });
 
 Deno.test("#111 sweep still candidates AUTHORISED terminal no_show holds", async () => {

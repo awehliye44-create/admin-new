@@ -100,13 +100,25 @@ export async function loadTerminalCaptureEvidence(
   tripId: string,
   fallbackCapturedPence?: number | null,
 ): Promise<TerminalCaptureEvidence> {
-  const { data: ps } = await supabase
+  // Prefer the session with the highest confirmed capture; never first-row /
+  // null captured_at ordering (that can pick a zero-capture sibling session).
+  const { data: rows } = await supabase
     .from("payment_sessions")
-    .select("id, captured_amount_pence, provider_processing_fee_pence, fee_status, status")
+    .select(
+      "id, captured_amount_pence, provider_processing_fee_pence, fee_status, status, updated_at",
+    )
     .eq("trip_id", tripId)
-    .order("captured_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
+    .order("captured_amount_pence", { ascending: false, nullsFirst: false })
+    .order("updated_at", { ascending: false })
+    .limit(5);
+
+  const list = Array.isArray(rows) ? rows : [];
+  const withCapture = list.find((r) => Math.round(Number(r.captured_amount_pence) || 0) > 0);
+  const withActualFee = list.find((r) => {
+    const captured = Math.round(Number(r.captured_amount_pence) || 0);
+    return captured > 0 && String(r.fee_status ?? "").toUpperCase() === "ACTUAL";
+  });
+  const ps = withActualFee ?? withCapture ?? list[0] ?? null;
 
   const captured = ps?.captured_amount_pence != null
     ? Math.round(Number(ps.captured_amount_pence))

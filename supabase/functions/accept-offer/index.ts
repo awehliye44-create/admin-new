@@ -319,7 +319,7 @@ Deno.serve(async (req) => {
       supabase
         .from("global_dispatch_settings")
         .select(
-          "jit_target_early_arrival_minutes, jit_local_safety_buffer_minutes, jit_long_safety_buffer_minutes, jit_long_distance_eta_threshold_minutes, pickup_waiting_grace_period_seconds",
+          "jit_target_early_arrival_minutes, jit_local_safety_buffer_minutes, jit_long_safety_buffer_minutes, jit_long_distance_eta_threshold_minutes, expected_pickup_waiting_minutes, waiting_time_grace_period_minutes",
         )
         .eq("singleton", true)
         .maybeSingle(),

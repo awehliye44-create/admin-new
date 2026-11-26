@@ -25,6 +25,7 @@ import {
 } from "../_shared/holdReleaseSSOT.ts";
 import { applyCanonicalSettlementAfterCapture } from "../_shared/applyCanonicalSettlementAfterCapture.ts";
 import { sweepRecoverMissingTripEarningNet } from "../_shared/missingTripEarningNetRecoverySSOT.ts";
+import { sweepRecoverTerminalFeeMissingTen } from "../_shared/terminalFeeMissingTenRecoverySSOT.ts";
 import { invokeFinalizeTripCapture } from "../_shared/invokeFinalizeTripCapture.ts";
 import { getRevolutMerchantConfig, retrieveRevolutOrder } from "../_shared/revolutOrders.ts";
 import { extractConfirmedCaptureAmountPence } from "../_shared/paymentHoldProviderTerminalPure.ts";
@@ -832,6 +833,33 @@ serve(async (req) => {
     console.error("[sweep-revolut-stale-holds] missing TEN recovery failed", tenSweepErr);
   }
 
+  // #111A — terminal-fee (no_show / fee cancel) capture missing TEN.
+  // Completed-only missing-TEN sweep cannot heal these rows.
+  let terminalFeeMissingTenRecovery: Awaited<
+    ReturnType<typeof sweepRecoverTerminalFeeMissingTen>
+  > = { scanned: 0, results: [] };
+  try {
+    terminalFeeMissingTenRecovery = await sweepRecoverTerminalFeeMissingTen(supabase, {
+      limit: Math.min(15, limit),
+      dryRun,
+    });
+    if (
+      terminalFeeMissingTenRecovery.scanned > 0
+      || terminalFeeMissingTenRecovery.results.length > 0
+    ) {
+      console.log("[sweep-revolut-stale-holds] terminal_fee_missing_ten_111a", {
+        scanned: terminalFeeMissingTenRecovery.scanned,
+        dry_run: dryRun,
+        results: terminalFeeMissingTenRecovery.results.slice(0, 10),
+      });
+    }
+  } catch (terminalFeeTenErr) {
+    console.error(
+      "[sweep-revolut-stale-holds] terminal fee missing TEN recovery failed",
+      terminalFeeTenErr,
+    );
+  }
+
   // #98 / #93E: missing PENDING after completed PC card trips (pre-capture visibility).
   // Immediate eligibility — tip-window age is NOT a delay before recovery attempts.
   let missingPendingRecovery: Awaited<
@@ -1057,6 +1085,7 @@ serve(async (req) => {
     completed_capture_heals: healResults,
     completed_authorised_retries: retryResults,
     missing_ten_recovery: missingTenRecovery,
+    terminal_fee_missing_ten_recovery: terminalFeeMissingTenRecovery,
     missing_pending_recovery_98: missingPendingRecovery,
     capture_payment_status_108: capturePaymentStatusReconcile,
     post_capture_ledger_integrity_94a: postCaptureLedgerIntegrity,

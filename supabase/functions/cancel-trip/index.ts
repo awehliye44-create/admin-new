@@ -725,8 +725,17 @@ serve(async (req) => {
     );
     const providerFailed = holdDisposition == null || holdDisposition.outcome === "PROVIDER_FAILED";
 
-    // Provider failure must not leave a charged fee or credit a wallet.
-    if (appliedFee > 0 && providerFailed) {
+    // Chargeable terminal fees settle through the canonical poster after capture.
+    // Driver identity is previous_driver_id, set before the assignment trigger
+    // nulls driver_id. CANCELLED_WITH_FEE (pre-arrival grace fee) is not settled here.
+    const settlesTerminalFee = feeType === "arrival_cancellation"
+      || feeType === "no_show"
+      || feeType === "late_cancellation";
+
+    // Provider failure must not credit a wallet. For ordinary cancels, clear the
+    // fee stamp. For no-show / arrival / late terminal fees (#111A), keep stamps
+    // so background retry + sweep can still capture — never erase the entitlement.
+    if (appliedFee > 0 && providerFailed && !settlesTerminalFee) {
       appliedFee = 0;
       feeType = "none";
       financialOutcome = "CANCELLED_NO_FEE";
@@ -737,14 +746,15 @@ serve(async (req) => {
         updated_at: new Date().toISOString(),
       }).eq("id", trip_id);
       console.error("[cancel-trip] provider failed — fee stamp cleared, no wallet credit", { trip_id });
+    } else if (appliedFee > 0 && providerFailed && settlesTerminalFee) {
+      console.error("[cancel-trip] provider failed — terminal fee stamps retained for retry", {
+        trip_id,
+        fee_type: feeType,
+        fee_pence: appliedFee,
+        outcome: holdDisposition?.outcome ?? null,
+      });
     }
 
-    // Chargeable terminal fees settle through the canonical poster after capture.
-    // Driver identity is previous_driver_id, set before the assignment trigger
-    // nulls driver_id. CANCELLED_WITH_FEE (pre-arrival grace fee) is not settled here.
-    const settlesTerminalFee = feeType === "arrival_cancellation"
-      || feeType === "no_show"
-      || feeType === "late_cancellation";
     if (captureConfirmed && settlesTerminalFee && appliedFee > 0 && entitledDriverId) {
       try {
         await maybeResumeTerminalFeeSettlementAfterProviderFee(supabase, {
@@ -759,10 +769,14 @@ serve(async (req) => {
       // PROVIDER_PENDING_RECONCILIATION (claim busy / unconfirmed capture) and leave
       // AUTHORISED with fee stamps but no TEN. Retry dispose off the request path;
       // settlement resumes only after provider-confirmed fee capture.
+      // #111A: also retry PROVIDER_FAILED / null disposition for terminal fees —
+      // fee stamps stay; never rely on the sweep as the normal settle path.
       !captureConfirmed &&
       settlesTerminalFee &&
       appliedFee > 0 &&
-      holdDisposition?.outcome === "PROVIDER_PENDING_RECONCILIATION"
+      (holdDisposition?.outcome === "PROVIDER_PENDING_RECONCILIATION" ||
+        holdDisposition?.outcome === "PROVIDER_FAILED" ||
+        holdDisposition == null)
     ) {
       const pendingFeePence = appliedFee;
       const pendingReason =
