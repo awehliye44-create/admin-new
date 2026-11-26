@@ -72,6 +72,11 @@ import {
   createStageClock,
   finishEdgeRequestLog,
 } from "../_shared/edgeRequestTiming.ts";
+import {
+  classifyPerfOutcome,
+  deriveCompleteTripDurations,
+  emitCriticalPathPerfLog,
+} from "../_shared/criticalPathPerfSSOT.ts";
 import { invokeFinalizeTripCapture as invokeFinalizeTripCaptureWithRetry } from "../_shared/invokeFinalizeTripCapture.ts";
 import { postTripEarningNetCanonical } from "../_shared/canonicalTypedWalletPostingSSOT.ts";
 import {
@@ -83,6 +88,11 @@ import {
   TIP_WINDOW_MS,
   TIP_WINDOW_STATUS,
 } from "../_shared/tipWindowConstants.ts";
+import {
+  buildTipWindowSettlementUpdate,
+  isAuthoritativeTipWindowPersisted,
+  type ExpectedOpenTipWindow,
+} from "../_shared/tipWindowPersistDecisionSSOT.ts";
 import {
   evaluateFarFromLocationGate,
   type FarFromLocationKind,
@@ -2156,6 +2166,7 @@ Deno.serve(async (req) => {
 
     /** Always attach fresh trip + stops so clients render backend truth only. */
     let completeTripStagesMs: Record<string, number> | null = null;
+    let completeTripDurationsMs: Record<string, number | null> | null = null;
     let lifecycleStagesMs: Record<string, number> | null = null;
     let lifecycleDurationsMs: Record<string, number | null> | null = null;
     const respondOk = async (
@@ -2225,6 +2236,36 @@ Deno.serve(async (req) => {
         lifecycleStagesMs = lifecyclePerf.snapshot();
         lifecycleDurationsMs = lifecyclePerf.durations();
       }
+      if (completeTripStagesMs) {
+        completeTripDurationsMs = deriveCompleteTripDurations(completeTripStagesMs);
+        // #110 — structured critical-path log (console only; no sync DB write).
+        emitCriticalPathPerfLog({
+          event: "critical_path_perf",
+          source: "stop-workflow",
+          workflow_action: action,
+          request_id: requestId,
+          correlation_id: perfId,
+          trip_id,
+          platform: "edge",
+          runtime_version: null,
+          ota_update_id: null,
+          outcome: classifyPerfOutcome({ success: true }),
+          total_ms: duration_ms,
+          stages_ms: completeTripStagesMs,
+          durations_ms: {
+            ...(lifecycleDurationsMs ?? {}),
+            ...completeTripDurationsMs,
+          },
+          parallel_groups: [
+            "completion_writes:trip_stops+trips+commission+driver_region+queued_count",
+            "response_snapshot:trip+trip_stops",
+          ],
+          notes: [
+            "completed_at stamped at completion_writes; pending is awaited after tip/capture stamps",
+            "tip_window columns skipped on settlement UPDATE when completion stamp verified (#110 P2)",
+          ],
+        });
+      }
       const stagesPayload = completeTripStagesMs ?? lifecycleStagesMs;
       logRequestDuration("stop-workflow", duration_ms, {
         request_id: requestId,
@@ -2233,6 +2274,9 @@ Deno.serve(async (req) => {
         ...(perfId ? { perf_id: perfId } : {}),
         ...(stagesPayload ? { stages_ms: stagesPayload } : {}),
         ...(lifecycleDurationsMs ? { lifecycle_durations_ms: lifecycleDurationsMs } : {}),
+        ...(completeTripDurationsMs
+          ? { complete_trip_durations_ms: completeTripDurationsMs }
+          : {}),
       });
       finishEdgeRequestLog("stop-workflow", duration_ms, {
         request_id: requestId,
@@ -2243,6 +2287,9 @@ Deno.serve(async (req) => {
         ...(perfId ? { perf_id: perfId } : {}),
         ...(stagesPayload ? { stages_ms: stagesPayload } : {}),
         ...(lifecycleDurationsMs ? { lifecycle_durations_ms: lifecycleDurationsMs } : {}),
+        ...(completeTripDurationsMs
+          ? { complete_trip_durations_ms: completeTripDurationsMs }
+          : {}),
       });
       const responseBody: Record<string, unknown> = {
         ...payload,
@@ -2250,6 +2297,9 @@ Deno.serve(async (req) => {
         ...(perfId ? { perf_id: perfId } : {}),
         ...(completeTripStagesMs
           ? { complete_trip_stages_ms: completeTripStagesMs }
+          : {}),
+        ...(completeTripDurationsMs
+          ? { complete_trip_durations_ms: completeTripDurationsMs }
           : {}),
         ...(lifecycleStagesMs
           ? { lifecycle_perf_stages_ms: lifecycleStagesMs }
@@ -4183,10 +4233,12 @@ Deno.serve(async (req) => {
         // chase money. Race-safe via FOR UPDATE RPC. Transport/RPC errors also
         // soft-allow — never Action-unavailable the driver here.
         {
+          stages.mark("payment_gate_start");
           const gateResult = await assertPlatformCollectedCompletionPaymentGate(
             supabase,
             trip_id,
           );
+          stages.mark("payment_gate_end");
           if (!gateResult.ok) {
             console.error("[stop-workflow] completion_payment_gate_soft_allow", {
               trip_id,
@@ -4322,11 +4374,13 @@ Deno.serve(async (req) => {
           && (tipWindowOrderId || tripForTipWindow.payment_session_id)
         ) {
           if (!tipWindowOrderId && tripForTipWindow.payment_session_id) {
+            stages.mark("tip_order_lookup_start");
             const { data: tipSession, error: tipSessionErr } = await supabase
               .from("payment_sessions")
               .select("provider_order_id")
               .eq("id", String(tripForTipWindow.payment_session_id))
               .maybeSingle();
+            stages.mark("tip_order_lookup_end");
             if (tipSessionErr) {
               console.error("[stop-workflow] tip window order lookup failed before completion", {
                 trip_id,
@@ -4362,11 +4416,13 @@ Deno.serve(async (req) => {
             captureAmountPence: tripForTipWindow.capture_amount_pence as number | null,
           })
         ) {
+          stages.mark("tip_area_read_start");
           const { data: tipAreaEarly, error: tipAreaEarlyErr } = await supabase
             .from("service_areas")
             .select("tips_enabled")
             .eq("id", tripForTipWindow.service_area_id as string)
             .maybeSingle();
+          stages.mark("tip_area_read_end");
           if (tipAreaEarlyErr) {
             // Do not complete until we know whether to stamp the window.
             // A failed read used to complete with no stamp, and the invoice
@@ -4439,7 +4495,9 @@ Deno.serve(async (req) => {
               updated_at: now,
             })
             .eq("id", trip_id)
-            .select("id, status, completed_at")
+            .select(
+              "id, status, completed_at, tip_window_opened_at, tip_window_expires_at, tip_window_status, tip_window_closed_at",
+            )
             .maybeSingle(),
           getDriverCommissionPct(supabase, driver_id, tripBeforeComplete.service_area_id as string | null),
           supabase
@@ -4669,6 +4727,7 @@ Deno.serve(async (req) => {
               airportChargePence: settlement.airport_charge_pence,
             });
             if (amount <= 0) return;
+            stages.mark("pending_entitlement_start");
             try {
               const pendingResult = await creditTripEarningPending(supabase, {
                 tripId: trip_id,
@@ -4689,41 +4748,104 @@ Deno.serve(async (req) => {
                 source,
                 error: pendingErr instanceof Error ? pendingErr.message : String(pendingErr),
               });
+            } finally {
+              stages.mark("pending_entitlement_end");
             }
           };
 
           let tipWindowDeferred = false;
           if (deferCaptureForTipWindow) {
-            const completedAtIso = String(fareTrip.completed_at ?? now);
-            const expiresAtIso = new Date(
-              new Date(completedAtIso).getTime() + TIP_WINDOW_MS,
-            ).toISOString();
-            const { error: tipWindowStampErr } = await supabase.from("trips").update({
-              ...tripSettlementDbColumns(settlement),
-              tip_amount_pence: tipAmountPence,
-              tip_pence: tipAmountPence,
-              final_fare_pence: finalFarePence,
-              final_customer_fare_pence:
-                nonNegInt(fareTrip.final_customer_fare_pence) || finalFarePence,
-              tip_window_opened_at: completedAtIso,
-              tip_window_expires_at: expiresAtIso,
-              tip_window_status: TIP_WINDOW_STATUS.OPEN,
-              tip_window_closed_at: null,
-              updated_at: new Date().toISOString(),
-            }).eq("id", trip_id);
+            const completedAtIso = String(
+              tipWindowOnComplete?.tip_window_opened_at ?? fareTrip.completed_at ?? now,
+            );
+            const expiresAtIso = String(
+              tipWindowOnComplete?.tip_window_expires_at
+                ?? new Date(
+                  new Date(completedAtIso).getTime() + TIP_WINDOW_MS,
+                ).toISOString(),
+            );
+            const expectedOpen: ExpectedOpenTipWindow | null = tipWindowOnComplete
+              ? {
+                tip_window_opened_at: tipWindowOnComplete.tip_window_opened_at,
+                tip_window_expires_at: tipWindowOnComplete.tip_window_expires_at,
+                tip_window_status: tipWindowOnComplete.tip_window_status,
+                tip_window_closed_at: null,
+              }
+              : null;
 
-            if (tipWindowStampErr && !tipWindowOnComplete) {
+            stages.mark("tip_window_persist_start");
+            // Verify persisted stamp (completion RETURNING), not memory alone.
+            let persistedTip = completionWriteResult?.data as
+              | {
+                tip_window_opened_at?: string | null;
+                tip_window_expires_at?: string | null;
+                tip_window_status?: string | null;
+                tip_window_closed_at?: string | null;
+              }
+              | null
+              | undefined;
+            let skipTipWindowColumns = isAuthoritativeTipWindowPersisted({
+              expected: expectedOpen,
+              persisted: persistedTip,
+            });
+            if (expectedOpen && !skipTipWindowColumns) {
+              const { data: tipRow } = await supabase
+                .from("trips")
+                .select(
+                  "tip_window_opened_at, tip_window_expires_at, tip_window_status, tip_window_closed_at",
+                )
+                .eq("id", trip_id)
+                .maybeSingle();
+              persistedTip = tipRow;
+              skipTipWindowColumns = isAuthoritativeTipWindowPersisted({
+                expected: expectedOpen,
+                persisted: tipRow,
+              });
+            }
+
+            // Settlement always persists. Tip-window columns only on recovery when
+            // the expected open stamp is missing/inconsistent (never reopen/extend).
+            const tipSettlementPatch = buildTipWindowSettlementUpdate({
+              settlementColumns: tripSettlementDbColumns(settlement),
+              tipAmountPence,
+              finalFarePence,
+              finalCustomerFarePence:
+                nonNegInt(fareTrip.final_customer_fare_pence) || finalFarePence,
+              completedAtIso,
+              expiresAtIso,
+              skipTipWindowColumns,
+              updatedAtIso: new Date().toISOString(),
+            });
+            const { error: tipWindowStampErr } = await supabase
+              .from("trips")
+              .update(tipSettlementPatch)
+              .eq("id", trip_id);
+            stages.mark("tip_window_persist_end");
+
+            if (tipWindowStampErr && !skipTipWindowColumns && !tipWindowOnComplete) {
               // Fail open to immediate capture — never skip both stamp and finalize.
-              // If the completion write already opened the window, do not capture here.
               console.error("[stop-workflow] tip window stamp failed; capturing immediately", {
                 trip_id,
                 error: tipWindowStampErr.message,
               });
+            } else if (tipWindowStampErr && skipTipWindowColumns) {
+              console.error("[stop-workflow] settlement persist failed after verified tip window", {
+                trip_id,
+                error: tipWindowStampErr.message,
+              });
+              tipWindowDeferred = true;
+              paymentCaptureDeferred = true;
+              voidTipWindowTen("deferred tip-window TEN post failed");
+              await postPendingEntitlement("tip_window_verified_settlement_failed");
             } else {
               tipWindowDeferred = true;
               paymentCaptureDeferred = true;
-              queueTipWindowTen("deferred tip-window TEN post failed");
-              await postPendingEntitlement("tip_window_deferred");
+              voidTipWindowTen("deferred tip-window TEN post failed");
+              await postPendingEntitlement(
+                skipTipWindowColumns
+                  ? "tip_window_verified_settlement_only"
+                  : "tip_window_deferred",
+              );
 
               console.log("[PAYMENT_AUDIT]", JSON.stringify({
                 stage: "tip_window_capture_deferred",
@@ -4731,6 +4853,7 @@ Deno.serve(async (req) => {
                 provider_order_id: providerOrderId,
                 tip_window_expires_at: expiresAtIso,
                 tip_window_ms: TIP_WINDOW_MS,
+                tip_window_columns_skipped: skipTipWindowColumns,
                 driver_net_pence: settlement.driver_net_pence,
                 source: "stop-workflow:complete_trip",
               }));
@@ -4747,6 +4870,7 @@ Deno.serve(async (req) => {
           if (!tipWindowDeferred) {
           // Bug #23: durable accept — stamp capture_requested + settlement, return to Rate,
           // then finalize Revolut capture in the background (same SSOT / sweeper recovery).
+          stages.mark("capture_requested_stamp_start");
           const { error: captureRequestedErr } = await supabase.from("trips").update({
             ...tripSettlementDbColumns(settlement),
             tip_amount_pence: tipAmountPence,
@@ -4758,6 +4882,7 @@ Deno.serve(async (req) => {
             payment_hold_status: "capture_requested",
             updated_at: new Date().toISOString(),
           }).eq("id", trip_id);
+          stages.mark("capture_requested_stamp_end");
           if (captureRequestedErr) {
             // Fail closed: never return Complete→Rate success without a durable queue stamp.
             console.error("[stop-workflow] capture_requested stamp failed", {
