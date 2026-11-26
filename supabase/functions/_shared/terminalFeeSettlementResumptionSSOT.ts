@@ -166,18 +166,7 @@ export async function maybeResumeTerminalFeeSettlementAfterProviderFee(
   }
 
   const ledgerType = TERMINAL_FEE_LEDGER_TYPE;
-
-  if (await ledgerTypeAlreadyPosted(supabase, tripId, ledgerType)) {
-    return {
-      resumed: false,
-      credited: false,
-      already_credited: true,
-      pending: false,
-      reason: "entitlement_already_posted",
-      outcome,
-      entitlement_pence: null,
-    };
-  }
+  const alreadyPosted = await ledgerTypeAlreadyPosted(supabase, tripId, ledgerType);
 
   const fallbackCaptured = Math.max(
     pence(trip.no_show_charge_pence),
@@ -189,7 +178,7 @@ export async function maybeResumeTerminalFeeSettlementAfterProviderFee(
     return {
       resumed: false,
       credited: false,
-      already_credited: false,
+      already_credited: alreadyPosted,
       pending: true,
       reason: "missing_capture",
       outcome,
@@ -201,7 +190,7 @@ export async function maybeResumeTerminalFeeSettlementAfterProviderFee(
     return {
       resumed: false,
       credited: false,
-      already_credited: false,
+      already_credited: alreadyPosted,
       pending: true,
       reason: "provider_fee_pending",
       outcome,
@@ -211,6 +200,8 @@ export async function maybeResumeTerminalFeeSettlementAfterProviderFee(
 
   const currency = String(trip.currency_code ?? "GBP").toUpperCase();
 
+  // #110 P4C / MK-261126-001: credit may succeed while Stage D trip stamp fails
+  // (capture_confirmed_pence race). Always retry stamp; never double-post ledger.
   const stamp = await stampTerminalOutcomeTripRow({
     supabase,
     tripId,
@@ -218,6 +209,24 @@ export async function maybeResumeTerminalFeeSettlementAfterProviderFee(
     evidence,
     paymentMethod: trip.payment_method,
   });
+
+  if (alreadyPosted) {
+    console.log(
+      `[terminal-fee-resume] source=${args.source} trip=${tripId} outcome=${outcome} credited=false entitlement=0p fee=${evidence.provider_fee_pence}p stamp=${stamp.stamp_status} reason=entitlement_already_posted`,
+    );
+    return {
+      resumed: stamp.stamp_status === "STAMPED",
+      credited: false,
+      already_credited: true,
+      pending: false,
+      reason: stamp.stamp_status === "STAMPED"
+        ? "stamp_repaired_after_credit"
+        : "entitlement_already_posted",
+      outcome,
+      entitlement_pence: evidence.expected_driver_entitlement_pence ?? null,
+      stamp_status: stamp.stamp_status,
+    };
+  }
 
   const posted = await postTerminalEntitlementFromSettlement({
     supabase,

@@ -95,6 +95,7 @@ export function buildTerminalDispositionMetadata(args: {
     ...prior,
     terminal_disposition_key: args.dispositionKey,
     terminal_disposition_pending: false,
+    terminal_disposition_in_progress: false,
     terminal_disposition_final: true,
     terminal_disposition_fee_pence: captured,
     terminal_disposition_provider_action: providerCaptured
@@ -992,7 +993,9 @@ export async function disposeTerminalTripPayment(
         metadata: {
           ...priorMeta,
           terminal_disposition_key: dispositionKey,
+          // Both keys: sweep watchdog historically read `pending` (#111 mismatch).
           terminal_disposition_in_progress: true,
+          terminal_disposition_pending: true,
           terminal_disposition_pending_at: new Date().toISOString(),
         },
         updated_at: new Date().toISOString(),
@@ -1060,6 +1063,8 @@ export async function disposeTerminalTripPayment(
             provider_order_id_mask: maskOrderId(orderId),
           };
         }
+        // #111 / MK-261126-001: disposition already holds the session CAPTURING lock.
+        // Re-claim without sessionLockAlreadyHeld → CLAIM_REFUSED → stuck AUTHORISED.
         const guardedFee = await guardedCaptureRevolutOrder({
           supabase,
           environment,
@@ -1069,6 +1074,8 @@ export async function disposeTerminalTripPayment(
           providerOrderId: orderId,
           amountPence: fee,
           purpose: "terminal_fee",
+          sessionLockAlreadyHeld: true,
+          sessionLockOwner: dispositionLockOwner,
         });
         if (!guardedFee.ok) {
           return {

@@ -1,8 +1,13 @@
 /**
- * P0 #1 — durable settlement columns after finalize-trip-and-capture.
- * Completed PLATFORM_COLLECTED card trips must not remain authorized+draft
- * with empty payment_hold_status.
+ * P0 #1 — durable settlement columns after finalize-trip-and-capture /
+ * same-isolate tip-window finalize. Completed PLATFORM_COLLECTED card trips
+ * must not remain authorized+draft with empty payment_hold_status.
+ *
+ * Canonical SSOT for both the HTTP finalize path and
+ * finalizeTipWindowCaptureImmediate — never invent a second settlement map.
  */
+
+import type { AnySupabaseClient } from "./supabaseClientTypes.ts";
 
 export type DurableSettlementColumns = {
   payment_status: string;
@@ -14,10 +19,14 @@ export function durableSettlementColumns(
   success: boolean,
 ): DurableSettlementColumns {
   const s = String(status ?? "").toLowerCase();
+  // already_captured may only stamp trips captured when the producer used
+  // provider-confirmed COMPLETED/CAPTURED evidence (#89E / MK-261125-002).
+  // A premature trips.capture_amount_pence stamp must never reach this path.
   if (
     success &&
     (s === "captured" || s === "completed" || s === "already_captured" ||
-      (s.includes("captured") && !s.includes("shortfall") && !s.includes("partial")))
+      (s.includes("captured") && !s.includes("shortfall") && !s.includes("partial") &&
+        !s.includes("unconfirmed")))
   ) {
     return { payment_status: "captured", payment_hold_status: "captured" };
   }
@@ -145,4 +154,55 @@ export function needsDurableSettlementPersist(args: {
   if (cols.payment_status === "capture_failed" && status !== "capture_failed") return true;
 
   return false;
+}
+
+/** Unconditional durable stamp (provider_authorisation_missing / catch paths). */
+export async function persistDurableSettlementOutcome(
+  supabase: AnySupabaseClient,
+  tripId: string,
+  status: string,
+  success: boolean,
+): Promise<void> {
+  const cols = durableSettlementColumns(status, success);
+  await supabase.from("trips").update({
+    payment_status: cols.payment_status,
+    payment_hold_status: cols.payment_hold_status,
+    updated_at: new Date().toISOString(),
+  }).eq("id", tripId);
+}
+
+/**
+ * Persist only when the trip still lacks a matching durable outcome.
+ * Captured stays sticky (#108).
+ */
+export async function persistDurableSettlementOutcomeIfNeeded(
+  supabase: AnySupabaseClient,
+  tripId: string,
+  finalizeSuccess: boolean,
+  finalizeStatus: string,
+): Promise<void> {
+  const cols = durableSettlementColumns(finalizeStatus, finalizeSuccess);
+  const { data: fresh } = await supabase
+    .from("trips")
+    .select("payment_status, payment_hold_status, payment_state")
+    .eq("id", tripId)
+    .maybeSingle();
+
+  if (
+    !needsDurableSettlementPersist({
+      paymentStatus: fresh?.payment_status,
+      paymentHoldStatus: fresh?.payment_hold_status,
+      paymentState: fresh?.payment_state,
+      finalizeSuccess,
+      finalizeStatus,
+    })
+  ) {
+    return;
+  }
+
+  await supabase.from("trips").update({
+    payment_status: cols.payment_status,
+    payment_hold_status: cols.payment_hold_status,
+    updated_at: new Date().toISOString(),
+  }).eq("id", tripId);
 }

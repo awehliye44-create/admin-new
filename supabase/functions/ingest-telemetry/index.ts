@@ -213,6 +213,7 @@ const ALLOWED_METADATA_KEYS = new Set([
   "response_to_state_ms",
   "state_to_interactive_ms",
   "tap_to_interactive_ms",
+  "system_tap_to_interactive_ms",
   "gate_to_edge_start_ms",
   "response_to_state_seed_ms",
   "state_seed_to_interactive_ms",
@@ -296,6 +297,10 @@ const ALLOWED_METADATA_KEYS = new Set([
   // Rating → Home
   "rating_tap_to_home_interactive_ms",
   "rating_submit_to_canonical_ms",
+  "rating_ctx_resolve_ms",
+  "rating_ctx_to_rpc_start_ms",
+  "rating_rpc_ms",
+  "rating_rpc_end_to_canonical_ms",
   "canonical_to_home_nav_ms",
   "home_nav_to_mount_ms",
   "home_mount_to_interactive_ms",

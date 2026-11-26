@@ -1006,6 +1006,7 @@ export async function executeRevolutTripCompletionCapture(args: {
           amountPence: safe.capturePence,
           expectedPayablePence: safe.capturePence,
           sessionLockAlreadyHeld: true,
+          sessionLockOwner: safeLock.ok ? safeLock.owner : null,
           purpose: "fare",
         });
         if (!guardedSafe.ok) {
@@ -1441,9 +1442,14 @@ export async function executeRevolutTripCompletionCapture(args: {
   const captureOwner = `capture:${tripId}`;
 
   if (captureSessionId) {
+    // Reusing composition lock must pass the live owner — never invent captureOwner.
     const lock = compositionLockClaimedHere
       && compositionSessionId === captureSessionId
-      ? { ok: true as const, owner: captureOwner, state: "CAPTURING" as const }
+      ? {
+        ok: true as const,
+        owner: compositionLockOwner ?? captureOwner,
+        state: "CAPTURING" as const,
+      }
       : await claimPaymentSessionFinancialLock(args.supabase, {
         paymentSessionId: captureSessionId,
         owner: captureOwner,
@@ -1588,6 +1594,7 @@ export async function executeRevolutTripCompletionCapture(args: {
         amountPence: decision.captureAmountPence,
         expectedPayablePence: decision.captureAmountPence,
         sessionLockAlreadyHeld: true,
+        sessionLockOwner: lock.ok ? lock.owner : captureOwner,
         purpose: "fare",
       });
       if (!guardedLocked.ok) {

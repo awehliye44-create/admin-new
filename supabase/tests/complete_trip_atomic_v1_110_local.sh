@@ -183,6 +183,8 @@ BEGIN
   RAISE NOTICE 'PASS 8 settlement CHECK failure: whole call rolled back (trip still in_progress, no PENDING)';
 
   -- 9) atomic rollback when PENDING insert fails: completed must NOT persist
+  -- P4B / MK-261126-006/007: non-atomic path completed then ReferenceError'd before PENDING;
+  -- atomic must never leave completed-without-PENDING (HTTP 500 with completed row).
   $SEED_SQL RETURNING id INTO tid4;
   CREATE FUNCTION pg_temp.f110_block() RETURNS trigger LANGUAGE plpgsql AS \$f\$
     BEGIN RAISE EXCEPTION 'f110 forced ledger failure' USING ERRCODE = 'check_violation'; END \$f\$;
@@ -197,7 +199,14 @@ BEGIN
   DROP TRIGGER f110_block_pending ON public.driver_wallet_ledger;
   ASSERT (SELECT status FROM public.trips WHERE id = tid4) = 'in_progress'
      AND (SELECT tip_window_expires_at FROM public.trips WHERE id = tid4) IS NULL, 'completion + tip window rolled back';
-  RAISE NOTICE 'PASS 9 PENDING failure: completion/tip window/settlement all rolled back';
+  ASSERT NOT EXISTS (SELECT 1 FROM public.driver_wallet_ledger WHERE related_trip_id = tid4), 'no PENDING after forced failure';
+  RAISE NOTICE 'PASS 9 P4B: PENDING failure rolls back completion/tip/settlement (no completed-without-PENDING)';
+
+  -- 10) P4B recovery contract note (isolated; no ledger rewrite):
+  -- Production 006/007 tip-skip + TEN (~20s) beat sweep-revolut-stale-holds (*/5 min).
+  -- missingTripEarningPendingRecoverySSOT returns TEN_EXISTS and must not invent PENDING.
+  -- Enforced in completeTripP4BRecovery94aLock.test.ts + missingTripEarningPendingRecoverySSOT.
+  RAISE NOTICE 'PASS 10 P4B: recovery TEN_EXISTS skip contract locked in source tests (no post-TEN PENDING)';
 END \$\$;
 ROLLBACK;
 SQL

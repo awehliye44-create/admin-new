@@ -32,6 +32,7 @@ import {
 import { maybeResumeTerminalFeeSettlementAfterProviderFee } from "../_shared/terminalFeeSettlementResumptionSSOT.ts";
 import { buildCancelledScheduledStatePatch } from "../_shared/tripTerminalDispatch.ts";
 import { broadcastScheduledMarketplaceChanged } from "../_shared/scheduledMarketplaceRealtimeBroadcastSSOT.ts";
+import { scheduleEdgeBackground } from "../_shared/scheduleEdgeBackground.ts";
 // #60B / MK-261120-004: STATIC import — dynamic import of this SSOT crashed
 // production cancel-trip (ERR_MODULE_NOT_FOUND → HTTP 500 ×4) when the module
 // was missing from the Edge bundle. Static import fails deploy if absent.
@@ -723,6 +724,60 @@ serve(async (req) => {
       } catch (finErr) {
         console.error("[cancel-trip] terminal fee settlement error:", finErr);
       }
+    } else if (
+      // #111 / MK-261126-001: concurrent release-terminal + cancel dispose can return
+      // PROVIDER_PENDING_RECONCILIATION (claim busy / unconfirmed capture) and leave
+      // AUTHORISED with fee stamps but no TEN. Retry dispose off the request path;
+      // settlement resumes only after provider-confirmed fee capture.
+      !captureConfirmed &&
+      settlesTerminalFee &&
+      appliedFee > 0 &&
+      holdDisposition?.outcome === "PROVIDER_PENDING_RECONCILIATION"
+    ) {
+      const pendingFeePence = appliedFee;
+      const pendingReason =
+        cancelled_by === "admin"
+          ? "admin_cancel" as const
+          : cancelled_by === "driver"
+          ? "driver_cancel_terminal" as const
+          : "customer_cancel" as const;
+      const pendingWaitingSeconds = canonicalPickupWaitingSeconds;
+      scheduleEdgeBackground(async () => {
+        try {
+          const retry = await disposeTerminalTripPayment(supabase, {
+            tripId: trip_id,
+            reason: pendingReason,
+            feePence: pendingFeePence,
+            forceFeePenceOverride: true,
+            canonicalPickupWaitingSeconds: pendingWaitingSeconds,
+          });
+          console.log("[PAYMENT_AUDIT] cancel-trip pending disposition retry", {
+            trip_id,
+            fee_pence: pendingFeePence,
+            fee_type: feeType,
+            ...retry,
+          });
+          const retryCaptured = Math.max(
+            0,
+            Math.round(Number(retry?.captured_fee_pence ?? 0)),
+          );
+          const retryConfirmed = retryCaptured > 0 && (
+            retry?.outcome === "FEE_CAPTURED_AND_REMAINDER_RELEASED" ||
+            retry?.outcome === "LOCAL_RECONCILIATION_FAILED_AFTER_PROVIDER_SUCCESS"
+          );
+          if (retryConfirmed) {
+            await maybeResumeTerminalFeeSettlementAfterProviderFee(supabase, {
+              tripId: trip_id,
+              source: "cancel-trip_pending_retry",
+            });
+          }
+        } catch (retryErr) {
+          console.error("[cancel-trip] pending disposition retry failed", {
+            trip_id,
+            error: retryErr instanceof Error ? retryErr.message : String(retryErr),
+          });
+        }
+      }, "cancel_trip_pending_disposition_retry");
     }
 
     await logAuditEvent(supabase, "trip_cancelled", {

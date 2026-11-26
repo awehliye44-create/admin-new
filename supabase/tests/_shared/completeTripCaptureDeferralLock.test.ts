@@ -62,13 +62,14 @@ Deno.test("Bug #23 lock: tip-window TEN posts via scheduleEdgeBackground", async
   );
   const completeIdx = src.indexOf("case 'complete_trip'");
   const block = src.slice(completeIdx, src.indexOf("default:", completeIdx));
-  assertStringIncludes(block, "queueTipWindowTen");
+  // #113: logTipWindowTenDeferred (was voidTipWindowTen / queueTipWindowTen mismatch).
+  assertStringIncludes(block, "logTipWindowTenDeferred");
   assertStringIncludes(block, "deferred tip-window TEN post failed");
-  // After tipWindowDeferred=true, only queueTipWindowTen(...) — no direct await TEN.
+  // After tipWindowDeferred=true, only log + PENDING — no direct await TEN.
   const deferCallRegion = block.slice(
     block.indexOf("tipWindowDeferred = true"),
     block.indexOf("if (!tipWindowDeferred) {"),
   );
-  assertStringIncludes(deferCallRegion, "queueTipWindowTen(");
+  assertStringIncludes(deferCallRegion, "logTipWindowTenDeferred(");
   assertEquals(deferCallRegion.includes("await postTripEarningNetCanonical"), false);
 });

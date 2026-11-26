@@ -21,10 +21,12 @@ Deno.test("Bug #24B: durable accept before deferred finalize (kill/offline safe)
   assertStringIncludes(tipSrc, "runDeferredTipWindowFinalize");
 
   const claimAt = tipSrc.indexOf("await claimTipWindowTrigger");
-  const scheduleAt = tipSrc.indexOf("scheduleEdgeBackground(async () => {");
+  const deferredStartAt = tipSrc.indexOf("const deferredFinalize = runDeferredTipWindowFinalize");
+  const scheduleAt = tipSrc.indexOf("scheduleEdgeBackground(\n        () => deferredFinalize");
   const deferredReturnAt = tipSrc.indexOf("tip_capture_deferred: true");
   assertEquals(claimAt > 0, true);
-  assertEquals(scheduleAt > claimAt, true);
+  assertEquals(deferredStartAt > claimAt, true);
+  assertEquals(scheduleAt > deferredStartAt, true);
   assertEquals(deferredReturnAt > scheduleAt, true);
 
   const revolutBranch = tipSrc.slice(

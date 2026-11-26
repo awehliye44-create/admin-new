@@ -167,3 +167,25 @@ Deno.test("#98 G8 preserved — no TEN before capture in tip-window path", async
   assertStringIncludes(stop, "tip-window TEN deferred until capture confirmed");
   assertStringIncludes(stop, "never post TEN during tip-window deferral");
 });
+
+Deno.test("#98/#113 complete tip-window PENDING is fail-closed; no TipWindowTen name drift", async () => {
+  const stop = await Deno.readTextFile(
+    new URL("../../functions/stop-workflow/index.ts", import.meta.url),
+  );
+  // MK-261126-006/007: queueTipWindowTen def + voidTipWindowTen calls → ReferenceError 500.
+  assertStringIncludes(stop, "logTipWindowTenDeferred");
+  assertStringIncludes(stop, "PENDING_ENTITLEMENT_FAILED");
+  assertStringIncludes(stop, "if (pendingFail) return pendingFail");
+  assertEquals(stop.includes("Never block Complete→Rate"), false);
+  assertEquals(stop.includes("Never block Complete->Rate"), false);
+
+  const liveLines = stop.split("\n").filter((line) => {
+    const t = line.trimStart();
+    return !t.startsWith("//") && !t.startsWith("*");
+  });
+  const live = liveLines.join("\n");
+  assertEquals(live.includes("voidTipWindowTen"), false);
+  assertEquals(live.includes("queueTipWindowTen"), false);
+  // Every tip-window / capture PENDING await must fail closed.
+  assertEquals((live.match(/pendingFail/g) ?? []).length >= 8, true);
+});

@@ -87,19 +87,24 @@ Deno.test("COMPAT: New Edge without migration — claim RPC fail-closed before c
   );
   assertStringIncludes(mutex, "CLAIM_RPC_FAILED");
   assertStringIncludes(submit, "Could not claim tip window");
+  assertStringIncludes(submit, "await finalizeTipWindowCaptureImmediate");
   assert(
     submit.indexOf("await claimTipWindowTrigger") <
-      submit.indexOf("await invokeFinalizeTripCapture"),
-    "mutex claim must precede finalize invoke",
+      submit.indexOf("await finalizeTipWindowCaptureImmediate"),
+    "mutex claim must precede finalize",
   );
+  // HTTP invoke remains reachable as fallback (same-isolate SSOT).
+  assertStringIncludes(submit, "invokeFinalizeTripCapture");
 });
 
 Deno.test("COMPAT: MIGRATION_FIRST_ORDER — expiry also requires claim RPC before capture", async () => {
   const expiry = await Deno.readTextFile(
     new URL("../../functions/capture-expired-tip-windows/index.ts", import.meta.url),
   );
+  assertStringIncludes(expiry, "await finalizeTipWindowCaptureImmediate");
   assert(
     expiry.indexOf("await claimTipWindowTrigger") <
-      expiry.indexOf("await invokeFinalizeTripCapture"),
+      expiry.indexOf("await finalizeTipWindowCaptureImmediate"),
   );
+  assertStringIncludes(expiry, "invokeFinalizeTripCapture");
 });

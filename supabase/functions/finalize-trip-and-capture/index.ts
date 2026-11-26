@@ -11,8 +11,8 @@ import type { AnySupabaseClient } from "../_shared/supabaseClientTypes.ts";
 import { finalizeRevolutTripCapture } from "../_shared/finalizeRevolutTripCapture.ts";
 import { tripProviderOrderId } from "../_shared/tripPaymentProviderSSOT.ts";
 import {
-  durableSettlementColumns,
-  needsDurableSettlementPersist,
+  persistDurableSettlementOutcome,
+  persistDurableSettlementOutcomeIfNeeded,
 } from "./lib/durableSettlementOutcomeSSOT.ts";
 import { isTipWindowOpen } from "../_shared/tripPaymentFinalised.ts";
 import {
@@ -65,20 +65,6 @@ function allowOpenTipWindowCapture(args: {
     Math.round(Number(args.trip.tip_amount_pence ?? args.trip.tip_pence ?? 0) || 0),
   );
   return args.tipPence === claimedTip;
-}
-
-async function persistDurableOutcome(
-  supabase: AnySupabaseClient,
-  tripId: string,
-  status: string,
-  success: boolean,
-): Promise<void> {
-  const cols = durableSettlementColumns(status, success);
-  await supabase.from("trips").update({
-    payment_status: cols.payment_status,
-    payment_hold_status: cols.payment_hold_status,
-    updated_at: new Date().toISOString(),
-  }).eq("id", tripId);
 }
 
 Deno.serve(async (req) => {
@@ -185,8 +171,8 @@ Deno.serve(async (req) => {
     const provider = String(trip.payment_provider ?? "").toLowerCase();
     const orderId = tripProviderOrderId(trip);
     if (provider !== "revolut" && !orderId) {
-      await persistDurableOutcome(
-        supabaseClient,
+      await persistDurableSettlementOutcome(
+        supabaseClient as AnySupabaseClient,
         trip_id,
         "provider_authorisation_missing",
         false,
@@ -211,7 +197,12 @@ Deno.serve(async (req) => {
       });
     } catch (captureErr) {
       const message = captureErr instanceof Error ? captureErr.message : String(captureErr);
-      await persistDurableOutcome(supabaseClient, trip_id, "capture_failed", false);
+      await persistDurableSettlementOutcome(
+        supabaseClient as AnySupabaseClient,
+        trip_id,
+        "capture_failed",
+        false,
+      );
       return new Response(JSON.stringify({
         success: false,
         error: message,
@@ -222,31 +213,12 @@ Deno.serve(async (req) => {
       });
     }
 
-    const cols = durableSettlementColumns(
-      String(revolutResult.status ?? ""),
+    await persistDurableSettlementOutcomeIfNeeded(
+      supabaseClient as AnySupabaseClient,
+      String(trip_id),
       Boolean(revolutResult.success),
+      String(revolutResult.status ?? ""),
     );
-    const { data: fresh } = await supabaseClient
-      .from("trips")
-      .select("payment_status, payment_hold_status, payment_state")
-      .eq("id", trip_id)
-      .maybeSingle();
-
-    if (
-      needsDurableSettlementPersist({
-        paymentStatus: fresh?.payment_status,
-        paymentHoldStatus: fresh?.payment_hold_status,
-        paymentState: fresh?.payment_state,
-        finalizeSuccess: Boolean(revolutResult.success),
-        finalizeStatus: String(revolutResult.status ?? ""),
-      })
-    ) {
-      await supabaseClient.from("trips").update({
-        payment_status: cols.payment_status,
-        payment_hold_status: cols.payment_hold_status,
-        updated_at: new Date().toISOString(),
-      }).eq("id", trip_id);
-    }
 
     return new Response(JSON.stringify(revolutResult), {
       status: revolutResult.success ? 200 : 400,
@@ -262,7 +234,12 @@ Deno.serve(async (req) => {
           Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "",
           { auth: { persistSession: false } },
         );
-        await persistDurableOutcome(supabaseClient, tripIdForCatch, "capture_failed", false);
+        await persistDurableSettlementOutcome(
+          supabaseClient as AnySupabaseClient,
+          tripIdForCatch,
+          "capture_failed",
+          false,
+        );
       } catch {
         // best-effort
       }

@@ -10,6 +10,26 @@ import { TIP_WINDOW_STATUS, TIP_WINDOW_TRIGGER } from "../../_shared/tipWindowCo
 
 export const TIP_WINDOW_STALE_CLAIM_MS = 5 * 60 * 1000;
 
+/**
+ * Bound CLAIM_HELD stale reconcile GETs for UNKNOWN/PROCESSING.
+ * Steal eligibility stays at TIP_WINDOW_STALE_CLAIM_MS; once that fires, re-GET
+ * at most once per throttle window. AUTHORISED/COMPLETED still settle on the
+ * next allowed GET — never invent capture without provider evidence.
+ */
+export const TIP_WINDOW_PROVIDER_GET_THROTTLE_MS = 60 * 1000;
+
+export function shouldThrottleProviderGet(args: {
+  lastProviderGetAtMs: number | null;
+  atMs: number;
+  throttleMs?: number;
+}): boolean {
+  if (args.lastProviderGetAtMs == null || !Number.isFinite(args.lastProviderGetAtMs)) {
+    return false;
+  }
+  const throttle = args.throttleMs ?? TIP_WINDOW_PROVIDER_GET_THROTTLE_MS;
+  return args.atMs - args.lastProviderGetAtMs < throttle;
+}
+
 export type ProviderGetState =
   | "COMPLETED"
   | "CAPTURED"

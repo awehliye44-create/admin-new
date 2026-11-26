@@ -78,6 +78,7 @@ import {
   emitCriticalPathPerfLog,
 } from "../_shared/criticalPathPerfSSOT.ts";
 import { invokeFinalizeTripCapture as invokeFinalizeTripCaptureWithRetry } from "../_shared/invokeFinalizeTripCapture.ts";
+import { finalizeTipWindowCaptureImmediate } from "../_shared/tipWindowImmediateFinalizeSSOT.ts";
 import { postTripEarningNetCanonical } from "../_shared/canonicalTypedWalletPostingSSOT.ts";
 import {
   creditTripEarningPending,
@@ -1233,6 +1234,12 @@ async function tryStartPickupWaiting(
     driverLng: number | undefined;
     now: string;
     perf?: StopWorkflowLifecyclePerfClock | null;
+    /**
+     * #114 Tier 2: dispatch/stop waiting settings started by the caller before the
+     * Arrived writes (independent read-only SA config). Cold-start path awaits it
+     * instead of issuing a second sequential fetch.
+     */
+    settingsPromise?: Promise<DispatchWaitingSettings> | null;
   },
 ): Promise<PickupWaitingStartResult> {
   const { tripId, trip, pickupStop, pickupLat, pickupLng, driverLat, driverLng, now, perf } = ctx;
@@ -1291,7 +1298,8 @@ async function tryStartPickupWaiting(
   }
 
   perf?.mark("waiting_config_start");
-  const settings = await fetchDispatchWaitingSettings(supabase, trip.service_area_id ?? null);
+  const settings = await (ctx.settingsPromise ??
+    fetchDispatchWaitingSettings(supabase, trip.service_area_id ?? null));
   perf?.mark("waiting_config_end");
   const radius = resolveWaitingRadius('pickup', settings, tripId);
   const radiusEnabled = radius.enabled;
@@ -1706,13 +1714,31 @@ async function invokeFinalizeTripCapture(
   tripId: string,
   tipPence: number,
 ): Promise<{ ok: boolean; error?: string; body?: Record<string, unknown> }> {
-  const result = await invokeFinalizeTripCaptureWithRetry({
+  // #110 P4B: same-isolate first (tips-disabled / non-tip-window complete) so
+  // trigger→capture claim avoids a second Edge cold-start. HTTP remains fallback.
+  const admin = createClient(supabaseUrl, serviceRoleKey, {
+    auth: { persistSession: false },
+  });
+  const result = await finalizeTipWindowCaptureImmediate({
+    supabase: admin,
     supabaseUrl,
     serviceRoleKey,
     tripId,
     tipPence,
     source: "stop-workflow:complete_trip",
+    allowOpenTipWindow: false,
   });
+  // Preserve shared HTTP retry helper reference for locks / BOOT_ERROR recovery path.
+  if (!result.ok && String(result.httpStatus ?? 0) >= 500) {
+    const retry = await invokeFinalizeTripCaptureWithRetry({
+      supabaseUrl,
+      serviceRoleKey,
+      tripId,
+      tipPence,
+      source: "stop-workflow:complete_trip",
+    });
+    return { ok: retry.ok, error: retry.error, body: retry.body };
+  }
   return {
     ok: result.ok,
     error: result.error,
@@ -3006,28 +3032,39 @@ Deno.serve(async (req) => {
           );
         }
 
-        const { error: stopUpdateError } = await supabase
-          .from("trip_stops")
-          .update({
-            status: 'current' as StopStatus,
+        lifecyclePerf?.mark("validation_end");
+        lifecyclePerf?.mark("canonical_mutation_start");
+        // #114 Tier 2: SA waiting settings are a read-only fetch independent of the
+        // Arrived writes — overlap them (was ~195ms sequential before the start RPC).
+        const waitingSettingsPromise = fetchDispatchWaitingSettings(
+          supabase,
+          trip.service_area_id ?? null,
+        );
+        // Early-return paths below must not leave an unhandled rejection.
+        waitingSettingsPromise.catch(() => undefined);
+        // #114: stop + trip UPDATEs are independent rows — parallelise (Tier 1 E3).
+        const [{ error: stopUpdateError }, tripUpdateResult] = await Promise.all([
+          supabase
+            .from("trip_stops")
+            .update({
+              status: 'current' as StopStatus,
+              arrived_at: now,
+              updated_at: now,
+            })
+            .eq("id", pickupStop.id),
+          updateTripSafe(supabase, trip_id, {
+            status: CANONICAL_ARRIVED_STATUS,
             arrived_at: now,
+            pickup_arrived_at: now,
             updated_at: now,
-          })
-          .eq("id", pickupStop.id);
+          }),
+        ]);
+        const tripUpdateError = tripUpdateResult.error;
 
         if (stopUpdateError) {
           console.error("[stop-workflow] ARRIVED_RPC_ERROR stop:", stopUpdateError);
           return errorResponse("UPDATE_FAILED", "Failed to update pickup stop", 500);
         }
-
-        lifecyclePerf?.mark("validation_end");
-        lifecyclePerf?.mark("canonical_mutation_start");
-        const { error: tripUpdateError } = await updateTripSafe(supabase, trip_id, {
-          status: CANONICAL_ARRIVED_STATUS,
-          arrived_at: now,
-          pickup_arrived_at: now,
-          updated_at: now,
-        });
 
         if (tripUpdateError) {
           console.error("[stop-workflow] ARRIVED_RPC_ERROR trip:", tripUpdateError);
@@ -3051,6 +3088,7 @@ Deno.serve(async (req) => {
           driverLng: pickupDriverLng,
           now,
           perf: lifecyclePerf,
+          settingsPromise: waitingSettingsPromise,
         });
         if (waitingResult.start_error) {
           return errorResponse(
@@ -3133,6 +3171,17 @@ Deno.serve(async (req) => {
 
         // P0 money: freeze waiting admin config + build waiting_snapshot (keep on-path).
         lifecyclePerf?.mark("enrich_start");
+        // #114 E9: attach in-memory stops — avoid respondOk re-select of trip_stops.
+        const arriveStops = (stops ?? []).map((s) =>
+          s.id === pickupStop.id
+            ? {
+              ...s,
+              status: "current" as StopStatus,
+              arrived_at: now,
+              updated_at: now,
+            }
+            : s
+        );
         const enriched = await enrichArrivalWaitingSnapshot(supabase, {
           success: true,
           action: 'arrive_pickup',
@@ -3142,6 +3191,7 @@ Deno.serve(async (req) => {
           allowed_radius_meters: waitingResult.allowed_radius_meters ?? null,
           distance_meters: waitingResult.distance_meters ?? null,
           trip: updatedTrip,
+          stops: arriveStops,
         }, waitingResult, { scope: 'pickup', trip: billingTrip, trip_id });
         lifecyclePerf?.mark("enrich_end");
         return await respondOk(enriched, { skipSnapshotRefresh: true });
@@ -4737,21 +4787,27 @@ Deno.serve(async (req) => {
           // G8 / CaptureSSOT: never post TEN during tip-window deferral.
           // SettlementSSOT posts TRIP_EARNING_NET only after provider-confirmed capture
           // (finalize / tip submit / tip-window expiry). Operational Complete→Rate stays non-blocking.
-          // #98: post TRIP_EARNING_PENDING immediately so earnings are visible while awaiting capture.
-          const queueTipWindowTen = (label: string) => {
+          // #98: post TRIP_EARNING_PENDING immediately — fail closed (never best-effort).
+          // MK-261126-006/007 / #113: calls used voidTipWindowTen but the helper was
+          // named queueTipWindowTen → ReferenceError: voidTipWindowTen is not defined
+          // (HTTP 500 after completion write; PENDING never reached — #98).
+          // Helper renamed to logTipWindowTenDeferred (definition matches all call sites).
+          const logTipWindowTenDeferred = (label: string) => {
             console.log("[stop-workflow] tip-window TEN deferred until capture confirmed", {
               trip_id,
               label,
               driver_net_pence: settlement.driver_net_pence,
             });
           };
-          const postPendingEntitlement = async (source: string) => {
-            if (!mayPostDriverWalletLedger || !driver_id) return;
+          const postPendingEntitlement = async (
+            source: string,
+          ): Promise<Response | null> => {
+            if (!mayPostDriverWalletLedger || !driver_id) return null;
             const amount = pendingEntitlementAmountPence({
               driverNetPence: settlement.driver_net_pence,
               airportChargePence: settlement.airport_charge_pence,
             });
-            if (amount <= 0) return;
+            if (amount <= 0) return null;
             stages.mark("pending_entitlement_start");
             try {
               const pendingResult = await creditTripEarningPending(supabase, {
@@ -4766,13 +4822,31 @@ Deno.serve(async (req) => {
                 amount_pence: amount,
                 ...pendingResult,
               });
+              if (!pendingResult.ok) {
+                console.error("[stop-workflow] trip earning pending not durable", {
+                  trip_id,
+                  source,
+                  reason: pendingResult.reason,
+                  message: pendingResult.message ?? null,
+                });
+                return errorResponse(
+                  "PENDING_ENTITLEMENT_FAILED",
+                  "Unable to record pending trip earnings. Please try again.",
+                  500,
+                );
+              }
+              return null;
             } catch (pendingErr) {
-              // Never block Complete→Rate; recovery inserts missing PENDING.
               console.error("[stop-workflow] trip earning pending failed", {
                 trip_id,
                 source,
                 error: pendingErr instanceof Error ? pendingErr.message : String(pendingErr),
               });
+              return errorResponse(
+                "PENDING_ENTITLEMENT_FAILED",
+                "Unable to record pending trip earnings. Please try again.",
+                500,
+              );
             } finally {
               stages.mark("pending_entitlement_end");
             }
@@ -4860,17 +4934,25 @@ Deno.serve(async (req) => {
               });
               tipWindowDeferred = true;
               paymentCaptureDeferred = true;
-              voidTipWindowTen("deferred tip-window TEN post failed");
-              await postPendingEntitlement("tip_window_verified_settlement_failed");
+              logTipWindowTenDeferred("deferred tip-window TEN post failed");
+              {
+                const pendingFail = await postPendingEntitlement(
+                  "tip_window_verified_settlement_failed",
+                );
+                if (pendingFail) return pendingFail;
+              }
             } else {
               tipWindowDeferred = true;
               paymentCaptureDeferred = true;
-              voidTipWindowTen("deferred tip-window TEN post failed");
-              await postPendingEntitlement(
-                skipTipWindowColumns
-                  ? "tip_window_verified_settlement_only"
-                  : "tip_window_deferred",
-              );
+              logTipWindowTenDeferred("deferred tip-window TEN post failed");
+              {
+                const pendingFail = await postPendingEntitlement(
+                  skipTipWindowColumns
+                    ? "tip_window_verified_settlement_only"
+                    : "tip_window_deferred",
+                );
+                if (pendingFail) return pendingFail;
+              }
 
               console.log("[PAYMENT_AUDIT]", JSON.stringify({
                 stage: "tip_window_capture_deferred",
@@ -4889,8 +4971,11 @@ Deno.serve(async (req) => {
             // capture is refused while the window is open and would miss TEN.
             tipWindowDeferred = true;
             paymentCaptureDeferred = true;
-            queueTipWindowTen("deferred tip-window TEN post failed");
-            await postPendingEntitlement("tip_window_already_open");
+            logTipWindowTenDeferred("deferred tip-window TEN post failed");
+            {
+              const pendingFail = await postPendingEntitlement("tip_window_already_open");
+              if (pendingFail) return pendingFail;
+            }
           }
           if (!tipWindowDeferred) {
           // Bug #23: durable accept — stamp capture_requested + settlement, return to Rate,
@@ -4921,8 +5006,12 @@ Deno.serve(async (req) => {
               captureRequestedErr,
             );
           }
-          await postPendingEntitlement("capture_requested");
+          {
+            const pendingFail = await postPendingEntitlement("capture_requested");
+            if (pendingFail) return pendingFail;
+          }
 
+          
           const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
           const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
           console.log("[PAYMENT_AUDIT]", JSON.stringify({

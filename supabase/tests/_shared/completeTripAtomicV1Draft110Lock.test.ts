@@ -105,6 +105,26 @@ Deno.test("stop-workflow does NOT call the atomic RPC yet (STOP BEFORE PROD)", (
   assertStringIncludes(stop, 'case \'complete_trip\'');
 });
 
+Deno.test("P4B #113/#98 stop-workflow fail-closed PENDING; TipWindowTen name lock (STOP cutover)", () => {
+  // Production evidence MK-261126-006/007: queueTipWindowTen vs voidTipWindowTen → HTTP 500,
+  // PENDING never posted, client reconciled_success. Atomic cutover remains STOP until this
+  // contract holds on the non-atomic path and isolated atomic fixtures cover the same failure.
+  const stop = read("functions/stop-workflow/index.ts");
+  assertStringIncludes(stop, "PENDING_ENTITLEMENT_FAILED");
+  assertStringIncludes(stop, "logTipWindowTenDeferred");
+  assertStringIncludes(stop, "if (pendingFail) return pendingFail");
+  const live = stop
+    .split("\n")
+    .filter((line) => {
+      const t = line.trimStart();
+      return !t.startsWith("//") && !t.startsWith("*");
+    })
+    .join("\n");
+  assert(!live.includes("voidTipWindowTen"), "live voidTipWindowTen must not exist");
+  assert(!live.includes("queueTipWindowTen"), "live queueTipWindowTen must not exist");
+  assert(!stop.includes(RPC), "atomic RPC still STOP — do not activate in production");
+});
+
 Deno.test("no edge function or shared module calls the atomic RPC yet", () => {
   const hits: string[] = [];
   const walk = (dir: URL) => {

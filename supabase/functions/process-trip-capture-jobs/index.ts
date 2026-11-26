@@ -1,6 +1,7 @@
 /**
- * Process durable trip_capture_jobs created by stop-workflow complete_trip.
- * Uses the existing finalize-trip-and-capture invoke (idempotent).
+ * Process durable trip_capture_jobs (fallback capture queue).
+ * Primary card capture is immediate finalize (tips-disabled complete / tip triggers);
+ * this worker recovers queued jobs only. Uses finalize-trip-and-capture (idempotent).
  * Also retries durable admin alerts for failed_terminal rows still pending.
  * Auth: cron secret or service role only.
  *

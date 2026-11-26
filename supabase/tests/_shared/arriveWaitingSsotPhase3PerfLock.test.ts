@@ -179,6 +179,48 @@ Deno.test("pickup vs stop waiting identity remain separate", async () => {
   assertStringIncludes(sql, "AND type = 'pickup'");
 });
 
+Deno.test("#114 arrive_pickup attaches stops + parallel stop/trip UPDATEs", async () => {
+  const stop = await Deno.readTextFile(
+    new URL("../../functions/stop-workflow/index.ts", import.meta.url),
+  );
+  // E3: stop + trip mutation in Promise.all
+  assertStringIncludes(stop, "ARRIVED_RPC_ERROR stop");
+  assertStringIncludes(
+    stop,
+    "// #114: stop + trip UPDATEs are independent rows — parallelise (Tier 1 E3).",
+  );
+  // E9: in-memory stops on skipSnapshotRefresh (same contract as arrive_stop)
+  assertStringIncludes(stop, "#114 E9: attach in-memory stops");
+  const arriveCase = stop.slice(stop.indexOf("case 'arrive_pickup'"), stop.indexOf("case 'start_trip'"));
+  assertStringIncludes(arriveCase, "stops: arriveStops");
+  assertStringIncludes(arriveCase, "skipSnapshotRefresh: true");
+});
+
+Deno.test("#114 Tier 2: arrive_pickup overlaps SA waiting settings fetch with Arrived writes", async () => {
+  const src = await Deno.readTextFile(stopWorkflowPath);
+  const arriveCase = src.slice(
+    src.indexOf("case 'arrive_pickup'"),
+    src.indexOf("case 'start_trip'"),
+  );
+  const fetchIdx = arriveCase.indexOf("fetchDispatchWaitingSettings(");
+  const mutationIdx = arriveCase.indexOf("// #114: stop + trip UPDATEs are independent rows");
+  const waitingIdx = arriveCase.lastIndexOf("tryStartPickupWaiting(");
+  // Fetch starts before the Arrived writes and before the canonical waiting start.
+  assertEquals(fetchIdx > 0 && fetchIdx < mutationIdx && mutationIdx < waitingIdx, true);
+  assertStringIncludes(arriveCase, "settingsPromise: waitingSettingsPromise");
+  // Orphaned promise on early error returns must be handled.
+  assertStringIncludes(arriveCase, "waitingSettingsPromise.catch(");
+
+  const fnStart = src.indexOf("async function tryStartPickupWaiting");
+  const fnEnd = src.indexOf("async function tryStartStopWaiting", fnStart);
+  const block = src.slice(fnStart, fnEnd);
+  // Cold start awaits the preloaded promise; falls back to a fetch only when absent.
+  assertStringIncludes(block, "ctx.settingsPromise ??");
+  // Money: radius/segment/start semantics unchanged — still Promise.all(start, trusted) then geofence.
+  assertStringIncludes(block, "ensurePickupWaitingStarted");
+  assertStringIncludes(block, "trustedResolved: true");
+});
+
 Deno.test("arrive_stop + drive_to_next attach stops when skipSnapshotRefresh", async () => {
   const src = await Deno.readTextFile(stopWorkflowPath);
   const arriveIdx = src.indexOf("case 'arrive_stop'");

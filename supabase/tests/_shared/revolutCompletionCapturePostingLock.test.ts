@@ -51,7 +51,11 @@ Deno.test("finalize-trip-and-capture HTTP status follows capture success, not wa
   );
   assertStringIncludes(src, "status: revolutResult.success ? 200 : 400");
   assertEquals(src.includes("wallet_posting_status"), false);
-  assertEquals(src.includes('status: "capture_failed"') && src.includes("persistDurableOutcome"), true);
+  assertEquals(
+    src.includes('status: "capture_failed"') &&
+      src.includes("persistDurableSettlementOutcome"),
+    true,
+  );
 });
 
 Deno.test("invokeFinalizeTripCapture retries only on HTTP/BOOT_ERROR, not wallet mismatch", async () => {

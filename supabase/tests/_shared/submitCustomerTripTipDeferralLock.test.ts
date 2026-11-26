@@ -18,12 +18,13 @@ Deno.test("Bug #24B lock: tip amount + mutex claim before deferred finalize", ()
   assertStringIncludes(tipSrc, "source: \"submit_customer_trip_tip\"");
 
   const claimAt = tipSrc.indexOf("claimTipWindowTrigger");
-  const scheduleAt = tipSrc.indexOf(
-    'scheduleEdgeBackground(async () => {\n        await runDeferredTipWindowFinalize',
-  );
+  // #110 P4B: start deferred finalize promise immediately, then waitUntil it.
+  const deferredStartAt = tipSrc.indexOf("const deferredFinalize = runDeferredTipWindowFinalize");
+  const scheduleAt = tipSrc.indexOf("scheduleEdgeBackground(\n        () => deferredFinalize");
   const returnDeferredAt = tipSrc.indexOf("tip_capture_deferred: true");
   assertEquals(claimAt > 0, true);
-  assertEquals(scheduleAt > claimAt, true);
+  assertEquals(deferredStartAt > claimAt, true);
+  assertEquals(scheduleAt > deferredStartAt, true);
   assertEquals(returnDeferredAt > scheduleAt, true);
 
   // Sync await invokeFinalize must not remain on the Revolut response path.
@@ -33,6 +34,8 @@ Deno.test("Bug #24B lock: tip amount + mutex claim before deferred finalize", ()
   );
   assertEquals(revolutBranch.includes("await invokeFinalizeTripCapture"), false);
   assertEquals(revolutBranch.includes("scheduleEdgeBackground"), true);
+  // Immediate same-isolate capture SSOT (HTTP invoke is fallback only).
+  assertStringIncludes(tipSrc, "finalizeTipWindowCaptureImmediate");
 });
 
 Deno.test("Bug #24B lock: deferred finalize reuses tip mutex release / seal SSOT", () => {

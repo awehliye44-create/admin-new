@@ -365,6 +365,7 @@ export async function executeAdminCaptureTripPayment(args: {
       } catch (snapErr) {
         console.error("[admin-capture] payable snapshot failed", snapErr);
       }
+      // Lock already claimed above — same #111 re-entry trap as terminal fee capture.
       const guarded = await guardedCaptureRevolutOrder({
         supabase: args.supabase,
         environment: merchant.environment,
@@ -374,6 +375,8 @@ export async function executeAdminCaptureTripPayment(args: {
         providerOrderId: orderId,
         amountPence: decision.captureAmountPence,
         purpose: "fare",
+        sessionLockAlreadyHeld: true,
+        sessionLockOwner: captureOwner,
       });
       if (!guarded.ok) {
         earlyFail = fail({

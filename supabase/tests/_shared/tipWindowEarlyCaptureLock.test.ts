@@ -121,9 +121,17 @@ Deno.test("LOCK: early tip_window_closed_at while expires_at future is closed (n
 
 Deno.test("LOCK: source files refuse false capture / tip seal", async () => {
   const durable = await Deno.readTextFile(
-    new URL("../../functions/finalize-trip-and-capture/lib/durableSettlementOutcomeSSOT.ts", import.meta.url),
+    new URL("../../functions/_shared/durableSettlementOutcomeSSOT.ts", import.meta.url),
   );
   assertEquals(durable.includes("must NOT invent captured"), true);
+  // HTTP lib must re-export the shared SSOT — never a divergent second map.
+  const durableLib = await Deno.readTextFile(
+    new URL(
+      "../../functions/finalize-trip-and-capture/lib/durableSettlementOutcomeSSOT.ts",
+      import.meta.url,
+    ),
+  );
+  assertEquals(durableLib.includes("../../_shared/durableSettlementOutcomeSSOT.ts"), true);
 
   const tipFinal = await Deno.readTextFile(
     new URL("../../functions/_shared/tripPaymentFinalised.ts", import.meta.url),

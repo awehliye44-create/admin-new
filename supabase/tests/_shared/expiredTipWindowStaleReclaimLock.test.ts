@@ -23,6 +23,8 @@ import {
   buildTipWindowCaptureIdempotencyKey,
   decideExpiredStaleReclaimAfterGet,
   runExpiredCrashAfterCaptureRecovery,
+  shouldThrottleProviderGet,
+  TIP_WINDOW_PROVIDER_GET_THROTTLE_MS,
   TIP_WINDOW_STALE_CLAIM_MS,
 } from "../../functions/capture-expired-tip-windows/lib/expiredTipWindowStaleReclaimSSOT.ts";
 
@@ -40,7 +42,7 @@ function memoryCrashDeps(opts: {
   let owner: string | null = null;
   let claimedAt = 0;
   let idemKey: string | null = null;
-  let status = TIP_WINDOW_STATUS.OPEN;
+  let status: string = TIP_WINDOW_STATUS.OPEN;
   let capturePosts = 0;
   let finalized = 0;
 
@@ -229,11 +231,49 @@ Deno.test("LOCK: capture-expired wires GET-first stale recovery + stamp before c
   assertStringIncludes(src, "finalizeTipWindowExpiredAfterProviderCapture");
   assertStringIncludes(src, "reclaimStaleTipWindowExpiryAfterAuthorisedGet");
   assertStringIncludes(src, "stampTipWindowCaptureIdempotencyKey");
+  // #110 P4C: same-isolate finalize (full trip reload) — never pass column-limited
+  // candidate row; HTTP invokeFinalize remains fallback only.
+  assertStringIncludes(src, "await finalizeTipWindowCaptureImmediate");
+  assertStringIncludes(src, "Do NOT pass the sweep's column-limited candidate row");
   assert(
     src.lastIndexOf("await stampTipWindowCaptureIdempotencyKey") <
-      src.lastIndexOf("await invokeFinalizeTripCapture") &&
+      src.lastIndexOf("await finalizeTipWindowCaptureImmediate") &&
       src.lastIndexOf("await stampTipWindowCaptureIdempotencyKey") > 0,
   );
   assertStringIncludes(src, "stale_reconciled_already_captured");
   assertStringIncludes(src, "provider_unknown_claim_retained");
+  // #110 P4D: bound UNKNOWN/PROCESSING re-GET; stamp last get; settle when evidence appears.
+  assertStringIncludes(src, "shouldThrottleProviderGet");
+  assertStringIncludes(src, "provider_reconcile_throttled");
+  assertStringIncludes(src, "tip_window_last_provider_get_at");
+  // #110 P4D: close-only invoice only after authoritative close or verified terminal.
+  assertStringIncludes(src, '.select("id")');
+  assertStringIncludes(src, "already_closed_verified");
+  assertStringIncludes(src, "close_noop_not_terminal");
+});
+
+Deno.test("LOCK: UNKNOWN-claim GET throttle is bounded and allows first GET", () => {
+  const at = 1_000_000;
+  assertEquals(
+    shouldThrottleProviderGet({ lastProviderGetAtMs: null, atMs: at }),
+    false,
+  );
+  assertEquals(
+    shouldThrottleProviderGet({
+      lastProviderGetAtMs: at - (TIP_WINDOW_PROVIDER_GET_THROTTLE_MS - 1),
+      atMs: at,
+    }),
+    true,
+  );
+  assertEquals(
+    shouldThrottleProviderGet({
+      lastProviderGetAtMs: at - TIP_WINDOW_PROVIDER_GET_THROTTLE_MS,
+      atMs: at,
+    }),
+    false,
+  );
+  assert(
+    TIP_WINDOW_PROVIDER_GET_THROTTLE_MS < TIP_WINDOW_STALE_CLAIM_MS,
+    "GET throttle must be stricter than steal eligibility, not replace it",
+  );
 });

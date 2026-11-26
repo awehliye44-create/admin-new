@@ -3,4 +3,4 @@
  * Re-exported here for frontend/test imports.
  */
 
-export * from "../supabase/functions/finalize-trip-and-capture/lib/durableSettlementOutcomeSSOT.ts";
+export * from "../supabase/functions/_shared/durableSettlementOutcomeSSOT.ts";

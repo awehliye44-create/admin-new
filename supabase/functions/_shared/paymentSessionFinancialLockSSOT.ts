@@ -25,7 +25,9 @@ export type FinancialLockClaim =
     currentOwner: string | null;
   };
 
-function readLock(session: Record<string, unknown> | null): {
+export function readPaymentSessionFinancialLock(
+  session: Record<string, unknown> | null,
+): {
   state: FinancialOperationState;
   owner: string | null;
   startedAtMs: number | null;
@@ -88,7 +90,7 @@ export async function claimPaymentSessionFinancialLock(
     return { ok: false, reason: "missing_session", currentState: null, currentOwner: null };
   }
 
-  const current = readLock(session as Record<string, unknown>);
+  const current = readPaymentSessionFinancialLock(session as Record<string, unknown>);
   // Unique execution owners: same owner string must NOT re-enter.
   // Lease expiry alone never authorises a new financial POST — callers must
   // GET-reconcile when provider_post_inflight; reclaim only clears abandoned locks.
@@ -189,7 +191,7 @@ export async function reclaimExpiredPaymentSessionFinancialLock(
   if (!session) {
     return { reclaimed: false, previousState: null, previousOwner: null };
   }
-  const current = readLock(session as Record<string, unknown>);
+  const current = readPaymentSessionFinancialLock(session as Record<string, unknown>);
   if (current.state === "IDLE" || current.state === "CAPTURED") {
     return {
       reclaimed: false,

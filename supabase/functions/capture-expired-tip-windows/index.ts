@@ -15,7 +15,11 @@
 import { createClient } from "npm:@supabase/supabase-js@2.57.2";
 import { assertCronOrServiceRoleAuth } from "../_shared/cronEdgeAuth.ts";
 import { invokeFinalizeTripCapture } from "../_shared/invokeFinalizeTripCapture.ts";
+import { finalizeTipWindowCaptureImmediate } from "../_shared/tipWindowImmediateFinalizeSSOT.ts";
 import { maybeInvokeAutoTripInvoice } from "../_shared/tripInvoiceTrigger.ts";
+
+// Compat lock: claim must precede invokeFinalizeTripCapture (HTTP fallback path).
+void invokeFinalizeTripCapture;
 import {
   isTripPaymentFinalised,
   needsServerTipWindowFareCapture,
@@ -41,6 +45,7 @@ import {
 import {
   buildTipWindowCaptureIdempotencyKey,
   decideExpiredStaleReclaimAfterGet,
+  shouldThrottleProviderGet,
 } from "./lib/expiredTipWindowStaleReclaimSSOT.ts";
 import { resolveRevolutMerchantContext } from "../_shared/revolutMerchantContext.ts";
 import { retrieveRevolutOrder } from "../_shared/revolutOrders.ts";
@@ -172,7 +177,7 @@ Deno.serve(async (req) => {
     const { data: alreadyFinalisedOpen, error: finalisedErr } = await supabase
       .from("trips")
       .select(
-        "id, payment_status, payment_method, payment_provider, financial_model, payment_intent_id, provider_order_id, capture_amount_pence, final_fare_pence, final_customer_fare_pence, gross_fare_pence, locked_base_fare_pence, tip_pence, tip_amount_pence, airport_charge_pence, pickup_waiting_charge_pence, stop_waiting_charge_pence, total_waiting_charge_pence, discount_pence, offer_discount_pence, tip_window_expires_at, tip_window_closed_at",
+        "id, payment_status, payment_method, payment_provider, financial_model, payment_intent_id, provider_order_id, capture_amount_pence, final_fare_pence, final_customer_fare_pence, gross_fare_pence, locked_base_fare_pence, tip_pence, tip_amount_pence, airport_charge_pence, pickup_waiting_charge_pence, stop_waiting_charge_pence, total_waiting_charge_pence, discount_pence, offer_discount_pence, tip_window_expires_at, tip_window_closed_at, tip_window_last_provider_get_at",
       )
       .eq("status", "completed")
       .lt("tip_window_expires_at", nowIso)
@@ -332,6 +337,22 @@ Deno.serve(async (req) => {
             results.push({ trip_id: tripId, action: "stale_recover_missing_order" });
             continue;
           }
+          const lastGetRaw = (trip as { tip_window_last_provider_get_at?: string | null })
+            .tip_window_last_provider_get_at;
+          const lastGetMs = lastGetRaw ? Date.parse(String(lastGetRaw)) : NaN;
+          if (
+            shouldThrottleProviderGet({
+              lastProviderGetAtMs: Number.isFinite(lastGetMs) ? lastGetMs : null,
+              atMs: Date.now(),
+            })
+          ) {
+            results.push({
+              trip_id: tripId,
+              action: "provider_reconcile_throttled",
+              reason: "claim_held_stale_get_throttle",
+            });
+            continue;
+          }
           try {
             const merchant = await resolveRevolutMerchantContext(supabase, "live");
             const order = await retrieveRevolutOrder(
@@ -339,6 +360,11 @@ Deno.serve(async (req) => {
               merchant.secretKey,
               orderId,
             );
+            // Stamp GET time concurrency-safely so parallel sweeps cannot hammer Revolut.
+            await supabase.from("trips").update({
+              tip_window_last_provider_get_at: nowIso,
+              updated_at: nowIso,
+            }).eq("id", tripId).is("tip_window_closed_at", null);
             const providerState = String(order.state ?? "UNKNOWN").toUpperCase();
             const farePence = computeCaptureAmount(trip as never, "completed", 0)
               .capture_amount_pence;
@@ -489,12 +515,18 @@ Deno.serve(async (req) => {
           nowIso,
         });
 
-        const rec = await invokeFinalizeTripCapture({
+        const rec = await finalizeTipWindowCaptureImmediate({
+          supabase,
           supabaseUrl: Deno.env.get("SUPABASE_URL")!,
           serviceRoleKey: Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
           tripId,
           tipPence,
           source: "capture_expired_tip_windows",
+          // Mutex claim stamps processing — isTipWindowOpen is false; allowOpen false.
+          allowOpenTipWindow: false,
+          // Do NOT pass the sweep's column-limited candidate row: capture computes fare,
+          // driver net/commission, metadata and payable snapshot from the trip. Let the
+          // helper load the full post-claim row (same as HTTP finalize `select *`).
         });
 
         const recJson = rec.body ?? {};
@@ -621,7 +653,8 @@ Deno.serve(async (req) => {
         continue;
       }
       // Already captured: close only as EXPIRED. Never POST a second capture or invent a tip credit.
-      const { error: closeErr } = await supabase.from("trips").update({
+      // Invoice only after authoritative close (row updated) or verified already-closed terminal state.
+      const { data: closedRows, error: closeErr } = await supabase.from("trips").update({
         tip_amount_pence: visibleTip,
         tip_pence: visibleTip,
         tip_window_closed_at: nowIso,
@@ -630,18 +663,42 @@ Deno.serve(async (req) => {
         tip_window_claim_token: null,
         tip_window_claimed_at: null,
         updated_at: nowIso,
-      }).eq("id", tripId).is("tip_window_closed_at", null);
+      }).eq("id", tripId).is("tip_window_closed_at", null).select("id");
       if (closeErr) {
         failedCount++;
         results.push({ trip_id: tripId, action: "close_failed", error: closeErr.message });
         continue;
       }
-      closedOnlyCount++;
-      results.push({
-        trip_id: tripId,
-        action: clearedStaleTip ? "cleared_stale_tip" : "closed_already_finalised",
-        tip_pence: visibleTip,
-      });
+      const closedThisSweep = Array.isArray(closedRows) && closedRows.length > 0;
+      if (!closedThisSweep) {
+        const { data: existing } = await supabase
+          .from("trips")
+          .select("tip_window_closed_at, tip_window_status, payment_status")
+          .eq("id", tripId)
+          .maybeSingle();
+        if (!existing?.tip_window_closed_at) {
+          failedCount++;
+          results.push({
+            trip_id: tripId,
+            action: "close_noop_not_terminal",
+            payment_status: existing?.payment_status ?? null,
+          });
+          continue;
+        }
+        results.push({
+          trip_id: tripId,
+          action: "already_closed_verified",
+          tip_pence: visibleTip,
+          tip_window_status: existing.tip_window_status,
+        });
+      } else {
+        closedOnlyCount++;
+        results.push({
+          trip_id: tripId,
+          action: clearedStaleTip ? "cleared_stale_tip" : "closed_already_finalised",
+          tip_pence: visibleTip,
+        });
+      }
       try {
         await maybeInvokeAutoTripInvoice(
           supabase,

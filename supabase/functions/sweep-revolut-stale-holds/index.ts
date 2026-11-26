@@ -180,7 +180,12 @@ serve(async (req) => {
       ? Date.parse(meta.terminal_disposition_pending_at)
       : NaN;
     const ageMs = nowMs - new Date(String(row.created_at)).getTime();
-    const pendingStale = meta.terminal_disposition_pending === true &&
+    // #111: disposition stamps `terminal_disposition_in_progress`; older watchdog
+    // only read `terminal_disposition_pending` and never fired for stuck no-shows.
+    const pendingStale = (
+      meta.terminal_disposition_pending === true ||
+      meta.terminal_disposition_in_progress === true
+    ) &&
       Number.isFinite(pendingAt) &&
       (nowMs - pendingAt) > PENDING_GRACE_MS;
 

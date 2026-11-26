@@ -17,6 +17,7 @@ import { createClient } from "npm:@supabase/supabase-js@2.57.2";
 import { invokeFinalizeTripCapture } from "../_shared/invokeFinalizeTripCapture.ts";
 import { scheduleEdgeBackground } from "../_shared/scheduleEdgeBackground.ts";
 import { isCustomerAppTipChannelEligible } from "../_shared/tipChannelEligibilitySSOT.ts";
+import { finalizeTipWindowCaptureImmediate } from "../_shared/tipWindowImmediateFinalizeSSOT.ts";
 import {
   TIP_AUTHORISATION_DECLINED,
   TIP_NOT_COLLECTED,
@@ -39,6 +40,9 @@ import {
   tipWindowCloseAllowedAfterFinalize,
 } from "../_shared/tripPaymentFinalised.ts";
 import type { SupabaseClient } from "npm:@supabase/supabase-js@2.57.2";
+
+// Lock + fallback: HTTP invokeFinalizeTripCapture retained via immediate SSOT fallback.
+void invokeFinalizeTripCapture;
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -355,20 +359,26 @@ Deno.serve(async (req) => {
       // Revolut finalize/seal runs via scheduleEdgeBackground — same SSOT,
       // no second capture pipeline. Client Homes on tip_accepted (pending),
       // never treats this as tip paid until tip_window_status seals closed.
+      //
+      // #110 P4B: start same-isolate finalize immediately (before response flush)
+      // so trigger → CAPTURE claim stays within ~1s; waitUntil keeps the isolate
+      // alive after tip_accepted returns.
       const deferredTipPence = tipAmountPence;
       const deferredClaimToken = mutex.claimToken;
       const deferredTrigger = trigger;
-      scheduleEdgeBackground(async () => {
-        await runDeferredTipWindowFinalize({
-          admin,
-          supabaseUrl,
-          serviceRoleKey,
-          tripId,
-          tipAmountPence: deferredTipPence,
-          claimToken: deferredClaimToken,
-          trigger: deferredTrigger,
-        });
-      }, "deferred tip-window finalize after durable accept");
+      const deferredFinalize = runDeferredTipWindowFinalize({
+        admin,
+        supabaseUrl,
+        serviceRoleKey,
+        tripId,
+        tipAmountPence: deferredTipPence,
+        claimToken: deferredClaimToken,
+        trigger: deferredTrigger,
+      });
+      scheduleEdgeBackground(
+        () => deferredFinalize,
+        "deferred tip-window finalize after durable accept",
+      );
 
       console.log("[PAYMENT_AUDIT]", JSON.stringify({
         stage: "tip_capture_queued",
@@ -461,12 +471,16 @@ async function runDeferredTipWindowFinalize(args: {
   } = args;
   let tipAmountPence = Math.max(0, Math.round(Number(args.tipAmountPence) || 0));
 
-  const rec = await invokeFinalizeTripCapture({
+  // Prefer same-isolate finalize (eliminates second Edge cold-start). HTTP
+  // invokeFinalizeTripCapture remains the fallback inside the SSOT helper.
+  const rec = await finalizeTipWindowCaptureImmediate({
+    supabase: admin,
     supabaseUrl,
     serviceRoleKey,
     tripId,
     tipPence: tipAmountPence,
     source: "submit_customer_trip_tip",
+    allowOpenTipWindow: true,
   });
   const outcome = classifyTipWindowCaptureOutcome(rec.body);
 

@@ -23,6 +23,7 @@ import { extractConfirmedCaptureAmountPence } from "./paymentHoldProviderTermina
 import { isProviderCaptureTerminalState } from "./paymentSessionsCaptureConfirmationSSOT.ts";
 import {
   claimPaymentSessionFinancialLock,
+  readPaymentSessionFinancialLock,
   releasePaymentSessionFinancialLock,
 } from "./paymentSessionFinancialLockSSOT.ts";
 import { assertProviderCaptureEvidenceBinding } from "./paymentSsotQuiescenceSSOT.ts";
@@ -62,8 +63,13 @@ export async function guardedCaptureRevolutOrder(args: {
    * Never treat fee captures as trip fare settlement.
    */
   purpose?: "fare" | "terminal_fee" | "orphan_fee" | "lifecycle_fee";
-  /** When true, caller already holds session CAPTURING lock (completion path). */
+  /**
+   * When true, caller already holds the session CAPTURING/RECONCILING lock.
+   * Must be accompanied by a genuine live lock on the session — never a bare flag.
+   */
   sessionLockAlreadyHeld?: boolean;
+  /** When already held, optional expected owner (must match live lock owner). */
+  sessionLockOwner?: string | null;
 }): Promise<GuardedCaptureResult> {
   const amount = Math.max(0, Math.round(Number(args.amountPence) || 0));
   const purpose = args.purpose ?? "fare";
@@ -104,8 +110,35 @@ export async function guardedCaptureRevolutOrder(args: {
 
   // Mixed-version interlock with #91A workers that claim CAPTURING on the session.
   const lockOwner = `guarded_capture:${purpose}:${args.tripId}:${args.providerOrderId}:${amount}`;
-  let sessionLockHeld = args.sessionLockAlreadyHeld === true;
-  if (!sessionLockHeld) {
+  let sessionLockHeld = false;
+  if (args.sessionLockAlreadyHeld === true) {
+    // #110 P4C: flag alone is insufficient — require a live CAPTURING/RECONCILING owner.
+    const { data: lockRow } = await args.supabase
+      .from("payment_sessions")
+      .select(
+        "id, metadata, financial_operation_state, financial_operation_owner, financial_operation_started_at",
+      )
+      .eq("id", args.paymentSessionId)
+      .maybeSingle();
+    const live = readPaymentSessionFinancialLock(
+      (lockRow ?? null) as Record<string, unknown> | null,
+    );
+    const expectedOwner = String(args.sessionLockOwner ?? "").trim();
+    const ownerOk = live.owner != null
+      && (expectedOwner.length === 0 || live.owner === expectedOwner);
+    const stateOk = live.state === "CAPTURING" || live.state === "RECONCILING";
+    if (!lockRow || !stateOk || !ownerOk) {
+      return {
+        ok: false,
+        code: "CLAIM_REFUSED",
+        message:
+          `sessionLockAlreadyHeld without genuine lock (${live.state}/${live.owner ?? "none"})`,
+        order: null,
+        reconcileOnly: true,
+      };
+    }
+    sessionLockHeld = true;
+  } else {
     const sessionLock = await claimPaymentSessionFinancialLock(args.supabase, {
       paymentSessionId: args.paymentSessionId,
       owner: lockOwner,
