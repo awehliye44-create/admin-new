@@ -83,29 +83,66 @@ export function isPlatformCollectedModel(financialModel: unknown): boolean {
  * Load a bounded cohort of completed PLATFORM_COLLECTED trips that look like
  * verified captures with stamped entitlement and no TRIP_EARNING_NET.
  * Final gate / credit decisions happen per trip in recoverMissingTripEarningNet.
+ *
+ * #94A: candidates are selected from Payment Sessions with confirmed capture
+ * amount — never from trips.payment_status alone (postCaptureSettlementBoundary).
+ * Oldest unresolved first so recent noise cannot starve stuck settlements.
  */
 export async function findMissingTripEarningNetCandidates(
   supabase: SupabaseClient,
   args?: { limit?: number },
 ): Promise<MissingTenRecoveryCandidate[]> {
   const limit = Math.min(50, Math.max(1, Number(args?.limit ?? 20)));
+  const lookbackIso = new Date(Date.now() - 14 * 24 * 3600_000).toISOString();
+
+  // Session-authoritative capture evidence first (G3).
+  const { data: sessions, error: sessErr } = await supabase
+    .from("payment_sessions")
+    .select("id, trip_id, captured_amount_pence, updated_at")
+    .gt("captured_amount_pence", 0)
+    .not("trip_id", "is", null)
+    .gte("updated_at", lookbackIso)
+    .order("updated_at", { ascending: true })
+    .limit(Math.max(limit * 8, 80));
+
+  if (sessErr || !Array.isArray(sessions) || sessions.length === 0) return [];
+
+  const tripIds = [
+    ...new Set(
+      sessions
+        .map((s) => String(s.trip_id ?? "").trim())
+        .filter(Boolean),
+    ),
+  ];
+  if (tripIds.length === 0) return [];
+
   const { data: trips, error } = await supabase
     .from("trips")
     .select(
       "id, trip_code, driver_id, driver_net_pence, airport_charge_pence, financial_model, payment_session_id, status, payment_status, completed_at",
     )
+    .in("id", tripIds)
     .eq("status", "completed")
-    .eq("payment_status", "captured")
     .eq("financial_model", "PLATFORM_COLLECTED")
-    .gt("driver_net_pence", 0)
-    .not("payment_session_id", "is", null)
-    .order("completed_at", { ascending: false })
-    .limit(Math.max(limit * 5, 50));
+    .gt("driver_net_pence", 0);
 
   if (error || !Array.isArray(trips) || trips.length === 0) return [];
 
+  const tripById = new Map(trips.map((t) => [String(t.id), t]));
+  // Preserve oldest-session-first order from sessions query.
+  const orderedTrips: typeof trips = [];
+  const seen = new Set<string>();
+  for (const s of sessions) {
+    const id = String(s.trip_id ?? "");
+    if (!id || seen.has(id)) continue;
+    const trip = tripById.get(id);
+    if (!trip) continue;
+    seen.add(id);
+    orderedTrips.push(trip);
+  }
+
   const out: MissingTenRecoveryCandidate[] = [];
-  for (const trip of trips) {
+  for (const trip of orderedTrips) {
     if (out.length >= limit) break;
     const tripId = String(trip.id ?? "");
     if (!tripId) continue;
@@ -194,6 +231,31 @@ export async function recoverMissingTripEarningNet(
     rows: [],
   }));
   if (ten.count === 1 && ten.totalPence === expected) {
+    // #94A G4/G5: TEN present still heals missing tip credit / stranded PENDING RELEASE.
+    // creditCapturedCardTripLedger is idempotent (unique tip + RELEASE before TEN no-op).
+    if (!dryRun) {
+      const tipOwed = Math.max(
+        0,
+        Math.round(Number(trip.tip_pence ?? trip.tip_amount_pence) || 0),
+      );
+      const gateHeal = await loadPaymentSessionCaptureGate(supabase, tripId);
+      if (
+        !gateHeal.error
+        && paymentSessionAllowsWalletPosting(gateHeal.session)
+      ) {
+        await applyCanonicalSettlementAfterCapture({
+          supabase,
+          tripId,
+          trip,
+          captureAmountPence: Math.round(
+            Number(gateHeal.session?.captured_amount_pence) || 0,
+          ),
+          tipPence: tipOwed,
+          mode: "recovery",
+          activatedAtMs,
+        }).catch(() => undefined);
+      }
+    }
     return {
       trip_id: tripId,
       trip_code: tripCode,

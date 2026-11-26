@@ -50,9 +50,30 @@ export async function recoverMissingTripEarningPendingBatch(
     const driverId = String(trip.driver_id ?? "").trim();
     if (!driverId) continue;
 
-    // Only while capture not yet confirmed (or capture_requested / tip window).
+    // #94A: only while still awaiting capture. Never invent PENDING after
+    // terminal payment failure / release / shortfall (no historical void path).
     const pay = String(trip.payment_status ?? "").toLowerCase();
     if (pay === "captured" || pay === "paid" || pay === "succeeded") continue;
+    const awaitingCapture = new Set([
+      "capture_requested",
+      "authorized",
+      "authorised",
+      "authorizing",
+      "authorising",
+      "pending",
+      "tip_window_open",
+      "awaiting_tip",
+      "",
+    ]);
+    if (!awaitingCapture.has(pay)) {
+      results.push({
+        trip_id: tripId,
+        trip_code: trip.trip_code ?? null,
+        status: "SKIPPED",
+        reason: `payment_status_not_awaiting_capture:${pay || "null"}`,
+      });
+      continue;
+    }
 
     scanned += 1;
     const ten = await readTripEarningNetLedgerState(supabase, tripId);

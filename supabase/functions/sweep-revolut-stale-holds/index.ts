@@ -35,6 +35,8 @@ import { sweepPlatformCollectedFinancialIntegrity } from "../_shared/platformCol
 import { reconcileIncrementOperationsToCoverConfirmed } from "../_shared/reconcileFinancialOperationFromEvidenceSSOT.ts";
 import { reconcileAuthorisationProjectionsBatch } from "../_shared/reconcileAuthorisationProjectionSSOT.ts";
 import { recoverMissingTripEarningPendingBatch } from "../_shared/missingTripEarningPendingRecoverySSOT.ts";
+import { recoverPostCaptureLedgerIntegrityBatch } from "../_shared/postCaptureLedgerIntegrityRecoverySSOT.ts";
+import { reconcileStaleCaptureOperationsBatch } from "../_shared/reconcileStaleCaptureOperationsSSOT.ts";
 import {
   expiryFareOnlyTipPence,
   expiredUnclosedTipWindowForbidsTipCapture,
@@ -716,6 +718,48 @@ serve(async (req) => {
     console.error("[sweep-revolut-stale-holds] missing PENDING recovery failed", pendingSweepErr);
   }
 
+  // #94A: TEN present but missing tip credit and/or PENDING RELEASE.
+  let postCaptureLedgerIntegrity: Awaited<
+    ReturnType<typeof recoverPostCaptureLedgerIntegrityBatch>
+  > = { scanned: 0, results: [] };
+  try {
+    postCaptureLedgerIntegrity = await recoverPostCaptureLedgerIntegrityBatch(supabase, {
+      limit: Math.min(15, limit),
+      dryRun,
+    });
+  } catch (integrityErr) {
+    console.error(
+      "[sweep-revolut-stale-holds] post-capture ledger integrity recovery failed",
+      integrityErr,
+    );
+  }
+
+  // #94A G2: stale CAPTURE financial_operations — GET-only terminalise.
+  let staleCaptureOpReconcile: Awaited<
+    ReturnType<typeof reconcileStaleCaptureOperationsBatch>
+  > = { scanned: 0, results: [] };
+  try {
+    let env: ReturnType<typeof getRevolutMerchantConfig> | null = null;
+    try {
+      env = getRevolutMerchantConfig();
+    } catch {
+      env = null;
+    }
+    if (env?.secretKey && env.environment) {
+      staleCaptureOpReconcile = await reconcileStaleCaptureOperationsBatch(supabase, {
+        limit: Math.min(15, limit),
+        environment: env.environment,
+        secretKey: env.secretKey,
+        dryRun,
+      });
+    }
+  } catch (captureOpErr) {
+    console.error(
+      "[sweep-revolut-stale-holds] stale CAPTURE op reconcile failed",
+      captureOpErr,
+    );
+  }
+
   // #91A: PENDING PSA rows whose provider order already confirms coverage (or
   // terminal decline/fail). GET-only — no increment POST / capture / credit.
   const pendingIncrementReconcile: Array<Record<string, unknown>> = [];
@@ -849,6 +893,8 @@ serve(async (req) => {
     completed_authorised_retries: retryResults,
     missing_ten_recovery: missingTenRecovery,
     missing_pending_recovery_98: missingPendingRecovery,
+    post_capture_ledger_integrity_94a: postCaptureLedgerIntegrity,
+    stale_capture_op_reconcile_94a: staleCaptureOpReconcile,
     pending_increment_reconcile: pendingIncrementReconcile,
     pc_integrity_recovery: pcIntegrityRecovery,
     auth_projection_reconcile_103: authProjectionReconcile,
