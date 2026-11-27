@@ -169,7 +169,14 @@ serveWithEdgeTiming("restore-active-trip", corsHeaders, async (req) => {
     }
 
     const userId = userData.user.id;
-    let body: { role?: RestoreActiveTripRole } = {};
+    let body: {
+      role?: RestoreActiveTripRole;
+      restore_trigger?: string;
+      restore_reason?: string;
+      client_action_id?: string;
+      fingerprint_skipped?: boolean;
+      force?: boolean;
+    } = {};
     try {
       if (req.method === "POST") {
         const text = await req.text();
@@ -197,7 +204,19 @@ serveWithEdgeTiming("restore-active-trip", corsHeaders, async (req) => {
       else if (customerRow) role = "customer";
     }
 
-    console.log("RESTORE_ACTIVE_TRIP_START", { userId, role });
+    // Batch O1 — privacy-safe attribution (no PII). Timing wrapper also stamps these
+    // from the cloned request body into ops_logs / app_performance_events.
+    const restoreTrigger =
+      typeof body.restore_trigger === "string" && body.restore_trigger.trim()
+        ? body.restore_trigger.trim().slice(0, 64)
+        : null;
+    console.log("RESTORE_ACTIVE_TRIP_START", {
+      userId,
+      role,
+      restore_trigger: restoreTrigger,
+      client_action_id:
+        typeof body.client_action_id === "string" ? body.client_action_id.slice(0, 64) : null,
+    });
 
     let trip: Record<string, unknown> | null = null;
 

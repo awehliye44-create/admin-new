@@ -55,9 +55,14 @@ import {
 } from "../_shared/scheduledActivationExclusiveRescue.ts";
 import {
   createRequestId,
+  createStageClock,
   finishEdgeRequestLog,
   startRequestTimer,
 } from "../_shared/edgeRequestTiming.ts";
+import {
+  markEdgeInstanceWarm,
+  peekColdStartHint,
+} from "../_shared/edgeFunctionTiming.ts";
 
 // Rate limit: 60 requests per minute (for cron jobs)
 const RATE_LIMIT_CONFIG = { limit: 60, windowMs: 60000, keyPrefix: 'expire-offers' };
@@ -240,6 +245,10 @@ Deno.serve(async (req) => {
 
   const elapsed = startRequestTimer();
   const requestId = createRequestId();
+  const stages = createStageClock(elapsed);
+  const coldStartHint = peekColdStartHint("expire-offers");
+  markEdgeInstanceWarm("expire-offers");
+  stages.mark("edge_receive");
 
   try {
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
@@ -252,6 +261,7 @@ Deno.serve(async (req) => {
     // ─── 0a. Negotiation timeouts (two-phase industry standard) ───────────────
     // Customer £Y timeout → Driver second chance at original £X (same as Decline).
     // Driver £Z / second-chance timeout → exclude driver + same-trip rematch.
+    stages.mark("negotiation_block_start");
     const nowIso = new Date().toISOString();
 
     const { data: customerResponseExpired } = await supabase
@@ -551,9 +561,12 @@ Deno.serve(async (req) => {
       .is("negotiation_status", null)
       .lt("expires_at", new Date().toISOString());
 
+    stages.mark("negotiation_block_end");
     // 1. sweep_expired_offers — mark stale pending offers expired (expire_stale_offers RPC)
+    stages.mark("sweep_rpc_start");
     const sweepResult = await sweepExpiredOffers(supabase);
 
+    stages.mark("sweep_rpc_end");
     if (!sweepResult.ok) {
       console.error("[expire-offers] sweep_expired_offers RPC error:", sweepResult.error);
       return errorResponse(
@@ -604,6 +617,7 @@ Deno.serve(async (req) => {
     // P2 — Exclusive scheduled activation expiry → prompt nearby fallback
     // (scheduled-dispatch STEP 1a remains the recovery/idempotent owner).
     // Push delivery failure alone never expires an offer — only server expires_at.
+    stages.mark("exclusive_rescue_start");
     try {
       const { data: awaitingExclusive } = await supabase
         .from("trips")
@@ -665,9 +679,11 @@ Deno.serve(async (req) => {
     } catch (exclusiveRescueErr) {
       console.warn("[expire-offers] exclusive activation rescue failed:", exclusiveRescueErr);
     }
+    stages.mark("exclusive_rescue_end");
 
     // 2. Find trips with all offers resolved but still searching
     // Scan & Go retired (trips.scan_go dropped 20260903121500) — do not SELECT or branch on it.
+    stages.mark("stale_trip_scan_start");
     const { data: staleTrips, error: tripsError } = await supabase
       .from("trips")
       .select("id, current_broadcast_round, max_broadcast_rounds, broadcast_enabled, status, scheduled_status, dispatch_status, dispatch_mode, is_scheduled, scheduled_at, passenger_id, searching_expires_at")
@@ -797,8 +813,10 @@ Deno.serve(async (req) => {
     const allRebroadcastInvocations = [...rebroadcastInvocations, ...stuckInvocations];
     const rebroadcastConcurrency = resolveExpireOffersRebroadcastConcurrency();
 
+    stages.mark("stale_trip_scan_end");
     // Bounded parallel next-wave invokes (default 8). Same per-trip policy +
     // service-role body as the previous serial loop — only drain latency changes.
+    stages.mark("rebroadcast_start");
     const rebroadcastResults = await runExpireOffersRebroadcastBatch({
       supabase,
       supabaseUrl,
@@ -807,13 +825,21 @@ Deno.serve(async (req) => {
       concurrency: rebroadcastConcurrency,
       loadDispatchTripContext,
     });
+    stages.mark("rebroadcast_end");
+    stages.mark("edge_response");
 
     const durationMs = elapsed();
+    const stageSnapshot = stages.snapshot();
     finishEdgeRequestLog("expire-offers", durationMs, {
       request_id: requestId,
       success: true,
       expired_offers: expiredCount,
       trips_rebroadcast: rebroadcastResults.filter((r) => r.success).length,
+      cold_start_hint: coldStartHint,
+      stages_ms: stageSnapshot,
+      // Overlap detection is correlated in R2 analysis (cron 10s vs duration).
+      // Single-flight (B1) will stamp overlap_skipped when authorised.
+      slow_path: durationMs >= 2000,
     });
     return successResponse({
       success: true,
@@ -822,6 +848,8 @@ Deno.serve(async (req) => {
       trips_expired: (staleTrips || []).length - tripsToRebroadcast.length,
       duration_ms: durationMs,
       request_id: requestId,
+      stages_ms: stageSnapshot,
+      cold_start_hint: coldStartHint,
       details: {
         rebroadcast_concurrency: rebroadcastConcurrency,
         rebroadcast_results: rebroadcastResults,
@@ -831,10 +859,13 @@ Deno.serve(async (req) => {
 
   } catch (error) {
     console.error("[expire-offers] Error:", error);
+    stages.mark("edge_error");
     finishEdgeRequestLog("expire-offers", elapsed(), {
       request_id: requestId,
       success: false,
       error: String(error),
+      cold_start_hint: coldStartHint,
+      stages_ms: stages.snapshot(),
     });
     return errorResponse("INTERNAL_ERROR", String(error), 500);
   }

@@ -17,8 +17,22 @@ export type EdgeTimingRecord = {
   coldStartHint: boolean;
   path: string;
   clientActionId: string | null;
+  /** Observability only — restore-active-trip attribution (Batch O1). */
+  restoreTrigger: string | null;
+  restoreReason: string | null;
+  restoreRole: string | null;
+  fingerprintSkipped: boolean | null;
   httpStatus: number;
 };
+
+/** Read-only cold-start peek for Edge handlers that do not use serveWithEdgeTiming. */
+export function peekColdStartHint(source: string): boolean {
+  return !warmInstances.has(source);
+}
+
+export function markEdgeInstanceWarm(source: string): void {
+  warmInstances.add(source);
+}
 
 export type EdgePerformanceMeta = {
   action_name: string;
@@ -44,14 +58,32 @@ export function startEdgeTiming(source: string, path = "POST"): EdgeTimingRecord
     coldStartHint,
     path,
     clientActionId: null,
+    restoreTrigger: null,
+    restoreReason: null,
+    restoreRole: null,
+    fingerprintSkipped: null,
     httpStatus: 500,
   };
+}
+
+function readOptionalTrimmedString(body: Record<string, unknown>, key: string): string | null {
+  const value = body[key];
+  return typeof value === "string" && value.trim() ? value.trim().slice(0, 64) : null;
 }
 
 export async function tryReadClientActionId(req: Request, timer: EdgeTimingRecord): Promise<void> {
   try {
     const body = await req.clone().json();
+    if (!body || typeof body !== "object") return;
+    const record = body as Record<string, unknown>;
     timer.clientActionId = extractClientActionId(body);
+    // Batch O1 — privacy-safe restore attribution (no PII).
+    timer.restoreTrigger = readOptionalTrimmedString(record, "restore_trigger");
+    timer.restoreReason = readOptionalTrimmedString(record, "restore_reason");
+    timer.restoreRole = readOptionalTrimmedString(record, "role");
+    if (typeof record.fingerprint_skipped === "boolean") {
+      timer.fingerprintSkipped = record.fingerprint_skipped;
+    }
   } catch {
     /* no JSON body */
   }
@@ -92,6 +124,12 @@ export function logEdgeTimingConsole(timer: EdgeTimingRecord, perf: EdgePerforma
     client_action_id: timer.clientActionId,
     cold_start_hint: timer.coldStartHint,
     http_status: timer.httpStatus,
+    ...(timer.restoreTrigger ? { restore_trigger: timer.restoreTrigger } : {}),
+    ...(timer.restoreReason ? { restore_reason: timer.restoreReason } : {}),
+    ...(timer.restoreRole ? { restore_role: timer.restoreRole } : {}),
+    ...(timer.fingerprintSkipped != null
+      ? { fingerprint_skipped: timer.fingerprintSkipped }
+      : {}),
     ...(perf
       ? {
         action_name: perf.action_name,
@@ -128,6 +166,12 @@ export async function finishEdgeTiming(
       client_action_id: timer.clientActionId,
       cold_start_hint: timer.coldStartHint,
       flow_type: "backend_edge",
+      ...(timer.restoreTrigger ? { restore_trigger: timer.restoreTrigger } : {}),
+      ...(timer.restoreReason ? { restore_reason: timer.restoreReason } : {}),
+      ...(timer.restoreRole ? { role: timer.restoreRole } : {}),
+      ...(timer.fingerprintSkipped != null
+        ? { fingerprint_skipped: timer.fingerprintSkipped }
+        : {}),
       ...(perf ?? {}),
     },
   });
@@ -150,6 +194,13 @@ export async function finishEdgeTiming(
           request_id: timer.requestId,
           edge_source: timer.source,
           http_status: timer.httpStatus,
+          cold_start_hint: timer.coldStartHint,
+          ...(timer.restoreTrigger ? { restore_trigger: timer.restoreTrigger } : {}),
+          ...(timer.restoreReason ? { restore_reason: timer.restoreReason } : {}),
+          ...(timer.restoreRole ? { role: timer.restoreRole } : {}),
+          ...(timer.fingerprintSkipped != null
+            ? { fingerprint_skipped: timer.fingerprintSkipped }
+            : {}),
         },
       });
     } catch (err) {

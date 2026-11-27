@@ -73,6 +73,10 @@ import {
   finishEdgeRequestLog,
 } from "../_shared/edgeRequestTiming.ts";
 import {
+  markEdgeInstanceWarm,
+  peekColdStartHint,
+} from "../_shared/edgeFunctionTiming.ts";
+import {
   classifyPerfOutcome,
   deriveCompleteTripDurations,
   emitCriticalPathPerfLog,
@@ -136,6 +140,8 @@ let stopWorkflowRequestTripId: string | null = null;
 let stopWorkflowRequestAction: string | null = null;
 let stopWorkflowRequestId: string | null = null;
 let stopWorkflowErrorLogged = false;
+/** Batch O2 — per-request cold/warm hint for ops correlation. */
+let stopWorkflowColdStartHint: boolean | null = null;
 
 function errorResponse(
   ...args: Parameters<typeof baseErrorResponse>
@@ -148,6 +154,9 @@ function errorResponse(
       trip_id: stopWorkflowRequestTripId,
       action: stopWorkflowRequestAction,
       ...(stopWorkflowRequestId ? { request_id: stopWorkflowRequestId } : {}),
+      ...(stopWorkflowColdStartHint != null
+        ? { cold_start_hint: stopWorkflowColdStartHint }
+        : {}),
       success: false,
     });
   }
@@ -2132,12 +2141,18 @@ async function clearStaleStopWaitingOutsideRadius(
 Deno.serve(async (req) => {
   const elapsed = startRequestTimer();
   const requestId = createRequestId();
+  // Batch O2 — cold/warm instance hint (observability only; no behaviour change).
+  const coldStartHint = peekColdStartHint("stop-workflow");
+  markEdgeInstanceWarm("stop-workflow");
   stopWorkflowRequestStartedAtMs = Date.now();
   stopWorkflowRequestTripId = null;
   stopWorkflowRequestAction = null;
   stopWorkflowRequestId = requestId;
+  stopWorkflowColdStartHint = coldStartHint;
   stopWorkflowErrorLogged = false;
-  console.log("[stop-workflow] Request received:", req.method);
+  console.log("[stop-workflow] Request received:", req.method, {
+    cold_start_hint: coldStartHint,
+  });
 
   // Handle CORS preflight
   if (req.method === "OPTIONS") {
@@ -2320,16 +2335,21 @@ Deno.serve(async (req) => {
         });
       }
       const stagesPayload = completeTripStagesMs ?? lifecycleStagesMs;
+      // Batch O4 — always flag slow completes so stalls retain stage payloads in ops.
+      const slowComplete =
+        action === "complete_trip" && duration_ms >= 2000;
       logRequestDuration("stop-workflow", duration_ms, {
         request_id: requestId,
         action,
         trip_id,
+        cold_start_hint: coldStartHint,
         ...(perfId ? { perf_id: perfId } : {}),
         ...(stagesPayload ? { stages_ms: stagesPayload } : {}),
         ...(lifecycleDurationsMs ? { lifecycle_durations_ms: lifecycleDurationsMs } : {}),
         ...(completeTripDurationsMs
           ? { complete_trip_durations_ms: completeTripDurationsMs }
           : {}),
+        ...(slowComplete ? { slow_path: true } : {}),
       });
       finishEdgeRequestLog("stop-workflow", duration_ms, {
         request_id: requestId,
@@ -2337,16 +2357,19 @@ Deno.serve(async (req) => {
         trip_id,
         http_status: 200,
         success: true,
+        cold_start_hint: coldStartHint,
         ...(perfId ? { perf_id: perfId } : {}),
         ...(stagesPayload ? { stages_ms: stagesPayload } : {}),
         ...(lifecycleDurationsMs ? { lifecycle_durations_ms: lifecycleDurationsMs } : {}),
         ...(completeTripDurationsMs
           ? { complete_trip_durations_ms: completeTripDurationsMs }
           : {}),
+        ...(slowComplete ? { slow_path: true } : {}),
       });
       const responseBody: Record<string, unknown> = {
         ...payload,
         trip: payload.trip ?? tripSnapshot,
+        cold_start_hint: coldStartHint,
         ...(perfId ? { perf_id: perfId } : {}),
         ...(completeTripStagesMs
           ? { complete_trip_stages_ms: completeTripStagesMs }
