@@ -9,6 +9,7 @@ import {
 import {
   buildTipWindowSettlementUpdate,
   isAuthoritativeTipWindowPersisted,
+  normalizeTipWindowTimestamp,
 } from "../../functions/_shared/tipWindowPersistDecisionSSOT.ts";
 import { TIP_WINDOW_STATUS } from "../../functions/_shared/tipWindowConstants.ts";
 
@@ -26,6 +27,22 @@ Deno.test("verified open window matches exact completion stamps", () => {
     isAuthoritativeTipWindowPersisted({
       expected: EXPECTED,
       persisted: { ...EXPECTED },
+    }),
+    true,
+  );
+  // B4-A: Postgres RETURNING +00:00 must match Edge Z stamps.
+  assertEquals(
+    normalizeTipWindowTimestamp(OPENED),
+    normalizeTipWindowTimestamp("2026-11-26T12:00:00.000+00:00"),
+  );
+  assertEquals(
+    isAuthoritativeTipWindowPersisted({
+      expected: EXPECTED,
+      persisted: {
+        ...EXPECTED,
+        tip_window_opened_at: "2026-11-26T12:00:00.000+00:00",
+        tip_window_expires_at: "2026-11-26T12:20:00.000+00:00",
+      },
     }),
     true,
   );

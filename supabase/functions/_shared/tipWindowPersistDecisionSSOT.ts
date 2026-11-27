@@ -23,6 +23,36 @@ export type ExpectedOpenTipWindow = {
   tip_window_closed_at: null;
 };
 
+/**
+ * Normalise tip-window timestamps for authoritative compare.
+ * Postgres RETURNING often yields `+00:00` while Edge stamps `Z` — string
+ * inequality must not force a redundant recovery re-SELECT (B4-A).
+ */
+export function normalizeTipWindowTimestamp(
+  value: string | null | undefined,
+): string {
+  const raw = String(value ?? "").trim();
+  if (!raw) return "";
+  const ms = Date.parse(raw);
+  if (!Number.isFinite(ms)) return raw;
+  return new Date(ms).toISOString();
+}
+
+/** True when all tip_window_* fields required for verify are present on the row. */
+export function tipWindowReturningHasAllFields(
+  row: TipWindowPersistedRow | null | undefined,
+): boolean {
+  if (!row) return false;
+  return (
+    row.tip_window_opened_at != null &&
+    String(row.tip_window_opened_at).trim() !== "" &&
+    row.tip_window_expires_at != null &&
+    String(row.tip_window_expires_at).trim() !== "" &&
+    row.tip_window_status != null &&
+    String(row.tip_window_status).trim() !== ""
+  );
+}
+
 /** True when DB already holds the exact open window completion intended. */
 export function isAuthoritativeTipWindowPersisted(args: {
   expected: ExpectedOpenTipWindow | null | undefined;
@@ -35,10 +65,16 @@ export function isAuthoritativeTipWindowPersisted(args: {
   if (String(row.tip_window_status ?? "").toLowerCase() !== TIP_WINDOW_STATUS.OPEN) {
     return false;
   }
-  if (String(row.tip_window_opened_at ?? "") !== expected.tip_window_opened_at) {
+  if (
+    normalizeTipWindowTimestamp(row.tip_window_opened_at) !==
+      normalizeTipWindowTimestamp(expected.tip_window_opened_at)
+  ) {
     return false;
   }
-  if (String(row.tip_window_expires_at ?? "") !== expected.tip_window_expires_at) {
+  if (
+    normalizeTipWindowTimestamp(row.tip_window_expires_at) !==
+      normalizeTipWindowTimestamp(expected.tip_window_expires_at)
+  ) {
     return false;
   }
   return true;

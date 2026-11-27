@@ -72,6 +72,11 @@ export const COMPLETE_TRIP_DURATION_PAIRS = [
     "tip_window_persist_end",
   ],
   [
+    "tip_window_reselect_ms",
+    "tip_window_reselect_start",
+    "tip_window_reselect_end",
+  ],
+  [
     "pending_entitlement_ms",
     "pending_entitlement_start",
     "pending_entitlement_end",

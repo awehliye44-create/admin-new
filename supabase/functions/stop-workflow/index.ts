@@ -96,8 +96,13 @@ import {
   TIP_WINDOW_STATUS,
 } from "../_shared/tipWindowConstants.ts";
 import {
+  decideTipWindowPersistPath,
+  isCompleteTripB4aEnabled,
+} from "../_shared/completeTripB4aSSOT.ts";
+import {
   buildTipWindowSettlementUpdate,
   isAuthoritativeTipWindowPersisted,
+  tipWindowReturningHasAllFields,
   type ExpectedOpenTipWindow,
 } from "../_shared/tipWindowPersistDecisionSSOT.ts";
 import {
@@ -5073,11 +5078,23 @@ Deno.serve(async (req) => {
               }
               | null
               | undefined;
-            let skipTipWindowColumns = isAuthoritativeTipWindowPersisted({
+            const returningAuthoritative = isAuthoritativeTipWindowPersisted({
               expected: expectedOpen,
               persisted: persistedTip,
             });
-            if (expectedOpen && !skipTipWindowColumns) {
+            const b4aEnabled = isCompleteTripB4aEnabled();
+            const tipPersistDecision = decideTipWindowPersistPath({
+              b4aEnabled,
+              hasExpectedOpen: Boolean(expectedOpen),
+              returningAuthoritative,
+              returningRowPresent: persistedTip != null,
+              returningHasAllTipFields: tipWindowReturningHasAllFields(persistedTip),
+            });
+            let skipTipWindowColumns = tipPersistDecision.skipTipWindowColumns;
+            // B4-A: skip redundant tip re-SELECT when RETURNING already proves the
+            // open window. Recovery re-SELECT only when decision.performReselect.
+            if (tipPersistDecision.performReselect) {
+              stages.mark("tip_window_reselect_start");
               const { data: tipRow } = await supabase
                 .from("trips")
                 .select(
@@ -5085,12 +5102,21 @@ Deno.serve(async (req) => {
                 )
                 .eq("id", trip_id)
                 .maybeSingle();
+              stages.mark("tip_window_reselect_end");
               persistedTip = tipRow;
               skipTipWindowColumns = isAuthoritativeTipWindowPersisted({
                 expected: expectedOpen,
                 persisted: tipRow,
               });
             }
+            console.log("[stop-workflow] tip_window_persist_decision", {
+              trip_id,
+              b4a_enabled: b4aEnabled,
+              decision: tipPersistDecision.action,
+              reason: tipPersistDecision.reason,
+              tip_window_columns_skipped: skipTipWindowColumns,
+              reselect: tipPersistDecision.performReselect,
+            });
 
             // Settlement always persists. Tip-window columns only on recovery when
             // the expected open stamp is missing/inconsistent (never reopen/extend).
@@ -5151,6 +5177,10 @@ Deno.serve(async (req) => {
                 tip_window_expires_at: expiresAtIso,
                 tip_window_ms: TIP_WINDOW_MS,
                 tip_window_columns_skipped: skipTipWindowColumns,
+                tip_window_persist_decision: tipPersistDecision.action,
+                tip_window_persist_reason: tipPersistDecision.reason,
+                tip_window_reselect: tipPersistDecision.performReselect,
+                b4a_enabled: b4aEnabled,
                 driver_net_pence: settlement.driver_net_pence,
                 source: "stop-workflow:complete_trip",
               }));
