@@ -23,6 +23,14 @@ export type EdgeTimingRecord = {
   restoreRole: string | null;
   fingerprintSkipped: boolean | null;
   httpStatus: number;
+  /** Observability only — optional stage marks (ms from request start). */
+  stagesMs: Record<string, number> | null;
+};
+
+/** Optional stage clock passed to serveWithEdgeTiming handlers (obs only). */
+export type EdgeStageClock = {
+  mark: (name: string) => void;
+  snapshot: () => Record<string, number>;
 };
 
 /** Read-only cold-start peek for Edge handlers that do not use serveWithEdgeTiming. */
@@ -63,6 +71,7 @@ export function startEdgeTiming(source: string, path = "POST"): EdgeTimingRecord
     restoreRole: null,
     fingerprintSkipped: null,
     httpStatus: 500,
+    stagesMs: null,
   };
 }
 
@@ -172,6 +181,9 @@ export async function finishEdgeTiming(
       ...(timer.fingerprintSkipped != null
         ? { fingerprint_skipped: timer.fingerprintSkipped }
         : {}),
+      ...(timer.stagesMs && Object.keys(timer.stagesMs).length > 0
+        ? { stages_ms: timer.stagesMs }
+        : {}),
       ...(perf ?? {}),
     },
   });
@@ -200,6 +212,9 @@ export async function finishEdgeTiming(
           ...(timer.restoreRole ? { role: timer.restoreRole } : {}),
           ...(timer.fingerprintSkipped != null
             ? { fingerprint_skipped: timer.fingerprintSkipped }
+            : {}),
+          ...(timer.stagesMs && Object.keys(timer.stagesMs).length > 0
+            ? { stages_ms: timer.stagesMs }
             : {}),
         },
       });
@@ -241,11 +256,19 @@ export function createServiceRoleClient(): SupabaseClient {
 export function serveWithEdgeTiming(
   source: string,
   corsHeaders: Record<string, string>,
-  handler: (req: Request) => Promise<Response>,
+  handler: (req: Request, stages?: EdgeStageClock) => Promise<Response>,
 ): void {
   Deno.serve(async (req) => {
     const adminClient = createServiceRoleClient();
     const timer = startEdgeTiming(source, req.method);
+    const stageMarks: Record<string, number> = {};
+    const stages: EdgeStageClock = {
+      mark: (name: string) => {
+        if (!name || stageMarks[name] != null) return;
+        stageMarks[name] = Math.max(0, Date.now() - timer.startedAt);
+      },
+      snapshot: () => ({ ...stageMarks }),
+    };
 
     try {
       if (req.method === "OPTIONS") {
@@ -256,12 +279,14 @@ export function serveWithEdgeTiming(
       timer.path = req.method || "POST";
       await tryReadClientActionId(req, timer);
 
-      const response = await handler(req);
+      const response = await handler(req, stages);
+      timer.stagesMs = Object.keys(stageMarks).length > 0 ? { ...stageMarks } : null;
       timer.httpStatus = response.status;
       const duration_ms = Date.now() - timer.startedAt;
       const perf = resolveEdgePerformance(source, duration_ms, response.status < 500);
       return attachTimingHeaders(response, timer, perf);
     } catch (error) {
+      timer.stagesMs = Object.keys(stageMarks).length > 0 ? { ...stageMarks } : null;
       timer.httpStatus = 500;
       const message = error instanceof Error ? error.message : String(error);
       console.error(`[${source}] unhandled`, message);

@@ -391,7 +391,9 @@ function buildPreviewPayload(
   };
 }
 
-serveWithEdgeTiming("request-trip-modification", corsHeaders, async (req) => {
+serveWithEdgeTiming("request-trip-modification", corsHeaders, async (req, stages) => {
+  const mark = (name: string) => stages?.mark(name);
+  mark("edge_receive");
 
   try {
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
@@ -412,7 +414,9 @@ serveWithEdgeTiming("request-trip-modification", corsHeaders, async (req) => {
 
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
+    mark("auth_start");
     const { data: { user }, error: userError } = await supabaseUser.auth.getUser();
+    mark("auth_end");
     if (userError || !user) {
       console.error("Auth error:", userError);
       return new Response(JSON.stringify({ error: "Unauthorized" }), {
@@ -872,6 +876,7 @@ serveWithEdgeTiming("request-trip-modification", corsHeaders, async (req) => {
     }
 
     // One frozen origin for BOTH the before and after leg of this request.
+    mark("origin_resolve_start");
     const origin = resolveModificationRouteOrigin({
       isPrePickup,
       pickupLat: trip.pickup_latitude as number | null,
@@ -879,6 +884,7 @@ serveWithEdgeTiming("request-trip-modification", corsHeaders, async (req) => {
       liveLocation: driverLiveLocation,
       nowMs: Date.now(),
     });
+    mark("origin_resolve_end");
 
     if (!origin.ok) {
       console.error("MODIFY_TRIP_ORIGIN_UNAVAILABLE", {
@@ -956,12 +962,14 @@ serveWithEdgeTiming("request-trip-modification", corsHeaders, async (req) => {
       };
     }
 
+    mark("route_dual_start");
     const [afterRoute, beforeRoute] = await Promise.all([
       calculateRouteLeg(destinationLat, destinationLng, intermediateStops),
       beforeDestinationLat != null && beforeDestinationLng != null
         ? calculateRouteLeg(beforeDestinationLat, beforeDestinationLng, beforeIntermediateStops)
         : Promise.resolve(null),
     ]);
+    mark("route_dual_end");
 
     if (!afterRoute) {
       console.error("Route preview failed for after snapshot");
@@ -1000,6 +1008,7 @@ serveWithEdgeTiming("request-trip-modification", corsHeaders, async (req) => {
       });
     }
 
+    mark("fare_estimate_after_start");
     const estimatePayload = await fetchModificationFareEstimate(
       supabaseUrl,
       supabaseServiceKey,
@@ -1015,6 +1024,7 @@ serveWithEdgeTiming("request-trip-modification", corsHeaders, async (req) => {
         stops: intermediateStops,
       },
     );
+    mark("fare_estimate_after_end");
 
     if (!estimatePayload?.success) {
       return new Response(JSON.stringify({
@@ -1046,6 +1056,7 @@ serveWithEdgeTiming("request-trip-modification", corsHeaders, async (req) => {
     let oldRemainingRouteFarePence = currentConfirmedFarePence;
     let pricedBeforeLeg = false;
     if (beforeRoute) {
+      mark("fare_estimate_before_start");
       const beforeEstimate = await fetchModificationFareEstimate(
         supabaseUrl,
         supabaseServiceKey,
@@ -1070,6 +1081,7 @@ serveWithEdgeTiming("request-trip-modification", corsHeaders, async (req) => {
           pricedBeforeLeg = true;
         }
       }
+      mark("fare_estimate_before_end");
     }
 
     // Mid-trip the committed fare prices the whole journey while the new leg
@@ -1197,6 +1209,7 @@ serveWithEdgeTiming("request-trip-modification", corsHeaders, async (req) => {
     );
 
     if (previewOnly) {
+      mark("response_ready");
       return new Response(JSON.stringify({
         success: true,
         previewOnly: true,
@@ -1212,6 +1225,8 @@ serveWithEdgeTiming("request-trip-modification", corsHeaders, async (req) => {
         requiresApproval,
         newDistanceMeters: newDistance,
         newDurationSeconds: newDuration,
+        // Obs-only stage marks (ms from Edge receive) — never affect fare/payment.
+        stages_ms: stages?.snapshot?.() ?? undefined,
       }), {
         status: 200,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -1361,11 +1376,13 @@ serveWithEdgeTiming("request-trip-modification", corsHeaders, async (req) => {
       paymentRequired
       && ["payment_required", "payment_pending"].includes(String(finalRequest.status))
     ) {
+      mark("revolut_increment_start");
       paymentResult = await executeFareIncreaseModificationPayment(supabase, {
         requestId: String(finalRequest.id),
         changeRequest: finalRequest,
         trip: trip as Record<string, unknown>,
       });
+      mark("revolut_increment_end");
 
       const { data: afterPay } = await supabase
         .from("trip_change_requests")
