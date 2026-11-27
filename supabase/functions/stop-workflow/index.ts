@@ -100,6 +100,10 @@ import {
   isCompleteTripB4aEnabled,
 } from "../_shared/completeTripB4aSSOT.ts";
 import {
+  isCompleteTripB4bEnabled,
+  shouldParalleliseTipSetupReads,
+} from "../_shared/completeTripB4bSSOT.ts";
+import {
   buildTipWindowSettlementUpdate,
   isAuthoritativeTipWindowPersisted,
   tipWindowReturningHasAllFields,
@@ -4603,74 +4607,54 @@ Deno.serve(async (req) => {
           tip_window_status: string;
           tip_window_closed_at: null;
         } | null = null;
-        if (
-          requiresProviderSettlement(tripForTipWindow)
-          && String(tripForTipWindow.financial_model ?? "").trim().toUpperCase() === "PLATFORM_COLLECTED"
+        const tipChannelEligible = isCustomerAppTipChannelEligible({
+          booking_source: tripForTipWindow.booking_source as string | null,
+          corporate_account_id: tripForTipWindow.corporate_account_id as string | null,
+        });
+        const tipBaseEligible = requiresProviderSettlement(tripForTipWindow)
+          && String(tripForTipWindow.financial_model ?? "").trim().toUpperCase() ===
+            "PLATFORM_COLLECTED"
           && isCardPaymentMethod(tripForTipWindow.payment_method)
-          && isCustomerAppTipChannelEligible({
-            booking_source: tripForTipWindow.booking_source as string | null,
-            corporate_account_id: tripForTipWindow.corporate_account_id as string | null,
-          })
-          && tripForTipWindow.service_area_id
-          && (tipWindowOrderId || tripForTipWindow.payment_session_id)
-        ) {
-          if (!tipWindowOrderId && tripForTipWindow.payment_session_id) {
-            stages.mark("tip_order_lookup_start");
-            const { data: tipSession, error: tipSessionErr } = await supabase
-              .from("payment_sessions")
-              .select("provider_order_id")
-              .eq("id", String(tripForTipWindow.payment_session_id))
-              .maybeSingle();
-            stages.mark("tip_order_lookup_end");
-            if (tipSessionErr) {
-              console.error("[stop-workflow] tip window order lookup failed before completion", {
-                trip_id,
-                error: tipSessionErr.message,
-              });
-              return completeTripError(
-                "TIP_WINDOW_STAMP_UNAVAILABLE",
-                "Unable to open the tip window. Please try again.",
-                503,
-              );
-            }
-            tipWindowOrderId = String(tipSession?.provider_order_id ?? "").trim();
-            if (tipWindowOrderId) tripForTipWindow.provider_order_id = tipWindowOrderId;
-          }
-          if (!tipWindowOrderId) {
-            // No order to capture later. Do not stamp a window expiry cannot close.
-            console.error("[stop-workflow] tip window skipped; no provider order", { trip_id });
-          }
-        }
-        if (
-          tipWindowOrderId
-          && requiresProviderSettlement(tripForTipWindow)
-          && String(tripForTipWindow.financial_model ?? "").trim().toUpperCase() === "PLATFORM_COLLECTED"
-          && isCardPaymentMethod(tripForTipWindow.payment_method)
-          && isCustomerAppTipChannelEligible({
-            booking_source: tripForTipWindow.booking_source as string | null,
-            corporate_account_id: tripForTipWindow.corporate_account_id as string | null,
-          })
-          && tripForTipWindow.service_area_id
-          // MK-260926-001: never open a tip window when fare is already captured.
+          && tipChannelEligible
+          && Boolean(tripForTipWindow.service_area_id);
+        const tipStampEligible = tipBaseEligible
           && !isFareCapturedBlockingTipWindow({
             paymentStatus: tripForTipWindow.payment_status as string | null,
             captureAmountPence: tripForTipWindow.capture_amount_pence as number | null,
-          })
-        ) {
+          });
+        const needsOrderLookup = tipBaseEligible
+          && !tipWindowOrderId
+          && Boolean(tripForTipWindow.payment_session_id);
+        const b4bEnabled = isCompleteTripB4bEnabled();
+        // Parallel only when order lookup AND tips_enabled would both run.
+        const parallelTipReads = b4bEnabled
+          && shouldParalleliseTipSetupReads({
+            needsOrderLookup,
+            canReadTipsEnabled: tipStampEligible,
+          });
+
+        if (parallelTipReads) {
+          // B4-B: independent reads only — order lookup ∥ tips_enabled.
+          stages.mark("tip_order_lookup_start");
           stages.mark("tip_area_read_start");
-          const { data: tipAreaEarly, error: tipAreaEarlyErr } = await supabase
-            .from("service_areas")
-            .select("tips_enabled")
-            .eq("id", tripForTipWindow.service_area_id as string)
-            .maybeSingle();
+          const [tipSessionRes, tipAreaRes] = await Promise.all([
+            supabase
+              .from("payment_sessions")
+              .select("provider_order_id")
+              .eq("id", String(tripForTipWindow.payment_session_id))
+              .maybeSingle(),
+            supabase
+              .from("service_areas")
+              .select("tips_enabled")
+              .eq("id", tripForTipWindow.service_area_id as string)
+              .maybeSingle(),
+          ]);
+          stages.mark("tip_order_lookup_end");
           stages.mark("tip_area_read_end");
-          if (tipAreaEarlyErr) {
-            // Do not complete until we know whether to stamp the window.
-            // A failed read used to complete with no stamp, and the invoice
-            // trigger could then run before capture.
-            console.error("[stop-workflow] tips_enabled read failed before completion", {
+          if (tipSessionRes.error) {
+            console.error("[stop-workflow] tip window order lookup failed before completion", {
               trip_id,
-              error: tipAreaEarlyErr.message,
+              error: tipSessionRes.error.message,
             });
             return completeTripError(
               "TIP_WINDOW_STAMP_UNAVAILABLE",
@@ -4678,15 +4662,106 @@ Deno.serve(async (req) => {
               503,
             );
           }
-          if (tipAreaEarly?.tips_enabled === true) {
-            tipWindowOnComplete = {
-              tip_window_opened_at: now,
-              tip_window_expires_at: new Date(
-                new Date(now).getTime() + TIP_WINDOW_MS,
-              ).toISOString(),
-              tip_window_status: TIP_WINDOW_STATUS.OPEN,
-              tip_window_closed_at: null,
-            };
+          tipWindowOrderId = String(tipSessionRes.data?.provider_order_id ?? "").trim();
+          if (tipWindowOrderId) tripForTipWindow.provider_order_id = tipWindowOrderId;
+          if (!tipWindowOrderId) {
+            console.error("[stop-workflow] tip window skipped; no provider order", { trip_id });
+          } else if (tipStampEligible) {
+            // Order resolved — tips_enabled fail-closed still applies.
+            if (tipAreaRes.error) {
+              console.error("[stop-workflow] tips_enabled read failed before completion", {
+                trip_id,
+                error: tipAreaRes.error.message,
+              });
+              return completeTripError(
+                "TIP_WINDOW_STAMP_UNAVAILABLE",
+                "Unable to open the tip window. Please try again.",
+                503,
+              );
+            }
+            if (
+              (tipAreaRes.data as { tips_enabled?: boolean | null } | null)?.tips_enabled ===
+                true
+            ) {
+              tipWindowOnComplete = {
+                tip_window_opened_at: now,
+                tip_window_expires_at: new Date(
+                  new Date(now).getTime() + TIP_WINDOW_MS,
+                ).toISOString(),
+                tip_window_status: TIP_WINDOW_STATUS.OPEN,
+                tip_window_closed_at: null,
+              };
+            }
+          }
+        } else {
+          // Legacy sequential path (B4-B OFF) — identical fail-closed semantics.
+          if (
+            tipBaseEligible
+            && (tipWindowOrderId || tripForTipWindow.payment_session_id)
+          ) {
+            if (!tipWindowOrderId && tripForTipWindow.payment_session_id) {
+              stages.mark("tip_order_lookup_start");
+              const { data: tipSession, error: tipSessionErr } = await supabase
+                .from("payment_sessions")
+                .select("provider_order_id")
+                .eq("id", String(tripForTipWindow.payment_session_id))
+                .maybeSingle();
+              stages.mark("tip_order_lookup_end");
+              if (tipSessionErr) {
+                console.error(
+                  "[stop-workflow] tip window order lookup failed before completion",
+                  {
+                    trip_id,
+                    error: tipSessionErr.message,
+                  },
+                );
+                return completeTripError(
+                  "TIP_WINDOW_STAMP_UNAVAILABLE",
+                  "Unable to open the tip window. Please try again.",
+                  503,
+                );
+              }
+              tipWindowOrderId = String(tipSession?.provider_order_id ?? "").trim();
+              if (tipWindowOrderId) tripForTipWindow.provider_order_id = tipWindowOrderId;
+            }
+            if (!tipWindowOrderId) {
+              console.error("[stop-workflow] tip window skipped; no provider order", {
+                trip_id,
+              });
+            }
+          }
+          if (
+            tipWindowOrderId
+            && tipStampEligible
+          ) {
+            stages.mark("tip_area_read_start");
+            const { data: tipAreaEarly, error: tipAreaEarlyErr } = await supabase
+              .from("service_areas")
+              .select("tips_enabled")
+              .eq("id", tripForTipWindow.service_area_id as string)
+              .maybeSingle();
+            stages.mark("tip_area_read_end");
+            if (tipAreaEarlyErr) {
+              console.error("[stop-workflow] tips_enabled read failed before completion", {
+                trip_id,
+                error: tipAreaEarlyErr.message,
+              });
+              return completeTripError(
+                "TIP_WINDOW_STAMP_UNAVAILABLE",
+                "Unable to open the tip window. Please try again.",
+                503,
+              );
+            }
+            if (tipAreaEarly?.tips_enabled === true) {
+              tipWindowOnComplete = {
+                tip_window_opened_at: now,
+                tip_window_expires_at: new Date(
+                  new Date(now).getTime() + TIP_WINDOW_MS,
+                ).toISOString(),
+                tip_window_status: TIP_WINDOW_STATUS.OPEN,
+                tip_window_closed_at: null,
+              };
+            }
           }
         }
 
