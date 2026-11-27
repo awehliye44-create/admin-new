@@ -519,6 +519,7 @@ export default function ActiveTrips() {
       new?: Record<string, unknown> | null;
       old?: Record<string, unknown> | null;
     }) => {
+      let needsFullRefresh = false;
       setTrips((rows) => {
         const known = new Set(rows.map((t) => t.id));
         const decision = decideAdminTripsRealtimeApply(payload, known);
@@ -528,7 +529,7 @@ export default function ActiveTrips() {
         if (decision.kind === 'patch') {
           const idx = rows.findIndex((t) => t.id === decision.tripId);
           if (idx < 0) {
-            queue Promise.resolve().then(scheduleRefresh);
+            needsFullRefresh = true;
             return rows;
           }
           const copy = rows.slice();
@@ -536,10 +537,11 @@ export default function ActiveTrips() {
           return copy;
         }
         if (decision.kind === 'full_refresh') {
-          void Promise.resolve().then(scheduleRefresh);
+          needsFullRefresh = true;
         }
         return rows;
       });
+      if (needsFullRefresh) scheduleRefresh();
     };
 
     const teardown = () => {
