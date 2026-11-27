@@ -86,13 +86,13 @@ Deno.test("entitled driver survives after active assignment is cleared", () => {
   }), "driver-b");
 });
 
-Deno.test("CANCELLED_WITH_FEE is not late or arrival for settlement", () => {
+Deno.test("#111C CANCELLED_WITH_FEE is its own kind — never late or arrival", () => {
   assertEquals(resolveTerminalOutcomeKind({
     financial_outcome: "CANCELLED_WITH_FEE",
     status: "cancelled",
     cancellation_fee_pence: 400,
     payment_status: "captured",
-  }), null);
+  }), "CANCELLED_WITH_FEE");
   assertEquals(resolveTerminalOutcomeKind({
     financial_outcome: "ARRIVAL_CANCELLATION",
     status: "cancelled",
@@ -113,6 +113,25 @@ Deno.test("CANCELLED_WITH_FEE is not late or arrival for settlement", () => {
     financial_outcome: "CANCELLED_NO_FEE",
     status: "cancelled",
   }), null);
+});
+
+Deno.test("#111C CANCELLED_WITH_FEE posts one 376p TRIP_EARNING_NET (capture − ACTUAL fee, commission 0)", async () => {
+  const fake = ledgerFake();
+  const args = {
+    supabase: fake.supabase,
+    tripId: "trip-cwf",
+    driverId: "driver-b",
+    outcome: "CANCELLED_WITH_FEE" as const,
+    currency: "GBP",
+    evidence: EVIDENCE,
+  };
+  const first = await postTerminalEntitlementFromSettlement(args);
+  const second = await postTerminalEntitlementFromSettlement(args);
+  assertEquals(first.entitlement_pence, 376);
+  assertEquals(first.commission_pence, 0);
+  assertEquals(second.credited, true);
+  assertEquals(fake.rows.length, 1);
+  assertEquals(fake.rows[0].amount_pence, 376);
 });
 
 Deno.test("arrival, no-show and late each post one 376p TRIP_EARNING_NET", async () => {

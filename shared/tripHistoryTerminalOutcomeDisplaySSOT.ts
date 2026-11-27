@@ -105,7 +105,9 @@ export function resolveTripHistoryTerminalOutcomeKind(
   }
 
   const fromSsot = resolveTerminalOutcomeKind(trip);
-  if (fromSsot) return fromSsot;
+  // #111C: CANCELLED_WITH_FEE is a settlement kind, but Trip History display is
+  // unchanged (historical rows must not be re-presented on the new formula).
+  if (fromSsot && fromSsot !== "CANCELLED_WITH_FEE") return fromSsot;
 
   if (isAdminNoShowTrip(trip) && (
     positivePence(trip.no_show_charge_pence) > 0
@@ -207,7 +209,9 @@ export function resolveTripHistoryTerminalOutcomeDisplay(
     ? (customerCharge > 0 ? "No-show fee captured" : "No-show — no charge")
     : outcomeKind === "ARRIVAL_CANCELLATION"
       ? (customerCharge > 0 ? "Arrival cancellation fee captured" : "Arrival cancellation — no charge")
-      : (customerCharge > 0 ? "Late passenger cancellation fee charged" : "Late passenger cancellation — no charge");
+      : outcomeKind === "CANCELLED_WITH_FEE"
+        ? (customerCharge > 0 ? "Cancellation fee charged" : "Cancellation — no charge")
+        : (customerCharge > 0 ? "Late passenger cancellation fee charged" : "Late passenger cancellation — no charge");
 
   const originalQuote = resolveOriginalQuotePence(trip);
   const originalNotCharged = originalQuote != null && customerCharge > 0 && originalQuote > customerCharge

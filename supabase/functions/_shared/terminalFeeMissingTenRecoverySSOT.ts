@@ -15,6 +15,16 @@ import {
   type ResumeTerminalFeeSettlementResult,
 } from "./terminalFeeSettlementResumptionSSOT.ts";
 import { resolveTerminalOutcomeKind } from "./terminalOutcomeKindSSOT.ts";
+import { isUnifiedTerminalFeePolicyActive } from "./terminalFeePolicySSOT.ts";
+
+/**
+ * #111C — CANCELLED_WITH_FEE is recoverable only when decided on/after the
+ * unified-policy cutover. Earlier rows are historical (remediation on HOLD).
+ */
+function isHistoricalCancelledWithFee(trip: Record<string, unknown>): boolean {
+  return String(trip.financial_outcome ?? "").toUpperCase() === "CANCELLED_WITH_FEE"
+    && !isUnifiedTerminalFeePolicyActive(trip.cancelled_at as string | null | undefined);
+}
 
 export const TERMINAL_FEE_MISSING_TEN_RECOVERY_SOURCE =
   "sweep_terminal_fee_missing_ten_111a" as const;
@@ -85,7 +95,7 @@ export async function findTerminalFeeMissingTenCandidates(
   const { data: trips, error } = await supabase
     .from("trips")
     .select(
-      "id, trip_code, driver_id, financial_model, financial_outcome, status, payment_status, no_show_charge_pence, cancellation_fee_pence, payment_session_id",
+      "id, trip_code, driver_id, financial_model, financial_outcome, status, payment_status, no_show_charge_pence, cancellation_fee_pence, payment_session_id, cancelled_at",
     )
     .in("id", tripIds)
     .in("status", [...TERMINAL_FEE_STATUSES])
@@ -120,6 +130,7 @@ export async function findTerminalFeeMissingTenCandidates(
       continue;
     }
     if (!isPlatformCollectedModel(trip.financial_model)) continue;
+    if (isHistoricalCancelledWithFee(trip as Record<string, unknown>)) continue;
     if (!resolveTerminalOutcomeKind(trip as {
       status?: string | null;
       financial_outcome?: string | null;
@@ -163,7 +174,7 @@ export async function recoverTerminalFeeMissingTen(
   const { data: tripRow } = await supabase
     .from("trips")
     .select(
-      "id, trip_code, financial_model, financial_outcome, status, payment_status, no_show_charge_pence, cancellation_fee_pence",
+      "id, trip_code, financial_model, financial_outcome, status, payment_status, no_show_charge_pence, cancellation_fee_pence, cancelled_at",
     )
     .eq("id", tripId)
     .maybeSingle();
@@ -208,6 +219,14 @@ export async function recoverTerminalFeeMissingTen(
       trip_code: tripCode,
       status: "SKIPPED",
       reason: "not_terminal_fee_trip",
+    };
+  }
+  if (isHistoricalCancelledWithFee(trip)) {
+    return {
+      trip_id: tripId,
+      trip_code: tripCode,
+      status: "SKIPPED",
+      reason: "cancelled_with_fee_pre_unified_policy_cutover",
     };
   }
 

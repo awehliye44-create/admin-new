@@ -743,8 +743,9 @@ serve(async (req) => {
 
     // Chargeable terminal fees settle through the canonical poster after capture.
     // Driver identity is previous_driver_id, set before the assignment trigger
-    // nulls driver_id. CANCELLED_WITH_FEE (pre-arrival grace fee) stays out of
-    // TEN resume until TERMINAL_FEE_SETTLE_CANCELLED_WITH_FEE is owner-approved.
+    // nulls driver_id. CANCELLED_WITH_FEE (#111C, owner-approved) settles via the
+    // same poster (capture − ACTUAL fee, commission 0); resume enforces the
+    // unified-policy cutover so earlier decisions are never settled retroactively.
     const settlesTerminalFee = feeType === "arrival_cancellation"
       || feeType === "no_show"
       || feeType === "late_cancellation"

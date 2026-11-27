@@ -9,13 +9,16 @@
 export type TerminalOutcomeKind =
   | "NO_SHOW"
   | "LATE_PASSENGER_CANCELLATION"
-  | "ARRIVAL_CANCELLATION";
+  | "ARRIVAL_CANCELLATION"
+  /** #111C — OTHER_CANCELLATION_FEE; own kind, never LATE / ARRIVAL. */
+  | "CANCELLED_WITH_FEE";
 
 export type TerminalOutcomeKindInput = {
   financial_outcome?: string | null;
   status?: string | null;
   payment_status?: string | null;
   no_show_charge_pence?: number | null;
+  cancellation_fee_pence?: number | null;
 };
 
 function pence(v: unknown): number {
@@ -24,8 +27,9 @@ function pence(v: unknown): number {
 }
 
 /**
- * CANCELLED_WITH_FEE is not a terminal kind and must not become
- * Late Passenger Cancellation or Arrival Cancellation.
+ * #111C: CANCELLED_WITH_FEE is its own terminal kind and must never become
+ * Late Passenger Cancellation or Arrival Cancellation. Eligibility still
+ * requires a TEN amount = capture − ACTUAL provider fee.
  * Arrival stamps alone do not settle historical rows.
  */
 export function resolveTerminalOutcomeKind(trip: TerminalOutcomeKindInput): TerminalOutcomeKind | null {
@@ -37,10 +41,11 @@ export function resolveTerminalOutcomeKind(trip: TerminalOutcomeKindInput): Term
   if (
     outcome === "COMPLETED"
     || outcome === "CANCELLED_NO_FEE"
-    || outcome === "CANCELLED_WITH_FEE"
   ) {
     return null;
   }
+
+  if (outcome === "CANCELLED_WITH_FEE") return "CANCELLED_WITH_FEE";
 
   if (outcome === "ARRIVAL_CANCELLATION") return "ARRIVAL_CANCELLATION";
   if (outcome === "NO_SHOW" || status === "no_show") return "NO_SHOW";

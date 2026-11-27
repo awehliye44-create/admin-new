@@ -1,11 +1,14 @@
 /**
- * #111B LOCK — terminal fee policy SSOT.
- * CANCELLED_WITH_FEE settle gate must stay false until owner approval.
+ * #111B/#111C LOCK — terminal fee policy SSOT.
+ * CANCELLED_WITH_FEE settle gate is ON (owner-approved #111C), prospective from the cutover.
  * Driver net formula for chargeable terminal fees: capture − ACTUAL fee; commission 0.
  */
 import { assertEquals, assertStringIncludes } from "jsr:@std/assert@1";
 import {
   TERMINAL_FEE_SETTLE_CANCELLED_WITH_FEE,
+  TERMINAL_FEE_UNIFIED_POLICY_CUTOVER_ISO,
+  TERMINAL_FEE_POLICY_VERSION,
+  isUnifiedTerminalFeePolicyActive,
   TERMINAL_EARNING_CATEGORY,
   buildTerminalFeeLedgerMetadata,
   earningCategoryForTerminalOutcome,
@@ -15,9 +18,41 @@ import {
 } from "../../functions/_shared/terminalFeePolicySSOT.ts";
 import { computeTerminalOutcomeEntitlement } from "../../functions/_shared/terminalOutcomeEntitlementSSOT.ts";
 
-Deno.test("#111B CANCELLED_WITH_FEE settle gate is false (not activated)", () => {
-  assertEquals(TERMINAL_FEE_SETTLE_CANCELLED_WITH_FEE, false);
-  assertEquals(shouldSettleCancelledWithFeeAsTerminalTen(), false);
+Deno.test("#111C CANCELLED_WITH_FEE settle gate is true with a documented UTC cutover", () => {
+  assertEquals(TERMINAL_FEE_SETTLE_CANCELLED_WITH_FEE, true);
+  assertEquals(shouldSettleCancelledWithFeeAsTerminalTen(), true);
+  assertEquals(TERMINAL_FEE_UNIFIED_POLICY_CUTOVER_ISO, "2026-11-27T04:00:00.000Z");
+  assertEquals(TERMINAL_FEE_POLICY_VERSION, "terminal_fee_capture_minus_actual_provider_fee_v1");
+});
+
+Deno.test("#111C isUnifiedTerminalFeePolicyActive is prospective and fails closed", () => {
+  assertEquals(isUnifiedTerminalFeePolicyActive("2026-11-27T03:59:59.999Z"), false);
+  assertEquals(isUnifiedTerminalFeePolicyActive("2026-11-27T04:00:00.000Z"), true);
+  assertEquals(isUnifiedTerminalFeePolicyActive("2026-12-01T00:00:00.000Z"), true);
+  assertEquals(isUnifiedTerminalFeePolicyActive(null), false);
+  assertEquals(isUnifiedTerminalFeePolicyActive(undefined), false);
+  assertEquals(isUnifiedTerminalFeePolicyActive("not-a-date"), false);
+});
+
+Deno.test("#111C CANCELLED_WITH_FEE maps to other_cancellation_earning with commission 0 metadata", () => {
+  assertEquals(
+    earningCategoryForTerminalOutcome("CANCELLED_WITH_FEE"),
+    TERMINAL_EARNING_CATEGORY.OTHER_CANCELLATION,
+  );
+  assertStringIncludes(
+    terminalFeeLedgerDescription({ outcome: "CANCELLED_WITH_FEE", currency: "GBP", amountPence: 376 }),
+    "Cancellation compensation",
+  );
+  const meta = buildTerminalFeeLedgerMetadata({
+    outcome: "CANCELLED_WITH_FEE",
+    capturedPence: 400,
+    providerFeePence: 24,
+    entitlementPence: 376,
+    formulaVersion: "2",
+  });
+  assertEquals(meta.earning_category, "other_cancellation_earning");
+  assertEquals(meta.commission_pence, 0);
+  assertEquals(meta.policy, TERMINAL_FEE_POLICY_VERSION);
 });
 
 Deno.test("#111B earning categories cover no-show / arrival / late / other", () => {

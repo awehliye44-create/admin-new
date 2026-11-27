@@ -319,6 +319,65 @@ Deno.test("MK-260916-030 cancel-fee FR expected: 500 − 65 commission; 25p fee 
   assertEquals(built.expected_entitlement_pence, 435);
 });
 
+Deno.test("#111C CANCELLED_WITH_FEE on/after cutover: capture − ACTUAL fee, commission 0", () => {
+  const built = buildFrDriverSettlementTripRow({
+    trip: {
+      id: "trip-cwf-new",
+      status: "cancelled",
+      financial_outcome: "CANCELLED_WITH_FEE",
+      financial_model: "PLATFORM_COLLECTED",
+      driver_net_pence: 435,
+      commission_pence: 65,
+    },
+    session: {
+      captured_amount_pence: 500,
+      provider_processing_fee_pence: 25,
+      fee_status: "ACTUAL",
+      captured_at: "2026-11-27T04:00:00.000Z",
+    },
+  });
+  assertEquals(built.expected_entitlement_pence, 475);
+  assertEquals(built.expected_stamp_status, FR_EXPECTED_STAMP_STATUS.OK);
+});
+
+Deno.test("#111C CANCELLED_WITH_FEE post-cutover without ACTUAL fee fails closed", () => {
+  const built = buildFrDriverSettlementTripRow({
+    trip: {
+      id: "trip-cwf-new-est",
+      status: "cancelled",
+      financial_outcome: "CANCELLED_WITH_FEE",
+      financial_model: "PLATFORM_COLLECTED",
+    },
+    session: {
+      captured_amount_pence: 500,
+      provider_processing_fee_pence: 25,
+      fee_status: "ESTIMATED",
+      captured_at: "2026-11-28T10:00:00.000Z",
+    },
+  });
+  assertEquals(built.expected_stamp_status, FR_EXPECTED_STAMP_STATUS.EXPECTED_STAMP_MISSING);
+});
+
+Deno.test("#111C CANCELLED_WITH_FEE pre-cutover keeps capture − commission (never reinterpreted)", () => {
+  const built = buildFrDriverSettlementTripRow({
+    trip: {
+      id: "trip-cwf-old",
+      status: "cancelled",
+      financial_outcome: "CANCELLED_WITH_FEE",
+      financial_model: "PLATFORM_COLLECTED",
+      driver_net_pence: 435,
+      commission_pence: 65,
+    },
+    session: {
+      captured_amount_pence: 500,
+      provider_processing_fee_pence: 25,
+      fee_status: "ACTUAL",
+      captured_at: "2026-11-27T03:59:59.999Z",
+    },
+  });
+  assertEquals(built.expected_entitlement_pence, 435);
+});
+
 function classifyDriverCreditPair(args: { expected: number; actual: number }): string {
   const variance = args.actual - args.expected;
   return classifyFrDriverCreditStatus({

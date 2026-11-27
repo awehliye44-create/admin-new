@@ -6,9 +6,10 @@
  *   ONECAB commission = 0
  *
  * CANCELLED_WITH_FEE / OTHER_CANCELLATION_FEE historically used
- * capture − commission (provider fee platform-owned). Unifying that category
- * onto capture − provider fee / commission 0 is a prospective owner-approved
- * policy change — see TERMINAL_FEE_SETTLE_CANCELLED_WITH_FEE.
+ * capture − commission (provider fee platform-owned). #111C: owner-approved
+ * PROSPECTIVE unification onto capture − ACTUAL provider fee / commission 0,
+ * effective TERMINAL_FEE_UNIFIED_POLICY_CUTOVER_ISO. Pre-cutover rows keep the
+ * historical formula and are never reinterpreted or retro-credited.
  *
  * Lock: terminalFeePolicySSOT.lock.test.ts
  */
@@ -16,12 +17,30 @@
 import type { TerminalOutcomeKind } from "./terminalOutcomeKindSSOT.ts";
 
 /**
- * Owner gate. Must stay false until the CANCELLED_WITH_FEE allocation change
- * is explicitly approved. When false, OTHER_CANCELLATION_FEE captures may
- * still run via dispose, but wallet resume / TEN posting for that outcome
- * remains off (historical behaviour).
+ * Owner gate (#111C — approved). CANCELLED_WITH_FEE / OTHER_CANCELLATION_FEE
+ * enters the terminal-fee resume / TEN path (capture − ACTUAL provider fee,
+ * commission 0). Prospective only: see TERMINAL_FEE_UNIFIED_POLICY_CUTOVER_ISO.
  */
-export const TERMINAL_FEE_SETTLE_CANCELLED_WITH_FEE = false as const;
+export const TERMINAL_FEE_SETTLE_CANCELLED_WITH_FEE = true as const;
+
+/** #111C unified-policy cutover (UTC). Rows earned before this keep historical formulas. */
+export const TERMINAL_FEE_UNIFIED_POLICY_CUTOVER_ISO = "2026-11-27T04:00:00.000Z" as const;
+
+/** Versioned policy label stamped on new terminal-fee ledger metadata. */
+export const TERMINAL_FEE_POLICY_VERSION =
+  "terminal_fee_capture_minus_actual_provider_fee_v1" as const;
+
+/**
+ * True when the instant is on or after the unified-policy cutover.
+ * Missing / unparseable instants are NOT active (fail closed to historical).
+ */
+export function isUnifiedTerminalFeePolicyActive(atIso?: string | null): boolean {
+  const raw = String(atIso ?? "").trim();
+  if (!raw) return false;
+  const ms = Date.parse(raw);
+  if (!Number.isFinite(ms)) return false;
+  return ms >= Date.parse(TERMINAL_FEE_UNIFIED_POLICY_CUTOVER_ISO);
+}
 
 /** Durable Wallet / Earnings classification for TRIP_EARNING_NET rows. */
 export type TerminalEarningCategory =
@@ -50,6 +69,7 @@ export function earningCategoryForTerminalOutcome(
     case "LATE_PASSENGER_CANCELLATION":
       return TERMINAL_EARNING_CATEGORY.LATE_CANCELLATION;
     case "OTHER_CANCELLATION":
+    case "CANCELLED_WITH_FEE":
       return TERMINAL_EARNING_CATEGORY.OTHER_CANCELLATION;
     default:
       return TERMINAL_EARNING_CATEGORY.NORMAL_TRIP;
@@ -71,6 +91,7 @@ export function terminalFeeLedgerDescription(args: {
     case "LATE_PASSENGER_CANCELLATION":
       return `Late passenger cancellation compensation — ${cs} ${major}`;
     case "OTHER_CANCELLATION":
+    case "CANCELLED_WITH_FEE":
       return `Cancellation compensation (ONECAB) — ${cs} ${major}`;
     default:
       return `Terminal fee compensation (ONECAB) — ${cs} ${major}`;
@@ -80,10 +101,9 @@ export function terminalFeeLedgerDescription(args: {
 /**
  * Whether cancel-trip feeType "cancellation" (OTHER_CANCELLATION_FEE /
  * CANCELLED_WITH_FEE) should enter the terminal-fee resume / TEN path.
- * Gated — do not flip without owner approval of the allocation change.
+ * Owner-approved in #111C.
  */
 export function shouldSettleCancelledWithFeeAsTerminalTen(): boolean {
-  // Gate is `as const` false until owner approval; keep a boolean return for callers.
   return Boolean(TERMINAL_FEE_SETTLE_CANCELLED_WITH_FEE);
 }
 
@@ -103,7 +123,7 @@ export function buildTerminalFeeLedgerMetadata(args: {
     commission_pence: 0,
     entitlement_pence: Math.max(0, Math.round(args.entitlementPence)),
     formula_version: args.formulaVersion,
-    policy: "terminal_fee_capture_minus_actual_provider_fee_v1",
+    policy: TERMINAL_FEE_POLICY_VERSION,
   };
 }
 

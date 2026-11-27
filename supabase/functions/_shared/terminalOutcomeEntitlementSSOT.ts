@@ -283,6 +283,7 @@ const TERMINAL_TRIP_STATUS: Record<TerminalOutcomeKind, string> = {
   NO_SHOW: "no_show",
   LATE_PASSENGER_CANCELLATION: "cancelled",
   ARRIVAL_CANCELLATION: "cancelled",
+  CANCELLED_WITH_FEE: "cancelled",
 };
 
 /**

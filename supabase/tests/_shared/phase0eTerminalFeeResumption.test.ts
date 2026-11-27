@@ -55,9 +55,9 @@ Deno.test("resolveTerminalOutcomeKind: no-show fee_pending_settlement", () => {
   assertEquals(isTerminalFeeTrip(NO_SHOW_PENDING), true);
 });
 
-Deno.test("resolveTerminalOutcomeKind: CANCELLED_WITH_FEE is not late cancellation", () => {
-  assertEquals(resolveTerminalOutcomeKind(CHARGED_CANCEL), null);
-  assertEquals(isTerminalFeeTrip(CHARGED_CANCEL), false);
+Deno.test("resolveTerminalOutcomeKind: #111C CANCELLED_WITH_FEE is its own kind, not late cancellation", () => {
+  assertEquals(resolveTerminalOutcomeKind(CHARGED_CANCEL), "CANCELLED_WITH_FEE");
+  assertEquals(isTerminalFeeTrip(CHARGED_CANCEL), true);
 });
 
 Deno.test("resolveTerminalOutcomeKind: explicit late outcome stays late", () => {

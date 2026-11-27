@@ -4,13 +4,15 @@
  * Never use raw trips.driver_net_pence alone for terminal-fee outcomes.
  * Canonical ARRIVAL_CANCELLATION / NO_SHOW / LATE_PASSENGER_CANCELLATION:
  * captured − ACTUAL provider fee, commission 0 (terminal settlement posting).
- * Historical CANCELLED_WITH_FEE keeps capture − commission (provider fee
- * platform-owned on that formula).
+ * CANCELLED_WITH_FEE: rows earned on/after TERMINAL_FEE_UNIFIED_POLICY_CUTOVER_ISO
+ * (#111C) use the canonical formula; earlier rows keep capture − commission
+ * (provider fee platform-owned) and are never reinterpreted.
  */
 
 import { TERMINAL_FEE_TRIP_STATUSES } from "./driverCreditMonitoringSSOT.ts";
 import { isCapturedAtRestampSuspect } from "./paymentSessionCaptureTimestampSSOT.ts";
 import { resolveTerminalEntitledDriverId } from "./terminalOutcomeKindSSOT.ts";
+import { isUnifiedTerminalFeePolicyActive } from "./terminalFeePolicySSOT.ts";
 
 export const FR_EXPECTED_STAMP_STATUS = {
   OK: "OK",
@@ -122,7 +124,10 @@ const NO_ENTITLEMENT_SOURCE_BY_OUTCOME: ReadonlyMap<string, string> = new Map([
   ["CERTIFICATION_NON_PAYABLE", "certification_non_payable"],
 ]);
 
-/** CANCELLED_WITH_FEE stays on the historical capture − commission formula. */
+/**
+ * CANCELLED_WITH_FEE is a terminal-fee outcome; its formula depends on the
+ * period origin vs the #111C cutover (see isUnifiedCancelledWithFee).
+ */
 const TERMINAL_FINANCIAL_OUTCOMES = new Set([
   ...CANONICAL_TERMINAL_FINANCIAL_OUTCOMES,
   "CANCELLED_WITH_FEE",
@@ -136,6 +141,18 @@ export function isCanonicalTerminalFinancialOutcome(
   trip: { financial_outcome?: string | null },
 ): boolean {
   return CANONICAL_TERMINAL_FINANCIAL_OUTCOMES.has(canonicalOutcome(trip));
+}
+
+/**
+ * #111C — CANCELLED_WITH_FEE whose financial period origin is on/after the
+ * unified-policy cutover. Missing / unparseable origin stays historical.
+ */
+export function isUnifiedCancelledWithFee(
+  trip: { financial_outcome?: string | null },
+  periodOrigin: string | null | undefined,
+): boolean {
+  return canonicalOutcome(trip) === "CANCELLED_WITH_FEE"
+    && isUnifiedTerminalFeePolicyActive(periodOrigin);
 }
 
 export type CanonicalTerminalEntitlement = {
@@ -496,7 +513,8 @@ function otherDriverEntitlementPence(trip: FrDriverEntitlementTripInput): number
  *    missing capture / non-ACTUAL fee → EXPECTED_STAMP_MISSING.
  *    CANCELLED_NO_FEE / CERTIFICATION_NON_PAYABLE → 0.
  * 1. Canonical fare-settlement → driver_net (customer shortfall / receivable ignored)
- * 2. Historical terminal-fee evidence → capture − commission
+ * 1b. CANCELLED_WITH_FEE on/after #111C cutover → same canonical formula
+ * 2. Historical terminal-fee evidence (incl. pre-cutover CANCELLED_WITH_FEE) → capture − commission
  * 3. UNKNOWN → fail closed (null), never silent zero
  */
 export function resolveFrDriverExpectedEntitlement(
@@ -545,7 +563,10 @@ export function resolveFrDriverExpectedEntitlement(
     };
   }
 
-  if (isCanonicalTerminalFinancialOutcome(trip)) {
+  if (
+    isCanonicalTerminalFinancialOutcome(trip)
+    || isUnifiedCancelledWithFee(trip, financialSettledAt)
+  ) {
     const beneficiary = resolveFrTerminalBeneficiaryDriverId(trip);
     const evaluated = String(trip.evaluated_driver_id ?? "").trim();
     if (beneficiary && evaluated && beneficiary !== evaluated) {

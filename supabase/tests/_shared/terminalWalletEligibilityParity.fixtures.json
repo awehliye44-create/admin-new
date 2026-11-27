@@ -389,7 +389,7 @@
     },
     {
       "id": "cancelled_with_fee_legacy_unchanged",
-      "note": "CANCELLED_WITH_FEE is not a chargeable terminal kind — stays excluded",
+      "note": "#111C: CANCELLED_WITH_FEE is its own terminal kind; eligible only because TEN 376 = capture 400 − ACTUAL fee 24 (commission 0) and 27h clearing elapsed. A TEN that is not capture − ACTUAL fee stays 0 eligible.",
       "trip": {
         "status": "cancelled",
         "financial_outcome": "CANCELLED_WITH_FEE",
@@ -423,7 +423,7 @@
       ],
       "expect": {
         "pending": 0,
-        "eligible": 0
+        "eligible": 376
       }
     },
     {
@@ -2671,336 +2671,336 @@
       "status": null,
       "payment_status": null,
       "no_show_charge_pence": null,
-      "expect": null
+      "expect": "CANCELLED_WITH_FEE"
     },
     {
       "financial_outcome": "CANCELLED_WITH_FEE",
       "status": null,
       "payment_status": null,
       "no_show_charge_pence": 0,
-      "expect": null
+      "expect": "CANCELLED_WITH_FEE"
     },
     {
       "financial_outcome": "CANCELLED_WITH_FEE",
       "status": null,
       "payment_status": null,
       "no_show_charge_pence": 450,
-      "expect": null
+      "expect": "CANCELLED_WITH_FEE"
     },
     {
       "financial_outcome": "CANCELLED_WITH_FEE",
       "status": null,
       "payment_status": "captured",
       "no_show_charge_pence": null,
-      "expect": null
+      "expect": "CANCELLED_WITH_FEE"
     },
     {
       "financial_outcome": "CANCELLED_WITH_FEE",
       "status": null,
       "payment_status": "captured",
       "no_show_charge_pence": 0,
-      "expect": null
+      "expect": "CANCELLED_WITH_FEE"
     },
     {
       "financial_outcome": "CANCELLED_WITH_FEE",
       "status": null,
       "payment_status": "captured",
       "no_show_charge_pence": 450,
-      "expect": null
+      "expect": "CANCELLED_WITH_FEE"
     },
     {
       "financial_outcome": "CANCELLED_WITH_FEE",
       "status": null,
       "payment_status": "fee_pending_settlement",
       "no_show_charge_pence": null,
-      "expect": null
+      "expect": "CANCELLED_WITH_FEE"
     },
     {
       "financial_outcome": "CANCELLED_WITH_FEE",
       "status": null,
       "payment_status": "fee_pending_settlement",
       "no_show_charge_pence": 0,
-      "expect": null
+      "expect": "CANCELLED_WITH_FEE"
     },
     {
       "financial_outcome": "CANCELLED_WITH_FEE",
       "status": null,
       "payment_status": "fee_pending_settlement",
       "no_show_charge_pence": 450,
-      "expect": null
+      "expect": "CANCELLED_WITH_FEE"
     },
     {
       "financial_outcome": "CANCELLED_WITH_FEE",
       "status": null,
       "payment_status": "no_show_customer_debt",
       "no_show_charge_pence": null,
-      "expect": null
+      "expect": "CANCELLED_WITH_FEE"
     },
     {
       "financial_outcome": "CANCELLED_WITH_FEE",
       "status": null,
       "payment_status": "no_show_customer_debt",
       "no_show_charge_pence": 0,
-      "expect": null
+      "expect": "CANCELLED_WITH_FEE"
     },
     {
       "financial_outcome": "CANCELLED_WITH_FEE",
       "status": null,
       "payment_status": "no_show_customer_debt",
       "no_show_charge_pence": 450,
-      "expect": null
+      "expect": "CANCELLED_WITH_FEE"
     },
     {
       "financial_outcome": "CANCELLED_WITH_FEE",
       "status": "cancelled",
       "payment_status": null,
       "no_show_charge_pence": null,
-      "expect": null
+      "expect": "CANCELLED_WITH_FEE"
     },
     {
       "financial_outcome": "CANCELLED_WITH_FEE",
       "status": "cancelled",
       "payment_status": null,
       "no_show_charge_pence": 0,
-      "expect": null
+      "expect": "CANCELLED_WITH_FEE"
     },
     {
       "financial_outcome": "CANCELLED_WITH_FEE",
       "status": "cancelled",
       "payment_status": null,
       "no_show_charge_pence": 450,
-      "expect": null
+      "expect": "CANCELLED_WITH_FEE"
     },
     {
       "financial_outcome": "CANCELLED_WITH_FEE",
       "status": "cancelled",
       "payment_status": "captured",
       "no_show_charge_pence": null,
-      "expect": null
+      "expect": "CANCELLED_WITH_FEE"
     },
     {
       "financial_outcome": "CANCELLED_WITH_FEE",
       "status": "cancelled",
       "payment_status": "captured",
       "no_show_charge_pence": 0,
-      "expect": null
+      "expect": "CANCELLED_WITH_FEE"
     },
     {
       "financial_outcome": "CANCELLED_WITH_FEE",
       "status": "cancelled",
       "payment_status": "captured",
       "no_show_charge_pence": 450,
-      "expect": null
+      "expect": "CANCELLED_WITH_FEE"
     },
     {
       "financial_outcome": "CANCELLED_WITH_FEE",
       "status": "cancelled",
       "payment_status": "fee_pending_settlement",
       "no_show_charge_pence": null,
-      "expect": null
+      "expect": "CANCELLED_WITH_FEE"
     },
     {
       "financial_outcome": "CANCELLED_WITH_FEE",
       "status": "cancelled",
       "payment_status": "fee_pending_settlement",
       "no_show_charge_pence": 0,
-      "expect": null
+      "expect": "CANCELLED_WITH_FEE"
     },
     {
       "financial_outcome": "CANCELLED_WITH_FEE",
       "status": "cancelled",
       "payment_status": "fee_pending_settlement",
       "no_show_charge_pence": 450,
-      "expect": null
+      "expect": "CANCELLED_WITH_FEE"
     },
     {
       "financial_outcome": "CANCELLED_WITH_FEE",
       "status": "cancelled",
       "payment_status": "no_show_customer_debt",
       "no_show_charge_pence": null,
-      "expect": null
+      "expect": "CANCELLED_WITH_FEE"
     },
     {
       "financial_outcome": "CANCELLED_WITH_FEE",
       "status": "cancelled",
       "payment_status": "no_show_customer_debt",
       "no_show_charge_pence": 0,
-      "expect": null
+      "expect": "CANCELLED_WITH_FEE"
     },
     {
       "financial_outcome": "CANCELLED_WITH_FEE",
       "status": "cancelled",
       "payment_status": "no_show_customer_debt",
       "no_show_charge_pence": 450,
-      "expect": null
+      "expect": "CANCELLED_WITH_FEE"
     },
     {
       "financial_outcome": "CANCELLED_WITH_FEE",
       "status": "no_show",
       "payment_status": null,
       "no_show_charge_pence": null,
-      "expect": null
+      "expect": "CANCELLED_WITH_FEE"
     },
     {
       "financial_outcome": "CANCELLED_WITH_FEE",
       "status": "no_show",
       "payment_status": null,
       "no_show_charge_pence": 0,
-      "expect": null
+      "expect": "CANCELLED_WITH_FEE"
     },
     {
       "financial_outcome": "CANCELLED_WITH_FEE",
       "status": "no_show",
       "payment_status": null,
       "no_show_charge_pence": 450,
-      "expect": null
+      "expect": "CANCELLED_WITH_FEE"
     },
     {
       "financial_outcome": "CANCELLED_WITH_FEE",
       "status": "no_show",
       "payment_status": "captured",
       "no_show_charge_pence": null,
-      "expect": null
+      "expect": "CANCELLED_WITH_FEE"
     },
     {
       "financial_outcome": "CANCELLED_WITH_FEE",
       "status": "no_show",
       "payment_status": "captured",
       "no_show_charge_pence": 0,
-      "expect": null
+      "expect": "CANCELLED_WITH_FEE"
     },
     {
       "financial_outcome": "CANCELLED_WITH_FEE",
       "status": "no_show",
       "payment_status": "captured",
       "no_show_charge_pence": 450,
-      "expect": null
+      "expect": "CANCELLED_WITH_FEE"
     },
     {
       "financial_outcome": "CANCELLED_WITH_FEE",
       "status": "no_show",
       "payment_status": "fee_pending_settlement",
       "no_show_charge_pence": null,
-      "expect": null
+      "expect": "CANCELLED_WITH_FEE"
     },
     {
       "financial_outcome": "CANCELLED_WITH_FEE",
       "status": "no_show",
       "payment_status": "fee_pending_settlement",
       "no_show_charge_pence": 0,
-      "expect": null
+      "expect": "CANCELLED_WITH_FEE"
     },
     {
       "financial_outcome": "CANCELLED_WITH_FEE",
       "status": "no_show",
       "payment_status": "fee_pending_settlement",
       "no_show_charge_pence": 450,
-      "expect": null
+      "expect": "CANCELLED_WITH_FEE"
     },
     {
       "financial_outcome": "CANCELLED_WITH_FEE",
       "status": "no_show",
       "payment_status": "no_show_customer_debt",
       "no_show_charge_pence": null,
-      "expect": null
+      "expect": "CANCELLED_WITH_FEE"
     },
     {
       "financial_outcome": "CANCELLED_WITH_FEE",
       "status": "no_show",
       "payment_status": "no_show_customer_debt",
       "no_show_charge_pence": 0,
-      "expect": null
+      "expect": "CANCELLED_WITH_FEE"
     },
     {
       "financial_outcome": "CANCELLED_WITH_FEE",
       "status": "no_show",
       "payment_status": "no_show_customer_debt",
       "no_show_charge_pence": 450,
-      "expect": null
+      "expect": "CANCELLED_WITH_FEE"
     },
     {
       "financial_outcome": "CANCELLED_WITH_FEE",
       "status": "completed",
       "payment_status": null,
       "no_show_charge_pence": null,
-      "expect": null
+      "expect": "CANCELLED_WITH_FEE"
     },
     {
       "financial_outcome": "CANCELLED_WITH_FEE",
       "status": "completed",
       "payment_status": null,
       "no_show_charge_pence": 0,
-      "expect": null
+      "expect": "CANCELLED_WITH_FEE"
     },
     {
       "financial_outcome": "CANCELLED_WITH_FEE",
       "status": "completed",
       "payment_status": null,
       "no_show_charge_pence": 450,
-      "expect": null
+      "expect": "CANCELLED_WITH_FEE"
     },
     {
       "financial_outcome": "CANCELLED_WITH_FEE",
       "status": "completed",
       "payment_status": "captured",
       "no_show_charge_pence": null,
-      "expect": null
+      "expect": "CANCELLED_WITH_FEE"
     },
     {
       "financial_outcome": "CANCELLED_WITH_FEE",
       "status": "completed",
       "payment_status": "captured",
       "no_show_charge_pence": 0,
-      "expect": null
+      "expect": "CANCELLED_WITH_FEE"
     },
     {
       "financial_outcome": "CANCELLED_WITH_FEE",
       "status": "completed",
       "payment_status": "captured",
       "no_show_charge_pence": 450,
-      "expect": null
+      "expect": "CANCELLED_WITH_FEE"
     },
     {
       "financial_outcome": "CANCELLED_WITH_FEE",
       "status": "completed",
       "payment_status": "fee_pending_settlement",
       "no_show_charge_pence": null,
-      "expect": null
+      "expect": "CANCELLED_WITH_FEE"
     },
     {
       "financial_outcome": "CANCELLED_WITH_FEE",
       "status": "completed",
       "payment_status": "fee_pending_settlement",
       "no_show_charge_pence": 0,
-      "expect": null
+      "expect": "CANCELLED_WITH_FEE"
     },
     {
       "financial_outcome": "CANCELLED_WITH_FEE",
       "status": "completed",
       "payment_status": "fee_pending_settlement",
       "no_show_charge_pence": 450,
-      "expect": null
+      "expect": "CANCELLED_WITH_FEE"
     },
     {
       "financial_outcome": "CANCELLED_WITH_FEE",
       "status": "completed",
       "payment_status": "no_show_customer_debt",
       "no_show_charge_pence": null,
-      "expect": null
+      "expect": "CANCELLED_WITH_FEE"
     },
     {
       "financial_outcome": "CANCELLED_WITH_FEE",
       "status": "completed",
       "payment_status": "no_show_customer_debt",
       "no_show_charge_pence": 0,
-      "expect": null
+      "expect": "CANCELLED_WITH_FEE"
     },
     {
       "financial_outcome": "CANCELLED_WITH_FEE",
       "status": "completed",
       "payment_status": "no_show_customer_debt",
       "no_show_charge_pence": 450,
-      "expect": null
+      "expect": "CANCELLED_WITH_FEE"
     },
     {
       "financial_outcome": "ARRIVAL_CANCELLATION",

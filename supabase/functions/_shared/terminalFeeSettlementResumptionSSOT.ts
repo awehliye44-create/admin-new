@@ -15,6 +15,7 @@ import { tripBlocksDriverWalletLedgerPosting } from "./commissionWalletDeduction
 import { FINANCIAL_MODEL, resolveFinancialModelStamp } from "./financialModelScopeSSOT.ts";
 import { loadPaymentSession, markPaymentSessionProviderFee } from "./paymentSessionSSOT.ts";
 import { resolveTerminalEntitledDriverId, resolveTerminalOutcomeKind } from "./terminalOutcomeKindSSOT.ts";
+import { isUnifiedTerminalFeePolicyActive } from "./terminalFeePolicySSOT.ts";
 
 export { resolveTerminalEntitledDriverId, resolveTerminalOutcomeKind };
 
@@ -34,6 +35,7 @@ export type TerminalTripRow = {
   late_cancel_fee_pence?: number | null;
   arrival_cancellation_applied?: boolean | null;
   arrival_cancellation_reason?: string | null;
+  cancelled_at?: string | null;
 };
 
 export type ResumeTerminalFeeSettlementResult = {
@@ -98,7 +100,7 @@ export async function maybeResumeTerminalFeeSettlementAfterProviderFee(
   const { data: trip, error: tripErr } = await supabase
     .from("trips")
     .select(
-      "id, driver_id, confirmed_driver_id, previous_driver_id, financial_model, financial_outcome, status, payment_status, payment_method, currency_code, no_show_charge_pence, cancellation_fee_pence",
+      "id, driver_id, confirmed_driver_id, previous_driver_id, financial_model, financial_outcome, status, payment_status, payment_method, currency_code, no_show_charge_pence, cancellation_fee_pence, cancelled_at",
     )
     .eq("id", tripId)
     .maybeSingle();
@@ -149,6 +151,24 @@ export async function maybeResumeTerminalFeeSettlementAfterProviderFee(
       pending: false,
       reason: "not_terminal_fee_trip",
       outcome: null,
+      entitlement_pence: null,
+    };
+  }
+
+  // #111C — prospective only: a CANCELLED_WITH_FEE decided before the unified
+  // policy cutover (or with no decision instant) is never settled on the new
+  // formula. Historical remediation is a separate, held workstream.
+  if (
+    outcome === "CANCELLED_WITH_FEE"
+    && !isUnifiedTerminalFeePolicyActive(trip.cancelled_at)
+  ) {
+    return {
+      resumed: false,
+      credited: false,
+      already_credited: false,
+      pending: false,
+      reason: "cancelled_with_fee_pre_unified_policy_cutover",
+      outcome,
       entitlement_pence: null,
     };
   }
