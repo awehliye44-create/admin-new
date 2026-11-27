@@ -1234,6 +1234,33 @@ Deno.serve(async (req) => {
       .eq("id", tripId)
       .maybeSingle();
 
+    // Same payment attempt as this webhook order — never use a different session.
+    let sameOrderSession: {
+      status?: string | null;
+      hold_release_state?: string | null;
+      hold_terminal_reason?: string | null;
+      provider_state?: string | null;
+      provider_order_id?: string | null;
+      trip_id?: string | null;
+    } | null = null;
+    if (orderId) {
+      const { data: sessRow } = await supabase
+        .from("payment_sessions")
+        .select(
+          "id, status, hold_release_state, hold_terminal_reason, provider_state, provider_order_id, trip_id",
+        )
+        .eq("provider_order_id", orderId)
+        .eq("purpose", "RIDE_BOOKING")
+        .maybeSingle();
+      sameOrderSession = sessRow ?? null;
+    }
+    const sessionMatchesWebhookOrder = Boolean(
+      sameOrderSession &&
+        String(sameOrderSession.provider_order_id ?? "") === String(orderId) &&
+        (sameOrderSession.trip_id == null ||
+          String(sameOrderSession.trip_id) === String(tripId)),
+    );
+
     // MK-261106-004: never stamp trips.payment_status=captured while the ride
     // is still pre-completion (webhook mirror ≠ fare capture request).
     if (effectiveStatus === "captured") {
@@ -1251,12 +1278,19 @@ Deno.serve(async (req) => {
       }
     }
 
-    // #108: a late ORDER_AUTHORISED must not overwrite a confirmed capture.
+    // #108: late ORDER_AUTHORISED must not overwrite confirmed capture or
+    // an authoritative terminal release/void on the same payment attempt.
     const decision = resolveTripPaymentStatusWrite({
       currentStatus: tripPayRow?.payment_status,
       currentHoldStatus: tripPayRow?.payment_hold_status,
       captureAmountPence: tripPayRow?.capture_amount_pence,
       incomingStatus: effectiveStatus,
+      sessionMatchesWebhookOrder,
+      sessionStatus: sameOrderSession?.status ?? null,
+      holdReleaseState: sameOrderSession?.hold_release_state ?? null,
+      holdTerminalReason: sameOrderSession?.hold_terminal_reason ?? null,
+      sessionProviderState: sameOrderSession?.provider_state ?? null,
+      tripStatus: tripPayRow?.status ?? null,
     });
     tripPaymentStatusApplied = decision.status;
     paymentStatusRegressionRefused = decision.refusedRegression;
@@ -1266,6 +1300,7 @@ Deno.serve(async (req) => {
         incoming: effectiveStatus,
         kept: decision.status,
         event: eventName,
+        same_order_session: sessionMatchesWebhookOrder,
       });
     } else {
       const update: Record<string, unknown> = {
@@ -1275,7 +1310,15 @@ Deno.serve(async (req) => {
       if (decision.status === "captured" && orderId) {
         update.provider_charge_id = orderId;
       }
-      const { error } = await supabase.from("trips").update(update).eq("id", tripId);
+      // Conditional update — concurrent writers that already moved status win.
+      let statusQuery = supabase
+        .from("trips")
+        .update(update)
+        .eq("id", tripId);
+      if (tripPayRow?.payment_status != null) {
+        statusQuery = statusQuery.eq("payment_status", tripPayRow.payment_status);
+      }
+      const { error } = await statusQuery;
       if (error) {
         console.error(`[revolut-webhook] trip update failed for ${tripId}:`, error.message);
       }

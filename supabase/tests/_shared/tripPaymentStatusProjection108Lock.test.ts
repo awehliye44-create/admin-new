@@ -42,6 +42,52 @@ Deno.test("#108 pre-capture authorised refresh is still written", () => {
   assertEquals(d.status, "authorized");
 });
 
+Deno.test("#108B late authorised refused after terminal void projection", () => {
+  const d = resolveTripPaymentStatusWrite({
+    currentStatus: "canceled",
+    currentHoldStatus: null,
+    captureAmountPence: 0,
+    incomingStatus: "authorized",
+  });
+  assertEquals(d.write, false);
+  assertEquals(d.refusedRegression, true);
+  assertEquals(d.status, "canceled");
+});
+
+Deno.test("#108B late authorised refused when same released session + provider CANCELLED", () => {
+  const d = resolveTripPaymentStatusWrite({
+    currentStatus: "authorized",
+    currentHoldStatus: null,
+    captureAmountPence: 0,
+    incomingStatus: "authorized",
+    sessionMatchesWebhookOrder: true,
+    sessionStatus: "released",
+    holdReleaseState: "released",
+    holdTerminalReason: "terminal_no_fee_void",
+    sessionProviderState: "CANCELLED",
+    tripStatus: "cancelled",
+  });
+  assertEquals(d.write, false);
+  assertEquals(d.refusedRegression, true);
+});
+
+Deno.test("#108B different payment attempt still accepts authorised", () => {
+  const d = resolveTripPaymentStatusWrite({
+    currentStatus: "pending",
+    currentHoldStatus: null,
+    captureAmountPence: null,
+    incomingStatus: "authorized",
+    sessionMatchesWebhookOrder: false,
+    sessionStatus: "released",
+    holdReleaseState: "released",
+    sessionProviderState: "CANCELLED",
+    tripStatus: "cancelled",
+  });
+  assertEquals(d.write, true);
+  assertEquals(d.refusedRegression, false);
+  assertEquals(d.status, "authorized");
+});
+
 Deno.test("#108 captured to refunded is not treated as a pre-capture regression", () => {
   const d = resolveTripPaymentStatusWrite({
     currentStatus: "captured",
@@ -95,6 +141,16 @@ Deno.test("#108 webhook and sweep call the projection guard", async () => {
   );
   assertEquals(webhook.includes("resolveTripPaymentStatusWrite"), true);
   assertEquals(webhook.includes("payment_status_regression"), true);
+  assertEquals(webhook.includes("sessionMatchesWebhookOrder"), true);
+  assertEquals(webhook.includes("hold_terminal_reason"), true);
+  const mig108b = await Deno.readTextFile(
+    new URL(
+      "../../migrations/20261127190000_trip_payment_status_no_terminal_void_regression_108b.sql",
+      import.meta.url,
+    ),
+  );
+  assertEquals(mig108b.includes("prior_voided"), true);
+  assertEquals(mig108b.includes("trip_terminal"), true);
   assertEquals(sweep.includes("reconcileConfirmedCapturePaymentStatus"), true);
   assertEquals(migration.includes("trg_trips_payment_status_no_capture_regression"), true);
   assertEquals(migration.includes("reconcile_confirmed_capture_payment_status"), true);
