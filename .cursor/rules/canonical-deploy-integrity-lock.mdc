@@ -1,0 +1,33 @@
+# Canonical deploy integrity lock
+
+## Permanent policy
+
+Production artifacts are published only from the **single canonical working tree** of each repository, at a committed revision that matches `origin/<branch>`.
+
+## Mandatory controls
+
+1. **Clean tree** — `git status --porcelain` empty
+2. **Origin sync** — `HEAD == origin/<branch>`
+3. **Exclusive publish lock** — atomic `mkdir` on `.git/onecab-canonical-publish.lockdir` for the whole bundle/publish window
+4. **Freeze** — deploy-relevant paths are `chmod a-w` while bundling so concurrent edits cannot enter the artifact
+5. **Revision pin** — record and re-verify `HEAD` before and after publish
+
+## Entry points
+
+| Surface | Script |
+| --- | --- |
+| Edge functions | `scripts/deploy-edge-clean-preflight.sh` |
+| Admin web | `scripts/publish-admin-web-clean-preflight.sh` |
+| Customer OTA | `onecab-customer-native/scripts/publish-production-ota.sh` |
+| Driver OTA | `onecab-driver-native/scripts/publish-production-ota.sh` |
+| Corporate/Guest web | `onecab-central-hub/scripts/publish-web-clean-preflight.sh` then Lovable Publish |
+| Premium/Admin portal | `onecab-premium-build/scripts/publish-web-clean-preflight.sh` then Lovable Publish |
+
+## Forbidden
+
+- Deploy/OTA from dirty or intermediate trees
+- Parallel edit + deploy of the same tree without the publish lock
+- Competing working trees / worktrees for production artifacts
+- Claiming version-counter bumps equal a new binary (verify `ezbr_sha256` / OTA group)
+
+Shared helper: `scripts/lib/canonical-tree-publish-guard.sh`

@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Enforceable Edge deploy preflight — reject dirty / mismatched trees.
+# Enforceable Edge deploy preflight — reject dirty / mismatched trees and
+# close the check-to-bundle race (flock + freeze supabase/functions).
 #
 # Permanent policy: production deploys only from the single canonical clean
 # working tree at a committed, origin-synced revision.
@@ -50,6 +51,9 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 WORKDIR="${WORKDIR:-$ROOT}"
 cd "$WORKDIR"
 
+# shellcheck source=lib/canonical-tree-publish-guard.sh
+source "$(cd "$(dirname "$0")" && pwd)/lib/canonical-tree-publish-guard.sh"
+
 fail() {
   echo "DEPLOY_PREFLIGHT_FAIL: $*" >&2
   exit 1
@@ -57,47 +61,35 @@ fail() {
 
 pass() { echo "DEPLOY_PREFLIGHT_PASS: $*"; }
 
-command -v git >/dev/null || fail "git not found"
 command -v npx >/dev/null || fail "npx not found"
 
-# 1) Inside a git work tree
-git rev-parse --is-inside-work-tree >/dev/null 2>&1 || fail "not a git repository"
-
-# 2) Clean working tree (no staged/unstaged/untracked in deploy-relevant paths)
-# Full tree must be clean — no parallel WIP that could enter the bundle.
-if [[ -n "$(git status --porcelain)" ]]; then
-  echo "--- dirty status ---" >&2
-  git status --porcelain >&2
-  fail "dirty working tree — commit or stash before production deploy"
-fi
-
-# 3) On expected branch (default main)
-CURRENT_BRANCH="$(git rev-parse --abbrev-ref HEAD)"
-[[ "$CURRENT_BRANCH" == "$BRANCH" ]] || fail "branch is '$CURRENT_BRANCH', expected '$BRANCH'"
-
-# 4) HEAD must equal origin/<branch> (synchronised)
-git fetch origin "$BRANCH" --quiet 2>/dev/null || true
-LOCAL_SHA="$(git rev-parse HEAD)"
-REMOTE_SHA="$(git rev-parse "origin/$BRANCH" 2>/dev/null || true)"
-[[ -n "$REMOTE_SHA" ]] || fail "origin/$BRANCH missing — push/sync before deploy"
-[[ "$LOCAL_SHA" == "$REMOTE_SHA" ]] || fail "HEAD $LOCAL_SHA != origin/$BRANCH $REMOTE_SHA — push or pull first"
-
-# 5) Optional exact commit pin
+GUARD_ARGS=(--branch "$BRANCH" --freeze-paths "supabase/functions")
 if [[ -n "$EXPECT_COMMIT" ]]; then
-  [[ "$LOCAL_SHA" == "$EXPECT_COMMIT" || "$LOCAL_SHA" == "$(git rev-parse --verify "$EXPECT_COMMIT^{commit}")" ]] \
-    || fail "HEAD $LOCAL_SHA does not match --expect-commit $EXPECT_COMMIT"
+  GUARD_ARGS+=(--expect-commit "$EXPECT_COMMIT")
 fi
 
-# 6) Function source must exist
+canonical_publish_begin "${GUARD_ARGS[@]}" || exit 1
+
+# Function source must exist (checked under lock / freeze)
 [[ -d "supabase/functions/$SLUG" || -f "supabase/functions/$SLUG/index.ts" ]] \
   || fail "function source missing: supabase/functions/$SLUG"
 
-pass "clean tree HEAD=$LOCAL_SHA branch=$BRANCH slug=$SLUG"
+pass "clean tree HEAD=$CANONICAL_PUBLISH_SHA branch=$BRANCH slug=$SLUG"
 
 if [[ "$SKIP_DEPLOY" == true ]]; then
+  canonical_publish_end || exit 1
   exit 0
 fi
 
-echo "DEPLOY_PREFLIGHT: deploying $SLUG from $LOCAL_SHA …"
+echo "DEPLOY_PREFLIGHT: deploying $SLUG from $CANONICAL_PUBLISH_SHA …"
+# Immediate pre-bundle re-check (still under flock + freeze)
+[[ "$(git rev-parse HEAD)" == "$CANONICAL_PUBLISH_SHA" ]] \
+  || fail "HEAD drifted immediately before deploy"
+[[ -z "$(git status --porcelain)" ]] \
+  || fail "tree dirty immediately before deploy"
+
 npx supabase functions deploy "$SLUG" --project-ref "$PROJECT_REF" --workdir "$WORKDIR"
-echo "DEPLOY_PREFLIGHT: deploy finished HEAD=$LOCAL_SHA"
+echo "DEPLOY_PREFLIGHT: deploy finished HEAD=$CANONICAL_PUBLISH_SHA"
+
+canonical_publish_end || exit 1
+echo "DEPLOY_PREFLIGHT: artifact integrity verified HEAD=$CANONICAL_PUBLISH_SHA"
