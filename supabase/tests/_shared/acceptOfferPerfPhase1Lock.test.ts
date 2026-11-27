@@ -243,7 +243,11 @@ Deno.test("acceptOfferPerf helper exposes waitUntil scheduling + skip marks", as
   assertStringIncludes(src, "markPostAssignmentEnrichmentSkipped");
   assertStringIncludes(src, "markScheduledGuardSkipped");
   assertStringIncludes(src, "markLockIdempotencySkipped");
-  assertStringIncludes(src, 'from "./scheduleEdgeBackground.ts"');
+  assertStringIncludes(src, "scheduleEdgeBackground");
+  assertStringIncludes(
+    src,
+    'from "../../_shared/scheduleEdgeBackground.ts"',
+  );
   const bg = await Deno.readTextFile(
     new URL("../../functions/_shared/scheduleEdgeBackground.ts", import.meta.url),
   );

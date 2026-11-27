@@ -34,6 +34,7 @@ import {
   buildScheduledUrgentRematchPatch,
 } from "../_shared/scheduledPreActivationReleaseSSOT.ts";
 import { scheduleEdgeBackground } from "../_shared/scheduleEdgeBackground.ts";
+import { isAcceptDeclineB3Enabled } from "../_shared/acceptDeclineB3SSOT.ts";
 
 const RATE_LIMIT_CONFIG = {
   limit: 60,
@@ -439,13 +440,19 @@ Deno.serve(async (req) => {
       const markAcceptStage = (key: string, startedAt: number) => {
         acceptStagesMs[key] = Math.max(0, Date.now() - startedAt);
       };
+      const b3Parallel = isAcceptDeclineB3Enabled();
 
       // Hard Rule #1: never preconfirm from Admin HELD / unreleased marketplace.
+      // B3: one trips SELECT carries marketplace guard + commitment geometry.
       {
         const stageAt = Date.now();
         const { data: tripGuard } = await supabase
           .from("trips")
-          .select("id, scheduled_status, scheduled_broadcast_at, driver_id, confirmed_driver_id")
+          .select(
+            b3Parallel
+              ? "id, scheduled_status, scheduled_broadcast_at, driver_id, confirmed_driver_id, scheduled_at, estimated_duration_minutes, pickup_latitude, pickup_longitude, dropoff_latitude, dropoff_longitude"
+              : "id, scheduled_status, scheduled_broadcast_at, driver_id, confirmed_driver_id",
+          )
           .eq("id", trip_id)
           .maybeSingle();
         const sched = String(tripGuard?.scheduled_status ?? "").toLowerCase();
@@ -473,40 +480,42 @@ Deno.serve(async (req) => {
           return errorResponse("TRIP_ALREADY_TAKEN", "This ride is no longer available", 409);
         }
         markAcceptStage("marketplace_guard_ms", stageAt);
-      }
 
-      // Phase 4: refuse if this scheduled booking conflicts with other confirmed commitments.
-      {
-        const stageAt = Date.now();
-        const { data: cand } = await supabase
-          .from("trips")
-          .select(
-            "id, scheduled_at, estimated_duration_minutes, pickup_latitude, pickup_longitude, dropoff_latitude, dropoff_longitude",
-          )
-          .eq("id", trip_id)
-          .maybeSingle();
-        const candAt = Date.parse(String(cand?.scheduled_at ?? ""));
-        if (Number.isFinite(candAt)) {
-          const gate = await driverMayTakeAdditionalScheduledBooking({
-            supabase,
-            driverId: driver_id,
-            nowMs: Date.now(),
-            candidateTripId: trip_id,
-            candidateScheduledAtMs: candAt,
-            candidateDurationMinutes: Number(cand?.estimated_duration_minutes) || 30,
-            candidatePickupLat: cand?.pickup_latitude == null
-              ? null
-              : Number(cand.pickup_latitude),
-            candidatePickupLng: cand?.pickup_longitude == null
-              ? null
-              : Number(cand.pickup_longitude),
-            candidateDropoffLat: cand?.dropoff_latitude == null
-              ? null
-              : Number(cand.dropoff_latitude),
-            candidateDropoffLng: cand?.dropoff_longitude == null
-              ? null
-              : Number(cand.dropoff_longitude),
-          });
+        if (b3Parallel) {
+          // Phase 4 + journey + wallet: independent after marketplace open — parallelise.
+          const gatesAt = Date.now();
+          const candAt = Date.parse(String(tripGuard?.scheduled_at ?? ""));
+          const [gate, journey, walletGate] = await Promise.all([
+            Number.isFinite(candAt)
+              ? driverMayTakeAdditionalScheduledBooking({
+                supabase,
+                driverId: driver_id,
+                nowMs: Date.now(),
+                candidateTripId: trip_id!,
+                candidateScheduledAtMs: candAt,
+                candidateDurationMinutes:
+                  Number(tripGuard?.estimated_duration_minutes) || 30,
+                candidatePickupLat: tripGuard?.pickup_latitude == null
+                  ? null
+                  : Number(tripGuard.pickup_latitude),
+                candidatePickupLng: tripGuard?.pickup_longitude == null
+                  ? null
+                  : Number(tripGuard.pickup_longitude),
+                candidateDropoffLat: tripGuard?.dropoff_latitude == null
+                  ? null
+                  : Number(tripGuard.dropoff_latitude),
+                candidateDropoffLng: tripGuard?.dropoff_longitude == null
+                  ? null
+                  : Number(tripGuard.dropoff_longitude),
+              })
+              : Promise.resolve({ allowed: true as const }),
+            assertScheduledJourneyComplianceForDriverTrip(supabase, {
+              driverId: driver_id,
+              tripId: trip_id!,
+            }),
+            checkScheduledCommissionWalletGate(supabase, driver_id, trip_id!),
+          ]);
+          markAcceptStage("pre_rpc_gates_parallel_ms", gatesAt);
           if (!gate.allowed) {
             return errorResponse(
               "SCHEDULED_COMMITMENT_INFEASIBLE",
@@ -514,51 +523,131 @@ Deno.serve(async (req) => {
               409,
             );
           }
-        }
-        markAcceptStage("commitment_gate_ms", stageAt);
-      }
-
-      // Live Europe/London document eligibility + journey-horizon (same SSOT as
-      // accept_scheduled_ride SQL). Edge check gives a clear error before the lock.
-      {
-        const stageAt = Date.now();
-        const journey = await assertScheduledJourneyComplianceForDriverTrip(supabase, {
-          driverId: driver_id,
-          tripId: trip_id!,
-        });
-        if (!journey.allowed) {
-          const code = journey.code === "ACCOUNT_INELIGIBLE"
-            ? "ACCOUNT_INELIGIBLE"
-            : journey.code === "DOCUMENTS_EXPIRE_BEFORE_JOURNEY_END"
-            ? "DOCUMENTS_EXPIRE_BEFORE_JOURNEY_END"
-            : "DOCUMENTS_NOT_APPROVED";
-          return errorResponse(
-            code,
-            journey.message ||
-              "One or more of your documents has expired or is not approved. Renew them before accepting scheduled rides.",
-            403,
-          );
-        }
-        markAcceptStage("journey_compliance_ms", stageAt);
-      }
-
-      // Gap C: commission wallet gate (same RPC as instant dispatch / admin assign).
-      // accept_scheduled_ride re-checks in SQL; this gives a clear error before the lock.
-      {
-        const stageAt = Date.now();
-        const walletGate = await checkScheduledCommissionWalletGate(supabase, driver_id, trip_id!);
-        if (!walletGate.ok) {
-          if (walletGate.reason === "wallet_gate_error") {
-            console.error("[scheduled-ride-action] wallet gate RPC error:", walletGate.detail);
-            return errorResponse("DATABASE_ERROR", "Could not verify commission wallet eligibility", 500);
+          if (!journey.allowed) {
+            const code = journey.code === "ACCOUNT_INELIGIBLE"
+              ? "ACCOUNT_INELIGIBLE"
+              : journey.code === "DOCUMENTS_EXPIRE_BEFORE_JOURNEY_END"
+              ? "DOCUMENTS_EXPIRE_BEFORE_JOURNEY_END"
+              : "DOCUMENTS_NOT_APPROVED";
+            return errorResponse(
+              code,
+              journey.message ||
+                "One or more of your documents has expired or is not approved. Renew them before accepting scheduled rides.",
+              403,
+            );
           }
-          return errorResponse(
-            SCHEDULED_COMMISSION_WALLET_ERROR,
-            SCHEDULED_COMMISSION_WALLET_MESSAGE,
-            409,
-          );
+          if (!walletGate.ok) {
+            if (walletGate.reason === "wallet_gate_error") {
+              console.error(
+                "[scheduled-ride-action] wallet gate RPC error:",
+                walletGate.detail,
+              );
+              return errorResponse(
+                "DATABASE_ERROR",
+                "Could not verify commission wallet eligibility",
+                500,
+              );
+            }
+            return errorResponse(
+              SCHEDULED_COMMISSION_WALLET_ERROR,
+              SCHEDULED_COMMISSION_WALLET_MESSAGE,
+              409,
+            );
+          }
+        } else {
+          // Legacy sequential gates (B3 OFF).
+          {
+            const stageAt2 = Date.now();
+            const { data: cand } = await supabase
+              .from("trips")
+              .select(
+                "id, scheduled_at, estimated_duration_minutes, pickup_latitude, pickup_longitude, dropoff_latitude, dropoff_longitude",
+              )
+              .eq("id", trip_id)
+              .maybeSingle();
+            const candAt = Date.parse(String(cand?.scheduled_at ?? ""));
+            if (Number.isFinite(candAt)) {
+              const gate = await driverMayTakeAdditionalScheduledBooking({
+                supabase,
+                driverId: driver_id,
+                nowMs: Date.now(),
+                candidateTripId: trip_id,
+                candidateScheduledAtMs: candAt,
+                candidateDurationMinutes: Number(cand?.estimated_duration_minutes) || 30,
+                candidatePickupLat: cand?.pickup_latitude == null
+                  ? null
+                  : Number(cand.pickup_latitude),
+                candidatePickupLng: cand?.pickup_longitude == null
+                  ? null
+                  : Number(cand.pickup_longitude),
+                candidateDropoffLat: cand?.dropoff_latitude == null
+                  ? null
+                  : Number(cand.dropoff_latitude),
+                candidateDropoffLng: cand?.dropoff_longitude == null
+                  ? null
+                  : Number(cand.dropoff_longitude),
+              });
+              if (!gate.allowed) {
+                return errorResponse(
+                  "SCHEDULED_COMMITMENT_INFEASIBLE",
+                  "This booking conflicts with another confirmed scheduled ride.",
+                  409,
+                );
+              }
+            }
+            markAcceptStage("commitment_gate_ms", stageAt2);
+          }
+
+          {
+            const stageAt2 = Date.now();
+            const journey = await assertScheduledJourneyComplianceForDriverTrip(supabase, {
+              driverId: driver_id,
+              tripId: trip_id!,
+            });
+            if (!journey.allowed) {
+              const code = journey.code === "ACCOUNT_INELIGIBLE"
+                ? "ACCOUNT_INELIGIBLE"
+                : journey.code === "DOCUMENTS_EXPIRE_BEFORE_JOURNEY_END"
+                ? "DOCUMENTS_EXPIRE_BEFORE_JOURNEY_END"
+                : "DOCUMENTS_NOT_APPROVED";
+              return errorResponse(
+                code,
+                journey.message ||
+                  "One or more of your documents has expired or is not approved. Renew them before accepting scheduled rides.",
+                403,
+              );
+            }
+            markAcceptStage("journey_compliance_ms", stageAt2);
+          }
+
+          {
+            const stageAt2 = Date.now();
+            const walletGate = await checkScheduledCommissionWalletGate(
+              supabase,
+              driver_id,
+              trip_id!,
+            );
+            if (!walletGate.ok) {
+              if (walletGate.reason === "wallet_gate_error") {
+                console.error(
+                  "[scheduled-ride-action] wallet gate RPC error:",
+                  walletGate.detail,
+                );
+                return errorResponse(
+                  "DATABASE_ERROR",
+                  "Could not verify commission wallet eligibility",
+                  500,
+                );
+              }
+              return errorResponse(
+                SCHEDULED_COMMISSION_WALLET_ERROR,
+                SCHEDULED_COMMISSION_WALLET_MESSAGE,
+                409,
+              );
+            }
+            markAcceptStage("wallet_gate_ms", stageAt2);
+          }
         }
-        markAcceptStage("wallet_gate_ms", stageAt);
       }
 
       // Invoke as the authenticated driver so SECURITY DEFINER auth.uid() /

@@ -45,8 +45,12 @@ import {
 } from "./lib/acceptOfferPerf.ts";
 import { opsLog } from "../_shared/opsLog.ts";
 import { notifyCustomerTripLifecycle } from "../_shared/customerTripLifecycleNotify.ts";
-import { evaluateInstantOfferScheduledCommitmentGate } from "../_shared/scheduledCommitmentOfferGateSSOT.ts";
+import {
+  evaluateInstantOfferScheduledCommitmentGate,
+  loadDriverConfirmedScheduledCommitments,
+} from "../_shared/scheduledCommitmentOfferGateSSOT.ts";
 import { ensureNegotiationPayableAuthorised } from "../_shared/negotiationPayableAuthorisation.ts";
+import { isAcceptDeclineB3Enabled } from "../_shared/acceptDeclineB3SSOT.ts";
 
 interface AcceptRequest {
   offer_id: string;
@@ -190,23 +194,16 @@ Deno.serve(async (req) => {
     }
 
     const driver_id = authenticatedDriverId;
+    const b3Parallel = isAcceptDeclineB3Enabled();
 
-    perf.mark("eligibility_validation_start");
-    const acceptEligibility = await assertCanAcceptOfferByDriverIdFast(
-      supabase,
+    console.log("[accept-offer] Processing:", {
+      offer_id,
       driver_id,
-      {
-        driverRow: authDriver as AcceptEligibilityDriverRow,
-        mark: (stage) => perf.mark(stage),
-      },
-    );
-    if (!acceptEligibility.allowed) {
-      logDriverEligibilityBlocked("accept-offer", driver_id, acceptEligibility);
-      return driverNotEligibleResponse(acceptEligibility, jsonHeaders);
-    }
-    perf.mark("eligibility_validation_end");
-
-    console.log("[accept-offer] Processing:", { offer_id, driver_id, is_stacked, current_trip_id, perf_id: perfId });
+      is_stacked,
+      current_trip_id,
+      perf_id: perfId,
+      b3: b3Parallel,
+    });
 
     // Input validation
     const validationErrors: Record<string, string> = {};
@@ -228,17 +225,73 @@ Deno.serve(async (req) => {
     // Single ride_offers fetch — covers stacked path (expires_at, broadcast_round)
     // and normal path (is_urgent_dispatch, negotiation fields). Eliminates two
     // duplicate SELECTs that previously ran further down both code paths.
-    perf.mark("offer_lookup_start");
-    const { data: pendingOffer } = await supabase
-      .from("ride_offers")
-      .select(
-        "trip_id, status, is_stacked, expires_at, broadcast_round, " +
-        "is_urgent_dispatch, negotiation_status, driver_offer_fare, customer_counter_fare",
-      )
-      .eq("id", offer_id)
-      .eq("driver_id", driver_id)
-      .maybeSingle();
-    perf.mark("offer_lookup_end");
+    // B3 ON: eligibility docs RPC ∥ offer lookup (independent; same allow/deny).
+    type PendingOfferRow = {
+      trip_id?: string | null;
+      status?: string | null;
+      is_stacked?: boolean | null;
+      expires_at?: string | null;
+      broadcast_round?: number | null;
+      is_urgent_dispatch?: boolean | null;
+      negotiation_status?: string | null;
+      driver_offer_fare?: number | null;
+      customer_counter_fare?: number | null;
+    };
+    let pendingOffer: PendingOfferRow | null = null;
+
+    perf.mark("eligibility_validation_start");
+    if (b3Parallel) {
+      perf.mark("offer_lookup_start");
+      const [acceptEligibility, offerLookup] = await Promise.all([
+        assertCanAcceptOfferByDriverIdFast(supabase, driver_id, {
+          driverRow: authDriver as AcceptEligibilityDriverRow,
+          mark: (stage) => perf.mark(stage),
+        }),
+        supabase
+          .from("ride_offers")
+          .select(
+            "trip_id, status, is_stacked, expires_at, broadcast_round, " +
+              "is_urgent_dispatch, negotiation_status, driver_offer_fare, customer_counter_fare",
+          )
+          .eq("id", offer_id)
+          .eq("driver_id", driver_id)
+          .maybeSingle(),
+      ]);
+      perf.mark("offer_lookup_end");
+      perf.mark("eligibility_validation_end");
+      if (!acceptEligibility.allowed) {
+        logDriverEligibilityBlocked("accept-offer", driver_id, acceptEligibility);
+        return driverNotEligibleResponse(acceptEligibility, jsonHeaders);
+      }
+      pendingOffer = (offerLookup.data as PendingOfferRow | null) ?? null;
+    } else {
+      const acceptEligibility = await assertCanAcceptOfferByDriverIdFast(
+        supabase,
+        driver_id,
+        {
+          driverRow: authDriver as AcceptEligibilityDriverRow,
+          mark: (stage) => perf.mark(stage),
+        },
+      );
+      if (!acceptEligibility.allowed) {
+        logDriverEligibilityBlocked("accept-offer", driver_id, acceptEligibility);
+        return driverNotEligibleResponse(acceptEligibility, jsonHeaders);
+      }
+      perf.mark("eligibility_validation_end");
+
+      perf.mark("offer_lookup_start");
+      const { data: offerRow } = await supabase
+        .from("ride_offers")
+        .select(
+          "trip_id, status, is_stacked, expires_at, broadcast_round, " +
+            "is_urgent_dispatch, negotiation_status, driver_offer_fare, customer_counter_fare",
+        )
+        .eq("id", offer_id)
+        .eq("driver_id", driver_id)
+        .maybeSingle();
+      pendingOffer = (offerRow as PendingOfferRow | null) ?? null;
+      perf.mark("offer_lookup_end");
+    }
 
     // Pre-hold + candidate geometry in one trips SELECT (#69A: was two reads).
     // Backend SSOT for hold remains trips.negotiation_owner_driver_id; RPC
@@ -296,6 +349,8 @@ Deno.serve(async (req) => {
     let effectiveCurrentTripId = current_trip_id ?? null;
 
     // #69A: parallelise independent pre-RPC reads (active trip, siblings, GDS).
+    // B3 ON: also load commitments + optional stacked current-trip remaining here
+    // so commitment gate does not pay a second round-trip.
     perf.mark("pre_rpc_parallel_start");
     const tripIdForAccept =
       typeof pendingOffer?.trip_id === "string" ? pendingOffer.trip_id : null;
@@ -304,8 +359,28 @@ Deno.serve(async (req) => {
         "string"
         ? String((authDriver as { current_trip_id?: string | null }).current_trip_id)
         : null;
+    const stackedHintTripId =
+      effectiveCurrentTripId ?? authCurrentTripId ?? null;
+    const nowMsForCommitments = Date.now();
 
-    const [activeTripId, siblingOffersResult, dispatchRowResult] = await Promise.all([
+    type StackedCurrentTripRow = {
+      status?: string | null;
+      started_at?: string | null;
+      arrived_at?: string | null;
+      estimated_duration_minutes?: number | null;
+      last_eta_minutes?: number | null;
+      last_eta_calculated_at?: string | null;
+      dropoff_latitude?: number | null;
+      dropoff_longitude?: number | null;
+    };
+
+    const preRpcTasks: [
+      Promise<string | null>,
+      Promise<{ data: { id: string; driver_id: string }[] | null }>,
+      Promise<{ data: Record<string, unknown> | null }>,
+      Promise<Awaited<ReturnType<typeof loadDriverConfirmedScheduledCommitments>>>,
+      Promise<StackedCurrentTripRow | null>,
+    ] = [
       resolveDriverActiveTripId(supabase, driver_id, authCurrentTripId),
       tripIdForAccept
         ? supabase
@@ -323,7 +398,32 @@ Deno.serve(async (req) => {
         )
         .eq("singleton", true)
         .maybeSingle(),
-    ]);
+      b3Parallel
+        ? loadDriverConfirmedScheduledCommitments(
+          supabase,
+          driver_id,
+          nowMsForCommitments,
+        )
+        : Promise.resolve([]),
+      b3Parallel && stackedHintTripId
+        ? supabase
+            .from("trips")
+            .select(
+              "status, started_at, arrived_at, estimated_duration_minutes, last_eta_minutes, last_eta_calculated_at, dropoff_latitude, dropoff_longitude",
+            )
+            .eq("id", stackedHintTripId)
+            .maybeSingle()
+            .then((r: { data: StackedCurrentTripRow | null }) => r.data ?? null)
+        : Promise.resolve(null),
+    ];
+
+    const [
+      activeTripId,
+      siblingOffersResult,
+      dispatchRowResult,
+      preloadedCommitments,
+      preloadedStackedCurrent,
+    ] = await Promise.all(preRpcTasks);
     perf.mark("pre_rpc_parallel_end");
 
     if (
@@ -355,13 +455,24 @@ Deno.serve(async (req) => {
       let originLat: number | null = null;
       let originLng: number | null = null;
       if (effectiveIsStacked && effectiveCurrentTripId) {
-        const { data: cur } = await supabase
-          .from("trips")
-          .select(
-            "status, started_at, arrived_at, estimated_duration_minutes, last_eta_minutes, last_eta_calculated_at, dropoff_latitude, dropoff_longitude",
-          )
-          .eq("id", effectiveCurrentTripId)
-          .maybeSingle();
+        let cur: StackedCurrentTripRow | null = null;
+        if (
+          b3Parallel &&
+          preloadedStackedCurrent &&
+          (effectiveCurrentTripId === stackedHintTripId ||
+            effectiveCurrentTripId === authCurrentTripId)
+        ) {
+          cur = preloadedStackedCurrent;
+        } else {
+          const { data: curRow } = await supabase
+            .from("trips")
+            .select(
+              "status, started_at, arrived_at, estimated_duration_minutes, last_eta_minutes, last_eta_calculated_at, dropoff_latitude, dropoff_longitude",
+            )
+            .eq("id", effectiveCurrentTripId)
+            .maybeSingle();
+          cur = (curRow as StackedCurrentTripRow | null) ?? null;
+        }
         const resolved = resolveStackedActiveRemainingMinutes({
           status: String(cur?.status ?? "in_progress"),
           started_at: (cur?.started_at as string | null) ?? null,
@@ -411,6 +522,7 @@ Deno.serve(async (req) => {
         driverLng: Number.isFinite(driverLng) ? driverLng : null,
         stackedRemainingMinutes: stackedRemaining,
         globalDispatchSettings: (dispatchRow as Record<string, unknown> | null) ?? null,
+        preloadedCommitments: b3Parallel ? preloadedCommitments : null,
       });
       perf.mark("commitment_gate_end");
       if (!gate.allowed) {

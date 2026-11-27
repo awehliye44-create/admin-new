@@ -123,12 +123,19 @@ export async function evaluateInstantOfferScheduledCommitmentGate(input: {
   /** Optional precomputed travel-to-instant-pickup minutes (haversine cache). */
   travelToCandidatePickupMinutes?: number | null;
   globalDispatchSettings?: Record<string, unknown> | null;
+  /**
+   * B3 — when preloaded (e.g. accept-offer pre-RPC parallel), skip a second
+   * commitments SELECT. Atomic SQL commitment gate at accept_ride_offer remains SSOT.
+   */
+  preloadedCommitments?: ConfirmedScheduledCommitment[] | null;
 }): Promise<CommitmentGateResult> {
-  const commitments = await loadDriverConfirmedScheduledCommitments(
-    input.supabase,
-    input.driverId,
-    input.nowMs,
-  );
+  const commitments = Array.isArray(input.preloadedCommitments)
+    ? input.preloadedCommitments
+    : await loadDriverConfirmedScheduledCommitments(
+      input.supabase,
+      input.driverId,
+      input.nowMs,
+    );
   const earliest = selectEarliestConfirmedCommitment(commitments, input.nowMs);
   if (!earliest) {
     return { allowed: true, reason: null, commitmentTripId: null };
