@@ -67,7 +67,7 @@ import { format } from 'date-fns';
 import { toast } from 'sonner';
 import { getCurrencySymbol, getDistanceUnitShort, convertDistance } from '@/lib/regionSettings';
 import { getTripDisplayId } from '@/lib/tripUtils';
-import { ACTIVE_TRIP_DB_STATUSES } from '@/lib/activeTripStatuses';
+import { ACTIVE_TRIP_DB_STATUSES, isActiveTripDbStatus } from '@/lib/activeTripStatuses';
 import { filterAdminActiveTrips, formatAdminActiveTripTimerLabel } from '@/lib/adminActiveTripFilter';
 import {
   ADMIN_ACTIVE_TRIPS_CAP,
@@ -505,6 +505,66 @@ export default function ActiveTrips() {
       }, 750);
     };
 
+    /** A-2: trip-row Realtime — patch/remove when payload is enough; else full board refresh. */
+    const onTripsRealtime = (payload: {
+      eventType?: string;
+      new?: Record<string, unknown> | null;
+      old?: Record<string, unknown> | null;
+    }) => {
+      const eventType = String(payload.eventType || '').toUpperCase();
+      const next = payload.new ?? null;
+      const prev = payload.old ?? null;
+      const tripId = String(next?.id ?? prev?.id ?? '');
+      if (!tripId) {
+        scheduleRefresh();
+        return;
+      }
+
+      if (eventType === 'DELETE') {
+        setTrips((rows) => rows.filter((t) => t.id !== tripId));
+        return;
+      }
+
+      const status = typeof next?.status === 'string' ? next.status : null;
+      if (status != null && !isActiveTripDbStatus(status)) {
+        setTrips((rows) => rows.filter((t) => t.id !== tripId));
+        return;
+      }
+
+      if (eventType === 'UPDATE' && next) {
+        let patched = false;
+        setTrips((rows) => {
+          const idx = rows.findIndex((t) => t.id === tripId);
+          if (idx < 0) return rows;
+          patched = true;
+          const copy = rows.slice();
+          copy[idx] = {
+            ...copy[idx],
+            ...(typeof next.status === 'string' ? { status: next.status } : null),
+            ...(typeof next.passenger_name === 'string'
+              ? { passenger_name: next.passenger_name }
+              : null),
+            ...(typeof next.pickup_address === 'string'
+              ? { pickup_address: next.pickup_address }
+              : null),
+            ...(typeof next.dropoff_address === 'string'
+              ? { dropoff_address: next.dropoff_address }
+              : null),
+            ...(typeof next.driver_id === 'string' || next.driver_id === null
+              ? { driver_id: (next.driver_id as string | null) ?? undefined }
+              : null),
+            ...(typeof next.modification_status === 'string'
+              ? { modification_status: next.modification_status }
+              : null),
+          } as Trip;
+          return copy;
+        });
+        if (patched) return;
+      }
+
+      scheduleRefresh();
+    };
+
     const teardown = () => {
       if (debounceTimer) {
         clearTimeout(debounceTimer);
@@ -525,7 +585,7 @@ export default function ActiveTrips() {
         .on(
           'postgres_changes',
           { event: '*', schema: 'public', table: 'trips' },
-          scheduleRefresh,
+          onTripsRealtime,
         )
         .on(
           'postgres_changes',
@@ -652,8 +712,19 @@ export default function ActiveTrips() {
         }
       }
 
-      // P0 (MK-260704-001): force customer + driver trip_updated so both apps leave
-      // active UI immediately — postgres_changes alone can lag or miss on home screen.
+      // A-1: Edge success is authoritative for Admin UX. Optimistic remove + close
+      // immediately; MK-260704-001 dual-channel trip_updated still fires but must not
+      // hold the cancel dialog (≤1.5s × 2 channels was the measured cancel p95 driver).
+      setTrips((prev) => prev.filter((t) => t.id !== tripId));
+      setIsCancelOpen(false);
+      setSelectedTrip(null);
+      setCancelReason('');
+      toast.success('Trip cancelled successfully');
+      perf.complete({
+        success: true,
+        metadata: { trip_id: tripId, cancel_ux: 'optimistic_after_edge' },
+      });
+
       const terminalPayload = {
         id: tripId,
         status: 'cancelled',
@@ -665,36 +736,32 @@ export default function ActiveTrips() {
         confirmed_driver_id: null,
         updated_at: new Date().toISOString(),
       };
-      for (const channelName of [`trip:${tripId}`, `trip_broadcast_${tripId}`]) {
-        const channel = supabase.channel(channelName);
-        try {
-          await new Promise<void>((resolve) => {
-            const timeout = window.setTimeout(() => resolve(), 1500);
-            channel.subscribe((status) => {
-              if (status === 'SUBSCRIBED' || status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
-                window.clearTimeout(timeout);
-                resolve();
-              }
+      void (async () => {
+        for (const channelName of [`trip:${tripId}`, `trip_broadcast_${tripId}`]) {
+          const channel = supabase.channel(channelName);
+          try {
+            await new Promise<void>((resolve) => {
+              const timeout = window.setTimeout(() => resolve(), 1500);
+              channel.subscribe((status) => {
+                if (status === 'SUBSCRIBED' || status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+                  window.clearTimeout(timeout);
+                  resolve();
+                }
+              });
             });
-          });
-          await channel.send({
-            type: 'broadcast',
-            event: 'trip_updated',
-            payload: terminalPayload,
-          });
-        } catch (broadcastErr) {
-          console.warn('Admin cancel trip_updated broadcast failed', channelName, broadcastErr);
-        } finally {
-          void supabase.removeChannel(channel);
+            await channel.send({
+              type: 'broadcast',
+              event: 'trip_updated',
+              payload: terminalPayload,
+            });
+          } catch (broadcastErr) {
+            console.warn('Admin cancel trip_updated broadcast failed', channelName, broadcastErr);
+          } finally {
+            void supabase.removeChannel(channel);
+          }
         }
-      }
-
-      toast.success('Trip cancelled successfully');
-      perf.complete({ success: true, metadata: { trip_id: tripId } });
-      setIsCancelOpen(false);
-      setSelectedTrip(null);
-      setCancelReason('');
-      fetchData();
+        void fetchData(true);
+      })();
     } catch (err: any) {
       console.error('Error cancelling trip:', err);
       perf.complete({ success: false, error_code: 'cancel_failed' });
