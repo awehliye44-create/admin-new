@@ -1,0 +1,51 @@
+---
+description: Permanent optimisation safety boundary — never defer mandatory work into waitUntil for latency
+alwaysApply: true
+---
+
+# Optimisation safety boundary
+
+## Canonical rule
+
+**Before moving any awaited operation into background execution (`EdgeRuntime.waitUntil`, fire-and-forget, deferred queues), classify whether it is required for financial integrity, authoritative state, operational correctness, security, or recovery.**
+
+Never defer a mandatory operation merely to improve latency measurements or UI handoff.
+
+## waitUntil is not durable
+
+`EdgeRuntime.waitUntil` alone is **insufficient** for critical work. Background work that must complete requires:
+
+1. **Durable persistence** of the intent or result (DB row / outbox / job) before or with the HTTP response
+2. **Idempotency** so retries cannot double-authorise, double-capture, or double-dispatch
+3. **Automatic recovery** (reconcile / sweep / integrity recovery) that closes gaps if the isolate dies
+
+## Mandatory on the HTTP / transactional path (examples)
+
+- Payment-session → trip linkage (`markPaymentSessionTripCreated` and equivalent durable binds)
+- Booking / completion payable snapshots required by financial SSOT (`#92J` and successors)
+- Authorisation / capture / increment confirmation that gates apply or settle
+- Payment gates that must pass before dispatch / assign / broadcast writes
+- Atomic assignment / expiry SSOT RPC results that decide Accept outcomes
+- Security / authz decisions that gate the response
+
+## Allowed waitUntil / background (only when non-mandatory)
+
+- Observability / ops_logs / non-authoritative telemetry
+- Best-effort notify fan-out **after** durable state is committed
+- Enrichment that has an on-path minimum plus durable recovery for the gap (document the recovery)
+- Post-commit dispatch **after** trip insert + durable session bind + payment gate SSOT (dispatch itself must still fail closed via `assert_payment_gate`)
+
+## Do not
+
+- Move `markPaymentSessionTripCreated` (or session↔trip bind) into waitUntil-only
+- Treat a successful HTTP 200 as proof that waitUntil work finished
+- Subtract unrelated percentile series to invent root causes — use **correlated same-request / same-booking** timings
+- Change Revolut auth, capture, increment, financial model isolation, or offer TTL to “buy” UI latency
+
+## SSOT locks
+
+- `supabase/tests/_shared/ctapResponseUnblocksBeforeSessionMarkLock.test.ts`
+- `supabase/tests/_shared/bookingPayableSnapshot92MCtapCompletenessLock.test.ts`
+- `supabase/tests/_shared/optimisationSafetyBoundaryLock.test.ts`
+
+**If they fail, fix the code — never delete or soften the lock.**
