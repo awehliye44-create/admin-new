@@ -2929,6 +2929,7 @@ Deno.serve(async (req) => {
               pickup_waiting_started_at: billingTrip.pickup_waiting_started_at,
               financial_model: trip.financial_model,
             },
+            stops: stops ?? [],
           }, waitingResult, { scope: 'pickup', trip: billingTrip, trip_id }), {
             skipSnapshotRefresh: true,
           });
@@ -3009,6 +3010,7 @@ Deno.serve(async (req) => {
             allowed_radius_meters: waitingResult.allowed_radius_meters ?? null,
             distance_meters: waitingResult.distance_meters ?? null,
             trip: syncedTrip,
+            stops: stops ?? [],
           }, waitingResult, { scope: 'pickup', trip: billingTrip, trip_id }), {
             skipSnapshotRefresh: true,
           });
@@ -3265,13 +3267,24 @@ Deno.serve(async (req) => {
         // Idempotency: already started — waiting already frozen on first start
         if (trip.started_at) {
           console.log("[stop-workflow] Trip already started (idempotent)");
+          // #110 P8: attach in-memory stops — avoid respondOk trip_stops re-select
+          // (MK-261126-002 measured edge_response_build_ms=6740 on Start).
           return await respondOk({
             success: true,
             idempotent: true,
             message: "Trip already started",
             pickup_waiting_charge_pence: trip.pickup_waiting_charge_pence ?? 0,
             pickup_waiting_finalized_at: trip.pickup_waiting_finalized_at ?? null,
-          });
+            trip: {
+              id: trip_id,
+              status: trip.status,
+              started_at: trip.started_at,
+              pickup_waiting_charge_pence: trip.pickup_waiting_charge_pence ?? 0,
+              pickup_waiting_finalized_at: trip.pickup_waiting_finalized_at ?? null,
+              current_stop_index: trip.current_stop_index ?? null,
+            },
+            stops: stops ?? [],
+          }, { skipSnapshotRefresh: true });
         }
 
         lifecyclePerf?.mark("validation_end");
@@ -3361,7 +3374,16 @@ Deno.serve(async (req) => {
                   pickup_waiting_charge_pence: waitingFinal.pickup_waiting_charge_pence,
                   pickup_waiting_finalized_at: trip.pickup_waiting_finalized_at ?? now,
                   start_waiting_finalize_via: "rpc",
-                });
+                  trip: {
+                    id: trip_id,
+                    status: trip.status ?? "in_progress",
+                    started_at: trip.started_at ?? now,
+                    pickup_waiting_charge_pence: waitingFinal.pickup_waiting_charge_pence,
+                    pickup_waiting_finalized_at: trip.pickup_waiting_finalized_at ?? now,
+                    current_stop_index: trip.current_stop_index ?? null,
+                  },
+                  stops: stops ?? [],
+                }, { skipSnapshotRefresh: true });
               }
 
               const nextStop = nextFromRpc;
@@ -3429,6 +3451,8 @@ Deno.serve(async (req) => {
                   pickup_waiting_intervals_charged: waitingFinal.intervals_charged,
                   current_stop_index: nextStop?.stop_index ?? trip.current_stop_index ?? null,
                 },
+                // #110 P8: in-memory stops already mutated above — skip trip_stops re-select.
+                stops: stops ?? [],
               }, { skipSnapshotRefresh: true });
             } else if (typeof row.error === "string") {
               const err = row.error;
@@ -3600,6 +3624,8 @@ Deno.serve(async (req) => {
               pickup_waiting_intervals_charged: waitingFinal.intervals_charged,
               current_stop_index: nextStop?.stop_index ?? trip.current_stop_index ?? null,
             },
+            // #110 P8: in-memory stops — skip trip_stops re-select on response build.
+            stops: stops ?? [],
           }, { skipSnapshotRefresh: true });
         }
 

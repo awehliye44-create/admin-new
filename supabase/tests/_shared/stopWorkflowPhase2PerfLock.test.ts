@@ -47,16 +47,45 @@ Deno.test("start_trip keeps waiting finalize on-path; audits+notify off-path", a
   assertStringIncludes(src, 'event: "trip_started"');
   assertStringIncludes(src, "PICKUP_WAITING_FINALIZED");
   const startIdx = src.indexOf("case 'start_trip'");
-  const startBlock = src.slice(startIdx, startIdx + 14000);
+  const endIdx = src.indexOf("case 'arrive_stop'", startIdx);
+  const startBlock = src.slice(startIdx, endIdx > startIdx ? endIdx : startIdx + 22000);
+  // RPC path finalizes via finalize_pickup_waiting_and_start_trip; Edge fallback
+  // uses finalizePickupWaitingOnStartTrip. Both schedule start_trip_p2 audits.
+  assertEquals(startBlock.includes("finalize_pickup_waiting_and_start_trip"), true);
   const finalizeIdx = startBlock.indexOf("finalizePickupWaitingOnStartTrip");
-  const notifyBgIdx = startBlock.indexOf("start_trip_p2");
-  assertEquals(finalizeIdx > 0 && notifyBgIdx > finalizeIdx, true);
+  assertEquals(finalizeIdx > 0, true);
+  const fallbackP2Idx = startBlock.indexOf("start_trip_p2", finalizeIdx);
+  assertEquals(fallbackP2Idx > finalizeIdx, true);
   // Waiting finalize audits must live inside start_trip_p2 waitUntil, not before mutation return.
   const p2Block = startBlock.slice(
-    startBlock.lastIndexOf("scheduleEdgeBackground", notifyBgIdx),
-    notifyBgIdx + 80,
+    startBlock.lastIndexOf("scheduleEdgeBackground", fallbackP2Idx),
+    fallbackP2Idx + 80,
   );
   assertEquals(p2Block.includes("PICKUP_WAITING_FINALIZED"), true);
+});
+
+Deno.test("start_trip attaches in-memory stops on skipSnapshotRefresh (#110 P8)", async () => {
+  const src = await Deno.readTextFile(stopWorkflowPath);
+  const startIdx = src.indexOf("case 'start_trip'");
+  const endIdx = src.indexOf("case 'arrive_stop'", startIdx);
+  const startBlock = src.slice(startIdx, endIdx > startIdx ? endIdx : startIdx + 20000);
+  // Every start_trip respondOk with skipSnapshotRefresh must include stops.
+  let searchFrom = 0;
+  let skipCount = 0;
+  while (true) {
+    const skipAt = startBlock.indexOf("skipSnapshotRefresh: true", searchFrom);
+    if (skipAt < 0) break;
+    skipCount += 1;
+    const windowStart = Math.max(0, skipAt - 600);
+    const window = startBlock.slice(windowStart, skipAt);
+    assertEquals(
+      window.includes("stops:"),
+      true,
+      `start_trip skipSnapshotRefresh #${skipCount} missing stops:`,
+    );
+    searchFrom = skipAt + 1;
+  }
+  assertEquals(skipCount >= 3, true, "expected ≥3 start_trip skipSnapshotRefresh paths");
 });
 
 Deno.test("drive_to_next keeps waiting finalize on-path; tap/finalize audits off-path", async () => {
@@ -64,7 +93,11 @@ Deno.test("drive_to_next keeps waiting finalize on-path; tap/finalize audits off
   assertStringIncludes(src, "finalizeStopWaitingCharge");
   assertStringIncludes(src, "drive_to_next_p2");
   const driveIdx = src.indexOf("case 'drive_to_next'");
-  const driveBlock = src.slice(driveIdx, driveIdx + 12000);
+  const driveEnd = src.indexOf("case 'complete_trip'", driveIdx);
+  const driveBlock = src.slice(
+    driveIdx,
+    driveEnd > driveIdx ? driveEnd : driveIdx + 20000,
+  );
   const finalizeIdx = driveBlock.indexOf("finalizeStopWaitingCharge");
   const p2Idx = driveBlock.indexOf("drive_to_next_p2");
   assertEquals(finalizeIdx > 0 && p2Idx > finalizeIdx, true);
@@ -112,9 +145,10 @@ Deno.test("complete_trip does not move payment capture; trip_completed notify of
   const completeIdx = src.lastIndexOf("case 'complete_trip'");
   const completeBlock = src.slice(completeIdx);
   const captureIdx = completeBlock.indexOf("invokeFinalizeTripCapture");
-  const notifyBgIdx = completeBlock.indexOf("complete_trip_p2");
+  // Prefer the labelled P2 waitUntil — avoid comment mentions of complete_trip_p2.
+  const notifyBgIdx = completeBlock.lastIndexOf(', "complete_trip_p2"');
   assertEquals(captureIdx > 0 && notifyBgIdx > captureIdx, true);
-  // Payment capture must not be inside scheduleEdgeBackground.
+  // Notify P2 must not await capture; deferred capture uses its own waitUntil label.
   const bgAroundNotify = completeBlock.slice(
     completeBlock.lastIndexOf("scheduleEdgeBackground", notifyBgIdx),
     notifyBgIdx + 500,
