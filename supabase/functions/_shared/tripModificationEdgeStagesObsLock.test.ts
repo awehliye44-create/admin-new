@@ -31,3 +31,22 @@ Deno.test("does not change incremental auth call site", async () => {
   assert(mod.includes("executeFareIncreaseModificationPayment"));
   assert(!mod.includes("create-payment-recovery"));
 });
+
+Deno.test("same-request route leg fingerprint cache is request-local only", async () => {
+  const mod = await Deno.readTextFile(
+    `${FUNCTIONS}request-trip-modification/index.ts`,
+  );
+  assert(mod.includes("routeLegByFingerprint"));
+  assert(mod.includes("routeLegFingerprint"));
+  assert(mod.includes('mark("route_leg_cache_hit")'));
+  // Must not introduce a cross-request or module-level route cache.
+  assert(!mod.includes("globalThis"));
+  const moduleTop = mod.slice(0, mod.indexOf("serveWithEdgeTiming"));
+  assert(
+    !moduleTop.includes("routeLegByFingerprint"),
+    "route leg cache must not be module-scoped",
+  );
+  const cacheDecl = mod.indexOf("const routeLegByFingerprint = new Map");
+  const dualStart = mod.indexOf('mark("route_dual_start")');
+  assert(cacheDecl > 0 && dualStart > cacheDecl, "cache must be scoped inside the request handler before dual fetch");
+});

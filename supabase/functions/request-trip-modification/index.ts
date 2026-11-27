@@ -927,39 +927,71 @@ serveWithEdgeTiming("request-trip-modification", corsHeaders, async (req, stages
     const intermediateStops = remainingStopsForRoute(afterRouteSnapshot.stops);
     const beforeIntermediateStops = remainingStopsForRoute(beforeRouteSnapshot.stops);
 
+    type RouteLegResult = {
+      routePayload: Record<string, unknown>;
+      distance: number;
+      duration: number;
+    };
+
+    // Same-request only: reuse a calculate-route result when origin + dest +
+    // remaining stops fingerprint match. Never cross-request or cross-trip.
+    // Freshness is inherent (one request, one frozen origin). Fare/payment
+    // rules unchanged — only identical route inputs share geometry.
+    const routeLegByFingerprint = new Map<string, Promise<RouteLegResult | null>>();
+    const routeLegFingerprint = (
+      destLat: number,
+      destLng: number,
+      intermediates: Array<{ lat: number; lng: number }>,
+    ): string =>
+      JSON.stringify({
+        o: [originLat, originLng],
+        d: [destLat, destLng],
+        w: intermediates.map((s) => [s.lat, s.lng]),
+      });
+
     async function calculateRouteLeg(
       destLat: number,
       destLng: number,
       intermediates: Array<{ lat: number; lng: number }>,
-    ) {
-      const routeResponse = await fetch(`${supabaseUrl}/functions/v1/calculate-route`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          apikey: supabaseServiceKey,
-          Authorization: `Bearer ${supabaseServiceKey}`,
-        },
-        body: JSON.stringify({
-          originLat,
-          originLng,
-          destLat,
-          destLng,
-          intermediateStops: intermediates,
-        }),
-      });
-      const routePayload = await routeResponse.json().catch(() => null);
-      if (!routeResponse.ok || !routePayload?.success) return null;
-      const distance = Number(routePayload.distanceMeters ?? Math.round((routePayload.distanceKm ?? 0) * 1000));
-      const duration = Number(routePayload.durationSeconds ?? Math.round((routePayload.durationMinutes ?? 0) * 60));
-      // Allow 0m remaining (e.g. dropoff ≈ current position after removing last via).
-      if (!Number.isFinite(distance) || distance < 0 || !Number.isFinite(duration) || duration < 0) {
-        return null;
+    ): Promise<RouteLegResult | null> {
+      const fingerprint = routeLegFingerprint(destLat, destLng, intermediates);
+      const cached = routeLegByFingerprint.get(fingerprint);
+      if (cached) {
+        mark("route_leg_cache_hit");
+        return cached;
       }
-      return {
-        routePayload,
-        distance,
-        duration: duration > 0 ? duration : 1,
-      };
+      const pending = (async (): Promise<RouteLegResult | null> => {
+        const routeResponse = await fetch(`${supabaseUrl}/functions/v1/calculate-route`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            apikey: supabaseServiceKey,
+            Authorization: `Bearer ${supabaseServiceKey}`,
+          },
+          body: JSON.stringify({
+            originLat,
+            originLng,
+            destLat,
+            destLng,
+            intermediateStops: intermediates,
+          }),
+        });
+        const routePayload = await routeResponse.json().catch(() => null);
+        if (!routeResponse.ok || !routePayload?.success) return null;
+        const distance = Number(routePayload.distanceMeters ?? Math.round((routePayload.distanceKm ?? 0) * 1000));
+        const duration = Number(routePayload.durationSeconds ?? Math.round((routePayload.durationMinutes ?? 0) * 60));
+        // Allow 0m remaining (e.g. dropoff ≈ current position after removing last via).
+        if (!Number.isFinite(distance) || distance < 0 || !Number.isFinite(duration) || duration < 0) {
+          return null;
+        }
+        return {
+          routePayload,
+          distance,
+          duration: duration > 0 ? duration : 1,
+        };
+      })();
+      routeLegByFingerprint.set(fingerprint, pending);
+      return pending;
     }
 
     mark("route_dual_start");

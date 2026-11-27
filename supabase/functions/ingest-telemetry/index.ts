@@ -160,6 +160,9 @@ const ALLOWED_METADATA_KEYS = new Set([
   "accept_response_to_state_ms",
   "accept_state_to_interactive_ms",
   "accept_tap_to_interactive_ms",
+  // Near-expiry Accept obs (Driver) — remaining budget at tap / Edge start
+  "remaining_ms_at_tap",
+  "remaining_ms_at_edge_start",
   "edge_auth_ms",
   "edge_offer_lookup_ms",
   "edge_validation_ms",
