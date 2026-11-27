@@ -253,6 +253,15 @@ export async function creditCapturedCardTripLedger(
     currency?: string;
     paymentId?: string | null;
     commissionPct?: number;
+    /**
+     * #111E — optional TEN description / metadata so terminal-fee settlement
+     * reuses this canonical writer (exactly-once readback + unique index)
+     * without inventing a second insert path.
+     */
+    description?: string | null;
+    metadata?: Record<string, unknown> | null;
+    /** Skip tip credit + card debt recovery (terminal fees have neither). */
+    skipTipAndDebtRecovery?: boolean;
   },
 ): Promise<{ credited: boolean; recovery_pence: number }> {
   if (await tripBlocksDriverWalletLedgerPosting(supabase, args.tripId)) {
@@ -262,6 +271,16 @@ export async function creditCapturedCardTripLedger(
   }
 
   const currency = args.currency ?? "GBP";
+  const description =
+    typeof args.description === "string" && args.description.trim()
+      ? args.description.trim()
+      : args.commissionPct != null
+      ? `Trip earning (net of ${args.commissionPct}% commission)`
+      : "Trip earning (net of commission)";
+  const metadata =
+    args.metadata && typeof args.metadata === "object" && !Array.isArray(args.metadata)
+      ? args.metadata
+      : null;
 
   const readbackBefore = await readTripEarningNetLedgerState(supabase, args.tripId);
   if (readbackBefore.count === 1) {
@@ -292,16 +311,17 @@ export async function creditCapturedCardTripLedger(
       currency,
     });
 
-    const { error } = await supabase.from("driver_wallet_ledger").insert({
+    const insertRow: Record<string, unknown> = {
       driver_id: args.driverId,
       related_trip_id: args.tripId,
       type: "TRIP_EARNING_NET",
       amount_pence: args.driverNetPence,
       currency,
-      description: args.commissionPct != null
-        ? `Trip earning (net of ${args.commissionPct}% commission)`
-        : "Trip earning (net of commission)",
-    });
+      description,
+    };
+    if (metadata) insertRow.metadata = metadata;
+
+    const { error } = await supabase.from("driver_wallet_ledger").insert(insertRow);
     if (error && error.code !== "23505") throw error;
 
     const readbackAfter = await readTripEarningNetLedgerState(supabase, args.tripId);
@@ -325,6 +345,10 @@ export async function creditCapturedCardTripLedger(
         { code: "WALLET_AMOUNT_MISMATCH" },
       );
     }
+  }
+
+  if (args.skipTipAndDebtRecovery === true) {
+    return { credited: true, recovery_pence: 0 };
   }
 
   if (args.tipPence > 0) {

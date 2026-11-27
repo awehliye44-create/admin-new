@@ -12,6 +12,7 @@ import {
   buildTerminalFeeLedgerMetadata,
   terminalFeeLedgerDescription,
 } from "./terminalFeePolicySSOT.ts";
+import { creditCapturedCardTripLedger } from "./onecabFinanceLedger.ts";
 
 export type { TerminalOutcomeKind };
 
@@ -232,16 +233,19 @@ export async function postTerminalEntitlementFromSettlement(args: {
     formulaVersion: entitlement.formula_version,
   });
 
-  const { error } = await args.supabase.from("driver_wallet_ledger").insert({
-    driver_id: args.driverId,
-    related_trip_id: args.tripId,
-    type: ledgerType,
-    amount_pence: amount,
+  // #111E — reuse the canonical TEN writer (readback + unique-index exactly-once)
+  // shared with normal completed-trip earnings. Eligibility / formula / category
+  // stay terminal-specific; persistence + Wallet ledger sync do not.
+  await creditCapturedCardTripLedger(args.supabase, {
+    driverId: args.driverId,
+    tripId: args.tripId,
+    driverNetPence: amount,
+    tipPence: 0,
     currency: cs,
     description,
     metadata,
+    skipTipAndDebtRecovery: true,
   });
-  if (error && error.code !== "23505") throw error;
 
   return {
     credited: true,

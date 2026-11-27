@@ -32,11 +32,43 @@ function ledgerFake() {
   let inserts = 0;
   const supabase = {
     from(table: string) {
+      // #111E — shared writer probes trips.financial_model; missing trip ⇒ not blocked.
+      if (table === "trips") {
+        return {
+          select() {
+            return {
+              eq() {
+                return {
+                  maybeSingle: () => Promise.resolve({ data: null, error: null }),
+                };
+              },
+            };
+          },
+        };
+      }
       if (table !== "driver_wallet_ledger") {
         throw new Error(`unexpected table ${table}`);
       }
       const filters: Record<string, string> = {};
-      const api = {
+      const matchedRows = () =>
+        rows.filter((row) => {
+          if (filters.related_trip_id && row.related_trip_id !== filters.related_trip_id) {
+            return false;
+          }
+          if (filters.type && row.type !== filters.type) return false;
+          return true;
+        });
+      const result = () =>
+        Promise.resolve({
+          data: matchedRows().map((row) => ({
+            id: row.id,
+            type: row.type,
+            amount_pence: row.amount_pence,
+            driver_id: row.driver_id,
+          })),
+          error: null,
+        });
+      const api: Record<string, unknown> = {
         select() {
           return api;
         },
@@ -45,26 +77,42 @@ function ledgerFake() {
           return api;
         },
         in() {
-          const matched = rows.filter((row) => {
-            if (filters.related_trip_id && row.related_trip_id !== filters.related_trip_id) return false;
-            return true;
+          return Promise.resolve({
+            data: matchedRows().map((row) => ({ type: row.type, id: row.id })),
+            error: null,
           });
-          return Promise.resolve({ data: matched.map((row) => ({ type: row.type, id: row.id })) });
         },
         maybeSingle() {
-          const matched = rows.find((row) =>
-            row.related_trip_id === filters.related_trip_id && row.type === filters.type
-          );
-          return Promise.resolve({ data: matched ? { id: matched.id, type: matched.type } : null });
+          const matched = matchedRows()[0];
+          return Promise.resolve({
+            data: matched
+              ? {
+                id: matched.id,
+                type: matched.type,
+                amount_pence: matched.amount_pence,
+                driver_id: matched.driver_id,
+              }
+              : null,
+            error: null,
+          });
         },
-        insert(row: Omit<LedgerRow, "id">) {
+        insert(row: Omit<LedgerRow, "id"> & { metadata?: unknown; description?: string; currency?: string }) {
           inserts += 1;
           const duplicate = rows.some((existing) =>
             existing.related_trip_id === row.related_trip_id && existing.type === row.type
           );
           if (duplicate) return Promise.resolve({ error: { code: "23505" } });
-          rows.push({ id: `row-${rows.length + 1}`, ...row });
+          rows.push({
+            id: `row-${rows.length + 1}`,
+            driver_id: row.driver_id,
+            related_trip_id: row.related_trip_id,
+            type: row.type,
+            amount_pence: row.amount_pence,
+          });
           return Promise.resolve({ error: null });
+        },
+        then(onFulfilled: (v: unknown) => unknown, onRejected?: (e: unknown) => unknown) {
+          return result().then(onFulfilled, onRejected);
         },
       };
       return api;

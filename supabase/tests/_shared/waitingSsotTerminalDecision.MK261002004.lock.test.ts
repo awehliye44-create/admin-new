@@ -23,6 +23,7 @@ import {
 } from "../../functions/_shared/waitingSegmentClock.ts";
 import { evaluateCanMarkNoShow } from "../../functions/pickup-no-show/lib/tripNoShowRules.ts";
 import { postTerminalEntitlementFromSettlement } from "../../functions/_shared/terminalOutcomeEntitlementSSOT.ts";
+import { createTerminalLedgerFake } from "./terminalLedgerFake111E.ts";
 import {
   createFakeDb,
   type FakeRow,
@@ -101,40 +102,8 @@ async function canonicalAt(segments: Array<{ started_at: string; ended_at: strin
 }
 
 function ledgerFake() {
-  const rows: Array<FakeRow & { type: string; related_trip_id: string; amount_pence: number }> = [];
-  const supabase = {
-    from(table: string) {
-      if (table !== "driver_wallet_ledger") throw new Error(`unexpected table ${table}`);
-      const filters: Record<string, string> = {};
-      const api = {
-        select() {
-          return api;
-        },
-        eq(k: string, v: string) {
-          filters[k] = v;
-          return api;
-        },
-        in() {
-          return Promise.resolve({
-            data: rows.filter((r) => r.related_trip_id === filters.related_trip_id).map((r) => ({ type: r.type, id: r.id })),
-          });
-        },
-        maybeSingle() {
-          const m = rows.find((r) => r.related_trip_id === filters.related_trip_id && r.type === filters.type);
-          return Promise.resolve({ data: m ? { id: m.id, type: m.type } : null });
-        },
-        insert(row: FakeRow & { type: string; related_trip_id: string; amount_pence: number }) {
-          if (rows.some((r) => r.related_trip_id === row.related_trip_id && r.type === row.type)) {
-            return Promise.resolve({ error: { code: "23505" } });
-          }
-          rows.push({ id: `l-${rows.length + 1}`, ...row });
-          return Promise.resolve({ error: null });
-        },
-      };
-      return api;
-    },
-  };
-  return { supabase: supabase as never, rows };
+  // #111E — shared TEN writer requires trips probe + thenable readback.
+  return createTerminalLedgerFake();
 }
 
 Deno.test("replay MK-261002-004: canonical 244 s ≥ 180 → ARRIVAL_CANCELLATION 450, capture 450, release 300", async () => {

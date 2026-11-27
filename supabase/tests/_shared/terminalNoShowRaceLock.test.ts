@@ -13,6 +13,7 @@ import { assert, assertEquals } from "https://deno.land/std@0.224.0/assert/mod.t
 import { disposeTerminalTripPayment } from "../../functions/_shared/terminalTripPaymentDisposition.ts";
 import { postTerminalEntitlementFromSettlement } from "../../functions/_shared/terminalOutcomeEntitlementSSOT.ts";
 import { createFakeDb } from "./waitingSsotFakeDb.ts";
+import { createTerminalLedgerFake } from "./terminalLedgerFake111E.ts";
 
 const TRIP = "98cab445-aa22-401a-8aac-e53210990273";
 const SESSION = "f96d1b91-6a83-4f2f-9611-0a9b29a6cc48";
@@ -258,43 +259,11 @@ Deno.test("No-Show race: a stale cache never turns an unrecorded driver cancella
 });
 
 Deno.test("No-Show race: concurrent NO_SHOW postings → exactly one TRIP_EARNING_NET 426 for the previous driver", async () => {
-  const rows: Array<Record<string, unknown>> = [];
-  const supabase = {
-    from(_t: string) {
-      const filters: Record<string, unknown> = {};
-      const api = {
-        select() {
-          return api;
-        },
-        eq(k: string, v: unknown) {
-          filters[k] = v;
-          return api;
-        },
-        async in() {
-          await Promise.resolve();
-          return { data: rows.filter((r) => r.related_trip_id === filters.related_trip_id).map((r) => ({ type: r.type })) };
-        },
-        async maybeSingle() {
-          await Promise.resolve();
-          const m = rows.find((r) => r.related_trip_id === filters.related_trip_id && r.type === filters.type);
-          return { data: m ? { id: m.id } : null };
-        },
-        async insert(row: Record<string, unknown>) {
-          await Promise.resolve();
-          if (rows.some((r) => r.related_trip_id === row.related_trip_id && r.type === row.type)) {
-            return { error: { code: "23505", message: "driver_wallet_ledger_trip_earning_net_unique" } };
-          }
-          rows.push({ id: `l-${rows.length + 1}`, ...row });
-          return { error: null };
-        },
-      };
-      return api;
-    },
-  };
+  const fake = createTerminalLedgerFake();
   const ev = { payment_session_id: SESSION, captured_pence: 450, provider_fee_pence: 24, provider_fee_confirmed: true };
   const run = () =>
     postTerminalEntitlementFromSettlement({
-      supabase: supabase as never,
+      supabase: fake.supabase,
       tripId: TRIP,
       driverId: DRIVER,
       outcome: "NO_SHOW",
@@ -306,7 +275,7 @@ Deno.test("No-Show race: concurrent NO_SHOW postings → exactly one TRIP_EARNIN
     assertEquals(r.credited, true);
     assertEquals(r.entitlement_pence, 426);
   }
-  assertEquals(rows.length, 1);
-  assertEquals(rows[0]!.amount_pence, 426);
-  assertEquals(rows[0]!.driver_id, DRIVER);
+  assertEquals(fake.rows.length, 1);
+  assertEquals(fake.rows[0]!.amount_pence, 426);
+  assertEquals(fake.rows[0]!.driver_id, DRIVER);
 });
