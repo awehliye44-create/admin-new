@@ -63,6 +63,19 @@ import {
   markEdgeInstanceWarm,
   peekColdStartHint,
 } from "../_shared/edgeFunctionTiming.ts";
+import {
+  createExpireOffersBudget,
+  shouldSkipExpireOffersUnit,
+} from "./lib/expireOffersBudgetSSOT.ts";
+import {
+  assertExpireOffersLeaseOwner,
+  isExpireOffersSingleFlightEnabled,
+  releaseExpireOffersLease,
+  resolveExpireOffersBudgetMs,
+  resolveExpireOffersLeaseTtlSeconds,
+  tryClaimExpireOffersLease,
+} from "./lib/expireOffersSingleFlightSSOT.ts";
+import { tryAcquireExpireOffersSessionFence } from "./lib/expireOffersSessionFenceSSOT.ts";
 
 // Rate limit: 60 requests per minute (for cron jobs)
 const RATE_LIMIT_CONFIG = { limit: 60, windowMs: 60000, keyPrefix: 'expire-offers' };
@@ -250,10 +263,110 @@ Deno.serve(async (req) => {
   markEdgeInstanceWarm("expire-offers");
   stages.mark("edge_receive");
 
+  const singleFlightEnabled = isExpireOffersSingleFlightEnabled();
+  const budgetMs = singleFlightEnabled ? resolveExpireOffersBudgetMs() : 0;
+  const budget = createExpireOffersBudget(elapsed, budgetMs);
+  const leaseTtlSeconds = resolveExpireOffersLeaseTtlSeconds();
+  let leaseOwner: string | null = null;
+  let leaseMs: number | null = null;
+  let staleFenced = false;
+  let fenceLostReason: string | undefined;
+  let sessionFenceRelease: (() => Promise<void>) | null = null;
+  let sessionFenceHeld = false;
+  const workUnits = {
+    negotiation: 0,
+    sweep: 0,
+    exclusive_rescue: 0,
+    stale_trip: 0,
+    rebroadcast: 0,
+  };
+
+  const overlapSkipResponse = (
+    reason: string,
+    extra?: Record<string, unknown>,
+  ) => {
+    const durationMs = elapsed();
+    const stageSnapshot = stages.snapshot();
+    finishEdgeRequestLog("expire-offers", durationMs, {
+      request_id: requestId,
+      success: true,
+      overlap_skipped: true,
+      lease_ms: leaseMs,
+      cold_start_hint: coldStartHint,
+      stages_ms: stageSnapshot,
+      slow_path: false,
+      claim_reason: reason,
+      session_fence: sessionFenceHeld,
+      ...extra,
+    });
+    return successResponse({
+      success: true,
+      overlap_skipped: true,
+      expired_offers: 0,
+      trips_rebroadcast: 0,
+      duration_ms: durationMs,
+      request_id: requestId,
+      stages_ms: stageSnapshot,
+      cold_start_hint: coldStartHint,
+      lease_ms: leaseMs,
+      budget_exhausted: false,
+      stale_fenced: false,
+      session_fence: sessionFenceHeld,
+      work_units: workUnits,
+      claim_reason: reason,
+    });
+  };
+
   try {
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const supabase = createClient(supabaseUrl, supabaseKey);
+
+    /** Budget skip OR lost durable fence → do not start new mutation units. */
+    const shouldStopNewMutationUnits = async (): Promise<boolean> => {
+      if (shouldSkipExpireOffersUnit(budget)) return true;
+      if (!singleFlightEnabled || !leaseOwner) return false;
+      if (staleFenced) return true;
+      // Session advisory still held ⇒ peer cannot reclaim; durable assert is defense-in-depth.
+      const fence = await assertExpireOffersLeaseOwner(supabase, leaseOwner);
+      if (fence.stillOwner) return false;
+      staleFenced = true;
+      fenceLostReason = fence.reason ?? fence.error ?? "ownership_lost";
+      stages.mark("lease_fence_lost");
+      console.warn("[expire-offers] stale fence stop — no further mutations", {
+        request_id: requestId,
+        reason: fenceLostReason,
+        session_fence: sessionFenceHeld,
+      });
+      return true;
+    };
+
+    // B1: durable lease + session advisory fence (closes check-to-use race).
+    if (singleFlightEnabled) {
+      stages.mark("lease_claim_start");
+      const claimStarted = elapsed();
+      const claim = await tryClaimExpireOffersLease(supabase, requestId, leaseTtlSeconds);
+      leaseMs = elapsed() - claimStarted;
+      stages.mark("lease_claim_end");
+      if (!claim.acquired) {
+        return overlapSkipResponse(claim.reason ?? claim.error ?? "lease_held");
+      }
+      leaseOwner = requestId;
+
+      stages.mark("session_fence_start");
+      const sessionFence = await tryAcquireExpireOffersSessionFence();
+      sessionFenceRelease = sessionFence.release;
+      sessionFenceHeld = sessionFence.acquired;
+      stages.mark("session_fence_end");
+      if (!sessionFence.acquired) {
+        // Do not run critical section without session fence (fail closed).
+        await releaseExpireOffersLease(supabase, leaseOwner);
+        leaseOwner = null;
+        return overlapSkipResponse(sessionFence.reason ?? "session_fence_busy", {
+          session_fence_failed: true,
+        });
+      }
+    }
 
     // ACK miss (~10s) is handled by pg_cron ack_timeout_sweep() → ack-timeout-sweep edge (work-gated).
     // Do not chain invoke here — it doubled Edge invocations on every expire-offers cron tick.
@@ -271,6 +384,7 @@ Deno.serve(async (req) => {
       .lt("customer_respond_by", nowIso);
 
     for (const o of customerResponseExpired || []) {
+      if (await shouldStopNewMutationUnits()) break;
       try {
         const { data: offerGuard } = await supabase
           .from("ride_offers")
@@ -303,6 +417,7 @@ Deno.serve(async (req) => {
           });
         }
         console.log("[expire-offers] Customer response timeout → Driver second chance £X", o.id);
+        workUnits.negotiation += 1;
       } catch (e) {
         console.warn("[expire-offers] customer grace start error", o.id, e);
       }
@@ -328,6 +443,7 @@ Deno.serve(async (req) => {
     ];
 
     for (const o of timedOutNegotiations) {
+      if (await shouldStopNewMutationUnits()) break;
       try {
         const { data: offerGuard } = await supabase
           .from("ride_offers")
@@ -377,6 +493,7 @@ Deno.serve(async (req) => {
             offerNegotiationStatus: offerNegStatus,
           });
           console.log("[expire-offers] Negotiation rematch after grace/counter timeout", o.trip_id);
+          workUnits.negotiation += 1;
           // Customer finding-another push is owned by finalizeNegotiationFailureAndRebroadcast.
         }
       } catch (e) {
@@ -404,6 +521,7 @@ Deno.serve(async (req) => {
       .lt("responded_at", stuckCutoff);
 
     for (const o of [...(stuckWaitingCustomer || []), ...(abandonedDecisionHolds || [])]) {
+      if (await shouldStopNewMutationUnits()) break;
       try {
         const { data: offerGuard } = await supabase
           .from("ride_offers")
@@ -436,6 +554,7 @@ Deno.serve(async (req) => {
           });
         }
         console.log("[expire-offers] Stuck waiting_customer → Driver second chance £X", o.id);
+        workUnits.negotiation += 1;
       } catch (e) {
         console.warn("[expire-offers] stuck waiting_customer error", o.id, e);
       }
@@ -449,6 +568,7 @@ Deno.serve(async (req) => {
       .lt("updated_at", stuckCutoff);
 
     for (const o of stuckWaitingDriver || []) {
+      if (await shouldStopNewMutationUnits()) break;
       try {
         const { data: offerGuard } = await supabase
           .from("ride_offers")
@@ -466,6 +586,7 @@ Deno.serve(async (req) => {
             offerNegotiationStatus: "timeout_driver",
           });
           console.log("[expire-offers] Stuck waiting_driver_final (no deadline) → rematch", o.id);
+          workUnits.negotiation += 1;
         }
       } catch (e) {
         console.warn("[expire-offers] stuck waiting_driver_final error", o.id, e);
@@ -480,6 +601,7 @@ Deno.serve(async (req) => {
       .lt("updated_at", stuckCutoff);
 
     for (const t of stuckNegotiatingTrips || []) {
+      if (await shouldStopNewMutationUnits()) break;
       try {
         const { count } = await supabase
           .from("ride_offers")
@@ -507,6 +629,7 @@ Deno.serve(async (req) => {
               t.id,
               rematch,
             );
+            workUnits.negotiation += 1;
             continue;
           }
 
@@ -547,6 +670,7 @@ Deno.serve(async (req) => {
               }
             })
             .catch((e) => console.warn("[expire-offers] stuck trip rebroadcast error", t.id, e));
+          workUnits.negotiation += 1;
         }
       } catch (e) {
         console.warn("[expire-offers] stuck negotiating trip error", t.id, e);
@@ -554,30 +678,45 @@ Deno.serve(async (req) => {
     }
 
     // 0. Collect pending offers passed expires_at (before RPC marks them expired)
-    const { data: soonExpiredOffers } = await supabase
-      .from("ride_offers")
-      .select("id, driver_id, trip_id, negotiation_status")
-      .eq("status", "pending")
-      .is("negotiation_status", null)
-      .lt("expires_at", new Date().toISOString());
+    let soonExpiredOffers: Array<{
+      id: string;
+      driver_id: string | null;
+      trip_id: string;
+      negotiation_status: string | null;
+    }> | null = null;
+    let expireResult: {
+      expired_count?: number;
+      trips_needing_rebroadcast?: string[];
+    } | null = null;
 
     stages.mark("negotiation_block_end");
-    // 1. sweep_expired_offers — mark stale pending offers expired (expire_stale_offers RPC)
-    stages.mark("sweep_rpc_start");
-    const sweepResult = await sweepExpiredOffers(supabase);
+    if (!(await shouldStopNewMutationUnits())) {
+      const soonExpiredRes = await supabase
+        .from("ride_offers")
+        .select("id, driver_id, trip_id, negotiation_status")
+        .eq("status", "pending")
+        .is("negotiation_status", null)
+        .lt("expires_at", new Date().toISOString());
+      soonExpiredOffers = soonExpiredRes.data;
 
-    stages.mark("sweep_rpc_end");
-    if (!sweepResult.ok) {
-      console.error("[expire-offers] sweep_expired_offers RPC error:", sweepResult.error);
-      return errorResponse(
-        "DB_ERROR",
-        "Failed to expire offers",
-        500,
-        sweepResult.error,
-      );
+      // 1. sweep_expired_offers — mark stale pending offers expired (expire_stale_offers RPC)
+      stages.mark("sweep_rpc_start");
+      const sweepResult = await sweepExpiredOffers(supabase);
+      stages.mark("sweep_rpc_end");
+      if (!sweepResult.ok) {
+        console.error("[expire-offers] sweep_expired_offers RPC error:", sweepResult.error);
+        return errorResponse(
+          "DB_ERROR",
+          "Failed to expire offers",
+          500,
+          sweepResult.error,
+        );
+      }
+      expireResult = sweepResult.result;
+      workUnits.sweep += 1;
+    } else {
+      stages.mark(staleFenced ? "sweep_rpc_skipped_fence" : "sweep_rpc_skipped_budget");
     }
-
-    const expireResult = sweepResult.result;
 
     // Send RIDE_STOP per expiring row so payloads carry offer/booking identities for native clients.
     if (soonExpiredOffers && soonExpiredOffers.length > 0) {
@@ -618,7 +757,7 @@ Deno.serve(async (req) => {
     // (scheduled-dispatch STEP 1a remains the recovery/idempotent owner).
     // Push delivery failure alone never expires an offer — only server expires_at.
     stages.mark("exclusive_rescue_start");
-    try {
+    if (!(await shouldStopNewMutationUnits())) try {
       const { data: awaitingExclusive } = await supabase
         .from("trips")
         .select(
@@ -643,6 +782,7 @@ Deno.serve(async (req) => {
         const nowIso = new Date().toISOString();
         const nowMs = Date.parse(nowIso);
         for (const trip of awaitingExclusive) {
+          if (await shouldStopNewMutationUnits()) break;
           if (isTripTerminalForDispatch(trip)) continue;
           const confirmedId = String(trip.confirmed_driver_id ?? "").trim();
           if (!confirmedId) continue;
@@ -674,6 +814,7 @@ Deno.serve(async (req) => {
             excludeDriverId: confirmedId,
             expireOpenOffers: true,
           });
+          workUnits.exclusive_rescue += 1;
         }
       }
     } catch (exclusiveRescueErr) {
@@ -684,12 +825,18 @@ Deno.serve(async (req) => {
     // 2. Find trips with all offers resolved but still searching
     // Scan & Go retired (trips.scan_go dropped 20260903121500) — do not SELECT or branch on it.
     stages.mark("stale_trip_scan_start");
-    const { data: staleTrips, error: tripsError } = await supabase
-      .from("trips")
-      .select("id, current_broadcast_round, max_broadcast_rounds, broadcast_enabled, status, scheduled_status, dispatch_status, dispatch_mode, is_scheduled, scheduled_at, passenger_id, searching_expires_at")
-      .in("status", ["searching", "searching_new_driver", "offered", "pending", "broadcasting"])
-      // Include legacy offer_create_blocked so MK-261106-007 stranded converts can resume.
-      .in("dispatch_status", ["broadcasting", "offer_create_blocked"]);
+    let staleTrips: Array<Record<string, unknown>> | null = null;
+    let tripsError: { message?: string } | null = null;
+    if (!(await shouldStopNewMutationUnits())) {
+      const staleRes = await supabase
+        .from("trips")
+        .select("id, current_broadcast_round, max_broadcast_rounds, broadcast_enabled, status, scheduled_status, dispatch_status, dispatch_mode, is_scheduled, scheduled_at, passenger_id, searching_expires_at")
+        .in("status", ["searching", "searching_new_driver", "offered", "pending", "broadcasting"])
+        // Include legacy offer_create_blocked so MK-261106-007 stranded converts can resume.
+        .in("dispatch_status", ["broadcasting", "offer_create_blocked"]);
+      staleTrips = staleRes.data as Array<Record<string, unknown>> | null;
+      tripsError = staleRes.error;
+    }
 
     if (tripsError) {
       console.error("[expire-offers] Error fetching trips:", tripsError);
@@ -700,6 +847,7 @@ Deno.serve(async (req) => {
     const searchWindowRecheckTripIds: string[] = [];
 
     for (const trip of (staleTrips || [])) {
+      if (await shouldStopNewMutationUnits()) break;
       if (isTripTerminalForDispatch(trip)) {
         continue;
       }
@@ -707,7 +855,8 @@ Deno.serve(async (req) => {
         continue;
       }
       // Validate trip ID
-      if (!isValidUUID(trip.id)) {
+      const tripId = String(trip.id ?? "");
+      if (!isValidUUID(tripId)) {
         console.warn("[expire-offers] Invalid trip ID found, skipping:", trip.id);
         continue;
       }
@@ -716,20 +865,20 @@ Deno.serve(async (req) => {
       const { count } = await supabase
         .from("ride_offers")
         .select("id", { count: "exact", head: true })
-        .eq("trip_id", trip.id)
+        .eq("trip_id", tripId)
         .eq("status", "pending");
 
       if (count === 0) {
         // No pending offers - check if we should rebroadcast
-        const currentRound = trip.current_broadcast_round || 0;
+        const currentRound = Number(trip.current_broadcast_round || 0);
         // trips.max_broadcast_rounds is absolute sequences (cycles × 3).
-        const maxRounds = trip.max_broadcast_rounds || DEFAULT_MAX_BROADCAST_SEQUENCES;
+        const maxRounds = Number(trip.max_broadcast_rounds || DEFAULT_MAX_BROADCAST_SEQUENCES);
 
         // Offer history unstrands current_broadcast_round=0 after convert/collision.
         const { data: maxRoundRow } = await supabase
           .from("ride_offers")
           .select("broadcast_round")
-          .eq("trip_id", trip.id)
+          .eq("trip_id", tripId)
           .order("broadcast_round", { ascending: false })
           .limit(1)
           .maybeSingle();
@@ -737,7 +886,7 @@ Deno.serve(async (req) => {
 
         if (
           isStaleTripRebroadcastCandidate({
-            dispatch_status: trip.dispatch_status ?? null,
+            dispatch_status: (trip.dispatch_status as string | null) ?? null,
             current_broadcast_round: currentRound,
             max_broadcast_rounds: maxRounds,
             pending_offer_count: 0,
@@ -748,30 +897,33 @@ Deno.serve(async (req) => {
               (trip as { searching_expires_at?: string | null }).searching_expires_at ?? null,
           })
         ) {
-          tripsToRebroadcast.push(trip.id);
+          tripsToRebroadcast.push(tripId);
+          workUnits.stale_trip += 1;
         } else if (currentRound >= maxRounds || maxExistingOfferRound >= maxRounds) {
           // SSOT: expire_trip_when_search_exhausted. Scheduled handover must not
           // use instant created_at TTL even if waves look exhausted.
           if (isScheduledInstantConversionPending(trip)) {
-            searchWindowRecheckTripIds.push(trip.id);
-            console.log("[expire-offers] Scheduled handover pending; skip expire:", trip.id);
+            searchWindowRecheckTripIds.push(tripId);
+            console.log("[expire-offers] Scheduled handover pending; skip expire:", tripId);
+            workUnits.stale_trip += 1;
           } else {
             const { expired, rpcError: expireErr } =
               await expireTripWhenSearchExhaustedAndNotifyCustomer(supabase, {
-                tripId: trip.id,
+                tripId,
                 passengerId: (trip as { passenger_id?: string | null }).passenger_id ?? null,
               });
+            workUnits.stale_trip += 1;
             if (expireErr) {
-              console.warn("[expire-offers] expire_trip_when_search_exhausted failed:", trip.id, expireErr);
+              console.warn("[expire-offers] expire_trip_when_search_exhausted failed:", tripId, expireErr);
             } else if (expired === true) {
               console.log("[expire-offers] trip_expired_after_final_wave", {
-                trip_id: trip.id,
+                trip_id: tripId,
                 current_broadcast_round: currentRound,
                 max_broadcast_rounds: maxRounds,
               });
             } else {
-              searchWindowRecheckTripIds.push(trip.id);
-              console.log("[expire-offers] Max waves done; customer search window still active:", trip.id);
+              searchWindowRecheckTripIds.push(tripId);
+              console.log("[expire-offers] Max waves done; customer search window still active:", tripId);
             }
           }
         }
@@ -810,26 +962,34 @@ Deno.serve(async (req) => {
     const stuckInvocations = buildVehicleTypeSelectedStuckInvocations(
       stuckVehicleTypeSelectedTripIds.filter((tripId) => !coveredTripIds.has(tripId)),
     );
-    const allRebroadcastInvocations = [...rebroadcastInvocations, ...stuckInvocations];
+    let allRebroadcastInvocations = [...rebroadcastInvocations, ...stuckInvocations];
+    // B1: if budget spent or fence lost, defer rebroadcast to the next lease (≤ one cron tick).
+    if (await shouldStopNewMutationUnits()) {
+      allRebroadcastInvocations = [];
+    }
     const rebroadcastConcurrency = resolveExpireOffersRebroadcastConcurrency();
 
     stages.mark("stale_trip_scan_end");
     // Bounded parallel next-wave invokes (default 8). Same per-trip policy +
     // service-role body as the previous serial loop — only drain latency changes.
     stages.mark("rebroadcast_start");
-    const rebroadcastResults = await runExpireOffersRebroadcastBatch({
-      supabase,
-      supabaseUrl,
-      serviceRoleKey: supabaseKey,
-      invocations: allRebroadcastInvocations,
-      concurrency: rebroadcastConcurrency,
-      loadDispatchTripContext,
-    });
+    const rebroadcastResults = allRebroadcastInvocations.length === 0
+      ? []
+      : await runExpireOffersRebroadcastBatch({
+        supabase,
+        supabaseUrl,
+        serviceRoleKey: supabaseKey,
+        invocations: allRebroadcastInvocations,
+        concurrency: rebroadcastConcurrency,
+        loadDispatchTripContext,
+      });
+    workUnits.rebroadcast += rebroadcastResults.filter((r) => r.success).length;
     stages.mark("rebroadcast_end");
     stages.mark("edge_response");
 
     const durationMs = elapsed();
     const stageSnapshot = stages.snapshot();
+    const budgetExhausted = budget.wasExhausted();
     finishEdgeRequestLog("expire-offers", durationMs, {
       request_id: requestId,
       success: true,
@@ -837,12 +997,20 @@ Deno.serve(async (req) => {
       trips_rebroadcast: rebroadcastResults.filter((r) => r.success).length,
       cold_start_hint: coldStartHint,
       stages_ms: stageSnapshot,
-      // Overlap detection is correlated in R2 analysis (cron 10s vs duration).
-      // Single-flight (B1) will stamp overlap_skipped when authorised.
+      overlap_skipped: false,
+      single_flight: singleFlightEnabled,
+      lease_ms: leaseMs,
+      budget_ms: budgetMs,
+      budget_exhausted: budgetExhausted,
+      stale_fenced: staleFenced,
+      fence_lost_reason: fenceLostReason,
+      session_fence: sessionFenceHeld,
+      work_units: workUnits,
       slow_path: durationMs >= 2000,
     });
     return successResponse({
       success: true,
+      overlap_skipped: false,
       expired_offers: expiredCount,
       trips_rebroadcast: rebroadcastResults.filter(r => r.success).length,
       trips_expired: (staleTrips || []).length - tripsToRebroadcast.length,
@@ -850,6 +1018,14 @@ Deno.serve(async (req) => {
       request_id: requestId,
       stages_ms: stageSnapshot,
       cold_start_hint: coldStartHint,
+      single_flight: singleFlightEnabled,
+      lease_ms: leaseMs,
+      budget_ms: budgetMs,
+      budget_exhausted: budgetExhausted,
+      stale_fenced: staleFenced,
+      fence_lost_reason: fenceLostReason,
+      session_fence: sessionFenceHeld,
+      work_units: workUnits,
       details: {
         rebroadcast_concurrency: rebroadcastConcurrency,
         rebroadcast_results: rebroadcastResults,
@@ -866,7 +1042,37 @@ Deno.serve(async (req) => {
       error: String(error),
       cold_start_hint: coldStartHint,
       stages_ms: stages.snapshot(),
+      single_flight: singleFlightEnabled,
+      budget_exhausted: budget.wasExhausted(),
+      stale_fenced: staleFenced,
+      fence_lost_reason: fenceLostReason,
+      session_fence: sessionFenceHeld,
+      work_units: workUnits,
     });
     return errorResponse("INTERNAL_ERROR", String(error), 500);
+  } finally {
+    // Release session advisory first so peers can enter only after this worker exits CS.
+    if (sessionFenceRelease) {
+      try {
+        await sessionFenceRelease();
+      } catch (fenceErr) {
+        console.warn("[expire-offers] session fence release failed (connection drop also unlocks):", fenceErr);
+      }
+      sessionFenceRelease = null;
+      sessionFenceHeld = false;
+    }
+    // Ownership-safe durable release: no-op if TTL reclaim already handed the lease to another owner.
+    if (leaseOwner) {
+      try {
+        const supabaseUrl = Deno.env.get("SUPABASE_URL");
+        const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+        if (supabaseUrl && supabaseKey) {
+          const releaseClient = createClient(supabaseUrl, supabaseKey);
+          await releaseExpireOffersLease(releaseClient, leaseOwner);
+        }
+      } catch (releaseErr) {
+        console.warn("[expire-offers] lease release failed (TTL reclaim remains safe):", releaseErr);
+      }
+    }
   }
 });

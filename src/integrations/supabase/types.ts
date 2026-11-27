@@ -31771,6 +31771,10 @@ export type Database = {
         }
         Returns: string
       }
+      assert_expire_offers_lease_owner: {
+        Args: { p_owner_token: string }
+        Returns: Json
+      }
       capture_expired_tip_windows_sweep: { Args: never; Returns: undefined }
       capture_expired_tip_windows_sweep_has_work: {
         Args: never
@@ -32850,6 +32854,10 @@ export type Database = {
       }
       expire_offers_sweep: { Args: never; Returns: undefined }
       expire_offers_sweep_has_work: { Args: never; Returns: boolean }
+      try_claim_expire_offers_lease: {
+        Args: { p_owner_token: string; p_ttl_seconds?: number }
+        Returns: Json
+      }
       expire_stale_drivers: {
         Args: { p_ttl_seconds?: number }
         Returns: number
@@ -34678,6 +34686,10 @@ export type Database = {
           p_release_reason?: string
           p_reservation_id?: string
         }
+        Returns: Json
+      }
+      release_expire_offers_lease: {
+        Args: { p_owner_token: string }
         Returns: Json
       }
       release_ineligible_scheduled_assignments_for_driver: {
