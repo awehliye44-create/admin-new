@@ -70,6 +70,7 @@ const ALLOWED_METADATA_KEYS = new Set([
   "ctap_adopt_ms",
   // Book CTAP↔adopt race correlation (same booking event)
   "race_winner_kind",
+  "adopt_warm_hit",
   "lookup_attempts",
   "genuine_cai_misses",
   "shared_auth_token",

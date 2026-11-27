@@ -76,6 +76,11 @@ import {
   tryClaimExpireOffersLease,
 } from "./lib/expireOffersSingleFlightSSOT.ts";
 import { tryAcquireExpireOffersSessionFence } from "./lib/expireOffersSessionFenceSSOT.ts";
+import {
+  indexRowsById,
+  shouldAssertDurableLeaseNow,
+  uniqueNonEmptyIds,
+} from "./lib/expireOffersNegotiationBatchSSOT.ts";
 
 // Rate limit: 60 requests per minute (for cron jobs)
 const RATE_LIMIT_CONFIG = { limit: 60, windowMs: 60000, keyPrefix: 'expire-offers' };
@@ -323,11 +328,25 @@ Deno.serve(async (req) => {
     const supabase = createClient(supabaseUrl, supabaseKey);
 
     /** Budget skip OR lost durable fence → do not start new mutation units. */
+    let lastDurableAssertAtMs: number | null = null;
     const shouldStopNewMutationUnits = async (): Promise<boolean> => {
       if (shouldSkipExpireOffersUnit(budget)) return true;
       if (!singleFlightEnabled || !leaseOwner) return false;
       if (staleFenced) return true;
-      // Session advisory still held ⇒ peer cannot reclaim; durable assert is defense-in-depth.
+      // Session advisory still held ⇒ peer cannot reclaim; durable assert is
+      // defense-in-depth and is interval-throttled while the session fence is held
+      // (I-1 residual: per-unit RPC burned the full 8s negotiation budget).
+      const nowMs = elapsed();
+      if (
+        !shouldAssertDurableLeaseNow({
+          nowMs,
+          lastAssertAtMs: lastDurableAssertAtMs,
+          sessionFenceHeld,
+        })
+      ) {
+        return false;
+      }
+      lastDurableAssertAtMs = nowMs;
       const fence = await assertExpireOffersLeaseOwner(supabase, leaseOwner);
       if (fence.stillOwner) return false;
       staleFenced = true;
@@ -383,14 +402,24 @@ Deno.serve(async (req) => {
       .eq("negotiation_status", "waiting_customer")
       .lt("customer_respond_by", nowIso);
 
+    // Batch offer guards once — avoids N+1 SELECTs inside the timeout loop (I-1 residual).
+    const customerExpiredIds = uniqueNonEmptyIds((customerResponseExpired || []).map((o) => o.id));
+    let customerOfferGuards = new Map<
+      string,
+      { id: string; status: string | null; negotiation_status: string | null; responded_at: string | null }
+    >();
+    if (customerExpiredIds.length > 0) {
+      const { data: guardRows } = await supabase
+        .from("ride_offers")
+        .select("id, status, negotiation_status, responded_at")
+        .in("id", customerExpiredIds);
+      customerOfferGuards = indexRowsById(guardRows ?? []);
+    }
+
     for (const o of customerResponseExpired || []) {
       if (await shouldStopNewMutationUnits()) break;
       try {
-        const { data: offerGuard } = await supabase
-          .from("ride_offers")
-          .select("status, negotiation_status, responded_at")
-          .eq("id", o.id)
-          .maybeSingle();
+        const offerGuard = customerOfferGuards.get(o.id) ?? null;
         if (offerGuard?.status === "accepted" || offerGuard?.negotiation_status === "confirmed") continue;
         if (
           !shouldTimeoutWaitingCustomer({
@@ -442,14 +471,36 @@ Deno.serve(async (req) => {
       ...(graceExpiredOffers || []),
     ];
 
+    // Batch offer + trip guards once for counter/grace timeouts (I-1 residual N+1).
+    const timedOutOfferIds = uniqueNonEmptyIds(timedOutNegotiations.map((o) => o.id));
+    const timedOutTripIds = uniqueNonEmptyIds(timedOutNegotiations.map((o) => o.trip_id));
+    let timedOutOfferGuards = new Map<
+      string,
+      { id: string; status: string | null; negotiation_status: string | null }
+    >();
+    let timedOutTripGuards = new Map<
+      string,
+      { id: string; status: string | null; dispatch_status: string | null; driver_id: string | null }
+    >();
+    if (timedOutOfferIds.length > 0) {
+      const { data: guardRows } = await supabase
+        .from("ride_offers")
+        .select("id, status, negotiation_status")
+        .in("id", timedOutOfferIds);
+      timedOutOfferGuards = indexRowsById(guardRows ?? []);
+    }
+    if (timedOutTripIds.length > 0) {
+      const { data: tripRows } = await supabase
+        .from("trips")
+        .select("id, status, dispatch_status, driver_id")
+        .in("id", timedOutTripIds);
+      timedOutTripGuards = indexRowsById(tripRows ?? []);
+    }
+
     for (const o of timedOutNegotiations) {
       if (await shouldStopNewMutationUnits()) break;
       try {
-        const { data: offerGuard } = await supabase
-          .from("ride_offers")
-          .select("status, negotiation_status")
-          .eq("id", o.id)
-          .maybeSingle();
+        const offerGuard = timedOutOfferGuards.get(o.id) ?? null;
         if (
           offerGuard?.status === "accepted"
           || offerGuard?.negotiation_status === "confirmed"
@@ -457,11 +508,7 @@ Deno.serve(async (req) => {
           continue;
         }
 
-        const { data: tripGuard } = await supabase
-          .from("trips")
-          .select("status, dispatch_status, driver_id")
-          .eq("id", o.trip_id)
-          .maybeSingle();
+        const tripGuard = timedOutTripGuards.get(o.trip_id) ?? null;
         if (
           tripGuard?.driver_id
           && (tripGuard.status === "accepted" || tripGuard.dispatch_status === "assigned")

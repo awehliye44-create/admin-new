@@ -162,9 +162,10 @@ Deno.serve(async (req) => {
     if (!auth.ok) return auth.response;
     const userId = auth.userId;
 
-    // Resolve driver_id + eligibility + location/active-trip hint (one SELECT).
+    // Driver profile SELECT ∥ body parse — independent after userId is known.
     // #69A: current_trip_id / lat / lng avoid later redundant drivers reads.
-    const { data: authDriver, error: authDriverErr } = await supabase
+    const bodyPromise = req.json() as Promise<AcceptRequest>;
+    const driverPromise = supabase
       .from("drivers")
       .select(
         "id, user_id, approval_status, driver_status, documents_approved, is_online, email_verified, phone_verified, pending_phone_change, pending_phone_change_verified_at, pending_phone_change_requested_at, pending_phone_change_expires_at, current_trip_id, current_lat, current_lng",
@@ -173,6 +174,9 @@ Deno.serve(async (req) => {
       .is("deleted_at", null)
       .single();
 
+    const [body, driverRes] = await Promise.all([bodyPromise, driverPromise]);
+    const { data: authDriver, error: authDriverErr } = driverRes;
+
     if (authDriverErr || !authDriver) {
       return errorResponse("UNAUTHORIZED", "No driver profile found for authenticated user", 403);
     }
@@ -180,7 +184,6 @@ Deno.serve(async (req) => {
     const authenticatedDriverId = authDriver.id;
     perf.mark("auth_end");
 
-    const body: AcceptRequest = await req.json();
     const { offer_id, is_stacked, current_trip_id } = body;
     const perfId =
       typeof body.perf_id === "string" && body.perf_id.trim()

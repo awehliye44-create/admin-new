@@ -49,7 +49,10 @@ import {
 import { buildBookingWaterfallMilestoneReport } from "../_shared/bookingWaterfallSSOT.ts";
 import { digitalOnlyPaymentMethodFlags } from "./lib/digitalFinanceSSOT.ts";
 import { isAuthorisedHoldSessionStatus } from "../_shared/revolutPaymentHoldSSOT.ts";
-import { serveWithEdgeTiming } from "../_shared/edgeFunctionTiming.ts";
+import {
+  serveWithEdgeTiming,
+  type EdgeStageClock,
+} from "../_shared/edgeFunctionTiming.ts";
 import { createBookingWaterfallCollector } from "../_shared/bookingWaterfallTelemetry.ts";
 import { releaseHoldForPaymentSession } from "../_shared/holdReleaseSSOT.ts";
 import { isSameVerifiedBookingAttempt } from "./lib/sameBookingAttemptSSOT.ts";
@@ -296,10 +299,11 @@ async function failBookingAfterAuthorizedRevolutOrder(
 
 type RequestBody = BookingCommitBody;
 
-serveWithEdgeTiming("create-trip-after-payment", corsHeaders, async (req) => {
+serveWithEdgeTiming("create-trip-after-payment", corsHeaders, async (req, stages?: EdgeStageClock) => {
   const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
   const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
   const supabaseAnonKey = Deno.env.get("SUPABASE_ANON_KEY");
+  stages?.mark("edge_receive");
 
   if (!supabaseAnonKey) {
     return new Response(JSON.stringify({ error: "SUPABASE_ANON_KEY not set" }), {
@@ -365,6 +369,7 @@ serveWithEdgeTiming("create-trip-after-payment", corsHeaders, async (req) => {
       user = { id: claimsData.claims.sub as string };
       log("User authenticated", { userId: user.id });
     }
+    stages?.mark("auth_end");
 
     const bookingEligibility = await assertCanBookRide(supabase, user.id);
     if (!bookingEligibility.allowed) {
@@ -742,6 +747,7 @@ serveWithEdgeTiming("create-trip-after-payment", corsHeaders, async (req) => {
     }
 
     const order = confirmation.order;
+    stages?.mark("payment_verify_end");
     const preloadedSession = paymentSessionRes.status === "fulfilled"
       ? paymentSessionRes.value
       : null;
@@ -1667,6 +1673,7 @@ serveWithEdgeTiming("create-trip-after-payment", corsHeaders, async (req) => {
 
     const trip = insertedTrips;
     log("Trip created", { tripId: trip.id });
+    stages?.mark("trip_insert_end");
     bookingWaterfall.completeStep(
       "trip_inserted",
       "create-trip-after-payment/index.ts:trips.insert",
@@ -1743,6 +1750,7 @@ serveWithEdgeTiming("create-trip-after-payment", corsHeaders, async (req) => {
         providerOrderId: paymentRefId,
       });
     }
+    stages?.mark("session_mark_end");
 
     const bookingMilestones = {
       ctap_start_ms: ctapStartedAt,
@@ -1754,6 +1762,7 @@ serveWithEdgeTiming("create-trip-after-payment", corsHeaders, async (req) => {
       milestones: bookingMilestones,
     });
 
+    stages?.mark("response_ready");
     return new Response(JSON.stringify({
       success: true,
       ride_id: trip.id,

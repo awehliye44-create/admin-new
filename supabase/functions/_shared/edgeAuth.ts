@@ -58,7 +58,16 @@ export async function requireServiceRole(
   return { ok: true };
 }
 
-/** Verify a real Supabase user session. Never decode JWT payloads locally. */
+/**
+ * Verify a real Supabase user session via Auth getUser (server round-trip).
+ * getClaims alone is insufficient for shared requireAuthenticatedUser: it does
+ * not reliably reject revoked sessions / disabled accounts before JWT expiry.
+ * Callers: accept-offer, stop-workflow, decline-offer, scheduled-ride-action,
+ * pickup-no-show, tick-pickup-waiting-charge, driver wallets/earnings,
+ * admin-trip-actions, late-cancellation-check, driving-directions,
+ * lost-property-transition, optionalVerifiedUser, callerGate.
+ * Never decode JWT payloads locally. Never weaken auth for latency.
+ */
 export async function requireAuthenticatedUser(
   req: Request,
   supabaseUrl: string,

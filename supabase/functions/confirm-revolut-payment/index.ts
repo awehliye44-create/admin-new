@@ -27,10 +27,11 @@ const corsHeaders = {
 
 const FAILED_STATES = new Set(["FAILED", "CANCELLED", "REFUNDED"]);
 
-serveWithEdgeTiming("confirm-revolut-payment", corsHeaders, async (req) => {
+serveWithEdgeTiming("confirm-revolut-payment", corsHeaders, async (req, stages) => {
   const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
   const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
   const supabaseAnonKey = Deno.env.get("SUPABASE_ANON_KEY");
+  stages?.mark("edge_receive");
 
   if (!supabaseAnonKey) {
     return json({ error: "SUPABASE_ANON_KEY not set" }, 500);
@@ -43,16 +44,22 @@ serveWithEdgeTiming("confirm-revolut-payment", corsHeaders, async (req) => {
   const authHeader = req.headers.get("Authorization");
   if (!authHeader) return json({ error: "Unauthorized" }, 401);
 
+  // Auth claims ∥ body parse — independent; merchant resolve starts after both.
   const anonClient = createClient(supabaseUrl, supabaseAnonKey, {
     global: { headers: { Authorization: authHeader } },
     auth: { persistSession: false },
   });
   const token = authHeader.replace("Bearer ", "");
-  const { data: claimsData, error: claimsError } = await anonClient.auth.getClaims(token);
+  const [claimsResult, bodyRaw] = await Promise.all([
+    anonClient.auth.getClaims(token),
+    req.json().catch(() => ({})),
+  ]);
+  stages?.mark("auth_body_end");
+  const { data: claimsData, error: claimsError } = claimsResult;
   if (claimsError || !claimsData?.claims) return json({ error: "Unauthorized" }, 401);
   const userId = claimsData.claims.sub as string;
 
-  const body = await req.json().catch(() => ({})) as {
+  const body = bodyRaw as {
     order_id?: string;
     payment_intent_id?: string;
     client_action_id?: string | null;
@@ -67,8 +74,10 @@ serveWithEdgeTiming("confirm-revolut-payment", corsHeaders, async (req) => {
 
   try {
     const merchant = await resolveRevolutMerchantContext(supabase, "live");
+    stages?.mark("merchant_ready");
 
     // Honour client max_wait_ms (Book sends 0 = one retrieve). Cap booking at 2s.
+    // Revolut retrieve stays mandatory — never skip for latency.
     const wait = resolveConfirmRevolutMaxWaitMs(body);
     const confirmation = await verifyRevolutOrderConfirmedForBooking(
       supabase,
@@ -80,6 +89,7 @@ serveWithEdgeTiming("confirm-revolut-payment", corsHeaders, async (req) => {
         pollIntervalMs: wait.pollIntervalMs,
       },
     );
+    stages?.mark("provider_verify_end");
 
     if (confirmation.ok) {
       const order = confirmation.order;
