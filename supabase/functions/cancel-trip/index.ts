@@ -30,6 +30,7 @@ import {
   resolveCancelNotifyAssignedDriverId,
 } from "../_shared/driverCancelNotifyRecipientSSOT.ts";
 import { maybeResumeTerminalFeeSettlementAfterProviderFee } from "../_shared/terminalFeeSettlementResumptionSSOT.ts";
+import { shouldSettleCancelledWithFeeAsTerminalTen } from "../_shared/terminalFeePolicySSOT.ts";
 import { buildCancelledScheduledStatePatch } from "../_shared/tripTerminalDispatch.ts";
 import { broadcastScheduledMarketplaceChanged } from "../_shared/scheduledMarketplaceRealtimeBroadcastSSOT.ts";
 import { scheduleEdgeBackground } from "../_shared/scheduleEdgeBackground.ts";
@@ -559,6 +560,21 @@ serve(async (req) => {
       } else if (feeType === "late_cancellation") {
         tripUpdate.late_cancel_fee_pence = appliedFee;
       }
+      if (feeType === "no_show") {
+        tripUpdate.no_show_charge_pence = appliedFee;
+      }
+      // #111B — zero-commission terminal fees must not inherit trip commission stamps.
+      if (
+        feeType === "no_show"
+        || feeType === "arrival_cancellation"
+        || feeType === "late_cancellation"
+        || (feeType === "cancellation" && shouldSettleCancelledWithFeeAsTerminalTen())
+      ) {
+        tripUpdate.commission_pence = 0;
+        tripUpdate.commission_pct = 0;
+        tripUpdate.accepted_commission_percent = 0;
+        tripUpdate.driver_tier_commission_percent = 0;
+      }
       entitledDriverId = trip.confirmed_driver_id ?? trip.driver_id ?? null;
       if (entitledDriverId) {
         tripUpdate.previous_driver_id = entitledDriverId;
@@ -727,10 +743,12 @@ serve(async (req) => {
 
     // Chargeable terminal fees settle through the canonical poster after capture.
     // Driver identity is previous_driver_id, set before the assignment trigger
-    // nulls driver_id. CANCELLED_WITH_FEE (pre-arrival grace fee) is not settled here.
+    // nulls driver_id. CANCELLED_WITH_FEE (pre-arrival grace fee) stays out of
+    // TEN resume until TERMINAL_FEE_SETTLE_CANCELLED_WITH_FEE is owner-approved.
     const settlesTerminalFee = feeType === "arrival_cancellation"
       || feeType === "no_show"
-      || feeType === "late_cancellation";
+      || feeType === "late_cancellation"
+      || (feeType === "cancellation" && shouldSettleCancelledWithFeeAsTerminalTen());
 
     // Provider failure must not credit a wallet. For ordinary cancels, clear the
     // fee stamp. For no-show / arrival / late terminal fees (#111A), keep stamps

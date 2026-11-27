@@ -8,6 +8,10 @@ import { resolveTerminalFeeDriverTenPence } from "./frDriverExpectedEntitlementS
 import { hasConflictingEntitlementTypes } from "./driverEntitlementLedgerSSOT.ts";
 import { tripSettlementDbColumns } from "./tripSettlement.ts";
 import type { TerminalOutcomeKind } from "./terminalOutcomeKindSSOT.ts";
+import {
+  buildTerminalFeeLedgerMetadata,
+  terminalFeeLedgerDescription,
+} from "./terminalFeePolicySSOT.ts";
 
 export type { TerminalOutcomeKind };
 
@@ -227,12 +231,19 @@ export async function postTerminalEntitlementFromSettlement(args: {
   }
 
   const cs = args.currency.toUpperCase();
-  const major = (amount / 100).toFixed(2);
-  const description = args.outcome === "NO_SHOW"
-    ? `No-show compensation (ONECAB) — ${cs} ${major}`
-    : args.outcome === "ARRIVAL_CANCELLATION"
-      ? `Arrival cancellation compensation — ${cs} ${major}`
-      : `Late passenger cancellation compensation — ${cs} ${major}`;
+  const description = terminalFeeLedgerDescription({
+    outcome: args.outcome,
+    currency: cs,
+    amountPence: amount,
+  });
+  // #111B — durable earning_category on metadata (primary Wallet/Earnings classifier).
+  const metadata = buildTerminalFeeLedgerMetadata({
+    outcome: args.outcome,
+    capturedPence: entitlement.captured_pence,
+    providerFeePence: entitlement.provider_fee_pence ?? 0,
+    entitlementPence: amount,
+    formulaVersion: entitlement.formula_version,
+  });
 
   const { error } = await args.supabase.from("driver_wallet_ledger").insert({
     driver_id: args.driverId,
@@ -241,6 +252,7 @@ export async function postTerminalEntitlementFromSettlement(args: {
     amount_pence: amount,
     currency: cs,
     description,
+    metadata,
   });
   if (error && error.code !== "23505") throw error;
 
@@ -308,8 +320,13 @@ export function buildTerminalOutcomeTripPatch(args: {
     status: TERMINAL_TRIP_STATUS[args.outcome],
     financial_outcome: args.outcome,
     capture_amount_pence: captured,
+    // #111B stamp hygiene — ordinary trip commission must not leak into
+    // zero-commission terminal fee outcomes (new stamps only).
     commission_pct: 0,
+    accepted_commission_percent: 0,
+    driver_tier_commission_percent: 0,
     payment_method: args.paymentMethod ?? undefined,
+    payment_status: "fee_charged",
     updated_at: args.nowIso,
     ...tripSettlementDbColumns({
       final_fare_pence: captured,
