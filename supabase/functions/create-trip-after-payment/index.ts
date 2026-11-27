@@ -1729,28 +1729,20 @@ serveWithEdgeTiming("create-trip-after-payment", corsHeaders, async (req) => {
       log,
     });
 
-    // Unblock the CTAP HTTP response as soon as the trip + booking payable snap
-    // exist. Session mark must still precede post-commit dispatching (monotonic
-    // trip_created → dispatching) but must not hold the Customer Finding handoff.
-    // Dispatch remains waitUntil — offers can still race a slow client RTT, which
-    // is why the client seeds ActiveTrip + navigates immediately on this response.
-    EdgeRuntime.waitUntil((async () => {
-      if (!skipPlatformPreauth) {
-        try {
-          await markPaymentSessionTripCreated(supabase, {
-            clientActionId: body.client_action_id,
-            tripId: trip.id,
-            providerOrderId: paymentRefId,
-          });
-        } catch (markErr) {
-          log("markPaymentSessionTripCreated_waitUntil_failed", {
-            trip_id: trip.id,
-            error: markErr instanceof Error ? markErr.message : String(markErr),
-          });
-        }
-      }
-      await Promise.allSettled(postInsertTasks);
-    })());
+    // Dispatch / enrich stay waitUntil (best-effort background). Session→trip
+    // linkage must NOT — waitUntil is not durable completion. A 200 with an
+    // unmarked authorised session leaves hold-sweep / orphan paths able to treat
+    // a live trip's session as unbound. Await mark on the request path after the
+    // booking payable snap (#92J) and before the HTTP response.
+    EdgeRuntime.waitUntil(Promise.allSettled(postInsertTasks));
+
+    if (!skipPlatformPreauth) {
+      await markPaymentSessionTripCreated(supabase, {
+        clientActionId: body.client_action_id,
+        tripId: trip.id,
+        providerOrderId: paymentRefId,
+      });
+    }
 
     const bookingMilestones = {
       ctap_start_ms: ctapStartedAt,

@@ -1,37 +1,51 @@
 /**
- * P1 — CTAP must return after trip insert + booking payable snap without
- * awaiting payment-session trip_created mark on the HTTP critical path.
- * Session mark still runs in waitUntil before post-commit dispatch tasks.
+ * Financial safety — markPaymentSessionTripCreated is request-path SSOT.
+ *
+ * waitUntil is not durable completion. Moving session→trip linkage into
+ * waitUntil alone allows Edge abort after HTTP 200 to leave an authorised
+ * session unbound while a live trip exists (hold-sweep / orphan risk).
+ *
+ * Payable snap stays on-path (#92J). Post-commit dispatch may stay waitUntil.
+ * UI latency must not override this boundary.
  */
 import { assert } from "https://deno.land/std@0.224.0/assert/mod.ts";
 
-Deno.test("CTAP waitUntil marks trip_created before postInsertTasks; response is not awaited on mark", async () => {
+Deno.test("CTAP awaits markPaymentSessionTripCreated on the HTTP path (not waitUntil-only)", async () => {
   const ctap = await Deno.readTextFile(
     new URL("../../functions/create-trip-after-payment/index.ts", import.meta.url),
   );
 
   assert(ctap.includes("persistBookingPayableSnapshotAfterInsert"));
   assert(ctap.includes("markPaymentSessionTripCreated"));
-  assert(ctap.includes("EdgeRuntime.waitUntil"));
+  assert(ctap.includes("EdgeRuntime.waitUntil(Promise.allSettled(postInsertTasks))"));
 
-  const waitUntilAt = ctap.indexOf("EdgeRuntime.waitUntil((async () => {");
-  assert(waitUntilAt > 0, "waitUntil must wrap session mark + post-commit");
+  const waitUntilAt = ctap.indexOf("EdgeRuntime.waitUntil(Promise.allSettled(postInsertTasks))");
+  assert(waitUntilAt > 0, "post-commit tasks must remain waitUntil");
 
-  const waitUntilBlock = ctap.slice(waitUntilAt, waitUntilAt + 1200);
+  const afterWaitUntil = ctap.slice(waitUntilAt, waitUntilAt + 900);
   assert(
-    waitUntilBlock.includes("await markPaymentSessionTripCreated"),
-    "session mark must remain sequenced inside waitUntil before post-commit",
-  );
-  assert(
-    waitUntilBlock.includes("await Promise.allSettled(postInsertTasks)"),
-    "post-commit tasks must follow session mark inside the same waitUntil",
+    afterWaitUntil.includes("await markPaymentSessionTripCreated"),
+    "session mark must be awaited after waitUntil kickoff and before response",
   );
 
-  // Critical path after waitUntil kickoff must not re-await the session mark.
-  const afterWaitUntil = ctap.slice(waitUntilAt + waitUntilBlock.length, waitUntilAt + waitUntilBlock.length + 800);
+  // Forbidden: wrap mark inside waitUntil-only (aborts lose durable linkage).
   assert(
-    !afterWaitUntil.includes("await markPaymentSessionTripCreated"),
-    "HTTP response path must not await markPaymentSessionTripCreated",
+    !ctap.includes("markPaymentSessionTripCreated_waitUntil_failed"),
+    "must not treat session mark as waitUntil-best-effort",
   );
-  assert(afterWaitUntil.includes("return new Response") || ctap.indexOf("bookingMilestones", waitUntilAt) > waitUntilAt);
+  assert(
+    !/EdgeRuntime\.waitUntil\(\(async\s*\(\)\s*=>\s*\{[\s\S]*?await markPaymentSessionTripCreated/.test(
+      ctap,
+    ),
+    "markPaymentSessionTripCreated must not live only inside waitUntil",
+  );
+});
+
+Deno.test("CTAP keeps booking payable snap on-path before session mark", async () => {
+  const ctap = await Deno.readTextFile(
+    new URL("../../functions/create-trip-after-payment/index.ts", import.meta.url),
+  );
+  const snapAt = ctap.indexOf("persistBookingPayableSnapshotAfterInsert(supabase, {\n        tripId: trip.id");
+  const markAt = ctap.lastIndexOf("await markPaymentSessionTripCreated");
+  assert(snapAt > 0 && markAt > snapAt, "payable snap must precede session mark on success path");
 });
