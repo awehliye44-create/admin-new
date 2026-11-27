@@ -104,6 +104,10 @@ import {
   shouldParalleliseTipSetupReads,
 } from "../_shared/completeTripB4bSSOT.ts";
 import {
+  isArrivePickupB5Enabled,
+  shouldSkipPostWaitingTripSelect,
+} from "../_shared/arrivePickupB5SSOT.ts";
+import {
   buildTipWindowSettlementUpdate,
   isAuthoritativeTipWindowPersisted,
   tipWindowReturningHasAllFields,
@@ -2998,12 +3002,31 @@ Deno.serve(async (req) => {
               500,
             );
           }
-          const { data: syncedTrip } = await supabase
-            .from("trips")
-            .select(ARRIVE_WAITING_TRIP_SELECT)
-            .eq("id", trip_id)
-            .single();
-          const billingTrip = mergeTripWaitingCtx(trip, syncedTrip as TripWaitingBillingCtx | null);
+          // B5: skip redundant confirm SELECT when waiting stamp already proven.
+          const b5SkipConfirm = shouldSkipPostWaitingTripSelect({
+            b5Enabled: isArrivePickupB5Enabled(),
+            waitingStartedAt: waitingResult.startedAt,
+            tripWaitingStartedAt: trip.pickup_waiting_started_at,
+          });
+          let syncedTrip: Record<string, unknown> | null = null;
+          if (!b5SkipConfirm) {
+            const { data } = await supabase
+              .from("trips")
+              .select(ARRIVE_WAITING_TRIP_SELECT)
+              .eq("id", trip_id)
+              .single();
+            syncedTrip = (data as Record<string, unknown> | null) ?? null;
+          }
+          const billingTrip = mergeTripWaitingCtx(
+            {
+              ...trip,
+              pickup_waiting_started_at:
+                waitingResult.startedAt ?? trip.pickup_waiting_started_at ?? null,
+            },
+            (syncedTrip as TripWaitingBillingCtx | null) ??
+              waitingResult.tripRow ??
+              null,
+          );
           if (!billingTrip.pickup_waiting_started_at) {
             return errorResponse(
               "PICKUP_WAITING_START_FAILED",
@@ -3018,6 +3041,7 @@ Deno.serve(async (req) => {
             waiting_started: waitingResult.started,
             waiting_status: waitingResult.waiting_status,
             pickup_waiting_started_at: billingTrip.pickup_waiting_started_at ?? null,
+            b5_skip_confirm_select: b5SkipConfirm,
           });
           return await respondOk(await enrichArrivalWaitingSnapshot(supabase, {
             success: true,
@@ -3081,14 +3105,31 @@ Deno.serve(async (req) => {
             );
           }
 
-          const { data: syncedTrip } = await supabase
-            .from("trips")
-            .select(ARRIVE_WAITING_TRIP_SELECT)
-            .eq("id", trip_id)
-            .single();
+          const b5SkipConfirmSync = shouldSkipPostWaitingTripSelect({
+            b5Enabled: isArrivePickupB5Enabled(),
+            waitingStartedAt: waitingResult.startedAt,
+            tripWaitingStartedAt: trip.pickup_waiting_started_at,
+          });
+          let syncedTrip: Record<string, unknown> | null = null;
+          if (!b5SkipConfirmSync) {
+            const { data } = await supabase
+              .from("trips")
+              .select(ARRIVE_WAITING_TRIP_SELECT)
+              .eq("id", trip_id)
+              .single();
+            syncedTrip = (data as Record<string, unknown> | null) ?? null;
+          }
           const billingTrip = mergeTripWaitingCtx(
-            { ...trip, arrived_at: arrivedAnchor, pickup_arrived_at: arrivedAnchor },
-            syncedTrip as TripWaitingBillingCtx | null,
+            {
+              ...trip,
+              arrived_at: arrivedAnchor,
+              pickup_arrived_at: arrivedAnchor,
+              pickup_waiting_started_at:
+                waitingResult.startedAt ?? trip.pickup_waiting_started_at ?? null,
+            },
+            (syncedTrip as TripWaitingBillingCtx | null) ??
+              waitingResult.tripRow ??
+              null,
           );
           if (!billingTrip.pickup_waiting_started_at) {
             return errorResponse(
@@ -3105,6 +3146,7 @@ Deno.serve(async (req) => {
             waiting_started: waitingResult.started,
             waiting_status: waitingResult.waiting_status,
             pickup_waiting_started_at: billingTrip.pickup_waiting_started_at ?? null,
+            b5_skip_confirm_select: b5SkipConfirmSync,
           });
           return await respondOk(await enrichArrivalWaitingSnapshot(supabase, {
             success: true,
@@ -3115,7 +3157,14 @@ Deno.serve(async (req) => {
             waiting_status: waitingResult.waiting_status,
             allowed_radius_meters: waitingResult.allowed_radius_meters ?? null,
             distance_meters: waitingResult.distance_meters ?? null,
-            trip: syncedTrip,
+            trip: syncedTrip ?? {
+              id: trip_id,
+              status: CANONICAL_ARRIVED_STATUS,
+              arrived_at: arrivedAnchor,
+              pickup_arrived_at: arrivedAnchor,
+              pickup_waiting_started_at: billingTrip.pickup_waiting_started_at,
+              financial_model: trip.financial_model,
+            },
             stops: stops ?? [],
           }, waitingResult, { scope: 'pickup', trip: billingTrip, trip_id }), {
             skipSnapshotRefresh: true,
