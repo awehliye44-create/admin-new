@@ -6,6 +6,10 @@
 export type StopWorkflowLifecycleStageName =
   | "edge_receive"
   | "auth_start"
+  | "auth_get_user_start"
+  | "auth_get_user_end"
+  | "auth_driver_resolve_start"
+  | "auth_driver_resolve_end"
   | "auth_end"
   | "reads_start"
   | "reads_end"
@@ -53,6 +57,12 @@ export function deriveStopWorkflowLifecycleDurations(
   stages: Record<string, number>,
 ): Record<string, number | null> {
   const edge_auth_ms = span(stages, "auth_start", "auth_end");
+  const edge_auth_get_user_ms = span(stages, "auth_get_user_start", "auth_get_user_end");
+  const edge_auth_driver_resolve_ms = span(
+    stages,
+    "auth_driver_resolve_start",
+    "auth_driver_resolve_end",
+  );
   const edge_reads_ms = span(stages, "reads_start", "reads_end");
   const edge_validation_ms = span(stages, "validation_start", "validation_end");
   const edge_waiting_ssot_ms = span(stages, "waiting_ssot_start", "waiting_ssot_end");
@@ -120,6 +130,8 @@ export function deriveStopWorkflowLifecycleDurations(
 
   return {
     edge_auth_ms,
+    edge_auth_get_user_ms,
+    edge_auth_driver_resolve_ms,
     edge_reads_ms,
     edge_validation_ms,
     edge_waiting_ssot_ms,

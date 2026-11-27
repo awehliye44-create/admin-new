@@ -86,6 +86,9 @@ Deno.test("start_trip attaches in-memory stops on skipSnapshotRefresh (#110 P8)"
     searchFrom = skipAt + 1;
   }
   assertEquals(skipCount >= 3, true, "expected ≥3 start_trip skipSnapshotRefresh paths");
+  // Edge fallback must mutate in-memory pickup/next before returning stops.
+  assertEquals(startBlock.includes('pickupStop.status = "completed"'), true);
+  assertEquals(startBlock.includes('nextStop.status = "current"'), true);
 });
 
 Deno.test("drive_to_next keeps waiting finalize on-path; tap/finalize audits off-path", async () => {

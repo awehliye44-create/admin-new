@@ -2414,14 +2414,19 @@ Deno.serve(async (req) => {
     let verifiedUserId: string | null = null;
     let driverIdForUser: string | null = null;
     if (authHeader) {
+      // #110 P9 — split Auth API verify vs drivers.id resolve (no behaviour change).
+      lifecyclePerf?.mark("auth_get_user_start");
       const auth = await requireAuthenticatedUser(req, supabaseUrl, anonKey);
+      lifecyclePerf?.mark("auth_get_user_end");
       if (!auth.ok) return auth.response;
       verifiedUserId = auth.userId;
+      lifecyclePerf?.mark("auth_driver_resolve_start");
       const { data: driver } = await supabase
         .from("drivers")
         .select("id")
         .eq("user_id", auth.userId)
         .maybeSingle();
+      lifecyclePerf?.mark("auth_driver_resolve_end");
       driverIdForUser = driver?.id ?? null;
     }
 
@@ -3513,6 +3518,10 @@ Deno.serve(async (req) => {
             .from("trip_stops")
             .update({ status: "completed" as StopStatus, completed_at: now, updated_at: now })
             .eq("id", pickupStop.id);
+          // Keep in-memory stops authoritative for skipSnapshotRefresh response
+          // (P8/P9 — fallback must not return pre-transition stop statuses).
+          pickupStop.status = "completed";
+          pickupStop.completed_at = now;
 
           // Find next stop (index 1)
           const nextStop = stops?.find((s) => s.stop_index === 1);
@@ -3524,6 +3533,7 @@ Deno.serve(async (req) => {
               .from("trip_stops")
               .update({ status: "current" as StopStatus, updated_at: now })
               .eq("id", nextStop.id);
+            nextStop.status = "current";
 
             const { error: startTripUpdateError } = await updateTripSafe(supabase, trip_id, {
               started_at: now,
