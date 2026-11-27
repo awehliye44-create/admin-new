@@ -41,6 +41,17 @@ Deno.test("#111A pickup-no-show settles via dispose+resume (not charge-lifecycle
   assertStringIncludes(src, "scheduleEdgeBackground");
   assertEquals(src.includes("functions/v1/charge-lifecycle-fee"), false);
   assertEquals(src.includes('fee_type: "no_show"'), false);
+  // #111E — after successful resume, do not re-run stamp/post via settleNoShowFee.
+  assertStringIncludes(src, "walletAlreadySettled");
+  assertStringIncludes(src, "resumeCreditedOrPresent");
+});
+
+Deno.test("#111E settleNoShowFee skips duplicate wallet post when resume already settled", async () => {
+  const settle = await Deno.readTextFile(
+    new URL("../../functions/pickup-no-show/lib/noShowSettlement.ts", import.meta.url),
+  );
+  assertStringIncludes(settle, "walletAlreadySettled");
+  assertStringIncludes(settle, "SKIPPED_WALLET_ALREADY_SETTLED");
 });
 
 Deno.test("#111 sweep still candidates AUTHORISED terminal no_show holds", async () => {

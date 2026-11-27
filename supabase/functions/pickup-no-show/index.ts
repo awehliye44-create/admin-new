@@ -370,6 +370,8 @@ Deno.serve(async (req) => {
     // capture keeps fee stamps and schedules a background dispose retry; sweep
     // remains backup only.
     let cardCharged = false;
+    // #111E — true when dispose+resume already posted/confirmed TEN this request.
+    let walletAlreadySettled = false;
     if (effectiveNoShowFeePence > 0 && !cashTrip && trip.payment_method !== "wallet") {
       const runDisposeAndResume = async (source: string) => {
         const holdDisposition = await disposeTerminalTripPayment(supabase, {
@@ -393,18 +395,22 @@ Deno.serve(async (req) => {
           holdDisposition?.outcome === "FEE_CAPTURED_AND_REMAINDER_RELEASED" ||
           holdDisposition?.outcome === "LOCAL_RECONCILIATION_FAILED_AFTER_PROVIDER_SUCCESS"
         );
+        let resumeCreditedOrPresent = false;
         if (captureConfirmed) {
-          await maybeResumeTerminalFeeSettlementAfterProviderFee(supabase, {
+          const resume = await maybeResumeTerminalFeeSettlementAfterProviderFee(supabase, {
             tripId: trip_id,
             source,
           });
+          resumeCreditedOrPresent =
+            resume.credited === true || resume.already_credited === true;
         }
-        return { holdDisposition, captureConfirmed };
+        return { holdDisposition, captureConfirmed, resumeCreditedOrPresent };
       };
 
       try {
         const first = await runDisposeAndResume("pickup-no-show");
         cardCharged = first.captureConfirmed;
+        walletAlreadySettled = first.resumeCreditedOrPresent;
         const outcome = first.holdDisposition?.outcome;
         if (
           !cardCharged &&
@@ -418,6 +424,7 @@ Deno.serve(async (req) => {
               trip_id,
               capture_confirmed: retry.captureConfirmed,
               outcome: retry.holdDisposition?.outcome,
+              resume_settled: retry.resumeCreditedOrPresent,
             });
           }, "pickup_no_show_pending_disposition_retry");
         }
@@ -448,6 +455,7 @@ Deno.serve(async (req) => {
         currencyCode: trip.currency_code,
         feePence: effectiveNoShowFeePence,
         cardCharged,
+        walletAlreadySettled,
         serviceRoleKey,
         supabaseUrl,
       });

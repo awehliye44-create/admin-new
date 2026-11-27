@@ -13,6 +13,7 @@ import {
   terminalFeeLedgerDescription,
 } from "./terminalFeePolicySSOT.ts";
 import { creditCapturedCardTripLedger } from "./onecabFinanceLedger.ts";
+import { recordWalletPostingFailureMetadata } from "./walletPostingMismatchSSOT.ts";
 
 export type { TerminalOutcomeKind };
 
@@ -236,16 +237,38 @@ export async function postTerminalEntitlementFromSettlement(args: {
   // #111E — reuse the canonical TEN writer (readback + unique-index exactly-once)
   // shared with normal completed-trip earnings. Eligibility / formula / category
   // stay terminal-specific; persistence + Wallet ledger sync do not.
-  await creditCapturedCardTripLedger(args.supabase, {
-    driverId: args.driverId,
-    tripId: args.tripId,
-    driverNetPence: amount,
-    tipPence: 0,
-    currency: cs,
-    description,
-    metadata,
-    skipTipAndDebtRecovery: true,
-  });
+  try {
+    await creditCapturedCardTripLedger(args.supabase, {
+      driverId: args.driverId,
+      tripId: args.tripId,
+      driverNetPence: amount,
+      tipPence: 0,
+      currency: cs,
+      description,
+      metadata,
+      skipTipAndDebtRecovery: true,
+    });
+  } catch (err) {
+    // Genuine monitoring parity with normal-trip applyCanonicalSettlementAfterCapture:
+    // stamp failures already go to ops_events; TEN insert/readback failures must
+    // also land in financial_ssot_mismatches for FR / admin visibility.
+    const message = err instanceof Error ? err.message : String(err);
+    const code =
+      err && typeof err === "object" && "code" in err
+        ? String((err as { code?: unknown }).code ?? "")
+        : null;
+    await recordWalletPostingFailureMetadata(args.supabase, {
+      tripId: args.tripId,
+      driverId: args.driverId,
+      paymentSessionId: args.evidence.payment_session_id,
+      expectedDriverCreditPence: amount,
+      postedDriverCreditPence: 0,
+      failureStage: "terminal_fee_wallet_insert",
+      errorCode: code,
+      errorMessage: message,
+    });
+    throw err;
+  }
 
   return {
     credited: true,

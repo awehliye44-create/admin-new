@@ -62,6 +62,12 @@ export interface NoShowSettlementInput {
   currencyCode: string | null;
   feePence: number;
   cardCharged: boolean;
+  /**
+   * #111E — dispose+resume already credited (or confirmed already_credited).
+   * Skip a second stamp/post cycle; still project payment_status for the driver
+   * response. Durable recovery remains resume/webhook/sweep when this is false.
+   */
+  walletAlreadySettled?: boolean;
   serviceRoleKey?: string;
   supabaseUrl?: string;
 }
@@ -179,6 +185,40 @@ export async function settleNoShowFee(
       driverCompensated: false,
       customerDebtPence: 0,
       driverMessage: NO_SHOW_DRIVER_MESSAGE_WAIVED,
+    };
+  }
+
+  // #111E — after successful dispose+resume, stamp/TEN already ran via the
+  // shared resume owner. Re-running here duplicates evidence loads, stamp
+  // writes, and ledger probes (unique index alone does not make that free).
+  if (input.walletAlreadySettled === true && cardCharged) {
+    const { error: statusErr } = await supabase
+      .from("trips")
+      .update({
+        payment_status: "fee_charged",
+        financial_outcome: "NO_SHOW",
+        debt_recovery_pence: 0,
+        no_show_charge_pence: feePence,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", tripId);
+    if (statusErr) {
+      console.error("[noShowSettlement] NO_SHOW_STATUS_UPDATE_FAILED", JSON.stringify({
+        trip_id: tripId,
+        payment_status: "fee_charged",
+        error: statusErr.message ?? String(statusErr),
+        wallet_already_settled: true,
+      }));
+    }
+    return {
+      paymentStatus: "fee_charged",
+      driverCompensated: true,
+      customerDebtPence: 0,
+      driverMessage: NO_SHOW_DRIVER_MESSAGE,
+      entitlement_pence: null,
+      pending_settlement: false,
+      stamp_status: "SKIPPED_WALLET_ALREADY_SETTLED",
+      status_update_error: statusErr ? (statusErr.message ?? String(statusErr)) : null,
     };
   }
 
