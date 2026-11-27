@@ -37,7 +37,8 @@ Deno.test("Bug #23 latency: stacked promotion runs in complete_trip_p2 backgroun
   assertStringIncludes(block, "tryPromoteStackedTripAfterCompletion");
   assertStringIncludes(block, "complete_trip_p2");
 
-  const p2LabelAt = block.indexOf("complete_trip_p2");
+  // Prefer the labelled waitUntil arg — ignore earlier comments mentioning complete_trip_p2.
+  const p2LabelAt = block.lastIndexOf(', "complete_trip_p2"');
   assertEquals(p2LabelAt >= 0, true);
   // Promotion must live inside the P2 waitUntil callback (before the label arg).
   const scheduleBeforeP2 = block.lastIndexOf("scheduleEdgeBackground", p2LabelAt);

@@ -51,6 +51,10 @@ Deno.test("O4: stop-workflow flags slow complete paths in finishEdgeRequestLog",
   assertStringIncludes(src, "slow_path");
   assertStringIncludes(src, 'action === "complete_trip"');
   assertStringIncludes(src, "complete_trip_durations_ms");
+  // B4-0 — error-path stage flush + respondOk marks.
+  assertStringIncludes(src, "publishCompleteTripO4");
+  assertStringIncludes(src, "completeTripError");
+  assertStringIncludes(src, "respond_ok_enter");
   // Tip-window / PENDING fail-closed preserved.
   assertStringIncludes(src, "payment_capture_deferred");
   assertStringIncludes(src, "PENDING_ENTITLEMENT_FAILED");

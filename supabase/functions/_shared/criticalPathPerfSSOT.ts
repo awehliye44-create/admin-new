@@ -93,6 +93,15 @@ export const COMPLETE_TRIP_DURATION_PAIRS = [
     "completion_writes_end",
     "pending_entitlement_end",
   ],
+  // B4-0 / O4 — pre-case + respondOk delivery (lifecycle anchors merged into map).
+  ["edge_receive_to_auth_end_ms", "edge_receive", "auth_end"],
+  ["auth_to_case_enter_ms", "auth_end", "complete_case_enter"],
+  ["respond_ok_ms", "respond_ok_enter", "respond_ok_end"],
+  [
+    "response_ready_to_respond_ok_end_ms",
+    "response_ready",
+    "respond_ok_end",
+  ],
 ] as const;
 
 export function deriveCompleteTripDurations(

@@ -89,6 +89,7 @@ import {
   pendingEntitlementAmountPence,
 } from "../_shared/tripEarningPendingSSOT.ts";
 import { recoverMissingPendingOnIdempotentComplete } from "./lib/idempotentCompletePendingRecovery.ts";
+import { flushCompleteTripO4Stages } from "./lib/completeTripO4StageFlush.ts";
 import { isCustomerAppTipChannelEligible } from "../_shared/tipChannelEligibilitySSOT.ts";
 import {
   TIP_WINDOW_MS,
@@ -142,22 +143,45 @@ let stopWorkflowRequestId: string | null = null;
 let stopWorkflowErrorLogged = false;
 /** Batch O2 — per-request cold/warm hint for ops correlation. */
 let stopWorkflowColdStartHint: boolean | null = null;
+/** B4-0 / O4 — latest complete_trip stage snapshot for error-path ops (marks only). */
+let stopWorkflowCompleteStagesMs: Record<string, number> | null = null;
+let stopWorkflowCompleteDurationsMs: Record<string, number | null> | null = null;
+let stopWorkflowCompletePerfId: string | null = null;
 
 function errorResponse(
   ...args: Parameters<typeof baseErrorResponse>
 ): Response {
   const res = baseErrorResponse(...args);
-  if (res.status >= 500 && !stopWorkflowErrorLogged) {
+  const isComplete = stopWorkflowRequestAction === "complete_trip";
+  const shouldLogCompleteStages =
+    isComplete &&
+    stopWorkflowCompleteStagesMs != null &&
+    !stopWorkflowErrorLogged;
+  const shouldLog5xx = res.status >= 500 && !stopWorkflowErrorLogged;
+  if (shouldLogCompleteStages || shouldLog5xx) {
     stopWorkflowErrorLogged = true;
-    finishEdgeRequestLog("stop-workflow", Date.now() - stopWorkflowRequestStartedAtMs, {
+    const duration_ms = Date.now() - stopWorkflowRequestStartedAtMs;
+    const slowComplete = isComplete && duration_ms >= 2000;
+    finishEdgeRequestLog("stop-workflow", duration_ms, {
       http_status: res.status,
       trip_id: stopWorkflowRequestTripId,
       action: stopWorkflowRequestAction,
       ...(stopWorkflowRequestId ? { request_id: stopWorkflowRequestId } : {}),
+      ...(stopWorkflowCompletePerfId
+        ? { perf_id: stopWorkflowCompletePerfId }
+        : {}),
       ...(stopWorkflowColdStartHint != null
         ? { cold_start_hint: stopWorkflowColdStartHint }
         : {}),
+      ...(stopWorkflowCompleteStagesMs
+        ? { stages_ms: stopWorkflowCompleteStagesMs }
+        : {}),
+      ...(stopWorkflowCompleteDurationsMs
+        ? { complete_trip_durations_ms: stopWorkflowCompleteDurationsMs }
+        : {}),
+      ...(slowComplete ? { slow_path: true } : {}),
       success: false,
+      ...(isComplete ? { complete_trip_outcome: "failure" } : {}),
     });
   }
   return res;
@@ -2150,6 +2174,9 @@ Deno.serve(async (req) => {
   stopWorkflowRequestId = requestId;
   stopWorkflowColdStartHint = coldStartHint;
   stopWorkflowErrorLogged = false;
+  stopWorkflowCompleteStagesMs = null;
+  stopWorkflowCompleteDurationsMs = null;
+  stopWorkflowCompletePerfId = null;
   console.log("[stop-workflow] Request received:", req.method, {
     cold_start_hint: coldStartHint,
   });
@@ -2237,10 +2264,36 @@ Deno.serve(async (req) => {
     let completeTripDurationsMs: Record<string, number | null> | null = null;
     let lifecycleStagesMs: Record<string, number> | null = null;
     let lifecycleDurationsMs: Record<string, number | null> | null = null;
+    /** B4-0 / O4 — publish complete stages for success + error-path ops. */
+    const publishCompleteTripO4 = (
+      stagesClock: ReturnType<typeof createStageClock>,
+      exitMark?: string,
+    ) => {
+      const flushed = flushCompleteTripO4Stages({
+        completeStages: stagesClock.snapshot(),
+        lifecycleStages: lifecyclePerf?.snapshot() ?? lifecycleStagesMs,
+        exitMark,
+        exitAtMs: exitMark ? elapsed() : undefined,
+      });
+      completeTripStagesMs = flushed.stages_ms;
+      completeTripDurationsMs = flushed.complete_trip_durations_ms;
+      stopWorkflowCompleteStagesMs = flushed.stages_ms;
+      stopWorkflowCompleteDurationsMs = flushed.complete_trip_durations_ms;
+      if (perfId) stopWorkflowCompletePerfId = perfId;
+    };
     const respondOk = async (
       payload: Record<string, unknown>,
       opts?: { skipSnapshotRefresh?: boolean },
     ) => {
+      const isCompleteTrip = action === "complete_trip";
+      if (isCompleteTrip && completeTripStagesMs) {
+        // Absolute mark from request start (elapsed), matching other stage clocks.
+        completeTripStagesMs = {
+          ...completeTripStagesMs,
+          respond_ok_enter: elapsed(),
+        };
+        stopWorkflowCompleteStagesMs = completeTripStagesMs;
+      }
       lifecyclePerf?.mark("response_build_start");
       const duration_ms = elapsed();
       let tripSnapshot: Record<string, unknown> | null = null;
@@ -2304,8 +2357,20 @@ Deno.serve(async (req) => {
         lifecycleStagesMs = lifecyclePerf.snapshot();
         lifecycleDurationsMs = lifecyclePerf.durations();
       }
-      if (completeTripStagesMs) {
-        completeTripDurationsMs = deriveCompleteTripDurations(completeTripStagesMs);
+      if (isCompleteTrip && completeTripStagesMs) {
+        // B4-0 — merge lifecycle anchors + respond_ok_end before durations/emit.
+        const flushed = flushCompleteTripO4Stages({
+          completeStages: {
+            ...completeTripStagesMs,
+            respond_ok_end: elapsed(),
+          },
+          lifecycleStages: lifecycleStagesMs,
+        });
+        completeTripStagesMs = flushed.stages_ms;
+        completeTripDurationsMs = flushed.complete_trip_durations_ms;
+        stopWorkflowCompleteStagesMs = flushed.stages_ms;
+        stopWorkflowCompleteDurationsMs = flushed.complete_trip_durations_ms;
+        if (perfId) stopWorkflowCompletePerfId = perfId;
         // #110 — structured critical-path log (console only; no sync DB write).
         emitCriticalPathPerfLog({
           event: "critical_path_perf",
@@ -2331,8 +2396,11 @@ Deno.serve(async (req) => {
           notes: [
             "completed_at stamped at completion_writes; pending is awaited after tip/capture stamps",
             "tip_window columns skipped on settlement UPDATE when completion stamp verified (#110 P2)",
+            "B4-0 O4: lifecycle anchors + respond_ok folded into complete_trip_stages_ms",
           ],
         });
+      } else if (completeTripStagesMs) {
+        completeTripDurationsMs = deriveCompleteTripDurations(completeTripStagesMs);
       }
       const stagesPayload = completeTripStagesMs ?? lifecycleStagesMs;
       // Batch O4 — always flag slow completes so stalls retain stage payloads in ops.
@@ -2365,6 +2433,7 @@ Deno.serve(async (req) => {
           ? { complete_trip_durations_ms: completeTripDurationsMs }
           : {}),
         ...(slowComplete ? { slow_path: true } : {}),
+        ...(isCompleteTrip ? { complete_trip_outcome: "success" } : {}),
       });
       const responseBody: Record<string, unknown> = {
         ...payload,
@@ -4271,9 +4340,21 @@ Deno.serve(async (req) => {
       case 'complete_trip': {
         const stages = createStageClock(elapsed);
         stages.mark('complete_case_enter');
+        publishCompleteTripO4(stages);
+        /** B4-0 — flush stages on every complete_trip error exit (obs only). */
+        const completeTripError = (
+          ...args: Parameters<typeof errorResponse>
+        ): Response => {
+          const code = typeof args[0] === "string" ? args[0] : "ERROR";
+          publishCompleteTripO4(
+            stages,
+            `error_${code.toLowerCase().replace(/[^a-z0-9_]+/g, "_")}`,
+          );
+          return errorResponse(...args);
+        };
         // Must have started trip
         if (!trip.started_at) {
-          return errorResponse("NOT_STARTED", "Trip not started yet", 400);
+          return completeTripError("NOT_STARTED", "Trip not started yet", 400);
         }
 
         // Idempotency: already completed
@@ -4370,7 +4451,7 @@ Deno.serve(async (req) => {
               ...idemPending,
             });
           }
-          completeTripStagesMs = stages.snapshot();
+          publishCompleteTripO4(stages);
           return await respondOk({
             success: true,
             idempotent: true,
@@ -4412,7 +4493,7 @@ Deno.serve(async (req) => {
         // status, or ledger writes. DRIVER_COLLECTED cash is not this path.
         if (completeTripCashDecision(trip) === "fail_closed_operational_cash") {
           console.error("[stop-workflow]", OPERATIONAL_CASH_VIOLATION, { trip_id });
-          return errorResponse(
+          return completeTripError(
             "FINANCIAL_MODEL_VIOLATION",
             OPERATIONAL_CASH_VIOLATION,
             409,
@@ -4421,7 +4502,7 @@ Deno.serve(async (req) => {
 
         const finalStop = stops?.find(s => s.type === 'dropoff');
         if (!finalStop) {
-          return errorResponse("NO_DROPOFF", "Final stop not found", 400);
+          return completeTripError("NO_DROPOFF", "Final stop not found", 400);
         }
 
         // Far-from destination Yes/No — UX already shows the modal; Edge enforces.
@@ -4433,7 +4514,10 @@ Deno.serve(async (req) => {
             finalStop.lat ?? trip.dropoff_latitude ?? null,
             finalStop.lng ?? trip.dropoff_longitude ?? null,
           );
-          if (farComplete) return farComplete;
+          if (farComplete) {
+            publishCompleteTripO4(stages, "error_far_from_location");
+            return farComplete;
+          }
         }
 
         // MK-261114-006: refuse Complete while intermediate vias remain.
@@ -4445,7 +4529,7 @@ Deno.serve(async (req) => {
             s.status !== "skipped",
         );
         if (pendingIntermediateStops.length > 0) {
-          return errorResponse(
+          return completeTripError(
             "INTERMEDIATE_STOPS_REMAIN",
             "Finish remaining stops before completing the trip.",
             409,
@@ -4538,7 +4622,7 @@ Deno.serve(async (req) => {
                 trip_id,
                 error: tipSessionErr.message,
               });
-              return errorResponse(
+              return completeTripError(
                 "TIP_WINDOW_STAMP_UNAVAILABLE",
                 "Unable to open the tip window. Please try again.",
                 503,
@@ -4583,7 +4667,7 @@ Deno.serve(async (req) => {
               trip_id,
               error: tipAreaEarlyErr.message,
             });
-            return errorResponse(
+            return completeTripError(
               "TIP_WINDOW_STAMP_UNAVAILABLE",
               "Unable to open the tip window. Please try again.",
               503,
@@ -4674,7 +4758,7 @@ Deno.serve(async (req) => {
             trip_id,
             error: completionWriteResult.error.message,
           });
-          return errorResponse(
+          return completeTripError(
             "COMPLETION_WRITE_FAILED",
             "Unable to complete this trip. Please try again.",
             500,
@@ -4700,7 +4784,7 @@ Deno.serve(async (req) => {
             // The winning Complete owns PENDING; only heal if it is still missing
             // (helper no-ops when TEN exists or capture settled).
             await recoverMissingPendingOnIdempotentComplete(supabase, trip_id);
-            completeTripStagesMs = stages.snapshot();
+            publishCompleteTripO4(stages);
             return await respondOk({
               success: true,
               idempotent: true,
@@ -4714,7 +4798,7 @@ Deno.serve(async (req) => {
               stops: stops ?? [],
             }, { skipSnapshotRefresh: true });
           }
-          return errorResponse(
+          return completeTripError(
             "COMPLETION_WRITE_FAILED",
             "Unable to complete this trip. Please try again.",
             500,
@@ -4802,7 +4886,7 @@ Deno.serve(async (req) => {
         const cashDecision = completeTripCashDecision(fareTrip);
         if (cashDecision === "fail_closed_operational_cash") {
           console.error("[stop-workflow]", OPERATIONAL_CASH_VIOLATION, { trip_id });
-          return errorResponse(
+          return completeTripError(
             "FINANCIAL_MODEL_VIOLATION",
             OPERATIONAL_CASH_VIOLATION,
             409,
@@ -4835,7 +4919,7 @@ Deno.serve(async (req) => {
         });
         const settlement = calculateTripSettlementFromTripRow(settlementRow);
         if (!settlement) {
-          return errorResponse("SETTLEMENT_FAILED", "Unable to compute trip settlement", 500);
+          return completeTripError("SETTLEMENT_FAILED", "Unable to compute trip settlement", 500);
         }
         const commissionableFarePence = settlement.commissionable_fare_pence;
         const commissionPence = settlement.commission_pence;
@@ -4935,7 +5019,7 @@ Deno.serve(async (req) => {
                   reason: pendingResult.reason,
                   message: pendingResult.message ?? null,
                 });
-                return errorResponse(
+                return completeTripError(
                   "PENDING_ENTITLEMENT_FAILED",
                   "Unable to record pending trip earnings. Please try again.",
                   500,
@@ -4948,7 +5032,7 @@ Deno.serve(async (req) => {
                 source,
                 error: pendingErr instanceof Error ? pendingErr.message : String(pendingErr),
               });
-              return errorResponse(
+              return completeTripError(
                 "PENDING_ENTITLEMENT_FAILED",
                 "Unable to record pending trip earnings. Please try again.",
                 500,
@@ -5105,7 +5189,7 @@ Deno.serve(async (req) => {
               trip_id,
               error: captureRequestedErr.message,
             });
-            return errorResponse(
+            return completeTripError(
               "CAPTURE_QUEUE_FAILED",
               "Unable to queue payment capture. Please try again.",
               500,
@@ -5264,7 +5348,7 @@ Deno.serve(async (req) => {
           stages.mark('wallet_ledger_start');
           if (cashDecision !== "not_cash") {
             console.error("[stop-workflow]", OPERATIONAL_CASH_VIOLATION, { trip_id, cashDecision });
-            return errorResponse(
+            return completeTripError(
               "FINANCIAL_MODEL_VIOLATION",
               OPERATIONAL_CASH_VIOLATION,
               409,
@@ -5431,7 +5515,7 @@ Deno.serve(async (req) => {
           ? "capture_requested"
           : String(fareTrip.payment_status ?? trip.payment_status ?? "");
         stages.mark('response_ready');
-        completeTripStagesMs = stages.snapshot();
+        publishCompleteTripO4(stages);
         return await respondOk({
           success: true,
           action: 'complete_trip',

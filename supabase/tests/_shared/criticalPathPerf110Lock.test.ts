@@ -48,6 +48,8 @@ Deno.test("deriveCompleteTripDurations uses monotonic stage marks", () => {
   assertEquals(d.completed_at_to_pending_ms, 1100);
   assertEquals(d.complete_case_to_response_ms, 2090);
   assertEquals(d.waiting_finalize_ms, null);
+  assertEquals(d.respond_ok_ms, null);
+  assertEquals(d.edge_receive_to_auth_end_ms, null);
 });
 
 Deno.test("classifyPerfOutcome maps timeout/failure/success", () => {
