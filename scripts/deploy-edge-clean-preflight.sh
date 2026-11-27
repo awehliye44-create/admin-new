@@ -91,5 +91,5 @@ echo "DEPLOY_PREFLIGHT: deploying $SLUG from $CANONICAL_PUBLISH_SHA …"
 npx supabase functions deploy "$SLUG" --project-ref "$PROJECT_REF" --workdir "$WORKDIR"
 echo "DEPLOY_PREFLIGHT: deploy finished HEAD=$CANONICAL_PUBLISH_SHA"
 
-canonical_publish_end || exit 1
+canonical_publish_end --artifact-note "edge:$SLUG project:$PROJECT_REF" || exit 1
 echo "DEPLOY_PREFLIGHT: artifact integrity verified HEAD=$CANONICAL_PUBLISH_SHA"

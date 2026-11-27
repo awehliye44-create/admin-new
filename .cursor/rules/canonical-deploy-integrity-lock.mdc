@@ -9,8 +9,11 @@ Production artifacts are published only from the **single canonical working tree
 1. **Clean tree** — `git status --porcelain` empty
 2. **Origin sync** — `HEAD == origin/<branch>`
 3. **Exclusive publish lock** — atomic `mkdir` on `.git/onecab-canonical-publish.lockdir` for the whole bundle/publish window
-4. **Freeze** — deploy-relevant paths are `chmod a-w` while bundling so concurrent edits cannot enter the artifact
+4. **Freeze** — deploy-relevant paths are `chmod a-w` while bundling; OS must reject writes (probe). Not cooperative-only.
 5. **Revision pin** — record and re-verify `HEAD` before and after publish
+6. **Stale lock recovery** — dead holder PID → recover; live holder → fail closed
+7. **Traceability** — `.git/onecab-publish-log/*.json` records HEAD, status, freeze paths, note
+8. **Fail closed** — any preflight/integrity failure aborts; never continue to publish
 
 ## Entry points
 
