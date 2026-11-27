@@ -154,20 +154,6 @@ async function existingEntitlementTypes(
   return (data ?? []).map((r) => String(r.type));
 }
 
-async function ledgerEntryExists(
-  supabase: SupabaseClient,
-  tripId: string,
-  type: string,
-): Promise<boolean> {
-  const { data } = await supabase
-    .from("driver_wallet_ledger")
-    .select("id")
-    .eq("related_trip_id", tripId)
-    .eq("type", type)
-    .maybeSingle();
-  return !!data?.id;
-}
-
 export type PostTerminalEntitlementResult = {
   credited: boolean;
   pending: boolean;
@@ -213,13 +199,14 @@ export async function postTerminalEntitlementFromSettlement(args: {
 
   const ledgerType = TERMINAL_FEE_LEDGER_TYPE;
 
+  // #111D — one ledger probe for conflict + idempotency (was two sequential SELECTs).
   const existingTypes = await existingEntitlementTypes(args.supabase, args.tripId);
   const proposed = [...existingTypes, ledgerType];
   if (hasConflictingEntitlementTypes(proposed)) {
     throw new Error("TERMINAL_ENTITLEMENT_CONFLICT: TRIP_EARNING_NET and DRIVER_COMPENSATION_CREDIT");
   }
 
-  if (await ledgerEntryExists(args.supabase, args.tripId, ledgerType)) {
+  if (existingTypes.includes(ledgerType)) {
     return {
       credited: true,
       pending: false,

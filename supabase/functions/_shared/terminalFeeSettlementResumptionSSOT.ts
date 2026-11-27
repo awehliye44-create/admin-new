@@ -187,13 +187,16 @@ export async function maybeResumeTerminalFeeSettlementAfterProviderFee(
   }
 
   const ledgerType = TERMINAL_FEE_LEDGER_TYPE;
-  const alreadyPosted = await ledgerTypeAlreadyPosted(supabase, tripId, ledgerType);
-
   const fallbackCaptured = Math.max(
     pence(trip.no_show_charge_pence),
     pence(trip.cancellation_fee_pence),
   );
-  const evidence = await loadTerminalCaptureEvidence(supabase, tripId, fallbackCaptured);
+  // #111D — ledger idempotency check and session evidence are independent;
+  // parallelise to cut post-capture resume latency (measured 1.7–3.4s).
+  const [alreadyPosted, evidence] = await Promise.all([
+    ledgerTypeAlreadyPosted(supabase, tripId, ledgerType),
+    loadTerminalCaptureEvidence(supabase, tripId, fallbackCaptured),
+  ]);
 
   if (evidence.captured_pence <= 0) {
     return {
