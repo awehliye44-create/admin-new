@@ -67,8 +67,12 @@ import { format } from 'date-fns';
 import { toast } from 'sonner';
 import { getCurrencySymbol, getDistanceUnitShort, convertDistance } from '@/lib/regionSettings';
 import { getTripDisplayId } from '@/lib/tripUtils';
-import { ACTIVE_TRIP_DB_STATUSES, isActiveTripDbStatus } from '@/lib/activeTripStatuses';
+import { ACTIVE_TRIP_DB_STATUSES } from '@/lib/activeTripStatuses';
 import { filterAdminActiveTrips, formatAdminActiveTripTimerLabel } from '@/lib/adminActiveTripFilter';
+import {
+  decideAdminTripsRealtimeApply,
+  isAdminCancelEdgeConfirmed,
+} from '@/lib/adminActiveTripsRealtimeSSOT';
 import {
   ADMIN_ACTIVE_TRIPS_CAP,
   ADMIN_ACTIVE_TRIPS_ONLINE_DRIVERS_CAP,
@@ -253,12 +257,16 @@ export default function ActiveTrips() {
   const [forceEndFare, setForceEndFare] = useState('');
   const [isSaving, setIsSaving] = useState(false);
   const [savingAction, setSavingAction] = useState<CriticalButtonAction | null>(null);
+  /** Prevents duplicate cancel invokes while Edge is in flight (A-1). */
+  const cancelInFlightRef = useRef(false);
 
   const tripActionTimeout = useCriticalButtonTimeout({
     action: savingAction ?? 'admin_cancel_trip',
     isPending: isSaving && savingAction != null,
     tripId: selectedTrip?.id ?? null,
     onTimeout: () => {
+      // Timeout clears pending UX only — never marks cancelled. Reconcile board.
+      cancelInFlightRef.current = false;
       setIsSaving(false);
       setSavingAction(null);
       void fetchData(true);
@@ -505,64 +513,33 @@ export default function ActiveTrips() {
       }, 750);
     };
 
-    /** A-2: trip-row Realtime — patch/remove when payload is enough; else full board refresh. */
+    /** A-2: trip-row Realtime via SSOT — never invent rows; unknown → full refresh. */
     const onTripsRealtime = (payload: {
       eventType?: string;
       new?: Record<string, unknown> | null;
       old?: Record<string, unknown> | null;
     }) => {
-      const eventType = String(payload.eventType || '').toUpperCase();
-      const next = payload.new ?? null;
-      const prev = payload.old ?? null;
-      const tripId = String(next?.id ?? prev?.id ?? '');
-      if (!tripId) {
-        scheduleRefresh();
-        return;
-      }
-
-      if (eventType === 'DELETE') {
-        setTrips((rows) => rows.filter((t) => t.id !== tripId));
-        return;
-      }
-
-      const status = typeof next?.status === 'string' ? next.status : null;
-      if (status != null && !isActiveTripDbStatus(status)) {
-        setTrips((rows) => rows.filter((t) => t.id !== tripId));
-        return;
-      }
-
-      if (eventType === 'UPDATE' && next) {
-        let patched = false;
-        setTrips((rows) => {
-          const idx = rows.findIndex((t) => t.id === tripId);
-          if (idx < 0) return rows;
-          patched = true;
+      setTrips((rows) => {
+        const known = new Set(rows.map((t) => t.id));
+        const decision = decideAdminTripsRealtimeApply(payload, known);
+        if (decision.kind === 'remove') {
+          return rows.filter((t) => t.id !== decision.tripId);
+        }
+        if (decision.kind === 'patch') {
+          const idx = rows.findIndex((t) => t.id === decision.tripId);
+          if (idx < 0) {
+            queue Promise.resolve().then(scheduleRefresh);
+            return rows;
+          }
           const copy = rows.slice();
-          copy[idx] = {
-            ...copy[idx],
-            ...(typeof next.status === 'string' ? { status: next.status } : null),
-            ...(typeof next.passenger_name === 'string'
-              ? { passenger_name: next.passenger_name }
-              : null),
-            ...(typeof next.pickup_address === 'string'
-              ? { pickup_address: next.pickup_address }
-              : null),
-            ...(typeof next.dropoff_address === 'string'
-              ? { dropoff_address: next.dropoff_address }
-              : null),
-            ...(typeof next.driver_id === 'string' || next.driver_id === null
-              ? { driver_id: (next.driver_id as string | null) ?? undefined }
-              : null),
-            ...(typeof next.modification_status === 'string'
-              ? { modification_status: next.modification_status }
-              : null),
-          } as Trip;
+          copy[idx] = { ...copy[idx], ...decision.fields } as Trip;
           return copy;
-        });
-        if (patched) return;
-      }
-
-      scheduleRefresh();
+        }
+        if (decision.kind === 'full_refresh') {
+          void Promise.resolve().then(scheduleRefresh);
+        }
+        return rows;
+      });
     };
 
     const teardown = () => {
@@ -579,6 +556,9 @@ export default function ActiveTrips() {
     const setup = () => {
       teardown();
       if (!isAdminTabLiveActive() || !isAdminDocumentVisible()) return;
+
+      // Reconnect / tab-leader regain — reconcile missed Realtime events.
+      void fetchData(true);
 
       channel = supabase
         .channel('active-trips-changes')
@@ -658,6 +638,9 @@ export default function ActiveTrips() {
 
   const handleCancel = async () => {
     if (!selectedTrip) return;
+    // Pending feedback only while Edge runs — never mutate board before confirm.
+    if (cancelInFlightRef.current || isSaving) return;
+    cancelInFlightRef.current = true;
 
     setSavingAction('admin_cancel_trip');
     setIsSaving(true);
@@ -698,23 +681,16 @@ export default function ActiveTrips() {
         }
         throw new Error(detail || 'Failed to cancel trip');
       }
-      if (cancelResult && typeof cancelResult === 'object') {
-        const body = cancelResult as {
-          success?: boolean;
-          error?: string;
-          result?: { success?: boolean; error?: string };
-        };
-        if (body.success === false || body.error) {
-          throw new Error(body.error || body.result?.error || 'Failed to cancel trip');
-        }
-        if (body.result && body.result.success === false) {
-          throw new Error(body.result.error || 'Failed to cancel trip');
-        }
+
+      // Owner rule: no authoritative cancel UX until Edge explicitly confirms.
+      const gate = isAdminCancelEdgeConfirmed(cancelResult);
+      if (!gate.confirmed) {
+        throw new Error(gate.errorMessage || 'Failed to cancel trip');
       }
 
-      // A-1: Edge success is authoritative for Admin UX. Optimistic remove + close
-      // immediately; MK-260704-001 dual-channel trip_updated still fires but must not
-      // hold the cancel dialog (≤1.5s × 2 channels was the measured cancel p95 driver).
+      // Confirmed after Edge — close dialog + remove from board. Broadcasts must
+      // not block UX (≤1.5s × 2 was the cancel p95 driver). Payment dispose already
+      // ran inside Edge before success:true.
       setTrips((prev) => prev.filter((t) => t.id !== tripId));
       setIsCancelOpen(false);
       setSelectedTrip(null);
@@ -722,7 +698,7 @@ export default function ActiveTrips() {
       toast.success('Trip cancelled successfully');
       perf.complete({
         success: true,
-        metadata: { trip_id: tripId, cancel_ux: 'optimistic_after_edge' },
+        metadata: { trip_id: tripId, cancel_ux: 'confirmed_after_edge' },
       });
 
       const terminalPayload = {
@@ -766,7 +742,10 @@ export default function ActiveTrips() {
       console.error('Error cancelling trip:', err);
       perf.complete({ success: false, error_code: 'cancel_failed' });
       toast.error(err.message || 'Failed to cancel trip');
+      // Rejection / ambiguous Edge — keep trip on board; reconcile.
+      void fetchData(true);
     } finally {
+      cancelInFlightRef.current = false;
       setIsSaving(false);
       setSavingAction(null);
     }
