@@ -431,6 +431,14 @@ export default function TripHistory() {
   const [searchParams, setSearchParams] = useSearchParams();
   
   const [searchQuery, setSearchQuery] = useState('');
+  // A1 continued: debounce client filter so typing stays immediate while list
+  // re-filter waits 300ms (Drivers / MissedCancelled pattern). Input still
+  // binds to searchQuery; filteredTrips uses debouncedSearchQuery.
+  const [debouncedSearchQuery, setDebouncedSearchQuery] = useState('');
+  useEffect(() => {
+    const handle = window.setTimeout(() => setDebouncedSearchQuery(searchQuery), 300);
+    return () => window.clearTimeout(handle);
+  }, [searchQuery]);
   const [dateFilter, setDateFilter] = useState<AdminTripDateFilter>(ADMIN_TRIP_DATE_FILTER_DEFAULT);
   const [customStartDate, setCustomStartDate] = useState('');
   const [customEndDate, setCustomEndDate] = useState('');
@@ -1169,14 +1177,16 @@ export default function TripHistory() {
     : serviceAreas.filter(sa => sa.region_id === selectedRegionId);
 
   const filteredTrips = trips.filter(trip => {
-    const matchesSearch = 
-      getTripDisplayId(trip).toLowerCase().includes(searchQuery.toLowerCase()) ||
-      trip.trip_code?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      trip.passenger_name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      trip.passenger_phone?.includes(searchQuery) ||
-      trip.pickup_address?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      trip.driver?.first_name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      trip.driver?.last_name?.toLowerCase().includes(searchQuery.toLowerCase());
+    const q = debouncedSearchQuery.toLowerCase();
+    const matchesSearch =
+      !q ||
+      getTripDisplayId(trip).toLowerCase().includes(q) ||
+      trip.trip_code?.toLowerCase().includes(q) ||
+      trip.passenger_name?.toLowerCase().includes(q) ||
+      trip.passenger_phone?.includes(debouncedSearchQuery) ||
+      trip.pickup_address?.toLowerCase().includes(q) ||
+      trip.driver?.first_name?.toLowerCase().includes(q) ||
+      trip.driver?.last_name?.toLowerCase().includes(q);
     
     // Region filter — trip service area (SSOT) with driver region fallback
     if (selectedRegionId !== 'all') {
