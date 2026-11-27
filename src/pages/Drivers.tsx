@@ -174,6 +174,12 @@ export default function Drivers() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
+  // A1: debounce server search so each keystroke does not refetch (Missed/Cancelled pattern).
+  const [debouncedSearchQuery, setDebouncedSearchQuery] = useState('');
+  useEffect(() => {
+    const handle = window.setTimeout(() => setDebouncedSearchQuery(searchQuery), 300);
+    return () => window.clearTimeout(handle);
+  }, [searchQuery]);
   const [listPage, setListPage] = useState(0);
   const [totalCount, setTotalCount] = useState(0);
   const [statusCounts, setStatusCounts] = useState({
@@ -236,7 +242,7 @@ export default function Drivers() {
       // Server-side page — do not hydrate the entire fleet for the list.
       const from = listPage * ADMIN_DRIVERS_PAGE_SIZE;
       const to = from + ADMIN_DRIVERS_PAGE_SIZE - 1;
-      const q = searchQuery.trim();
+      const q = debouncedSearchQuery.trim();
 
       const filters: AdminPageFilter[] = [];
       let orGroups: AdminPageFilter[][] | undefined;
@@ -399,7 +405,7 @@ export default function Drivers() {
     } finally {
       setIsLoading(false);
     }
-  }, [listPage, statusFilter, searchQuery, selectedRegionFilter, selectedServiceAreaFilter]);
+  }, [listPage, statusFilter, debouncedSearchQuery, selectedRegionFilter, selectedServiceAreaFilter]);
 
   useEffect(() => {
     fetchDrivers();
@@ -407,7 +413,7 @@ export default function Drivers() {
 
   useEffect(() => {
     setListPage(0);
-  }, [statusFilter, searchQuery, selectedRegionFilter, selectedServiceAreaFilter]);
+  }, [statusFilter, debouncedSearchQuery, selectedRegionFilter, selectedServiceAreaFilter]);
 
   const updateDriverApprovalStatus = async (driverId: string, newStatus: string) => {
     if (newStatus === 'approved') {
