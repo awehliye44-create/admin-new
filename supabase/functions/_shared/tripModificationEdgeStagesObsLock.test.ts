@@ -39,6 +39,12 @@ Deno.test("same-request route leg fingerprint cache is request-local only", asyn
   assert(mod.includes("routeLegByFingerprint"));
   assert(mod.includes("routeLegFingerprint"));
   assert(mod.includes('mark("route_leg_cache_hit")'));
+  // Fingerprint must include origin, destination, and remaining intermediate stops.
+  const fpAt = mod.indexOf("const routeLegFingerprint");
+  const fpBody = mod.slice(fpAt, fpAt + 450);
+  assert(fpBody.includes("originLat") && fpBody.includes("originLng"));
+  assert(fpBody.includes("destLat") && fpBody.includes("destLng"));
+  assert(fpBody.includes("intermediates.map"));
   // Must not introduce a cross-request or module-level route cache.
   assert(!mod.includes("globalThis"));
   const moduleTop = mod.slice(0, mod.indexOf("serveWithEdgeTiming"));
@@ -49,4 +55,6 @@ Deno.test("same-request route leg fingerprint cache is request-local only", asyn
   const cacheDecl = mod.indexOf("const routeLegByFingerprint = new Map");
   const dualStart = mod.indexOf('mark("route_dual_start")');
   assert(cacheDecl > 0 && dualStart > cacheDecl, "cache must be scoped inside the request handler before dual fetch");
+  // Fare / increment path unchanged.
+  assert(mod.includes("executeFareIncreaseModificationPayment"));
 });
