@@ -13,9 +13,6 @@ export const ADDITIONAL_AUTH_STATUS = {
   CAPTURE_CONFIRMED: "CAPTURE_CONFIRMED",
 } as const;
 
-export type AdditionalAuthStatus =
-  typeof ADDITIONAL_AUTH_STATUS[keyof typeof ADDITIONAL_AUTH_STATUS];
-
 export const ADDITIONAL_AUTH_SOURCE = {
   TRIP_COMPLETION_REHOLD: "trip_completion_rehold",
   TRIP_MOD_TOP_UP: "trip_mod_top_up",

@@ -13,7 +13,7 @@ import {
   resolveCommittedOfferGross,
   resolveCommittedOfferGrossPence,
   stampOfferDriverNetFromCommittedFare,
-} from "../supabase/functions/_shared/committedBookingOfferFareSSOT.ts";
+} from "../supabase/tests/_shared/offline/committedBookingOfferFareSSOT.ts";
 import { enrichOfferSnapshotDriverNet } from "../supabase/functions/_shared/driverOfferNetPreview.ts";
 import { resolveNegotiationBaseFarePence } from "../supabase/functions/_shared/negotiationBaseFare.ts";
 import { tripFareFieldsForOfferSnapshot } from "../supabase/functions/auto-dispatch/lib/tripFareSnapshot.ts";

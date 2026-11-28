@@ -15,7 +15,7 @@ import {
   processClaimedTripCaptureJob,
   processPendingTripCaptureAdminAlerts,
   processTripCaptureJobByTripId,
-} from "../_shared/tripCaptureJobSSOT.ts";
+} from "./lib/tripCaptureJobSSOT.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",

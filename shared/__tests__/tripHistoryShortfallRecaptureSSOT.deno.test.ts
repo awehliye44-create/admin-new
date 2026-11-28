@@ -17,7 +17,7 @@ import {
   sumVerifiedCapturedFromSessions,
   sumVerifiedRefundedFromSessions,
   TRIP_SHORTFALL_RECAPTURE_UI_STATE,
-} from "../tripHistoryShortfallRecaptureSSOT.ts";
+} from "../../supabase/tests/_shared/offline/tripHistoryShortfallRecaptureSSOT.ts";
 import { computeOutstandingBalancePence } from "../paymentSessionsCaptureConfirmationSSOT.ts";
 import {
   planRecoveryCaptureCompletion,

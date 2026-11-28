@@ -46,7 +46,7 @@ import {
 } from '@/lib/financialReconciliationDriverDateRange';
 import { driverWalletLedgerUrl } from '@/lib/driverWalletLedgerRoutes';
 import { financialReconciliationIssuesTabUrl } from '@/lib/financialReconciliationRoutes';
-import { paymentSessionsUrl } from '../../../shared/adminPaymentSessionsSSOT';
+import { paymentSessionsUrl } from '../../../shared/edgePresentation/adminPaymentSessionsSSOT.ts';
 import { payoutLedgerUrl } from '../../../shared/adminPayoutLedgerSSOT';
 import { reconciliationBadgeVariant } from '@/lib/financeTripReconciliationBadge';
 

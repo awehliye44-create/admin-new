@@ -6,7 +6,7 @@ import {
   buildStackedPromotionFailureAlertRow,
   selectStrandedStackedPromotionCandidates,
   STACKED_PROMOTE_RECONCILE_BATCH,
-} from "../../functions/_shared/stackedPromotionReconcileSSOT.ts";
+} from "../../functions/reconcile-stranded-stacked-promotions/lib/stackedPromotionReconcileSSOT.ts";
 
 Deno.test("selects queued with no live active as stranded", () => {
   const candidates = selectStrandedStackedPromotionCandidates({

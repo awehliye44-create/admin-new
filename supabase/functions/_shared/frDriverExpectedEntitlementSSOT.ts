@@ -478,23 +478,6 @@ export function resolveFrTripFinancialPeriodOrigin(
   };
 }
 
-export function resolveFrTripFinancialSettledAt(
-  trip: Pick<
-    FrDriverEntitlementTripInput,
-    | "financial_settled_at"
-    | "settlement_settled_at"
-    | "settlement_capture_time"
-    | "captured_at"
-    | "completed_at"
-    | "ledger_created_at"
-    | "first_captured_at"
-    | "trip_status"
-    | "financial_outcome"
-  >,
-): string | null {
-  return resolveFrTripFinancialPeriodOrigin(trip).period_origin;
-}
-
 function tipsPence(trip: FrDriverEntitlementTripInput): number {
   const tip = trip.tip_pence ?? trip.tip_amount_pence;
   return tip == null ? 0 : Math.max(0, Math.round(Number(tip)));

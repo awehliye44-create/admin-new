@@ -7,19 +7,6 @@ import type { SupabaseClient } from "npm:@supabase/supabase-js@2.57.2";
 import { loadDispatchSettings } from "./dispatch-settings.ts";
 import { notifyCustomerTripLifecycle } from "./customerTripLifecycleNotify.ts";
 
-export const DISPATCH_SOURCE_TAGS = [
-  "auto_dispatch",
-  "auto_dispatch_stacked",
-  "stacked_accept",
-  "sql_dispatch_trip_offers",
-  "decline_offer",
-  "scheduled_dispatch",
-  "manual_admin",
-  "expire_offers",
-  "customer_resume_driver_search",
-  "driver_cancel_before_pickup",
-] as const;
-
 export type AutoDispatchInvokeBody = {
   trip_id: string;
   force_rebroadcast?: boolean;

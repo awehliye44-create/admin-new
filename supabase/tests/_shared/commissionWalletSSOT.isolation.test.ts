@@ -16,7 +16,7 @@ import {
   planCommissionWalletReserve,
   planCommissionWalletTripPromotion,
   tripUsesCommissionWalletDeduction,
-} from "../../functions/_shared/commissionWalletSSOT.ts";
+} from "./offline/commissionWalletSSOT.ts";
 
 const mkAfrica = {
   financial_model: SERVICE_AREA_FINANCIAL_MODEL.DRIVER_COLLECTED_COMMISSION_WALLET,

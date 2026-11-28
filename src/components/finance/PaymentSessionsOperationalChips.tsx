@@ -4,7 +4,7 @@ import {
   buildPaymentSessionsOperationalChips,
   type PaymentSessionsNavTab,
   type PaymentSessionsOpChip,
-} from '../../../shared/paymentSessionsNavigationSSOT';
+} from '../../../shared/edgePresentation/paymentSessionsNavigationSSOT.ts';
 
 type PaymentSessionsOperationalChipsProps = {
   summary: AdminPaymentSessionsSummary | null | undefined;

@@ -12,7 +12,7 @@ import {
   classifyAuthoritativeHold,
   isAutoPublishEligibleHoldReason,
   resolveSafeBroadcastEnabled,
-} from "../../functions/_shared/scheduledMarketplaceHoldSSOT.ts";
+} from "./offline/scheduledMarketplaceHoldSSOT.ts";
 import { resolveConversionBroadcastEnabled } from "../../functions/_shared/scheduledDispatchConfig.ts";
 import { evaluateScheduledMarketplaceAutoPublishEligibility } from "../../functions/_shared/scheduledMarketplaceAutoPublishSSOT.ts";
 import { decideDispatchAfterFareEnrich } from "../../functions/_shared/airportChargeFareSplitSSOT.ts";

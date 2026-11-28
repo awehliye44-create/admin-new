@@ -11,7 +11,7 @@ import {
   decideTipWindowPersistPath,
   isCompleteTripB4aEnabled,
   measureCompleteTripB4aReselectWorkload,
-} from "../../functions/_shared/completeTripB4aSSOT.ts";
+} from "./offline/completeTripB4aSSOT.ts";
 import {
   isAuthoritativeTipWindowPersisted,
   normalizeTipWindowTimestamp,

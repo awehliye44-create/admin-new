@@ -16,9 +16,6 @@ export const CARD_PAYMENT_METHODS = new Set(["card", "apple_pay", "google_pay"])
 
 export const CAPTURED_PAYMENT_STATUSES = new Set(["captured", "paid", "succeeded"]);
 
-/** Ops-approved reason code for legacy payouts with no provable earning match. */
-export const LEGACY_MANUAL_PAYOUT_NO_PROVABLE_MATCH = "LEGACY_MANUAL_PAYOUT_NO_PROVABLE_MATCH";
-
 export type PayoutEligibilityAggregateInput = {
   walletUnpaidPence: number;
   providerSettledUnpaidPence: number;
@@ -151,58 +148,10 @@ export function isEarningEligibleForPayout(
   return true;
 }
 
-/**
- * Provider-neutral cleared settlement batch total.
- * Rows carrying an explicit settlement_status only count when it is "settled".
- */
-export function sumClearedSettlementBatchPence(
-  earnings: EarningSettlementInput[],
-): number {
-  return earnings.reduce((sum, row) => {
-    if (!isEarningPayableForPayout(row)) return sum;
-    // Cash: settlement status can be pending — cashout consumes ledger "paid" rows elsewhere.
-    const method = String((row as Record<string, unknown>).payment_method ?? "").toLowerCase();
-    const isCash = method === "cash" || method.includes("cash");
-
-    // Card / digital: must be settled and must have confirmed customer capture evidence.
-    if (!isCash) {
-      if (row.settlement_status != null && row.settlement_status !== "settled") return sum;
-
-      // Captured only counts when payment_captured is explicitly true.
-      if (row.payment_captured !== true) return sum;
-
-      // For digital: captured amount must be present (>0). Do not invent from trips.capture.
-      const captured = (row as Record<string, unknown>).captured_amount_pence as number | null | undefined;
-      if (typeof captured !== "number" || !Number.isFinite(captured) || captured <= 0) return sum;
-    }
-
-    return sum + remainingPayablePence(row);
-  }, 0);
-}
-
 export function sumEligibleEarningPence(earnings: EarningSettlementInput[]): number {
   return earnings.reduce((sum, row) => {
     if (!isEarningEligibleForPayout(row)) return sum;
     return sum + remainingPayablePence(row);
   }, 0);
-}
-
-/**
- * Eligible settled unpaid sum minus in-flight and manual-review holdbacks.
- * Does not apply wallet cap — use for diagnostics only.
- */
-export function computeHoldbackAdjustedPayoutPence(
-  earnings: EarningSettlementInput[],
-  args?: {
-    payoutBlocked?: boolean;
-    inFlightPayoutPence?: number;
-    manualReviewUnallocatedPence?: number;
-  },
-): number {
-  if (args?.payoutBlocked) return 0;
-  const raw = sumEligibleEarningPence(earnings);
-  const inFlight = Math.max(0, args?.inFlightPayoutPence ?? 0);
-  const manualReview = Math.max(0, args?.manualReviewUnallocatedPence ?? 0);
-  return Math.max(0, raw - inFlight - manualReview);
 }
 

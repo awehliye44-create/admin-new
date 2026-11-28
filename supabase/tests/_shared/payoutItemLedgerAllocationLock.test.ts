@@ -10,7 +10,7 @@ import {
   PAYOUT_ALLOCATION_ELIGIBLE_CREDIT_TYPES,
   isAllocatableWalletLedgerType,
   payoutItemStatusReleasesLedgerAllocation,
-} from "../../functions/_shared/payoutAllocationEligibilitySSOT.ts";
+} from "./offline/payoutAllocationEligibilitySSOT.ts";
 import {
   PAYOUT_ELIGIBLE_LEDGER_TYPES,
   PAYOUT_ELIGIBILITY_STATUS,

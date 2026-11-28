@@ -32,21 +32,6 @@ export type RevolutPaymentSessionStatus =
   | "payment_orphaned"
   | "cancelled";
 
-export type RevolutHoldAmountInput = {
-  /** Fare after discounts (pence). */
-  estimatedTotalPence: number;
-  /** Preauth buffer from service_area_preauth_settings (pence). */
-  bufferPence: number;
-  /** Optional pass-through charges included in estimated total (pence). */
-  passThroughChargesPence?: number;
-};
-
-export type RevolutHoldAmountResult = {
-  estimated_total_pence: number;
-  buffer_pence: number;
-  hold_amount_pence: number;
-};
-
 export type RevolutCompletionCaptureInput = {
   finalFarePence: number;
   authorisedHoldPence: number;
@@ -121,9 +106,6 @@ export function planRevolutCompletionCapture(
     new_hold_amount_pence: finalFare + Math.max(0, Math.round(input.bufferPence)),
   };
 }
-
-/** Shown on Revolut hosted checkout / wallet — never mention pre-auth or buffer. */
-export const REVOLUT_CUSTOMER_CHECKOUT_DESCRIPTION = "ONECAB ride";
 
 /** Map canonical status to persisted DB enum value. */
 export function toDbPaymentSessionStatus(

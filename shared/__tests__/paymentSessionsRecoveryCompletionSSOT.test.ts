@@ -3,7 +3,7 @@ import {
   isRecoveryCompletionIdempotent,
   planRecoveryCaptureCompletion,
 } from "../paymentSessionsRecoveryCompletionSSOT";
-import { earlyCashOutRequiresSettledNotMerelyCaptured } from "../paymentSessionsCaptureConfirmationSSOT";
+import { earlyCashOutRequiresSettledNotMerelyCaptured } from "../../supabase/tests/_shared/offline/paymentSessionsCaptureConfirmationSSOT.ts";
 import { buildPaymentSessionsDisplay } from "../paymentSessionsDisplaySSOT";
 
 describe("paymentSessionsRecoveryCompletionSSOT", () => {

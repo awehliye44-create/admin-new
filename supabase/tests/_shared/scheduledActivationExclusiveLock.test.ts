@@ -15,7 +15,7 @@ import {
   resolveActivationGrossPenceForPreview,
   resolveExclusiveActivationDriverNetPence,
   SCHEDULED_ACTIVATION_EXCLUSIVE_REASON,
-} from "../../functions/_shared/scheduledActivationExclusiveSSOT.ts";
+} from "./offline/scheduledActivationExclusiveSSOT.ts";
 
 Deno.test("driver net never uses customer gross as the displayed net", () => {
   const trip = {

@@ -39,7 +39,7 @@ import {
 import {
   buildTowardsDestinationMap,
   isValidTowardsDestinationCoord,
-} from "../_shared/towardsDestinationDispatchFilter.ts";
+} from "./lib/towardsDestinationDispatchFilter.ts";
 import {
   EXCEEDS_FLEET_MAX_PICKUP_DISTANCE,
   exceedsFleetMaxPickupDistance,

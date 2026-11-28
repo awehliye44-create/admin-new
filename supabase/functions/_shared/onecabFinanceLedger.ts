@@ -33,9 +33,6 @@ export const BALANCE_EXCLUDED_LEDGER_TYPES = [
   ...PENDING_ENTITLEMENT_BALANCE_EXCLUDED_TYPES,
 ] as const;
 
-/** Reporting-only types excluded from wallet balance (Phase 3A.4). COMMISSION_RECOVERED is included in wallet. */
-export const REPORTING_ONLY_LEDGER_TYPES = new Set<string>(BALANCE_EXCLUDED_LEDGER_TYPES);
-
 export const REVERSAL_LEDGER_TYPE = "LEDGER_REVERSAL";
 
 export const DEBT_RECOVERY_SOURCE = "CARD_EARNINGS_OFFSET";
@@ -67,15 +64,6 @@ export function isCardPaymentCaptured(args: {
   return CAPTURED_PAYMENT_STATUSES.has(trip);
 }
 
-export function isCardCaptureFailed(args: {
-  tripPaymentStatus?: string | null;
-  paymentStatus?: string | null;
-}): boolean {
-  const pay = String(args.paymentStatus ?? "").toLowerCase();
-  if (pay === "capture_failed") return true;
-  return String(args.tripPaymentStatus ?? "").toLowerCase() === "capture_failed";
-}
-
 export function sumLedgerAbs(
   ledger: LedgerRow[],
   type: string,
@@ -85,24 +73,11 @@ export function sumLedgerAbs(
     .reduce((s, r) => s + Math.abs(r.amount_pence ?? 0), 0);
 }
 
-export function sumLedgerPositive(
-  ledger: LedgerRow[],
-  type: string,
-): number {
-  return ledger
-    .filter((r) => r.type === type)
-    .reduce((s, r) => s + Math.max(0, r.amount_pence ?? 0), 0);
-}
-
 /** Ledger-proven outstanding cash commission — debt minus DEBT_RECOVERY only (COMMISSION_RECOVERED is reporting). */
 export function computeCashCommissionOutstanding(ledger: LedgerRow[]): number {
   const debt = sumLedgerAbs(ledger, "CASH_COMMISSION_DEBT");
   const recovered = sumLedgerAbs(ledger, "DEBT_RECOVERY");
   return Math.max(0, debt - recovered);
-}
-
-export function computeOwedToOnecab(ledger: LedgerRow[]): number {
-  return computeCashCommissionOutstanding(ledger);
 }
 
 /** Single wallet balance from ledger — SSOT for cache, net_balance, and available_now. */
@@ -465,23 +440,3 @@ export type PayoutEligibility = {
   payout_eligible: boolean;
   settlement_status: "eligible" | "needs_attention" | "not_connected";
 };
-
-export function derivePayoutEligibility(driver: PayoutEligibilityInput): PayoutEligibility {
-  const providerConnected = Boolean(driver.provider_account_id)
-    && (driver.onboarding_complete ?? false);
-  const requirementsDue = driver.requirements_currently_due ?? [];
-  const payoutEligible = providerConnected
-    && (driver.payouts_enabled ?? false)
-    && (driver.external_account_exists ?? true)
-    && requirementsDue.length === 0;
-
-  let settlementStatus: PayoutEligibility["settlement_status"] = "not_connected";
-  if (providerConnected && payoutEligible) settlementStatus = "eligible";
-  else if (providerConnected) settlementStatus = "needs_attention";
-
-  return {
-    provider_connected: providerConnected,
-    payout_eligible: payoutEligible,
-    settlement_status: settlementStatus,
-  };
-}

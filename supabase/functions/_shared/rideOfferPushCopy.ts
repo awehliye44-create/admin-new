@@ -19,9 +19,6 @@ import {
  */
 export const RIDE_OFFER_IOS_ALERT_SOUND = 'onecab_new_ride_offer.wav';
 
-/** Approved Android channel (native SSOT). */
-export const RIDE_OFFER_ANDROID_CHANNEL_ID = 'onecab_new_ride_offers_v3';
-
 export { DRIVER_NEW_RIDE_OFFER_TITLE, DRIVER_NEW_RIDE_OFFER_BODY };
 
 function num(v: unknown): number | null {
@@ -43,35 +40,6 @@ export function pickupSummaryForRideOfferPush(
   const t = (pickupAddress ?? '').trim();
   if (!t) return DRIVER_NEW_RIDE_OFFER_BODY;
   return t.length <= 160 ? t : t.slice(0, 160);
-}
-
-/**
- * Passenger fare amount in major units — uses resolveTripDisplayFare SSOT.
- * For data / card hydrate only — never OS title/body.
- */
-export function majorFareUnitFromTrip(trip: Record<string, unknown>): number | null {
-  const resolved = resolveTripDisplayFare(trip);
-  if (resolved.payable_pence > 0) return resolved.payable_major;
-
-  const fare = num(trip.fare);
-  const estimatedFare = num(trip.estimated_fare);
-  const finalPence = num(trip.final_fare_pence);
-  const grossPence = num(trip.gross_fare_pence);
-  const estimatedTotalPence = num(trip.estimated_total_pence);
-
-  let major =
-    (finalPence != null ? finalPence / 100 : null) ??
-    fare ??
-    estimatedFare ??
-    (grossPence != null ? grossPence / 100 : null) ??
-    (estimatedTotalPence != null ? estimatedTotalPence / 100 : null);
-
-  if (major == null || !Number.isFinite(major)) return null;
-
-  if (major >= 500 && fare == null && estimatedFare == null) {
-    major = major / 100;
-  }
-  return major;
 }
 
 export function tripReferenceForRideOfferPush(trip: Record<string, unknown>): string {

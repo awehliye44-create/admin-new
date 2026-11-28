@@ -72,10 +72,10 @@ deno test --no-check --allow-read --allow-env \
   supabase/tests/_shared/reconcileFinancialOpEvidence92GLock.test.ts \
   supabase/tests/_shared/platformCollectedIntegrityRecovery92HLock.test.ts \
   supabase/tests/_shared/bookingPayableSnapshot92JLock.test.ts \
-  supabase/functions/_shared/cancelTripCallerAuthSSOT.test.ts \
-  supabase/functions/_shared/bookingOwnershipRoleIsolationLock.test.ts \
-  supabase/functions/_shared/sessionAccessRoleSSOT.test.ts \
-  supabase/functions/_shared/bookingSessionRoleIsolationLock.test.ts
+  supabase/tests/_shared/cancelTripCallerAuthSSOT.test.ts \
+  supabase/tests/_shared/bookingOwnershipRoleIsolationLock.test.ts \
+  supabase/tests/_shared/sessionAccessRoleSSOT.test.ts \
+  supabase/tests/_shared/bookingSessionRoleIsolationLock.test.ts
 
 echo
 echo "=== [3/3] postgres harness (local DB only) ==="

@@ -7,7 +7,7 @@ import {
   applyInstantCashoutPolicy,
   applyPayoutControlCentrePolicy,
   parsePayoutControlCentreSettings,
-} from '../../../supabase/functions/_shared/payoutControlCentreSettingsSSOT.ts';
+} from '../../../supabase/tests/_shared/offline/payoutControlCentreSettingsSSOT.ts';
 
 describe('driverWalletRunningBalanceSSOT', () => {
   it('attaches chronological balance-after without filtered-subset reset', () => {

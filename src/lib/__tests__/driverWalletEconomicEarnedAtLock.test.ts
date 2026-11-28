@@ -11,7 +11,7 @@ import {
   isInstantInClosedRange,
   londonCivilDateKey,
   sumAttributedTripEarningNetPence,
-} from '@shared/economicEarnedAtSSOT';
+} from '../../../supabase/tests/_shared/offline/economicEarnedAtSSOT.ts';
 import {
   DEFAULT_PAYOUT_CLEARING_DELAY_HOURS,
   isPayoutClearedForPlatformCollected,

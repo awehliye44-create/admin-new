@@ -18,7 +18,7 @@ import {
   DRIVER_ACCEPTED_COUNTER_BODY,
   FINDING_ANOTHER_DRIVER_UPDATED_FARE_BODY,
   OFFER_ACCEPTED_ASSIGNED_BODY,
-} from "../../functions/_shared/negotiationPushCopy.ts";
+} from "./offline/negotiationPushCopy.ts";
 import {
   buildNegotiationFromPresetOptions,
   PRESET_SLOT_COUNT,

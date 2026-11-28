@@ -6,7 +6,7 @@ import {
   isCustomerLiveTripRuntimeCompatible,
   LIVE_TRIP_CLIENT_CAPABILITY,
   parseNativeBuildInParens,
-} from "../../functions/_shared/customerLiveTripRuntimeGate.ts";
+} from "../../functions/publish-customer-live-trip/lib/customerLiveTripRuntimeGate.ts";
 
 Deno.test("parseNativeBuildInParens reads trailing build", () => {
   assertEquals(parseNativeBuildInParens("1.0.6(46)"), 46);

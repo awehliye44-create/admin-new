@@ -9,7 +9,7 @@ import {
   payoutKindAllowsAutoFailRelease,
   POLLER_RECONCILE_BATCH_KINDS,
   WEEKLY_TERMINAL_FAILURE_REPORT_ONLY_ERROR,
-} from "../../functions/_shared/payoutReconcileKindsSSOT.ts";
+} from "./offline/payoutReconcileKindsSSOT.ts";
 import { reconcileSubmittedDriverWithdrawPayout } from "../../functions/_shared/driverWithdrawProviderReconcile.ts";
 
 const read = (rel: string) => Deno.readTextFile(new URL(rel, import.meta.url));

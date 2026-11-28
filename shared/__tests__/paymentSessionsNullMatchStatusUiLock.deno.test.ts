@@ -6,7 +6,7 @@
  * Run: deno test --allow-read --no-check shared/__tests__/paymentSessionsNullMatchStatusUiLock.deno.test.ts
  */
 import { assertEquals } from "https://deno.land/std@0.224.0/assert/mod.ts";
-import { isPaymentSessionsAmountsOnFrStatus } from "../paymentSessionsTripMatchSSOT.ts";
+import { isPaymentSessionsAmountsOnFrStatus } from "../edgePresentation/paymentSessionsTripMatchSSOT.ts";
 
 const COMPLETED_TRIPS_TABLE = new URL(
   "../../src/components/finance/PaymentSessionsCompletedTripsTable.tsx",

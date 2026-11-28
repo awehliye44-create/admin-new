@@ -14,7 +14,7 @@ Deno.test("92G: COVER_CONFIRMED is terminal; INCREMENT_UNKNOWN is not", () => {
 Deno.test("92G: recovery module forbids TEN/capture POST side effects in source", () => {
   const ROOT = new URL("../../../", import.meta.url).pathname;
   const src = Deno.readTextFileSync(
-    `${ROOT}supabase/functions/_shared/mk261125003RecoverySSOT.ts`,
+    `${ROOT}supabase/tests/_shared/mk261125003RecoverySSOT.ts`,
   );
   assert(src.includes("Never POSTs") || src.includes("Never creates a second TEN")
     || src.includes("delegates to generic"));

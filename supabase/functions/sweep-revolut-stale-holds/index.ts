@@ -25,7 +25,7 @@ import {
 } from "../_shared/holdReleaseSSOT.ts";
 import { applyCanonicalSettlementAfterCapture } from "../_shared/applyCanonicalSettlementAfterCapture.ts";
 import { sweepRecoverMissingTripEarningNet } from "../_shared/missingTripEarningNetRecoverySSOT.ts";
-import { sweepRecoverTerminalFeeMissingTen } from "../_shared/terminalFeeMissingTenRecoverySSOT.ts";
+import { sweepRecoverTerminalFeeMissingTen } from "./lib/terminalFeeMissingTenRecoverySSOT.ts";
 import { invokeFinalizeTripCapture } from "../_shared/invokeFinalizeTripCapture.ts";
 import { getRevolutMerchantConfig, retrieveRevolutOrder } from "../_shared/revolutOrders.ts";
 import { stampProviderCancelledPreauthSession } from "../_shared/stampProviderCancelledPreauthSSOT.ts";
@@ -33,13 +33,13 @@ import { extractConfirmedCaptureAmountPence } from "../_shared/paymentHoldProvid
 import { transitionPaymentSession } from "../_shared/paymentSessionTransitionFacade.ts";
 import { reclaimExpiredPaymentSessionFinancialLock } from "../_shared/paymentSessionFinancialLockSSOT.ts";
 import { reconcilePendingIncrementAuthorisationsFromProvider } from "../_shared/reconcilePendingIncrementAuthorisationSSOT.ts";
-import { sweepPlatformCollectedFinancialIntegrity } from "../_shared/platformCollectedFinancialIntegrityRecoverySSOT.ts";
+import { sweepPlatformCollectedFinancialIntegrity } from "./lib/platformCollectedFinancialIntegrityRecoverySSOT.ts";
 import { reconcileIncrementOperationsToCoverConfirmed } from "../_shared/reconcileFinancialOperationFromEvidenceSSOT.ts";
-import { reconcileAuthorisationProjectionsBatch } from "../_shared/reconcileAuthorisationProjectionSSOT.ts";
+import { reconcileAuthorisationProjectionsBatch } from "./lib/reconcileAuthorisationProjectionSSOT.ts";
 import { recoverMissingTripEarningPendingBatch } from "../_shared/missingTripEarningPendingRecoverySSOT.ts";
-import { reconcileConfirmedCapturePaymentStatus } from "../_shared/reconcileConfirmedCapturePaymentStatusSSOT.ts";
-import { recoverPostCaptureLedgerIntegrityBatch } from "../_shared/postCaptureLedgerIntegrityRecoverySSOT.ts";
-import { reconcileStaleCaptureOperationsBatch } from "../_shared/reconcileStaleCaptureOperationsSSOT.ts";
+import { reconcileConfirmedCapturePaymentStatus } from "./lib/reconcileConfirmedCapturePaymentStatusSSOT.ts";
+import { recoverPostCaptureLedgerIntegrityBatch } from "./lib/postCaptureLedgerIntegrityRecoverySSOT.ts";
+import { reconcileStaleCaptureOperationsBatch } from "./lib/reconcileStaleCaptureOperationsSSOT.ts";
 import {
   expiryFareOnlyTipPence,
   expiredUnclosedTipWindowForbidsTipCapture,

@@ -12,7 +12,7 @@ import {
   FR_RESOLVED_BY_RECEIVABLE_RECOVERY,
   resolveExpectedProviderCaptureFromComposition,
   sumOpenReservedReceivableOutstandingPence,
-} from "../../functions/_shared/frCaptureCompositionIdentitySSOT.ts";
+} from "./offline/frCaptureCompositionIdentitySSOT.ts";
 import { readCaptureCompositionComponents } from "../../functions/_shared/captureCompositionLocalApplySSOT.ts";
 
 Deno.test("3. Recovery capture 740 with components 704+0+36+buffer0 = target 740 → variance 0", () => {

@@ -18,13 +18,13 @@ import {
   RECOMMENDED_LAUNCH_RESERVE_PENCE,
   assertFinalCompanyTransferAllowed,
   parsePolicyRow,
-} from "../../../shared/companyOperationalReserveSSOT";
+} from "../../../supabase/tests/_shared/offline/companyOperationalReserveSSOT.ts";
 import {
   computeCompanyAvailableBeforeOperationalReservePence,
   computeCompanyAvailableForTransferPence,
   resolveCompanyBalanceSnapshot,
   assertCompanyTransferFundingAvailable,
-} from "../../../shared/companyBalanceSSOT";
+} from "../../../supabase/tests/_shared/offline/companyBalanceSSOT.ts";
 
 const {
   SOURCE_PENCE,

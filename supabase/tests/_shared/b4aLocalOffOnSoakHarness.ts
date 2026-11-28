@@ -5,7 +5,7 @@
 import {
   decideTipWindowPersistPath,
   measureCompleteTripB4aReselectWorkload,
-} from "../../functions/_shared/completeTripB4aSSOT.ts";
+} from "./offline/completeTripB4aSSOT.ts";
 import { isAuthoritativeTipWindowPersisted } from "../../functions/_shared/tipWindowPersistDecisionSSOT.ts";
 import { TIP_WINDOW_STATUS } from "../../functions/_shared/tipWindowConstants.ts";
 

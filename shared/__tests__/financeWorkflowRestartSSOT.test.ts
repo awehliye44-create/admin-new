@@ -8,7 +8,7 @@ import {
   computeCompanyAvailableForTransferPence,
   resolveCompanyBalanceSnapshot,
   auditCompanyBalanceSourceCandidates,
-} from "../companyBalanceSSOT";
+} from "../../supabase/tests/_shared/offline/companyBalanceSSOT.ts";
 import {
   emptyPayoutLedgerOverviewDto,
   finalisePayoutLedgerOverviewStatus,

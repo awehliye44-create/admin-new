@@ -7,7 +7,6 @@ import { assertAllocationEqualsAmount } from "./payoutAllocationEligibilitySSOT.
 import type { PlannedLedgerAllocation } from "./payoutLedgerHandoffSSOT.ts";
 
 export const PAYOUT_LINEAGE_MISSING = "PAYOUT_LINEAGE_MISSING" as const;
-export const PAYOUT_LINEAGE_MISMATCH = "PAYOUT_LINEAGE_MISMATCH" as const;
 
 export async function persistPayoutItemLedgerAllocations(args: {
   supabase: SupabaseClient;

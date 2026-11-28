@@ -8,7 +8,7 @@ import {
   resolveTerminalFeeDriverTenPence,
   resolveFrTripFinancialSettledAt,
   sumFrDriverExpectedEntitlementPence,
-} from "../../functions/_shared/frDriverExpectedEntitlementSSOT.ts";
+} from "./offline/frDriverExpectedEntitlementSSOT.ts";
 import {
   classifyFrDriverCreditStatus,
   computeFrDriverReconciliation,

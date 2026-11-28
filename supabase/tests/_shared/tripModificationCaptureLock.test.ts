@@ -14,7 +14,7 @@ import {
   resolveCustomerModificationChargePence,
   resolveRideFareBasePence,
 } from "../../functions/_shared/tripFareSSOT.ts";
-import { buildCaptureBreakdownForCompletedTrip } from "../../functions/_shared/paymentSessionsCaptureBreakdownSSOT.ts";
+import { buildCaptureBreakdownForCompletedTrip } from "./offline/paymentSessionsCaptureBreakdownSSOT.ts";
 import {
   calculateTripSettlement,
 } from "../../functions/_shared/tripSettlement.ts";

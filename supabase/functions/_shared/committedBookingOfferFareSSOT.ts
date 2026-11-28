@@ -198,14 +198,6 @@ export function resolveCommittedOfferGross(
   return { pence: 0, source: "none", committed: false };
 }
 
-/** Committed offer gross in pence (0 when unresolved). */
-export function resolveCommittedOfferGrossPence(
-  trip: CommittedOfferFareTrip | null | undefined,
-  options: CommittedOfferFareOptions = {},
-): number {
-  return resolveCommittedOfferGross(trip, options).pence;
-}
-
 /**
  * Overlay the committed payable onto offer-snapshot fare fields so a snapshot can
  * never advertise a stale breakdown figure (500) beside the committed payable (480).

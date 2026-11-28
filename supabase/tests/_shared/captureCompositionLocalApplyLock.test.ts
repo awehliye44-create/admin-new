@@ -18,7 +18,7 @@ import {
   providerCaptureMustNotBecomeTripFare,
   readCaptureCompositionComponents,
   tripFareForEconomicStamps,
-} from "../../functions/_shared/captureCompositionLocalApplySSOT.ts";
+} from "./offline/captureCompositionLocalApplySSOT.ts";
 import {
   planReceivableSettlementFromCaptureComposition,
 } from "../../functions/_shared/captureCompositionSSOT.ts";

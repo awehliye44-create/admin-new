@@ -24,7 +24,7 @@ import {
   isStaleTripRebroadcastCandidate,
   OFFER_CREATE_UNIQUE_COLLISION_REASON,
   tripPatchAfterPermanentOfferCreateError,
-} from "../../functions/_shared/sweepExpiredOffers.ts";
+} from "./offline/sweepExpiredOffers.ts";
 
 const DRIVER_A = "c40dd8a6-f422-40bc-9534-bae7be88b93e"; // MK0006
 const DRIVER_B = "56136f5f-1a3a-4a14-bb23-439b3951415a"; // MK0007

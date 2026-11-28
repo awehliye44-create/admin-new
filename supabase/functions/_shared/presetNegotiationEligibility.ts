@@ -266,31 +266,6 @@ export function resolvePresetNegotiation(args: {
   };
 }
 
-/** Named eligibility gate — false for scheduled / Corporate / WhatsApp / stacked. */
-export function isPresetNegotiationEligible(
-  trip: ScheduledTripLike,
-  serviceAreaConfig: PresetConfigLike | null,
-  args: {
-    serviceAreaId: string | null | undefined;
-    baseFarePence: number;
-    offers: AdminPresetOfferRow[];
-    timezone: string;
-    now?: Date;
-    isStacked?: boolean;
-  },
-): boolean {
-  return resolvePresetNegotiation({
-    trip,
-    serviceAreaId: args.serviceAreaId,
-    baseFarePence: args.baseFarePence,
-    config: serviceAreaConfig,
-    offers: args.offers,
-    timezone: args.timezone,
-    now: args.now,
-    isStacked: args.isStacked,
-  }).ok;
-}
-
 /** Snapshot fields for a driver offer when negotiation is attached. Never auto-accept. */
 export function presetNegotiationSnapshotFields(args: {
   baseFarePence: number;

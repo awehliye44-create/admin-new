@@ -13,7 +13,7 @@ import {
   computeExpectedDriverCreditPence,
   evaluatePromotionReconciliationIdentity,
   runDriverCreditHistoricalAudit,
-} from "../../shared/driverCreditMonitoringSSOT.ts";
+} from "../../supabase/tests/_shared/offline/driverCreditMonitoringSSOT.ts";
 
 const NOW = Date.parse("2026-09-01T12:00:00.000Z");
 const OLD_CAPTURE = new Date(NOW - DRIVER_CREDIT_PROCESSING_GRACE_MS - 60_000).toISOString();

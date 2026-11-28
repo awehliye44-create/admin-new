@@ -10,7 +10,7 @@ import {
   evidencePayloadLooksSafe,
   providerIncrementOutcome,
   readPaymentMethodBrand,
-} from "../../functions/_shared/revolutIncrementEvidenceSSOT.ts";
+} from "./offline/revolutIncrementEvidenceSSOT.ts";
 import type { RevolutOrder } from "../../functions/_shared/revolutOrders.ts";
 
 const declinedOrder: RevolutOrder = {

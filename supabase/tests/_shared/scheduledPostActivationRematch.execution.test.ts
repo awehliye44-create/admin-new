@@ -16,14 +16,14 @@ import {
 import {
   resolveScheduledPickupEligibleFromMs,
   isBeforeScheduledPickupEligibleWindow,
-} from "../../functions/_shared/scheduledPickupWaitingFairnessSSOT.ts";
+} from "./offline/scheduledPickupWaitingFairnessSSOT.ts";
 import { sumSegmentSecondsAt } from "../../functions/_shared/waitingSegmentClock.ts";
 import { buildPickupWaitingSnapshot } from "../../functions/_shared/waitingAdminConfig.ts";
 import { createInMemorySupabase } from "./support/inMemorySupabaseFake.ts";
 import {
   buildExclusiveActivationOfferSnapshot,
   buildExclusiveActivationRideOfferPush,
-} from "../../functions/_shared/scheduledActivationExclusiveSSOT.ts";
+} from "./offline/scheduledActivationExclusiveSSOT.ts";
 import { rebroadcastTripViaAutoDispatch } from "../../functions/_shared/dispatchOrchestrator.ts";
 import {
   shouldSurfacePostActivationLateness,

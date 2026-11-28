@@ -327,9 +327,3 @@ export function buildPayoutScheduleDto(args: {
     schedule_version: PAYOUT_SCHEDULE_VERSION,
   };
 }
-
-/** Guard: reject known legacy hardcodes in labels. */
-export function assertNoLegacyMondayHardcode(label: string): boolean {
-  const s = label.toLowerCase();
-  return !(s.includes("weekly monday") && !s.includes("tuesday"));
-}

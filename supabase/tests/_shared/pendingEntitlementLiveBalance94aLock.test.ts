@@ -10,7 +10,7 @@ import { PAYOUT_ELIGIBLE_LEDGER_TYPES } from "../../functions/_shared/driverPayo
 import {
   decideStaleCaptureReconcileAction,
   STALE_CAPTURE_OP_GRACE_MS,
-} from "../../functions/_shared/reconcileStaleCaptureOperationsSSOT.ts";
+} from "../../functions/sweep-revolut-stale-holds/lib/reconcileStaleCaptureOperationsSSOT.ts";
 
 Deno.test("#94A PENDING/RELEASE excluded from TS live balance and payout eligibility", () => {
   assertEquals(

@@ -9,7 +9,7 @@ import {
   recaptureAttemptBadgeLabel,
   resolveRecaptureAttemptUi,
   TRIP_SHORTFALL_RECAPTURE_UI_STATE,
-} from "../../functions/_shared/tripHistoryShortfallRecaptureSSOT.ts";
+} from "../../../shared/edgePresentation/tripHistoryShortfallRecaptureSSOT.ts";
 
 const ROOT = new URL("../../functions/", import.meta.url).pathname;
 const FOUR_POUNDS = 400;

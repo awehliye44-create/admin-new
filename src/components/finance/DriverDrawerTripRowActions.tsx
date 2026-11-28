@@ -9,7 +9,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import type { TripFinancialAuditRow } from '@/hooks/useFinanceReconciliation';
-import { paymentSessionsUrl } from '../../../shared/adminPaymentSessionsSSOT';
+import { paymentSessionsUrl } from '../../../shared/edgePresentation/adminPaymentSessionsSSOT.ts';
 import { payoutLedgerUrl } from '../../../shared/adminPayoutLedgerSSOT';
 import { driverWalletLedgerUrl } from '@/lib/driverWalletLedgerRoutes';
 

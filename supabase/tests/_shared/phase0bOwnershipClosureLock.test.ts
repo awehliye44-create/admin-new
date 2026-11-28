@@ -8,13 +8,13 @@ import { relative } from "https://deno.land/std@0.224.0/path/mod.ts";
 import {
   computeAuthoritativeSettlement,
   AUTHORITATIVE_SETTLEMENT_GOLDEN_FIXTURES,
-} from "../../functions/_shared/canonicalSettlementSSOT.ts";
+} from "./offline/canonicalSettlementSSOT.ts";
 import {
   TERMINAL_FEE_LIFECYCLE_PROOF,
   terminalFeeWalletCreditPence,
   hasConflictingEntitlementTypes,
   isDriverEntitlementLedgerType,
-} from "../../functions/_shared/driverEntitlementLedgerSSOT.ts";
+} from "./offline/driverEntitlementLedgerSSOT.ts";
 import {
   DEFAULT_PAYOUT_CLEARING_DELAY_HOURS,
   evaluateLedgerEntryEligibility,

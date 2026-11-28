@@ -11,7 +11,7 @@ import {
   classifyDriverCreditHealth,
   runDriverCreditHistoricalAudit,
   type DriverCreditHistoricalAuditReport,
-} from "../supabase/functions/_shared/driverCreditMonitoringSSOT.ts";
+} from "../supabase/tests/_shared/offline/driverCreditMonitoringSSOT.ts";
 
 const FIXTURE_TRIPS = [
   {

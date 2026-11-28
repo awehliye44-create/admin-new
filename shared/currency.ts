@@ -4,3 +4,4 @@
  */
 
 export * from "../supabase/functions/_shared/currency.ts";
+export * from "./edgePresentation/currency.ts";

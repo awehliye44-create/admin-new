@@ -16,7 +16,7 @@ import {
   paymentSessionsLegacyTabRedirect,
   paymentSessionsNavUrl,
   resolvePaymentSessionsFilteredTotal,
-} from '../../../shared/paymentSessionsNavigationSSOT.ts';
+} from '../../../supabase/tests/_shared/offline/paymentSessionsNavigationSSOT.ts';
 
 function row(partial: Partial<AdminPaymentSessionsListRow>): AdminPaymentSessionsListRow {
   return {

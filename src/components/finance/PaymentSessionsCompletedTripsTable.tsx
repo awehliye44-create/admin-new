@@ -15,8 +15,8 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import type { AdminPaymentSessionsCompletedTripRow } from '../../../shared/adminPaymentSessionsSSOT';
-import { paymentSessionsUrl } from '../../../shared/adminPaymentSessionsSSOT';
-import { isPaymentSessionsAmountsOnFrStatus } from '../../../shared/paymentSessionsTripMatchSSOT';
+import { paymentSessionsUrl } from '../../../shared/edgePresentation/adminPaymentSessionsSSOT.ts';
+import { isPaymentSessionsAmountsOnFrStatus } from '../../../shared/edgePresentation/paymentSessionsTripMatchSSOT.ts';
 import { financeReconciliationTripUrl } from '@/lib/financialReconciliationRoutes';
 import { formatNullablePence } from '@/lib/formatNullablePence';
 

@@ -224,10 +224,6 @@ export function evaluateDriverDocumentStateFromSnapshot(args: {
   };
 }
 
-export function areDocumentsApproved(result: DriverDocumentEligibilityResult): boolean {
-  return result.document_state === "documents_approved";
-}
-
 export function documentStateToBlockedReasons(
   result: DriverDocumentEligibilityResult,
 ): DriverBlockedReason[] {

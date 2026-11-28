@@ -76,21 +76,3 @@ export function planEligibleLedgerAllocations(args: {
   assertAllocationEqualsAmount(lines, args.amount_pence);
   return lines;
 }
-
-/** UI / API label — avoid provider-only "Connected Account" wording. */
-export function payoutDestinationLabel(args: {
-  provider?: string | null;
-  connected_account_id?: string | null;
-  manual_bank?: boolean;
-}): string {
-  const provider = String(args.provider ?? "").trim().toLowerCase();
-  if (args.manual_bank || provider === "revolut") {
-    return args.connected_account_id
-      ? `Manual bank · ${String(args.connected_account_id).slice(0, 12)}`
-      : "Manual bank";
-  }
-  if (args.connected_account_id) {
-    return String(args.connected_account_id);
-  }
-  return "Not set";
-}

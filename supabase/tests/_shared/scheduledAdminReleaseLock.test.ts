@@ -13,7 +13,7 @@ import {
   buildPendingReleasePatch,
   clearPendingReleasePatch,
   isPendingReleaseDue,
-} from "../../functions/_shared/scheduledAdminReleaseSSOT.ts";
+} from "./offline/scheduledAdminReleaseSSOT.ts";
 import { buildScheduledUrgentConversionPatch } from "../../functions/_shared/scheduledDispatchConfig.ts";
 
 Deno.test("Assign Now clears pending and pre-confirms", () => {
@@ -30,7 +30,7 @@ Deno.test("Assign Now clears pending and pre-confirms", () => {
 
 Deno.test("Make Available publishes Scheduled Jobs without NRO", async () => {
   const { buildMakeAvailableScheduledJobsPatch } = await import(
-    "../../functions/_shared/scheduledAdminReleaseSSOT.ts"
+    "./offline/scheduledAdminReleaseSSOT.ts"
   );
   const patch = buildMakeAvailableScheduledJobsPatch({
     nowIso: "2026-09-21T12:00:00.000Z",

@@ -45,7 +45,7 @@ import {
   validateReservePolicyDraft,
   type ReserveMode,
   type ReservePolicyStatus,
-} from '../../../shared/companyOperationalReserveSSOT';
+} from '../../../shared/edgePresentation/companyOperationalReserveSSOT.ts';
 
 const SETTING_KEYS = [
   'payouts_enabled',

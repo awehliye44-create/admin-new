@@ -3,7 +3,7 @@
  * MK-261126-005 / MK-261125-009.
  */
 import { assertEquals } from "https://deno.land/std@0.224.0/assert/mod.ts";
-import { resolveTripPaymentStatusWrite } from "../../functions/_shared/tripPaymentStatusProjectionSSOT.ts";
+import { resolveTripPaymentStatusWrite } from "../../functions/revolut-webhook/lib/tripPaymentStatusProjectionSSOT.ts";
 import { needsDurableSettlementPersist } from "../../functions/finalize-trip-and-capture/lib/durableSettlementOutcomeSSOT.ts";
 
 Deno.test("#108 late authorised is refused when payment_status is already captured", () => {

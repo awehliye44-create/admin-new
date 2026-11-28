@@ -12,7 +12,7 @@ import {
   TIP_AUTHORISATION_DECLINED_CUSTOMER_MESSAGE,
   TIP_NOT_COLLECTED,
   TIP_NOT_COLLECTED_CUSTOMER_MESSAGE,
-} from "../../functions/_shared/tipWindowConstants.ts";
+} from "./offline/tipWindowConstants.ts";
 import { classifyTipWindowCaptureOutcome } from "../../functions/_shared/tipWindowTriggerMutexSSOT.ts";
 import { durableSettlementColumns } from "../../functions/finalize-trip-and-capture/lib/durableSettlementOutcomeSSOT.ts";
 

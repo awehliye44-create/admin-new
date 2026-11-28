@@ -211,18 +211,6 @@ export function evaluateWaitingInsideRadius(input: {
   };
 }
 
-export function segmentDurationSeconds(
-  startedAtIso: string,
-  endedAtIso: string | null,
-  nowMs: number,
-): number {
-  const start = Date.parse(startedAtIso);
-  if (!Number.isFinite(start)) return 0;
-  const end = endedAtIso ? Date.parse(endedAtIso) : nowMs;
-  if (!Number.isFinite(end) || end < start) return 0;
-  return Math.max(0, Math.floor((end - start) / 1000));
-}
-
 export type WaitingSegmentRow = { started_at: string; ended_at: string | null };
 
 /**
@@ -449,14 +437,6 @@ export async function openWaitingSegmentOrReuse(
     if (typeof id === "string") return { ok: true, created: false, segmentId: id };
   }
   return { ok: false, message: String(insertErr.message ?? "segment insert failed") };
-}
-
-export function sumSegmentSeconds(
-  rows: WaitingSegmentRow[],
-  nowMs: number,
-  eligibleFromMs?: number | null,
-): number {
-  return sumSegmentSecondsAt(rows, nowMs, eligibleFromMs);
 }
 
 export const WAITING_EVIDENCE_UNAVAILABLE = "WAITING_EVIDENCE_UNAVAILABLE";

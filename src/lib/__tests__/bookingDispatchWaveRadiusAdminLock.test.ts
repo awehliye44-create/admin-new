@@ -15,7 +15,7 @@ import {
   bookingDispatchRadiusForWave,
   bookingDispatchWaveRadiiFromRow,
   validateBookingDispatchWaveRadii,
-} from '../../../shared/bookingDispatchRadiusSSOT';
+} from '../../../shared/edgePresentation/bookingDispatchRadiusSSOT.ts';
 
 const ROOT = path.join(__dirname, '../../..');
 const read = (rel: string) => fs.readFileSync(path.join(ROOT, rel), 'utf8');

@@ -85,7 +85,7 @@ Deno.test("resume gate: unallocated credits on cancelled non-chargeable trips ar
 
 Deno.test("payout eligibility still holds every credit on a cancelled trip (held set is a subset)", async () => {
   const { isCancelledOrUncompletedEarning } = await import(
-    "../../functions/_shared/driverPayoutEligibilitySSOT.ts"
+    "./offline/driverPayoutEligibilitySSOT.ts"
   );
   assertEquals(isCancelledOrUncompletedEarning({ trip_status: "cancelled", trip_cancelled: true }), true);
   assertEquals(isCancelledOrUncompletedEarning({ trip_status: "cancelled", trip_cancelled: false }), true);

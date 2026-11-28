@@ -16,8 +16,6 @@ import {
 } from "./payoutItemLifecycleSSOT.ts";
 
 export const WEEKLY_PAYOUT_BATCH_KIND = "WEEKLY_SCHEDULED" as const;
-/** Legacy kind â retired from active scheduler writes. */
-export const LEGACY_WEEKLY_MONDAY_KIND = "WEEKLY_MONDAY" as const;
 
 export const SLICE5_BATCH_STATUS = {
   DRAFT: "DRAFT",
@@ -29,9 +27,6 @@ export const SLICE5_BATCH_STATUS = {
   FAILED: "FAILED",
 } as const;
 
-export type Slice5BatchStatus =
-  (typeof SLICE5_BATCH_STATUS)[keyof typeof SLICE5_BATCH_STATUS];
-
 export const SLICE5_ITEM_STATUS = {
   CREATED: "CREATED",
   VALIDATED: "VALIDATED",
@@ -41,23 +36,6 @@ export const SLICE5_ITEM_STATUS = {
   INELIGIBLE: "INELIGIBLE",
   FAILED: "FAILED",
 } as const;
-
-export type Slice5ItemStatus =
-  (typeof SLICE5_ITEM_STATUS)[keyof typeof SLICE5_ITEM_STATUS];
-
-export const SLICE5_ALLOWED_BATCH_STATUSES = new Set<string>(Object.values(SLICE5_BATCH_STATUS));
-export const SLICE5_ALLOWED_ITEM_STATUSES = new Set<string>(Object.values(SLICE5_ITEM_STATUS));
-
-/**
- * @deprecated Prefer `isConflictingActivePayoutItem({ status, execution_status })`.
- * Raw in-flight tokens when `status` is non-terminal. Never apply alone against a
- * COMPLETED/FAILED/CANCELLED row — stale `execution_status=SUBMITTED` must not block.
- */
-export const CONFLICTING_ACTIVE_ITEM_STATUSES = new Set<string>([
-  ...PAYOUT_ITEM_IN_FLIGHT_STATUSES,
-  "pending",
-  "processing",
-]);
 
 export { isConflictingActivePayoutItem };
 
@@ -590,28 +568,4 @@ export function assertSlice5MoneySafety(args: {
   if (args.revolut_pay_called) throw new Error("SLICE5_INVARIANT: Revolut /pay called");
   if (args.relay_payment_called) throw new Error("SLICE5_INVARIANT: relay payment called");
   if (args.slices_6_to_12_started) throw new Error("SLICE5_INVARIANT: slices 6â12 started");
-}
-
-/** Reject active Monday hardcodes in scheduler labels / kinds. */
-export function assertNoActiveMondayHardcode(text: string): boolean {
-  const s = text.toLowerCase();
-  if (s.includes("weekly_monday") || s.includes("weekly-monday")) return false;
-  if (s === "monday" || s.includes("hardcoded monday")) return false;
-  return true;
-}
-
-export function adminBatchStatusLabel(status: string): string {
-  if (status === SLICE5_BATCH_STATUS.FUNDS_RESERVED_EXECUTION_DISABLED) {
-    return ADMIN_FUNDS_RESERVED_LABEL;
-  }
-  if (status === SLICE5_BATCH_STATUS.BLOCKED_EXECUTION_DISABLED) {
-    return ADMIN_EXECUTION_DISABLED_LABEL;
-  }
-  return status;
-}
-
-export function sumEligibleAmounts(
-  items: Array<{ amount_pence: number }>,
-): number {
-  return items.reduce((s, i) => s + Math.max(0, Math.round(Number(i.amount_pence ?? 0))), 0);
 }

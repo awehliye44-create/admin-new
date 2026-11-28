@@ -53,7 +53,7 @@ import {
   COMMISSION_WALLET_CAMPAIGN_TYPE,
   REVENUE_SOURCE_COMMISSION_WALLET_DEDUCTION,
   resolveCommissionWalletBalanceStatus,
-} from '../../shared/commissionWalletSSOT';
+} from '../../shared/edgePresentation/commissionWalletSSOT.ts';
 import {
   AlertDialog,
   AlertDialogAction,

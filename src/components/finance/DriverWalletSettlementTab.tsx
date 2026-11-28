@@ -13,7 +13,7 @@ import {
   formatStoredPenceOrUnknown,
   isPositiveStoredPence,
 } from '@/lib/adminFareComponentDisplay';
-import { paymentSessionsUrl } from '../../../shared/adminPaymentSessionsSSOT';
+import { paymentSessionsUrl } from '../../../shared/edgePresentation/adminPaymentSessionsSSOT.ts';
 import { isDriverCreditExceptionHealth } from '../../../shared/driverCreditMonitoringSSOT';
 
 function fmtDate(iso: string | null | undefined): string {

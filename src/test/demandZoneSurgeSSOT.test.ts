@@ -23,7 +23,7 @@ import {
   validateThresholds,
   type DemandZoneSettings,
   type SurgeZone,
-} from '../../shared/demandZoneSurgeSSOT';
+} from '../../supabase/tests/_shared/offline/demandZoneSurgeSSOT.ts';
 
 const SA_MK = 'sa-milton-keynes';
 const SA_LU = 'sa-luton';

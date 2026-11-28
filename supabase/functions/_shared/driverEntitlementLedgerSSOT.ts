@@ -23,31 +23,10 @@ export const TERMINAL_COMPENSATION_LEDGER_TYPES = new Set([
   "DRIVER_COMPENSATION_CREDIT",
 ]);
 
-export function isDriverEntitlementLedgerType(type: string | null | undefined): boolean {
-  return DRIVER_ENTITLEMENT_LEDGER_TYPES.has(String(type ?? "").toUpperCase());
-}
-
 /** Duplicate guard: terminal compensation cannot coexist with TRIP_EARNING_NET on same trip. */
 export function hasConflictingEntitlementTypes(types: string[]): boolean {
   const normalized = types.map((t) => String(t).toUpperCase());
   const hasTen = normalized.includes("TRIP_EARNING_NET");
   const hasComp = normalized.some((t) => TERMINAL_COMPENSATION_LEDGER_TYPES.has(t));
   return hasTen && hasComp;
-}
-
-export const TERMINAL_FEE_LIFECYCLE_PROOF = {
-  captured_pence: 400,
-  provider_fee_pence: 24,
-  commission_pence: 0,
-  entitlement_pence: 376,
-  clearing_delay_hours: DEFAULT_PAYOUT_CLEARING_DELAY_HOURS,
-} as const;
-
-/** Wallet credit amount for terminal fee outcome (capture − provider fee when commission 0). */
-export function terminalFeeWalletCreditPence(args: {
-  captured_pence: number;
-  provider_fee_pence: number;
-  commission_pence?: number;
-}): number {
-  return resolveTerminalFeeDriverTenPence(args);
 }

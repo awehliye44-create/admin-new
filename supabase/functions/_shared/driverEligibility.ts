@@ -329,21 +329,6 @@ function withOfflineBlock(
   return result;
 }
 
-/** Approved + docs + not suspended/rejected â may still be offline. */
-export async function canGoOnline(
-  service: SupabaseClient,
-  userId: string | null | undefined,
-): Promise<DriverEligibilityResult> {
-  const base = await evaluateDriverAuthState(service, userId);
-  const allowed = base.allowed
-    && (base.state === "approved_offline" || base.state === "approved_online");
-  return {
-    ...base,
-    allowed,
-    message: allowed ? "" : base.message || DEFAULT_DRIVER_OFFER_BLOCKED_MESSAGE,
-  };
-}
-
 /** Must be approved_online (online flag set). */
 export async function canReceiveOffers(
   service: SupabaseClient,
@@ -373,25 +358,11 @@ export async function canReceiveOffersByDriverId(
   };
 }
 
-export async function canAcceptOffer(
-  service: SupabaseClient,
-  userId: string | null | undefined,
-): Promise<DriverEligibilityResult> {
-  return canReceiveOffers(service, userId);
-}
-
 export async function canAcceptOfferByDriverId(
   service: SupabaseClient,
   driverId: string | null | undefined,
 ): Promise<DriverEligibilityResult> {
   return canReceiveOffersByDriverId(service, driverId);
-}
-
-export async function assertCanAcceptOfferByDriverId(
-  service: SupabaseClient,
-  driverId: string | null | undefined,
-): Promise<DriverEligibilityResult> {
-  return canAcceptOfferByDriverId(service, driverId);
 }
 
 /**

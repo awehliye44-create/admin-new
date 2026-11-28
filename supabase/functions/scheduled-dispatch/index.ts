@@ -53,7 +53,7 @@ import {
   expireTripWhenSearchExhaustedAndNotifyCustomer,
   notifyCustomerTripLifecycle,
 } from "../_shared/customerTripLifecycleNotify.ts";
-import { claimAndNotifyScheduledTrafficDelay } from "../_shared/customerTrafficDelayNotify.ts";
+import { claimAndNotifyScheduledTrafficDelay } from "./lib/customerTrafficDelayNotify.ts";
 import { notifyScheduledMarketplaceOpen } from "../_shared/scheduledMarketplaceNotifySSOT.ts";
 import { broadcastScheduledMarketplaceChanged } from "../_shared/scheduledMarketplaceRealtimeBroadcastSSOT.ts";
 import {

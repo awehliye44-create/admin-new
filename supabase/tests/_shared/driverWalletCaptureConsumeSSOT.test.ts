@@ -3,7 +3,7 @@ import {
   buildSessionCaptureByTripId,
   buildWalletEarningInputsFromPaymentSessions,
 } from "./support/driverWalletCaptureConsumeSSOT.ts";
-import { sumClearedSettlementBatchPence } from "../../functions/_shared/payoutEligibilitySSOT.ts";
+import { sumClearedSettlementBatchPence } from "./offline/payoutEligibilitySSOT.ts";
 
 Deno.test("wallet consume: PS capture 480 wins; trips.capture never consulted", () => {
   const sessionCaptureByTripId = buildSessionCaptureByTripId([

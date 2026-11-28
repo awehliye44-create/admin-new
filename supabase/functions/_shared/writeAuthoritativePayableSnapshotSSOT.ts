@@ -145,16 +145,3 @@ export async function writeAuthoritativePayableSnapshot(
     snapshot,
   };
 }
-
-/** Sources that may write authoritative payable (agreed / applied only). */
-export const AUTHORITATIVE_PAYABLE_SOURCES: readonly PayableSnapshotSource[] = [
-  "booking",
-  "completion",
-  "modification",
-  "negotiation_commit",
-  "force_complete",
-  "tip_finalize",
-  "admin_capture",
-  "composition",
-  "recovery",
-] as const;

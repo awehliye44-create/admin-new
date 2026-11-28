@@ -277,9 +277,6 @@ export function isConflictingActivePayoutItem(item: {
   }).blocks_new_payout;
 }
 
-/** Canonical completed execution_status persisted by finalize / repair. */
-export const CANONICAL_COMPLETED_EXECUTION_STATUS = "COMPLETED" as const;
-
 /**
  * Pre-reservation statuses only. Anything at or past RESERVING may have touched
  * the wallet or the provider and must be reconciled, never retired.

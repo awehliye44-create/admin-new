@@ -19,7 +19,7 @@ import {
   evaluateDriverWalletAdjustmentCallerAccess,
   ledgerTypeForDriverWalletAdjustmentDirection,
   simulateConcurrentManualAdjustmentLedgerPosts,
-} from "../../functions/_shared/driverWalletManualAdjustmentSSOT.ts";
+} from "./offline/driverWalletManualAdjustmentSSOT.ts";
 
 const REPO_ROOT = fromFileUrl(new URL("../../..", import.meta.url));
 

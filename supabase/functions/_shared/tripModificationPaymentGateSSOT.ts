@@ -44,11 +44,6 @@ export type ModificationPaymentGateDecision =
     reason: "declined" | "insufficient" | "amount_mismatch" | "failed";
   };
 
-/** Pounds→pence exact conversion for money display values (never float fare math). */
-export function poundsToPenceExact(pounds: number): number {
-  return Math.round(Number(pounds) * 100);
-}
-
 /**
  * Modification-apply coverage — stricter than completion-capture MK-260815-020.
  * Processing/pending/initiated increment new_amount must NOT unlock trip mutation.
@@ -391,22 +386,6 @@ export function classifyModificationPaymentFailure(args: {
   return { kind: "not_authorised", bankDeclineReason: null };
 }
 
-/**
- * Optimistic concurrency: apply only when trip still matches the fare basis
- * the modification was quoted against. Concurrent winners move the fare;
- * losers must not stack a second delta.
- */
-export function tripFareBasisMatchesExpectation(args: {
-  expectedPreviousFarePence: number | null | undefined;
-  currentCommittedFarePence: number | null | undefined;
-}): boolean {
-  const expected = Math.round(Number(args.expectedPreviousFarePence ?? NaN));
-  const current = Math.round(Number(args.currentCommittedFarePence ?? NaN));
-  if (!Number.isFinite(expected) || expected < 0) return false;
-  if (!Number.isFinite(current) || current < 0) return false;
-  return expected === current;
-}
-
 /** Duplicate confirm of an already-applied request — return without re-adding delta. */
 export function isAlreadyAppliedModification(status: string | null | undefined): boolean {
   const s = String(status ?? "").toLowerCase();
@@ -514,42 +493,6 @@ export function canPendingOverwriteModificationRequestStatus(
   );
 }
 
-/**
- * Internal simulator for the £5.00→£8.11 class of cases without hard-coding
- * those amounts into production paths. Inputs are arbitrary pence.
- */
-export function simulateModificationAuthorisationSequence(args: {
-  originalAuthorisedPence: number;
-  requiredPayablePence: number;
-  providerSnapshots: Array<RevolutOrder | null>;
-}): {
-  decisions: ModificationPaymentGateDecision[];
-  applied: boolean;
-  finalAuthorisedPence: number;
-} {
-  const decisions: ModificationPaymentGateDecision[] = [];
-  let applied = false;
-  let finalAuthorised = Math.round(Number(args.originalAuthorisedPence));
-
-  for (const snapshot of args.providerSnapshots) {
-    const decision = decideModificationIncrementCoverage({
-      order: snapshot,
-      requiredPayablePence: args.requiredPayablePence,
-    });
-    decisions.push(decision);
-    finalAuthorised = decision.authorisedTotalPence;
-    if (decision.mayApply) {
-      applied = true;
-      break;
-    }
-    if (decision.phase === "PAYMENT_FAILED") {
-      break;
-    }
-  }
-
-  return { decisions, applied, finalAuthorisedPence: finalAuthorised };
-}
-
 /** PLATFORM_COLLECTED isolation — modification auth must not touch these write kinds. */
 export const MODIFICATION_AUTH_FORBIDDEN_MUTATIONS = [
   "wallet_ledger_write",
@@ -558,7 +501,3 @@ export const MODIFICATION_AUTH_FORBIDDEN_MUTATIONS = [
   "invoice_mutation",
   "capture_mutation",
 ] as const;
-
-export function assertNoForbiddenModificationAuthMutation(kind: string): boolean {
-  return !(MODIFICATION_AUTH_FORBIDDEN_MUTATIONS as readonly string[]).includes(kind);
-}

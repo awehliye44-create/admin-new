@@ -21,7 +21,7 @@ import {
   TRIP_BONUS_LEDGER_TYPE,
   validateCampaignDraft,
   type DriverTripBonusCampaignRow,
-} from "../../functions/_shared/driverTripBonusCampaignSSOT.ts";
+} from "../../functions/driver-trip-bonus-progress/lib/driverTripBonusCampaignSSOT.ts";
 
 const REPO = fromFileUrl(new URL("../../..", import.meta.url));
 

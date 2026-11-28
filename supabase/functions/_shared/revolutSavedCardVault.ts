@@ -154,20 +154,6 @@ export async function listRevolutCustomerPaymentMethods(args: {
   return Array.isArray(response.payment_methods) ? response.payment_methods : [];
 }
 
-export async function deleteRevolutCustomerPaymentMethod(args: {
-  environment: ProviderEnvironment;
-  secretKey: string;
-  revolutCustomerId: string;
-  providerPaymentMethodId: string;
-}): Promise<void> {
-  await revolutMerchantRequest(
-    args.environment,
-    args.secretKey,
-    `/customers/${encodeURIComponent(args.revolutCustomerId)}/payment-methods/${encodeURIComponent(args.providerPaymentMethodId)}`,
-    { method: "DELETE" },
-  );
-}
-
 export function normaliseCardBrand(raw: string | null | undefined): string {
   const value = String(raw ?? "").trim().toLowerCase();
   if (!value) return "Card";
@@ -237,19 +223,6 @@ export async function releaseSaveCardVerificationOrder(args: {
   } catch (err) {
     console.warn("[revolutSavedCardVault] release verification order failed", err);
   }
-}
-
-export async function countSavedRevolutCards(
-  supabase: SupabaseClient,
-  userId: string,
-): Promise<number> {
-  const { count, error } = await supabase
-    .from("customer_saved_payment_method_tokens")
-    .select("id", { count: "exact", head: true })
-    .eq("user_id", userId)
-    .eq("payment_provider", "revolut");
-  if (error) throw error;
-  return count ?? 0;
 }
 
 /** Usable booking vault rows. Removed and failed tokens do not consume the cap. */

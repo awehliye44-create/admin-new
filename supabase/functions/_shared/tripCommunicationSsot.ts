@@ -523,20 +523,6 @@ export function resolveVoipTokenGate(ssot: TripCommunicationSsotResult):
   return { ok: true };
 }
 
-/**
- * Whether a new call may be started given SSOT + optional active session.
- * Active/non-expired sessions block a second concurrent call on the same trip.
- */
-export function resolveCanStartNewCall(input: {
-  allowed: boolean;
-  activeCall: TripCommunicationActiveCallProjection | null;
-  methodAvailable: boolean;
-}): boolean {
-  if (!input.allowed || !input.methodAvailable) return false;
-  if (!input.activeCall) return true;
-  return !TRIP_COMMUNICATION_ACTIVE_STATUSES.has(input.activeCall.status);
-}
-
 /** Server-only readiness flags from Edge env — never return secret values. */
 export function readCommunicationProviderReadinessFromEnv(
   env: { get(key: string): string | undefined },

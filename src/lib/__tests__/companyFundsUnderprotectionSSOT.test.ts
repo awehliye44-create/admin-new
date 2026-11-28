@@ -3,7 +3,7 @@ import {
   COMPANY_FUNDS_UNDERPROTECTION_ACCEPTANCE_PROOF,
   COMPANY_FUNDS_UNDERPROTECTED,
   evaluateCompanyFundsUnderprotection,
-} from "../../../shared/companyFundsUnderprotectionSSOT.ts";
+} from "../../../supabase/tests/_shared/offline/companyFundsUnderprotectionSSOT.ts";
 import {
   evaluateCompanyTransferFundingGate,
   buildCompanyTransferFundingSnapshot,

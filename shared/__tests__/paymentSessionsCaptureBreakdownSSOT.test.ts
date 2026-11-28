@@ -4,7 +4,7 @@ import {
   buildPaymentSessionCaptureBreakdown,
   captureClassificationToMatchStatus,
   readPersistedCaptureBreakdown,
-} from "../paymentSessionsCaptureBreakdownSSOT";
+} from "../../supabase/tests/_shared/offline/paymentSessionsCaptureBreakdownSSOT.ts";
 
 describe("paymentSessionsCaptureBreakdownSSOT", () => {
   it("MK-260708-008: 680 + pickup waiting 18 + capture 698 → CAPTURED_WITH_WAITING_TIME", () => {

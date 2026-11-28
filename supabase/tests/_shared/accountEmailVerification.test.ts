@@ -22,7 +22,7 @@ import {
   accountEmailVerifiedAppDeepLink,
   accountEmailVerifiedPageUrl,
   nativeAppHandoffLocation,
-} from "../../functions/_shared/accountEmailVerification.ts";
+} from "./offline/accountEmailVerification.ts";
 
 const TOKEN = "aabbccddeeff00112233445566778899aabbccddeeff00112233445566778899";
 

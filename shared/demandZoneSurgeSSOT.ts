@@ -4,3 +4,4 @@
  */
 
 export * from "../supabase/functions/_shared/demandZoneSurgeSSOT.ts";
+export * from "./edgePresentation/demandZoneSurgeSSOT.ts";

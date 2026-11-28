@@ -14,12 +14,6 @@
 
 export const PHASE5_DEPARTURE_ACK_COUNTDOWN_SECONDS = 45 as const;
 
-export const SCHEDULED_DEPARTURE_ACK_REASON = {
-  acknowledgementTimeout: "acknowledgement_timeout",
-  cancelledByDriver: "departure_ack_cancelled_by_driver",
-  declinedImmediate: "departure_ack_declined_immediate",
-} as const;
-
 export type DepartureAckConfig = {
   /** Must stay false until compatible Driver OTA adoption is verified. */
   enabled: boolean;

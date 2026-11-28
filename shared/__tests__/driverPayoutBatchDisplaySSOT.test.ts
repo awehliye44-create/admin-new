@@ -4,7 +4,7 @@ import {
   aggregateDriverPayoutBatchStatus,
   resolveDriverPayoutItemDisplayStatus,
 } from "../driverPayoutBatchDisplaySSOT";
-import { SLICE8_FUNDING_PROOF } from "../payoutLedgerCompanyFundingSSOT";
+import { SLICE8_FUNDING_PROOF } from "../../supabase/tests/_shared/offline/payoutLedgerCompanyFundingSSOT.ts";
 
 const { AHMED_LIVE_PENCE, BOSTEYO_COMPLETED_PENCE } = SLICE8_FUNDING_PROOF;
 

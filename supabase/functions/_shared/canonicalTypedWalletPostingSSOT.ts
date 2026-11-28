@@ -126,32 +126,6 @@ export async function postTerminalOutcomeSettlement(args: {
   };
 }
 
-/** @deprecated Use postTerminalEntitlementFromSettlement via settleNoShowFee. */
-export async function postNoShowDriverCompensation(
-  supabase: SupabaseClient,
-  input: {
-    driverId: string;
-    tripId: string;
-    feePence: number;
-    currency: string;
-  },
-): Promise<boolean> {
-  const evidence = await loadTerminalCaptureEvidence(
-    supabase,
-    input.tripId,
-    Math.max(0, Math.round(Number(input.feePence) || 0)),
-  );
-  const posted = await postTerminalEntitlementFromSettlement({
-    supabase,
-    tripId: input.tripId,
-    driverId: input.driverId,
-    outcome: "NO_SHOW",
-    currency: input.currency,
-    evidence,
-  });
-  return posted.credited;
-}
-
 /** Repair/backfill missing TRIP_EARNING_NET via canonical poster only. */
 export async function repairMissingTripEarningNet(
   supabase: SupabaseClient,

@@ -8,7 +8,7 @@ import { FinancialReconciliationRefreshBar } from '@/components/finance/Financia
 import { DriverWalletReviewRepairPanel } from '@/components/finance/DriverWalletReviewRepairPanel';
 import { formatFinanceDateSafe } from '@/lib/financialReconciliationGuards';
 import { formatNullablePence } from '@/lib/formatNullablePence';
-import { paymentSessionsUrl } from '../../../shared/adminPaymentSessionsSSOT';
+import { paymentSessionsUrl } from '../../../shared/edgePresentation/adminPaymentSessionsSSOT.ts';
 import { driverWalletLedgerUrl } from '@/lib/driverWalletLedgerRoutes';
 import { payoutLedgerUrl } from '../../../shared/adminPayoutLedgerSSOT';
 import { financialReconciliationTripsTabUrl } from '@/lib/financialReconciliationRoutes';

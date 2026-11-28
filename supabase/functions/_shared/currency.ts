@@ -37,10 +37,6 @@ export function getCurrencySymbol(currencyCode: string): string {
   return CURRENCY_SYMBOLS[currencyCode.toUpperCase()] ?? currencyCode.toUpperCase();
 }
 
-export function formatCurrency(amount: number, currencyCode: string): string {
-  return `${getCurrencySymbol(currencyCode)}${amount.toFixed(2)}`;
-}
-
 export function formatPenceWithCurrency(pence: number, currencyCode: string | null | undefined): string {
   const symbol = getCurrencySymbol(currencyCode ?? "");
   const amount = Math.abs(pence) / 100;

@@ -623,25 +623,6 @@ export function driverRemainingLiabilityPence(args: {
 }
 
 /**
- * @deprecated Phase 3A.4 — trip-based liability inflated earnings.
- * Use perDriverLedgerLiabilityPence() for allocation, reconciliation, and payout gating.
- */
-export function perDriverRemainingLiabilityPence(args: {
-  driverNetEarningsPence: number;
-  bankPaidOutPence: number;
-  completedEarlyCashoutsPence: number;
-  adjustmentsPence: number;
-}): number {
-  return Math.max(
-    0,
-    args.driverNetEarningsPence -
-      args.bankPaidOutPence -
-      args.completedEarlyCashoutsPence +
-      args.adjustmentsPence,
-  );
-}
-
-/**
  * Phase 3A.4 — digital driver liability SSOT.
  * Wallet ledger balance excluding PLATFORM_COMMISSION.
  * Payout / early-cashout debits are already netted in the ledger sum.
@@ -997,30 +978,6 @@ export function buildSplitReconciliationCheck(args: {
     card_reconciliation,
     balanced,
     status,
-  };
-}
-
-export function buildTripEarningsReconciliationCheck(args: {
-  netCustomerRevenuePence: number;
-  driverNetEarningsPence: number;
-  onecabGrossCommissionPence: number;
-  tipsPence: number;
-  tolerancePence?: number;
-}) {
-  const rhs = args.driverNetEarningsPence + args.onecabGrossCommissionPence + args.tipsPence;
-  const variance = args.netCustomerRevenuePence - rhs;
-  const tolerance = args.tolerancePence ?? RECONCILIATION_VARIANCE_TOLERANCE_PENCE;
-  const balanced = Math.abs(variance) <= tolerance;
-  return {
-    net_customer_revenue_pence: args.netCustomerRevenuePence,
-    driver_net_earnings_pence: args.driverNetEarningsPence,
-    onecab_gross_commission_pence: args.onecabGrossCommissionPence,
-    tips_pence: args.tipsPence,
-    expected_sum_pence: rhs,
-    variance_pence: variance,
-    delta_pence: variance,
-    balanced,
-    status: balanced ? ("BALANCED" as const) : ("RECONCILIATION_MISMATCH" as const),
   };
 }
 

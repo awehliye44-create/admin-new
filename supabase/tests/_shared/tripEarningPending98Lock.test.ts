@@ -15,7 +15,7 @@ import {
   resolveVisibleTripEarningPence,
   TRIP_EARNING_PENDING_RELEASE_TYPE,
   TRIP_EARNING_PENDING_TYPE,
-} from "../../functions/_shared/tripEarningPendingSSOT.ts";
+} from "./offline/tripEarningPendingSSOT.ts";
 import {
   TODAY_EARNINGS_INCLUDE_TYPES,
   TODAY_EARNINGS_SETTLEMENT_CORRECTION_TYPES,

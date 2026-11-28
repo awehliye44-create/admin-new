@@ -6,7 +6,7 @@ import {
   COMPANY_BALANCE_ERROR,
   formatCompanyBalancePence,
   resolveCompanyBalanceSnapshot,
-} from "../companyBalanceSSOT";
+} from "../../supabase/tests/_shared/offline/companyBalanceSSOT.ts";
 import {
   emptyPayoutLedgerOverviewDto,
   finalisePayoutLedgerOverviewStatus,

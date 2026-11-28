@@ -25,7 +25,7 @@ import {
 } from "../../functions/_shared/dispatch-settings.ts";
 import {
   BOOKING_DISPATCH_WAVE_RADIUS_DEFAULTS_METERS,
-} from "../../../shared/bookingDispatchRadiusSSOT.ts";
+} from "../../../shared/edgePresentation/bookingDispatchRadiusSSOT.ts";
 
 const ROOT = new URL("../../../", import.meta.url).pathname;
 

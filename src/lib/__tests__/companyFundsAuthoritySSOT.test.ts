@@ -8,7 +8,7 @@ import {
   isCompanyFundsRejectedStaffRole,
   isCompanyTransferMutationAction,
   isCompanyTransferReadOnlyAction,
-} from '../../../shared/companyFundsAuthoritySSOT.ts';
+} from '../../../supabase/tests/_shared/offline/companyFundsAuthoritySSOT.ts';
 
 describe('companyFundsAuthoritySSOT', () => {
   it('rejects customer_support and operator staff roles', () => {

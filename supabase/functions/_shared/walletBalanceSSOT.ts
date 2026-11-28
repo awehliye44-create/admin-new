@@ -32,15 +32,6 @@ export function isWalletBalanceLedgerType(type: string | null | undefined): bool
   return !WALLET_BALANCE_EXCLUDED_LEDGER_TYPES.has(String(type ?? ""));
 }
 
-/** Ledger wallet balance — identical to computeLedgerWalletBalancePence / perDriverLedgerLiabilityPence (pre-max). */
-export function sumLedgerWalletBalancePence(rows: WalletBalanceLedgerRow[]): number {
-  const ledger: LedgerRow[] = rows.map((r) => ({
-    type: String(r.type ?? ""),
-    amount_pence: Number(r.amount_pence ?? 0),
-  }));
-  return computeLedgerWalletBalancePence(ledger);
-}
-
 export function sumLedgerWalletBalanceByDriver(
   rows: WalletBalanceLedgerRow[],
 ): Map<string, number> {

@@ -418,11 +418,6 @@ export function resolveAirportChargeFromAdmin(
   }
 }
 
-/** Single airport surcharge (pickup OR dropoff endpoint fee, else cascade). Always returns ≥ 0. */
-export function getAirportCharge(input: GetAirportChargeInput): number {
-  return resolveAirportChargeFromAdmin(input).airportCharge;
-}
-
 /** Canonical route-pricing fields for API responses (calculate-fare, estimate-fare, trip snapshots). */
 export type RoutePricingApiFields = {
   pricingMode: TripPricingMode;

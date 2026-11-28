@@ -17,7 +17,7 @@ import {
   TIP_WINDOW_TRIGGER,
   tipWindowTerminalStatusForTrigger,
   type TipWindowTrigger,
-} from "../../../functions/_shared/tipWindowConstants.ts";
+} from "../offline/tipWindowConstants.ts";
 import {
   classifyTipWindowCaptureOutcome,
   tipRequestedButNotCollected,

@@ -5,7 +5,7 @@
 import {
   assertCustomerIdentityBookAllowed,
   mapVeriffDecisionStatus,
-} from "../../functions/_shared/customerIdentityVeriff.ts";
+} from "./offline/customerIdentityVeriff.ts";
 
 Deno.test("mapVeriffDecisionStatus maps approved/declined", () => {
   if (mapVeriffDecisionStatus("approved") !== "approved") {

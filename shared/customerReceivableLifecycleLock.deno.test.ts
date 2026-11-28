@@ -22,7 +22,7 @@ import {
   planReserveBeforeProviderCall,
   planSettleFromProviderEvidence,
   sumFixtureOutstandingPence,
-} from "../supabase/functions/_shared/customerReceivableSSOT.ts";
+} from "../supabase/tests/_shared/offline/customerReceivableSSOT.ts";
 import {
   buildFrCustomerOutstandingOverview,
   FR_CUSTOMER_OUTSTANDING_CLASS,

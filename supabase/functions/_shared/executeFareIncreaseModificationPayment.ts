@@ -149,14 +149,6 @@ export function resolveProtectedCustomerPayablePence(trip: Record<string, unknow
   return Math.max(0, sessionTotal, auth, totalAuthCol);
 }
 
-export function resolveCommittedCustomerPayablePence(trip: Record<string, unknown>): number {
-  const finalCust = Math.round(Number(trip.final_customer_fare_pence ?? 0));
-  const finalFare = Math.round(Number(trip.final_fare_pence ?? 0));
-  const estimated = Math.round(Number(trip.estimated_total_pence ?? 0));
-  const locked = Math.round(Number(trip.locked_base_fare_pence ?? 0));
-  return Math.max(0, finalCust, finalFare, estimated, locked);
-}
-
 /**
  * Execute increment SSOT then atomic claim+apply for a positive-delta modification.
  * Fail-closed: never mutates trip fare/stops unless protected >= revised payable.

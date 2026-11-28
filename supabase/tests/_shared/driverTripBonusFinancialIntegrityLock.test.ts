@@ -20,7 +20,7 @@ import {
   TRIP_BONUS_LEDGER_SOURCE,
   TRIP_BONUS_LEDGER_TYPE,
   type DriverTripBonusCampaignRow,
-} from "../../functions/_shared/driverTripBonusCampaignSSOT.ts";
+} from "../../functions/driver-trip-bonus-progress/lib/driverTripBonusCampaignSSOT.ts";
 
 const REPO = fromFileUrl(new URL("../../..", import.meta.url));
 const INTEGRITY_MIG = "supabase/migrations/20261119161411_driver_trip_bonus_financial_integrity.sql";

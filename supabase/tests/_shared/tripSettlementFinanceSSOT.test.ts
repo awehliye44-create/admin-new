@@ -5,7 +5,7 @@ import {
   getTripDebtRecoveredPence,
   getTripDriverNetPence,
   getTripSettlementFarePence,
-} from "../../functions/_shared/tripSettlementFinanceSSOT.ts";
+} from "./offline/tripSettlementFinanceSSOT.ts";
 
 Deno.test("getTripSettlementFarePence: card captured prefers payment captured over legacy gross", () => {
   const fare = getTripSettlementFarePence(

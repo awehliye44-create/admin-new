@@ -49,9 +49,6 @@ export const PAYMENT_EXECUTION_STATUS = {
   UNKNOWN: "UNKNOWN",
 } as const;
 
-export type PaymentExecutionStatus =
-  (typeof PAYMENT_EXECUTION_STATUS)[keyof typeof PAYMENT_EXECUTION_STATUS];
-
 export const APPROVED_PAYMENT_FIELDS = [
   "payout_item_id",
   "driver_id",

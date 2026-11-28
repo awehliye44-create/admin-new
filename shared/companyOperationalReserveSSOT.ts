@@ -4,3 +4,4 @@
  */
 
 export * from "../supabase/functions/_shared/companyOperationalReserveSSOT.ts";
+export * from "./edgePresentation/companyOperationalReserveSSOT.ts";

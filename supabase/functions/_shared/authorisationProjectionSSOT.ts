@@ -30,12 +30,12 @@ export type AuthorisationProjectionClass =
   | "total_missing_after_increment"
   | "other";
 
-function intPence(value: unknown): number {
+export function intPence(value: unknown): number {
   const n = Math.round(Number(value));
   return Number.isFinite(n) ? n : 0;
 }
 
-function positivePenceOrNull(value: unknown): number | null {
+export function positivePenceOrNull(value: unknown): number | null {
   const n = intPence(value);
   return n > 0 ? n : null;
 }
@@ -59,42 +59,6 @@ export function resolveLocalConfirmedCoveragePence(
   const total = positivePenceOrNull(row.total_authorised_amount_pence);
   if (total != null) return total;
   return positivePenceOrNull(row.authorised_amount_pence);
-}
-
-/**
- * Decision coverage: provider-confirmed first, else local total mirror.
- * Does not invent coverage from missing provider + missing total.
- */
-export function resolveSessionAuthorisedCoveragePence(args: {
-  providerConfirmedAuthorisedPence?: number | null;
-  providerAuthKnown?: boolean;
-  total_authorised_amount_pence?: number | null;
-  authorised_amount_pence?: number | null;
-  original_authorised_pence?: number | null;
-}): { coveragePence: number | null; source: CoverageResolveSource } {
-  if (args.providerAuthKnown === true) {
-    const provider = positivePenceOrNull(args.providerConfirmedAuthorisedPence);
-    if (provider != null) {
-      return { coveragePence: provider, source: "provider" };
-    }
-  } else {
-    const provider = positivePenceOrNull(args.providerConfirmedAuthorisedPence);
-    if (provider != null) {
-      return { coveragePence: provider, source: "provider" };
-    }
-  }
-
-  const total = positivePenceOrNull(args.total_authorised_amount_pence);
-  if (total != null) {
-    return { coveragePence: total, source: "local_total" };
-  }
-
-  const original = resolveInitialAuthorisedHoldPence(args);
-  if (original != null) {
-    return { coveragePence: original, source: "local_original_fallback" };
-  }
-
-  return { coveragePence: null, source: "unknown" };
 }
 
 /**
@@ -175,16 +139,4 @@ export function buildAuthorisationMirrorPatch(args: {
   }
 
   return patch;
-}
-
-/** Whether an UPDATE may change authorised_amount_pence (app-side precheck). */
-export function mayWriteOriginalAuthorisedAmount(args: {
-  existingAuthorisedPence?: number | null;
-  nextAuthorisedPence?: number | null;
-}): boolean {
-  const existing = intPence(args.existingAuthorisedPence);
-  if (existing <= 0) return true;
-  const next = args.nextAuthorisedPence == null ? null : intPence(args.nextAuthorisedPence);
-  if (next == null) return false;
-  return next === existing;
 }

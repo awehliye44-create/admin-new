@@ -13,7 +13,7 @@ import {
   paymentSessionCaptureGateSelectColumns,
   loadPaymentSessionCaptureGate,
   loadWalletRecoveryPaymentSessions,
-} from "../../functions/_shared/paymentSessionCaptureGateSSOT.ts";
+} from "./offline/paymentSessionCaptureGateSSOT.ts";
 import {
   tripWalletRecoverySelectColumns,
 } from "../../functions/admin-recover-captured-trip-wallet/lib/capturedTripWalletRecovery.ts";

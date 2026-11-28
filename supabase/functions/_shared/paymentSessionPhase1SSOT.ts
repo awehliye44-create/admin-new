@@ -39,29 +39,6 @@ export type AuditInvariantResult = {
   actual_pence?: number;
 };
 
-export type PaymentSessionAmountAudit = {
-  evidence_status: PaymentSessionEvidenceStatus;
-  balanced: boolean;
-  total_authorised_amount_pence: number | null;
-  captured_amount_pence: number | null;
-  released_amount_pence: number | null;
-  refunded_amount_pence: number | null;
-  invariants: AuditInvariantResult[];
-};
-
-export function resolveTotalAuthorisedPence(row: PaymentSessionAmountRow): number | null {
-  const total = row.total_authorised_amount_pence ?? row.authorised_amount_pence ?? null;
-  if (total == null || total <= 0) return null;
-  return total;
-}
-
-export function deriveEvidenceStatus(row: PaymentSessionAmountRow): PaymentSessionEvidenceStatus {
-  if (row.released_at && row.released_amount_pence == null) return "AMOUNT_UNCONFIRMED";
-  if (row.captured_at && row.captured_amount_pence == null) return "AMOUNT_UNCONFIRMED";
-  if (row.refunded_at && row.refunded_amount_pence == null) return "AMOUNT_UNCONFIRMED";
-  return "OK";
-}
-
 export type PaymentSessionActionPolicy = {
   can_create_trip: boolean;
   can_retry_recovery: boolean;

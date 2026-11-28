@@ -21,7 +21,7 @@ import {
 } from '@/components/ui/tooltip';
 import type { DriverWalletSettlementHistoryRow } from '@/hooks/useDriverWalletSsot';
 import { formatNullablePence } from '@/lib/formatNullablePence';
-import { paymentSessionsUrl } from '../../../shared/adminPaymentSessionsSSOT';
+import { paymentSessionsUrl } from '../../../shared/edgePresentation/adminPaymentSessionsSSOT.ts';
 import {
   buildDriverWalletCreditAuditFromSettlementRows,
   DRIVER_CREDIT_EXCEPTION_SCOPE,
@@ -29,7 +29,7 @@ import {
   DRIVER_CREDIT_RECOMMENDED_OWNER_LABELS,
   type DriverCreditExceptionScope,
   type DriverWalletCreditAuditRow,
-} from '../../../shared/driverCreditMonitoringSSOT';
+} from '../../../shared/edgePresentation/driverCreditMonitoringSSOT.ts';
 import { AlertTriangle, ClipboardList, Info } from 'lucide-react';
 
 function scopeBadgeVariant(scope: DriverCreditExceptionScope): 'default' | 'secondary' | 'destructive' | 'outline' {

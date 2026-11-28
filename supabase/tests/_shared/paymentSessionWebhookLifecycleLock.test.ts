@@ -9,7 +9,7 @@ import {
   PAYMENT_SESSION_WEBHOOK_TRANSITION_POLICY,
   paymentSessionStatusRank,
   resolvePaymentSessionStatusFromProviderWebhook,
-} from "../../functions/_shared/paymentSessionWebhookLifecycleResolver.ts";
+} from "./offline/paymentSessionWebhookLifecycleResolver.ts";
 import { applyPaymentSessionWebhookLifecycleUpdate } from "../../functions/_shared/applyPaymentSessionWebhookLifecycleUpdate.ts";
 
 const MK007_SESSION = {

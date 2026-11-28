@@ -31,16 +31,8 @@ export const COMPANY_TRANSFER_READ_ONLY_ACTIONS = [
   "view_evidence",
 ] as const;
 
-export function isCompanyTransferMutationAction(action: string | null | undefined): boolean {
-  return (COMPANY_TRANSFER_MUTATION_ACTIONS as readonly string[]).includes(String(action ?? ""));
-}
-
 export function isCompanyTransferReadOnlyAction(action: string | null | undefined): boolean {
   return (COMPANY_TRANSFER_READ_ONLY_ACTIONS as readonly string[]).includes(String(action ?? ""));
-}
-
-export function isCompanyFundsExecutionRole(role: string | null | undefined): boolean {
-  return (COMPANY_FUNDS_EXECUTION_ROLES as readonly string[]).includes(String(role ?? ""));
 }
 
 export function isCompanyFundsRejectedStaffRole(role: string | null | undefined): boolean {

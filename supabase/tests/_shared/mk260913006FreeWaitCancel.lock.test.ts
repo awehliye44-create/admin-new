@@ -14,7 +14,7 @@ import {
   buildTerminalDispositionMetadata,
   sessionMetadataContradictsCapture,
   terminalPaymentSessionStatus,
-} from "../../functions/_shared/terminalTripPaymentDisposition.ts";
+} from "./offline/terminalTripPaymentDisposition.ts";
 import { noShowEligibleFromCountedSeconds } from "../../functions/_shared/waitingSegmentClock.ts";
 
 const TRIP_ID = "c7ce4f1a-897a-41f0-8d26-2ec9df72a062";

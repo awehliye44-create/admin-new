@@ -18,7 +18,7 @@ import {
   signedAmountPenceForDriverWalletAdjustment,
   simulateConcurrentManualAdjustmentLedgerPosts,
   validateDriverWalletManualAdjustmentInput,
-} from '../../../shared/driverWalletManualAdjustmentSSOT.ts';
+} from '../../../supabase/tests/_shared/offline/driverWalletManualAdjustmentSSOT.ts';
 import { walletTransactionDisplayTitle } from '../../../shared/walletTransactionTitles.ts';
 
 describe('driverWalletManualAdjustmentSSOT', () => {

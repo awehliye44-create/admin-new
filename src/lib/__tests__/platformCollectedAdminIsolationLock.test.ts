@@ -15,7 +15,7 @@ import {
   filterTripsForPlatformCollectedAdminPage,
   paymentSessionIncludedOnPlatformCollectedAdminPage,
   resolveFinancialModelScope,
-} from '../../../shared/financialModelScopeSSOT';
+} from '../../../supabase/tests/_shared/offline/financialModelScopeSSOT.ts';
 
 const ROOT = resolve(__dirname, '../../..');
 

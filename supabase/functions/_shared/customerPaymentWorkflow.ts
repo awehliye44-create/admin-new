@@ -66,14 +66,6 @@ export function isPayoutAdapterLive(provider: string | null | undefined): boolea
   return Boolean(provider && LIVE_DRIVER_PAYOUT_PROVIDERS.has(provider));
 }
 
-export function providerPayoutNotAvailableMessage(
-  displayName: string | null | undefined,
-  provider: string,
-): string {
-  const label = displayName?.trim() || provider;
-  return `${label} payout setup is not available yet.`;
-}
-
 export function resolveCustomerBookingWorkflow(
   gatewayCheck: GatewayCheckResult,
 ): CustomerBookingWorkflow {

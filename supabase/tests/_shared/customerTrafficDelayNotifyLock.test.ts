@@ -21,7 +21,7 @@ import {
   SCHEDULED_TRAFFIC_DELAY_TITLE,
   TRAFFIC_DELAY_SEND_LEASE_MS,
   trafficDelayCollapseId,
-} from "../../functions/_shared/customerTrafficDelayNotifySSOT.ts";
+} from "../../functions/scheduled-dispatch/lib/customerTrafficDelayNotifySSOT.ts";
 import { buildTrafficDelayNotificationId } from "../../functions/scheduled-dispatch/lib/scheduledPostActivationLatenessSSOT.ts";
 
 Deno.test("#79A copy: title + en-route body only when live en_route", () => {

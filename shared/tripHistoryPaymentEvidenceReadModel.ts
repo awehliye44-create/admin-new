@@ -14,7 +14,7 @@ import {
 import {
   paymentCoverageBadgeLabel,
   type TripShortfallRecaptureUiState,
-} from "../supabase/functions/_shared/tripHistoryShortfallRecaptureSSOT.ts";
+} from "./edgePresentation/tripHistoryShortfallRecaptureSSOT.ts";
 import {
   resolveTripHistoryPaymentLayers,
   type TripHistoryPaymentLayerPayment,

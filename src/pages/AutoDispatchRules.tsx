@@ -50,14 +50,14 @@ import {
   validateBookingDispatchWaveRadii,
   type BookingDispatchWaveRadiiMeters,
   type BookingDispatchWaveRadiusIssue,
-} from '../../shared/bookingDispatchRadiusSSOT';
+} from '../../shared/edgePresentation/bookingDispatchRadiusSSOT.ts';
 import {
   FLEET_MAX_PICKUP_DISTANCE_MILES_FAILSAFE,
   FLEET_MAX_PICKUP_DISTANCE_MILES_MAX,
   FLEET_MAX_PICKUP_DISTANCE_MILES_MIN,
   resolveFleetMaxPickupDistanceMiles,
   validateFleetMaxPickupDistanceMiles,
-} from '../../shared/fleetMaxPickupDistanceSSOT';
+} from '../../shared/edgePresentation/fleetMaxPickupDistanceSSOT.ts';
 
 /** Mirrors global_dispatch_settings_customer_nearby_radius_range. */
 const CUSTOMER_NEARBY_RADIUS_DEFAULT_METERS = 25000;

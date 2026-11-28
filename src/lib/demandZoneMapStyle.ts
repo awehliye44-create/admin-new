@@ -4,7 +4,7 @@ import {
   levelColour,
   type DemandLevel,
   type DemandZoneSettings,
-} from '../../shared/demandZoneSurgeSSOT';
+} from '../../shared/edgePresentation/demandZoneSurgeSSOT.ts';
 
 export type { DemandLevel };
 

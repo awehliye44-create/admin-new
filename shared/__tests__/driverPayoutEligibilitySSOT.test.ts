@@ -7,7 +7,7 @@ import {
   evaluateLedgerEntryEligibility,
   shouldBlockZeroValuePayoutBatch,
   type LedgerEligibilityEvidence,
-} from "../driverPayoutEligibilitySSOT";
+} from "../../supabase/tests/_shared/offline/driverPayoutEligibilitySSOT.ts";
 
 function revolutTripCredit(overrides: Partial<LedgerEligibilityEvidence> = {}): LedgerEligibilityEvidence {
   return {

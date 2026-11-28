@@ -41,7 +41,7 @@ Deno.test("#92J payable_snapshot_persist_failed records without requiring sessio
 
 Deno.test("#92J/#92K integrity recovery detects missing booking; never fabricates from trip mods", () => {
   const src = Deno.readTextFileSync(
-    `${ROOT}supabase/functions/_shared/platformCollectedFinancialIntegrityRecoverySSOT.ts`,
+    `${ROOT}supabase/functions/sweep-revolut-stale-holds/lib/platformCollectedFinancialIntegrityRecoverySSOT.ts`,
   );
   assertStringIncludes(src, '.eq("source", "booking")');
   assertStringIncludes(src, "pc-integrity-recovery-booking-gap");

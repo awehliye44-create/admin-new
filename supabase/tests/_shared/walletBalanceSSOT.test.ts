@@ -3,7 +3,7 @@ import {
   sumLedgerWalletBalanceByDriver,
   sumLedgerWalletBalancePence,
   WALLET_BALANCE_EXCLUDED_LEDGER_TYPES,
-} from "../../functions/_shared/walletBalanceSSOT.ts";
+} from "./offline/walletBalanceSSOT.ts";
 import { computeLedgerWalletBalancePence } from "../../functions/_shared/onecabFinanceLedger.ts";
 
 Deno.test("wallet SSOT excludes only PLATFORM_COMMISSION and CASH_TRIP_EARNING", () => {

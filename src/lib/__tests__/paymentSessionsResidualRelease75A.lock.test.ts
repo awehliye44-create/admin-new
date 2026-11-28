@@ -14,7 +14,7 @@ import {
   formatReleasedAmountDisplay,
   sumExpectedResidualReleasePence,
   sumReleasedBufferTotalPence,
-} from '../../../shared/paymentSessionsDisplaySSOT';
+} from '../../../shared/edgePresentation/paymentSessionsDisplaySSOT.ts';
 import { classifyReleaseReconciliation } from '../../../shared/frTripAuditComparisonSSOT';
 import {
   isEligibleHistoricalReleaseEvidenceSession,

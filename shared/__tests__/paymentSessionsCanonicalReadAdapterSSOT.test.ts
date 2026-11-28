@@ -5,7 +5,7 @@ import {
   resolveCanonicalExpectedCapturePence,
   resolveCanonicalFinalPayablePence,
   resolveOtherNonModComponentsPence,
-} from "../paymentSessionsCanonicalReadAdapterSSOT";
+} from "../../supabase/tests/_shared/offline/paymentSessionsCanonicalReadAdapterSSOT.ts";
 import { resolveOvercaptureCustomerPosition } from "../paymentSessionsOvercaptureResolutionSSOT";
 
 /** MK-260815-028 — waiting included once in final_fare stamp. */

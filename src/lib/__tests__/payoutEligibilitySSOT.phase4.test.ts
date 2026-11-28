@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { sumClearedSettlementBatchPence } from '../../../supabase/functions/_shared/payoutEligibilitySSOT.ts';
+import { sumClearedSettlementBatchPence } from '../../../supabase/tests/_shared/offline/payoutEligibilitySSOT.ts';
 
 describe('sumClearedSettlementBatchPence', () => {
   it('includes only settled payable card earnings', () => {

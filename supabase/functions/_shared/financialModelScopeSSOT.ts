@@ -11,15 +11,6 @@ export type FinancialModel = typeof FINANCIAL_MODEL[keyof typeof FINANCIAL_MODEL
 
 export const FINANCIAL_MODEL_VIOLATION = 'FINANCIAL_MODEL_VIOLATION';
 
-/** Admin page slug → required financial model. */
-export const ADMIN_PAGE_FINANCIAL_MODEL: Record<string, Exclude<FinancialModel, 'FINANCIAL_MODEL_UNKNOWN'>> = {
-  'payment-sessions': FINANCIAL_MODEL.PLATFORM_COLLECTED,
-  'financial-reconciliation': FINANCIAL_MODEL.PLATFORM_COLLECTED,
-  'driver-wallet-ledger': FINANCIAL_MODEL.PLATFORM_COLLECTED,
-  'payout-ledger': FINANCIAL_MODEL.PLATFORM_COLLECTED,
-  'commission-wallet': FINANCIAL_MODEL.DRIVER_COLLECTED_COMMISSION_WALLET,
-};
-
 /** Resolve trip/row stamp — never default null to PLATFORM_COLLECTED. */
 export function resolveFinancialModelStamp(value: unknown): FinancialModel {
   const raw = String(value ?? '').trim().toUpperCase();
@@ -35,11 +26,6 @@ export function resolveServiceAreaFinancialModel(value: unknown): FinancialModel
   return resolveFinancialModelStamp(value);
 }
 
-/** @deprecated Phase 0c — use resolveServiceAreaFinancialModel (fail-closed). */
-export function normaliseServiceAreaFinancialModel(value: unknown): FinancialModel {
-  return resolveServiceAreaFinancialModel(value);
-}
-
 export function serviceAreaMatchesFinancialModel(
   serviceAreaFinancialModel: unknown,
   requiredModel: Exclude<FinancialModel, 'FINANCIAL_MODEL_UNKNOWN'>,
@@ -51,14 +37,6 @@ export function filterServiceAreasByFinancialModel<
   T extends { financial_model?: unknown },
 >(serviceAreas: readonly T[], requiredModel: Exclude<FinancialModel, 'FINANCIAL_MODEL_UNKNOWN'>): T[] {
   return serviceAreas.filter((sa) => serviceAreaMatchesFinancialModel(sa.financial_model, requiredModel));
-}
-
-export function emptyServiceAreaScopeMessage(
-  requiredModel: Exclude<FinancialModel, 'FINANCIAL_MODEL_UNKNOWN'>,
-): string {
-  return requiredModel === FINANCIAL_MODEL.DRIVER_COLLECTED_COMMISSION_WALLET
-    ? 'No Driver-Collected service areas configured'
-    : 'No Platform-Collected service areas configured';
 }
 
 export type FinancialModelScopeResult =
@@ -132,50 +110,4 @@ export function classifyTripForPlatformCollectedAdminPage(trip: {
     model: FINANCIAL_MODEL.PLATFORM_COLLECTED,
     bucket: null,
   };
-}
-
-export function filterTripsForPlatformCollectedAdminPage<
-  T extends { financial_model?: unknown; commission_wallet_enabled?: unknown },
->(rows: readonly T[]): T[] {
-  return rows.filter((row) => classifyTripForPlatformCollectedAdminPage(row).includeOnPlatformPage);
-}
-
-export function filterTripsForCommissionWalletAdminPage<
-  T extends { financial_model?: unknown },
->(rows: readonly T[]): T[] {
-  return rows.filter((row) => isDriverCollectedFinancialModel(row.financial_model));
-}
-
-export function paymentSessionIncludedOnPlatformCollectedAdminPage(
-  row: {
-    service_area_id?: string | null;
-    trip_financial_model?: unknown;
-    trip_commission_wallet_enabled?: unknown;
-  },
-  allowedServiceAreaIds: readonly string[],
-): boolean {
-  if (row.service_area_id) {
-    if (!allowedServiceAreaIds.includes(row.service_area_id)) return false;
-    if (row.trip_financial_model !== undefined || row.trip_commission_wallet_enabled !== undefined) {
-      return classifyTripForPlatformCollectedAdminPage({
-        financial_model: row.trip_financial_model,
-        commission_wallet_enabled: row.trip_commission_wallet_enabled,
-      }).includeOnPlatformPage;
-    }
-    return true;
-  }
-  if (row.trip_financial_model === undefined && row.trip_commission_wallet_enabled === undefined) {
-    return false;
-  }
-  return classifyTripForPlatformCollectedAdminPage({
-    financial_model: row.trip_financial_model,
-    commission_wallet_enabled: row.trip_commission_wallet_enabled,
-  }).includeOnPlatformPage;
-}
-
-/** Admin issue counter bucket for unknown/null financial_model stamps. */
-export function countUnknownFinancialModelTrips<
-  T extends { financial_model?: unknown },
->(rows: readonly T[]): number {
-  return rows.filter((r) => isUnknownFinancialModel(r.financial_model)).length;
 }

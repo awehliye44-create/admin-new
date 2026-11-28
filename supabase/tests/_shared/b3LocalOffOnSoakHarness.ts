@@ -15,7 +15,7 @@
  */
 
 import postgres from "https://deno.land/x/postgresjs@v3.4.5/mod.js";
-import { measureAcceptDeclineB3Workload } from "../../functions/_shared/acceptDeclineB3SSOT.ts";
+import { measureAcceptDeclineB3Workload } from "./offline/acceptDeclineB3SSOT.ts";
 
 const DB_URL = Deno.env.get("B3_SOAK_DB_URL") ??
   "postgres://postgres:postgres@127.0.0.1:54322/postgres";

@@ -70,15 +70,6 @@ export type MobileWalletPaymentStatus =
   | "captured"
   | "failed";
 
-export type MobileWalletPaymentMethodRecord = {
-  payment_method: "mobile_wallet";
-  provider: string;
-  wallet_network: string;
-  wallet_method_id: MobileWalletMethodId;
-  account_reference: string | null;
-  status: MobileWalletPaymentStatus;
-};
-
 export function resolvePaymentVaultProvider(
   provider: string | null | undefined,
 ): PaymentVaultProvider | null {

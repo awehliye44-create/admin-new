@@ -17,7 +17,7 @@ import {
   MODIFICATION_CHALLENGE_UNSUPPORTED_CUSTOMER_MESSAGE,
   MODIFICATION_UNCHANGED_CUSTOMER_MESSAGE,
   revisedPayablePenceForModification,
-} from "../../functions/_shared/modificationHoldLivenessSSOT.ts";
+} from "./offline/modificationHoldLivenessSSOT.ts";
 import { decideFromPreauthInvokeResult } from "../../functions/_shared/tripModificationPaymentGateSSOT.ts";
 import { PAYMENT_FAILURE_NOTICE_COPY } from "../../functions/_shared/customerPaymentFailureNoticeSSOT.ts";
 

@@ -209,67 +209,6 @@ export function planFinalFareAgainstAuthorisation(args: {
   };
 }
 
-/** D — no-show fee from existing hold, then release remainder. */
-export function planNoShowFeeAgainstAuthorisation(args: {
-  originalAuthorisedPence: number;
-  noShowFeePence: number;
-}): FinalFareAuthorisationPlan {
-  const original = pence(args.originalAuthorisedPence);
-  const fee = pence(args.noShowFeePence);
-  if (fee <= 0) {
-    return planFinalFareAgainstAuthorisation({
-      originalAuthorisedPence: original,
-      finalChargePence: 0,
-    });
-  }
-  if (fee > original) {
-    const shortfall = fee - original;
-    return {
-      payment_resolution_type: PAYMENT_RESOLUTION_TYPE.ADDITIONAL_AUTHORISATION,
-      payment_resolution_status: PAYMENT_RESOLUTION_STATUS.ADDITIONAL_AUTHORISATION_PENDING,
-      recovery_required: false,
-      keep_original_hold: true,
-      capture_from_original_pence: original,
-      additional_authorisation_pence: shortfall,
-      release_remainder_pence: 0,
-      money: {
-        original_authorised_pence: original,
-        additional_authorised_pence: shortfall,
-        total_authorised_pence: original + shortfall,
-        final_charge_pence: fee,
-        captured_pence: 0,
-        released_pence: 0,
-        shortfall_pence: shortfall,
-        no_show_fee_pence: fee,
-        cancellation_fee_pence: 0,
-      },
-      ui_label: paymentResolutionUiLabel(PAYMENT_RESOLUTION_TYPE.ADDITIONAL_AUTHORISATION),
-    };
-  }
-  const released = original - fee;
-  return {
-    payment_resolution_type: PAYMENT_RESOLUTION_TYPE.NO_SHOW_FEE_CAPTURE,
-    payment_resolution_status: PAYMENT_RESOLUTION_STATUS.FINANCIAL_COMPLETION,
-    recovery_required: false,
-    keep_original_hold: true,
-    capture_from_original_pence: fee,
-    additional_authorisation_pence: 0,
-    release_remainder_pence: released,
-    money: {
-      original_authorised_pence: original,
-      additional_authorised_pence: 0,
-      total_authorised_pence: original,
-      final_charge_pence: fee,
-      captured_pence: fee,
-      released_pence: released,
-      shortfall_pence: 0,
-      no_show_fee_pence: fee,
-      cancellation_fee_pence: 0,
-    },
-    ui_label: paymentResolutionUiLabel(PAYMENT_RESOLUTION_TYPE.NO_SHOW_FEE_CAPTURE),
-  };
-}
-
 /** When additional auth needs SCA / remains pending / fails — keep original hold. */
 export function markAdditionalAuthPendingOrRecovery(
   plan: FinalFareAuthorisationPlan,
@@ -288,31 +227,6 @@ export function markAdditionalAuthPendingOrRecovery(
     ),
   };
 }
-
-export type SweepHoldReleaseGateInput = {
-  tripStatus?: string | null;
-  paymentHoldStatus?: string | null;
-  paymentStatus?: string | null;
-  paymentSessionStatus?: string | null;
-  finalFarePence?: number | null;
-  captureAmountPence?: number | null;
-  capturedAmountPence?: number | null;
-  authorisedAmountPence?: number | null;
-  outstandingBalancePence?: number | null;
-  noShowFeePence?: number | null;
-  cancellationFeePence?: number | null;
-  recoveryRequired?: boolean | null;
-  additionalAuthStatus?: string | null;
-  forceOrphanNoTrip?: boolean;
-};
-
-export type SweepHoldReleaseGateResult =
-  | { allow: true }
-  | {
-      allow: false;
-      code: typeof HOLD_RELEASE_BLOCKED_PAYMENT_UNRESOLVED;
-      reason: string;
-    };
 
 /** Patch for persisting FinalFareAuthorisationPlan money + resolution fields. */
 export function buildPaymentResolutionPersistPatch(

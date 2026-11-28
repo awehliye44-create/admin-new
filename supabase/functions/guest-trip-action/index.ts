@@ -13,7 +13,7 @@ import {
   verifyWhatsAppContinuationToken,
 } from "../_shared/whatsappContinuationToken.ts";
 import { phonesExactlyMatch } from "../_shared/whatsappGuestBookingSSOT.ts";
-import { invokeAsTripPassenger } from "../_shared/whatsappPassengerInvoke.ts";
+import { invokeAsTripPassenger } from "./lib/whatsappPassengerInvoke.ts";
 
 const TERMINAL = new Set([
   "completed",

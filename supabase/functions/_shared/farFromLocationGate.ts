@@ -10,8 +10,6 @@
  */
 
 export const FAR_FROM_LOCATION_WARNING_RADIUS_METERS = 500;
-export const FAR_FROM_LOCATION_MAX_LOCATION_AGE_MS = 15_000;
-export const FAR_FROM_LOCATION_MAX_ACCURACY_METERS = 100;
 
 export type FarFromLocationKind = "pickup" | "stop" | "destination";
 

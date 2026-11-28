@@ -24,8 +24,6 @@ const FRIENDLY_CANCELLED =
 
 const FRIENDLY_TIMEOUT = "Payment timed out. Please check your connection and try again.";
 
-export const BANK_DECLINE_TITLE = "Payment declined by your bank";
-
 /** Booking / new payment — same copy for every payment method. */
 export const REVOLUT_CARD_DECLINED_CUSTOMER_MESSAGE =
   "Your bank declined this payment. Please check your card, use another card, or choose another payment method.";

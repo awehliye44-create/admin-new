@@ -1,19 +1,4 @@
-/**
- * Driver Wallet / Payout / Reconciliation SSOT — pure calculations (no I/O).
- *
- * NON-NEGOTIABLE: wallet_balance_pence is ONECAB accounting liability only.
- * Never use it directly as scheduled payout, cash-out, or paid-out.
- */
 
-export const PAYOUT_LIFECYCLE = [
-  "CAPTURED_TRIP",
-  "DRIVER_WALLET_LEDGER",
-  "FINANCE_CLEARED",
-  "INCLUDED_IN_PAYOUT_BATCH",
-  "PROVIDER_TRANSFER_CREATED",
-  "PROVIDER_PAYOUT_CREATED",
-  "PAID",
-] as const;
 
 export type DriverWalletPayoutSnapshotInput = {
   /** Σ driver_wallet_ledger (excl. reporting-only types). Signed. */
@@ -161,28 +146,6 @@ export function computeManualBankAvailablePence(input: {
 
 export function isManualBankPayoutProviderName(provider: string | null | undefined): boolean {
   return String(provider ?? "").trim().toLowerCase() === "revolut";
-}
-
-/** @deprecated Use computeAvailableCashOutPence — wallet must not cap cash-out. */
-export function computeCashoutLimitPence(input: {
-  wallet_owed_pence: number;
-  finance_cleared_pence: number;
-  provider_instant_available_pence: number | null | undefined;
-  recovery_debt_pence: number;
-  in_flight_cashout_pence?: number;
-  payout_blocked?: boolean;
-  instant_enabled?: boolean;
-  provider_available_pence?: number | null;
-}): number {
-  return computeAvailableCashOutPence({
-    provider_available_pence: input.provider_available_pence ?? null,
-    provider_instant_available_pence: input.provider_instant_available_pence,
-    finance_cleared_pence: input.finance_cleared_pence,
-    recovery_debt_pence: input.recovery_debt_pence,
-    in_flight_cashout_pence: input.in_flight_cashout_pence,
-    payout_blocked: input.payout_blocked,
-    instant_enabled: input.instant_enabled,
-  });
 }
 
 export function computeDriverWalletPayoutSnapshot(

@@ -19,7 +19,7 @@ import {
   releaseRevolutPreauthForTrip,
   resolveRevolutOrderIdFromTrip,
 } from "../_shared/revolutPreauthReleaseSSOT.ts";
-import { notifyWhatsAppNoDriverForTrip } from "../_shared/whatsappNoDriverNotify.ts";
+import { notifyWhatsAppNoDriverForTrip } from "./lib/whatsappNoDriverNotify.ts";
 import { phonesExactlyMatch } from "../_shared/whatsappGuestBookingSSOT.ts";
 import { getRouteWithCache, type RouteLeg } from "../_shared/routeCache.ts";
 

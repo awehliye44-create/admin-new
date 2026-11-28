@@ -5,7 +5,7 @@ import {
   shouldHideTripBonusHomeCard,
   type DriverTripBonusCampaignRow,
   type DriverTripBonusGeoContext,
-} from "../_shared/driverTripBonusCampaignSSOT.ts";
+} from "./lib/driverTripBonusCampaignSSOT.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",

@@ -7,12 +7,12 @@ import {
   buildLogicalIdempotencyKey,
   decideProviderPostSafety,
 } from "../../functions/_shared/paymentFinancialOperationSSOT.ts";
-import { classifyCaptureConfirmation } from "../../functions/_shared/captureConfirmationClassificationSSOT.ts";
+import { classifyCaptureConfirmation } from "../../functions/admin-payment-sessions/lib/captureConfirmationClassificationSSOT.ts";
 import {
   buildPayableFareSnapshot,
   forceCompletePayableSnapshot,
 } from "../../functions/_shared/payableFareSnapshotSSOT.ts";
-import { evaluateAuthorisationCoverage } from "../../functions/_shared/financialCoverageSSOT.ts";
+import { evaluateAuthorisationCoverage } from "./financialCoverageSSOT.ts";
 
 /** Simulate DB unique active logical key + inflight POST. */
 function simulateConcurrentClaims(args: {
@@ -158,7 +158,7 @@ Deno.test("#92B Edge rollback refused while inflight / unresolved", async () => 
     decideEdgeRollbackSafety,
     decideStageDEnablement,
     assertProviderCaptureEvidenceBinding,
-  } = await import("../../functions/_shared/paymentSsotQuiescenceSSOT.ts");
+  } = await import("./offline/paymentSsotQuiescenceSSOT.ts");
 
   assertEquals(
     decideEdgeRollbackSafety({

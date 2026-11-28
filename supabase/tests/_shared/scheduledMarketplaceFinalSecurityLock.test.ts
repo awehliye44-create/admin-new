@@ -10,7 +10,7 @@ import {
   AUTO_PUBLISH_BLOCKED_HOLD_REASONS,
   AUTO_PUBLISH_ELIGIBLE_HOLD_REASONS,
   SCHEDULED_HOLD_REASONS,
-} from "../../functions/_shared/scheduledMarketplaceHoldSSOT.ts";
+} from "./offline/scheduledMarketplaceHoldSSOT.ts";
 import { permissionKeyForScheduledRideAction } from "../../functions/admin-scheduled-ride-action/lib/scheduledRidesActionPermissionsSSOT.ts";
 import { isCardFundedPaymentMethod } from "../../functions/_shared/scheduledCaptureCoverageSSOT.ts";
 
@@ -191,7 +191,7 @@ Deno.test("manual / exceptional / unknown holds never auto-release", () => {
 });
 
 Deno.test("valid zero airport charge never triggers airport pricing hold", async () => {
-  const { assertAirportPricingReady } = await import("../../functions/_shared/scheduledMarketplaceHoldSSOT.ts");
+  const { assertAirportPricingReady } = await import("./offline/scheduledMarketplaceHoldSSOT.ts");
   assertEquals(
     assertAirportPricingReady({
       broadcastEnabled: false,

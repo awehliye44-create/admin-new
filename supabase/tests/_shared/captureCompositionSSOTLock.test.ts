@@ -15,7 +15,7 @@ import {
   planReceivableSettlementFromCaptureComposition,
   planTypedMoneyTargets,
   rejectAuthorisationRemainderAsBuffer,
-} from "../../functions/_shared/captureCompositionSSOT.ts";
+} from "./offline/captureCompositionSSOT.ts";
 
 const SESSION = "71a39184-4efd-462c-8465-6b1f2e03d251";
 const ORDER = "6ab61c09-a366-ab77-84a2-498142cf3420";

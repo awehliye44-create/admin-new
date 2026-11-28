@@ -67,7 +67,7 @@ import {
   commissionPercentToBps,
   estimatedFinalFareMinorFromTrip,
   REVENUE_SOURCE_COMMISSION_WALLET_DEDUCTION,
-} from "../../../shared/commissionWalletSSOT";
+} from "../../../supabase/tests/_shared/offline/commissionWalletSSOT.ts";
 
 const mkPlatform = {
   financial_model: SERVICE_AREA_FINANCIAL_MODEL.PLATFORM_COLLECTED,

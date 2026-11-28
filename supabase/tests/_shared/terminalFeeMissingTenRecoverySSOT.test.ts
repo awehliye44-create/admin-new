@@ -9,7 +9,7 @@ import {
   assertEquals,
   assertStringIncludes,
 } from "https://deno.land/std@0.224.0/assert/mod.ts";
-import { TERMINAL_FEE_MISSING_TEN_RECOVERY_SOURCE } from "../../functions/_shared/terminalFeeMissingTenRecoverySSOT.ts";
+import { TERMINAL_FEE_MISSING_TEN_RECOVERY_SOURCE } from "../../functions/sweep-revolut-stale-holds/lib/terminalFeeMissingTenRecoverySSOT.ts";
 
 Deno.test("#111A recovery source constant", () => {
   assertEquals(

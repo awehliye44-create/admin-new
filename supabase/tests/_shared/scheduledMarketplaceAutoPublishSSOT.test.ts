@@ -16,7 +16,7 @@ import {
   isPrematureIdealBroadcastStamp,
   isRoutineAutoPublishBookingSource,
   SCHEDULED_MARKETPLACE_AUTO_PUBLISH_VIA,
-} from "../../functions/_shared/scheduledMarketplaceAutoPublishSSOT.ts";
+} from "./offline/scheduledMarketplaceAutoPublishSSOT.ts";
 import { buildMinimalTripInsertRow } from "../../functions/create-trip-after-payment/lib/bookingSSOT.ts";
 import { resolveScheduledDispatchConfig } from "../../functions/_shared/scheduledDispatchConfig.ts";
 

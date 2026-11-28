@@ -3,3 +3,4 @@
  * Re-exported here for frontend/test imports.
  */
 export * from "../supabase/functions/_shared/paymentSessionsDisplaySSOT.ts";
+export * from "./edgePresentation/paymentSessionsDisplaySSOT.ts";

@@ -7,7 +7,7 @@ import {
   customerSubmittedBeforeDeadline,
   shouldTimeoutAbandonedDecisionHold,
   shouldTimeoutWaitingCustomer,
-} from "../../functions/_shared/customerNegotiationDecisionHold.ts";
+} from "./offline/customerNegotiationDecisionHold.ts";
 
 const deadline = Date.parse("2026-08-15T13:39:29.877Z");
 

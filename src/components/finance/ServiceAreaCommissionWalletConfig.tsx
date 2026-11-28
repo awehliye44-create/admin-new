@@ -27,7 +27,7 @@ import {
   isCommissionWalletWorkflowEnabled,
   planCommissionWalletServiceAreaEnablement,
   type CommissionWalletRolloutState,
-} from '../../../shared/commissionWalletSSOT';
+} from '../../../shared/edgePresentation/commissionWalletSSOT.ts';
 
 export type ServiceAreaCommissionWalletFormState = {
   financial_model: string;

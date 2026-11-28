@@ -3,3 +3,4 @@
  * Re-exported here for frontend/test imports.
  */
 export * from "../supabase/functions/_shared/financialModelScopeSSOT.ts";
+export * from "./edgePresentation/financialModelScopeSSOT.ts";

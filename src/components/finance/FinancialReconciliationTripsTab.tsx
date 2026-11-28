@@ -21,7 +21,7 @@ import {
   isPositiveStoredPence,
 } from '@/lib/adminFareComponentDisplay';
 import { driverWalletLedgerUrl } from '@/lib/driverWalletLedgerRoutes';
-import { paymentSessionsUrl } from '../../../shared/adminPaymentSessionsSSOT';
+import { paymentSessionsUrl } from '../../../shared/edgePresentation/adminPaymentSessionsSSOT.ts';
 import { payoutLedgerUrl } from '../../../shared/adminPayoutLedgerSSOT';
 import {
   exportFrAuditCsv,

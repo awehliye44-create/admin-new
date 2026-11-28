@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { paymentSessionsUrl } from '../../../shared/adminPaymentSessionsSSOT';
+import { paymentSessionsUrl } from '../../../shared/edgePresentation/adminPaymentSessionsSSOT.ts';
 import { payoutLedgerUrl } from '../../../shared/adminPayoutLedgerSSOT';
 
 describe('admin finance four-page routes', () => {

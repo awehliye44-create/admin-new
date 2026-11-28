@@ -12,7 +12,7 @@ import {
   ACCEPT_DECLINE_B3_FLAG,
   isAcceptDeclineB3Enabled,
   measureAcceptDeclineB3Workload,
-} from "../../functions/_shared/acceptDeclineB3SSOT.ts";
+} from "./offline/acceptDeclineB3SSOT.ts";
 
 Deno.test("B3 flag defaults OFF", () => {
   assertEquals(isAcceptDeclineB3Enabled(undefined), false);

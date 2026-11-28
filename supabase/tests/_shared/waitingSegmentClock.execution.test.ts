@@ -570,7 +570,7 @@ Deno.test("C3 openWaitingSegmentOrReuse falls back to INSERT and reuses on uniqu
     },
     rpc: () => Promise.resolve({ data: null, error: { code: "PGRST202", message: "Could not find the function" } }),
   };
-  const { openWaitingSegmentOrReuse } = await import("../../functions/_shared/waitingSegmentClock.ts");
+  const { openWaitingSegmentOrReuse } = await import("./offline/waitingSegmentClock.ts");
   const r = await openWaitingSegmentOrReuse(loser, {
     tripId: "trip-1",
     locationType: "pickup",

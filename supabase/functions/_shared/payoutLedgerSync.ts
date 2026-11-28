@@ -14,20 +14,6 @@ export const PAYOUT_LEDGER_TYPES = [
 
 export type PayoutLedgerType = (typeof PAYOUT_LEDGER_TYPES)[number];
 
-export function ledgerTypeForBatchKind(kind: string): PayoutLedgerType {
-  if (kind === "EARLY_CASHOUT") return "EARLY_CASHOUT";
-  if (kind === "WEEKLY_MONDAY") return "WEEKLY_PAYOUT";
-  if (kind === "MANUAL_ADMIN" || kind === "CONNECT_MANUAL") return "MANUAL_PAYOUT";
-  return "PAYOUT";
-}
-
-export function payoutDescriptionForType(type: PayoutLedgerType): string {
-  if (type === "WEEKLY_PAYOUT") return "Weekly payout to bank";
-  if (type === "MANUAL_PAYOUT") return "Manual payout to bank";
-  if (type === "EARLY_CASHOUT") return "Withdrawal";
-  return "Payout to bank";
-}
-
 export async function refreshPayoutBatchStatus(
   supabase: SupabaseClient,
   batchId: string,

@@ -54,10 +54,6 @@ function pence(v: unknown): number {
   return Number.isFinite(n) ? n : 0;
 }
 
-export function isTerminalFeeTrip(trip: TerminalTripRow): boolean {
-  return resolveTerminalOutcomeKind(trip) != null;
-}
-
 async function ledgerTypeAlreadyPosted(
   supabase: SupabaseClient,
   tripId: string,

@@ -8,7 +8,7 @@ import {
   resolveCanonicalExpectedCapturePence,
   resolveCanonicalFinalPayablePence,
   resolveOtherNonModComponentsPence,
-} from "../paymentSessionsCanonicalReadAdapterSSOT.ts";
+} from "../../supabase/tests/_shared/offline/paymentSessionsCanonicalReadAdapterSSOT.ts";
 import { resolveOvercaptureCustomerPosition } from "../paymentSessionsOvercaptureResolutionSSOT.ts";
 
 const MK028 = {

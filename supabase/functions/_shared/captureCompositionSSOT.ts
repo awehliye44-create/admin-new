@@ -93,7 +93,7 @@ export type CaptureCompositionReject = {
 
 export type CaptureCompositionResult = CaptureCompositionPlan | CaptureCompositionReject;
 
-function nonNeg(n: unknown): number {
+export function nonNeg(n: unknown): number {
   const v = Math.round(Number(n) || 0);
   return Number.isFinite(v) && v > 0 ? v : 0;
 }
@@ -338,26 +338,6 @@ export function planCaptureComposition(args: {
 }
 
 /**
- * Persist shape for payment_sessions columns / metadata before provider POST.
- */
-export function captureCompositionPersistPatch(plan: CaptureCompositionPlan): Record<string, unknown> {
-  return {
-    trip_fare_component_pence: plan.trip_fare_component_pence,
-    tip_component_pence: plan.tip_component_pence,
-    receivable_component_pence: plan.receivable_component_pence,
-    preauth_buffer_component_pence: plan.preauth_buffer_component_pence,
-    provider_capture_target_pence: plan.provider_capture_target_pence,
-    provider_authorisation_target_pence: plan.provider_authorisation_target_pence,
-    provider_release_amount_pence: plan.provider_release_amount_pence,
-    displayed_customer_total_pence: plan.displayed_customer_total_pence,
-    authorised_total_pence: plan.authorised_total_pence,
-    capture_idempotency_key: plan.capture_idempotency_key,
-    capture_composition_version: plan.composition_version,
-    capture_reserved_allocation_ids: plan.reserved_allocation_ids,
-  };
-}
-
-/**
  * Settlement gate after GET confirms capture.
  * Settle only when the persisted plan included a receivable component.
  * Coverage is fare-first: covered_recv = max(0, captured − trip_fare_component).
@@ -408,42 +388,4 @@ export function planReceivableSettlementFromCaptureComposition(args: {
     release_remainder: reserved > settle,
     reason: settle > 0 ? "planned_receivable_covered" : "planned_but_uncovered",
   };
-}
-
-/** Incident lock helper — MK-260925-002 composition (buffer=0). */
-export function mk260925002IncidentCaptureComposition(): CaptureCompositionResult {
-  return planCaptureComposition({
-    trip_fare_component_pence: 500,
-    tip_component_pence: 0,
-    preauth_buffer_component_pence: 0,
-    payment_session_id: "71a39184-4efd-462c-8465-6b1f2e03d251",
-    provider_order_id: "6ab61c09-a366-ab77-84a2-498142cf3420",
-    authorised_total_pence: 536,
-    customer_payable_pence: 500,
-    allocations: [
-      {
-        id: "alloc-30",
-        payment_session_id: "71a39184-4efd-462c-8465-6b1f2e03d251",
-        status: "RESERVED",
-        allocated_amount_pence: 30,
-      },
-      {
-        id: "alloc-6",
-        payment_session_id: "71a39184-4efd-462c-8465-6b1f2e03d251",
-        status: "RESERVED",
-        allocated_amount_pence: 6,
-      },
-    ],
-  });
-}
-
-/**
- * Proven incident broken formula (pre-SSOT) — fare+tip only.
- * Kept for lock tests; never use as a live capture target.
- */
-export function mk260925002BrokenCaptureUsesPayableOnly(args: {
-  final_fare_pence: number;
-  tip_pence?: number | null;
-}): number {
-  return nonNeg(args.final_fare_pence) + nonNeg(args.tip_pence);
 }

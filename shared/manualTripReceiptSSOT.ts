@@ -4,3 +4,4 @@
  */
 
 export * from "../supabase/functions/_shared/manualTripReceiptSSOT.ts";
+export * from "./edgePresentation/manualTripReceiptSSOT.ts";

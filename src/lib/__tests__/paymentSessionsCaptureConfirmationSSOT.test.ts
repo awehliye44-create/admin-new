@@ -12,11 +12,11 @@ import {
   shouldOfferCollectOutstanding,
   shouldOfferSendPaymentLink,
   validateCollectOutstandingOrPaymentLinkAction,
-} from "../../../shared/paymentSessionsCaptureConfirmationSSOT";
+} from "../../../supabase/tests/_shared/offline/paymentSessionsCaptureConfirmationSSOT.ts";
 import {
   buildPaymentSessionsDisplay,
   formatReleasedAmountDisplay,
-} from "../../../shared/paymentSessionsDisplaySSOT";
+} from "../../../shared/edgePresentation/paymentSessionsDisplaySSOT.ts";
 import { resolveCaptureAmountToPersist } from "../../../shared/paymentCaptureEvidenceSSOT";
 
 const fmt = (p: number | null) => (p == null ? "—" : `£${(p / 100).toFixed(2)}`);

@@ -34,18 +34,6 @@ export function resolveScheduledPickupEligibleFromMs(input: {
   return Math.max(arrivedMs, scheduledMs);
 }
 
-/** True while now is strictly before the eligible pickup waiting floor. */
-export function isBeforeScheduledPickupEligibleWindow(input: {
-  nowMs: number;
-  arrivedAtIso?: string | null;
-  scheduledAtIso?: string | null;
-  isScheduledOrigin?: boolean | null;
-}): boolean {
-  const fromMs = resolveScheduledPickupEligibleFromMs(input);
-  if (fromMs == null || !Number.isFinite(input.nowMs)) return false;
-  return input.nowMs < fromMs;
-}
-
 /**
  * Resolve pickup eligible floor from a trip row.
  *

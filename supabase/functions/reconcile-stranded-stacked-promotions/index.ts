@@ -4,7 +4,7 @@
  */
 import { createServiceRoleClient, serveWithEdgeTiming } from "../_shared/edgeFunctionTiming.ts";
 import { assertCronOrServiceRoleAuth } from "../_shared/cronEdgeAuth.ts";
-import { runStackedPromotionReconcilePass } from "../_shared/stackedPromotionReconcileSSOT.ts";
+import { runStackedPromotionReconcilePass } from "./lib/stackedPromotionReconcileSSOT.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",

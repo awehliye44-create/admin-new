@@ -27,26 +27,7 @@ export function isDocumentExpiredLondon(
   return expiryDay < todayLondon;
 }
 
-export function isDocumentExpiringSoonLondon(
-  expiryDate: string | null | undefined,
-  warningDays: number,
-  now: Date = new Date(),
-): boolean {
-  if (!expiryDate || warningDays <= 0) return false;
-  const expiryDay = parseExpiryCalendarDate(expiryDate);
-  if (!expiryDay) return false;
-  if (isDocumentExpiredLondon(expiryDate, now)) return false;
-
-  const todayLondon = getLondonCalendarDate(now);
-  const todayMs = londonDateToUtcMs(todayLondon);
-  const expiryMs = londonDateToUtcMs(expiryDay);
-  if (todayMs == null || expiryMs == null) return false;
-
-  const diffDays = Math.round((expiryMs - todayMs) / 86_400_000);
-  return diffDays >= 0 && diffDays <= warningDays;
-}
-
-function londonDateToUtcMs(yyyyMmDd: string): number | null {
+export function londonDateToUtcMs(yyyyMmDd: string): number | null {
   const parts = yyyyMmDd.split("-").map(Number);
   if (parts.length !== 3 || parts.some((n) => !Number.isFinite(n))) return null;
   const [y, m, d] = parts;

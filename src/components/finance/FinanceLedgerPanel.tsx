@@ -15,7 +15,7 @@ import {
 import {
   formatDriverWalletAdminAdjustmentAuditNotes,
   formatDriverWalletAdminIdShort,
-} from '../../../shared/driverWalletManualAdjustmentSSOT';
+} from '../../../shared/edgePresentation/driverWalletManualAdjustmentSSOT.ts';
 import { isAdminDebtRecoveryDebit } from '@/lib/adminFinanceLedgerDisplay';
 import {
   DRIVER_WALLET_LEDGER_FILTER_LABELS,

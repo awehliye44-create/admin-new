@@ -12,7 +12,7 @@ import {
   classifyCaptureConfirmation,
   collectOutstandingActionLabel,
   sendPaymentLinkActionLabel,
-} from '../../../shared/paymentSessionsCaptureConfirmationSSOT';
+} from '../../../shared/edgePresentation/paymentSessionsCaptureConfirmationSSOT.ts';
 import { isValidConfirmedCapturePence } from '../../../shared/paymentCaptureEvidenceSSOT';
 
 export function PaymentSessionsRowActions({

@@ -32,7 +32,7 @@ import { ServiceAreaGatewayStatusFetcher } from '@/components/finance/ServiceAre
 import { supabase } from '@/integrations/supabase/client';
 import { adminServiceAreasLookup } from '@/lib/adminPageGatedData';
 import { startAdminPerformanceStep } from '@/lib/recordAdminPerformanceStep';
-import { paymentSessionsUrl } from '../../shared/adminPaymentSessionsSSOT';
+import { paymentSessionsUrl } from '../../shared/edgePresentation/adminPaymentSessionsSSOT.ts';
 import { payoutLedgerUrl } from '../../shared/adminPayoutLedgerSSOT';
 import type { DriverWalletLedgerFilter } from '@/lib/driverWalletLedgerFilters';
 import {

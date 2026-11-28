@@ -10,7 +10,7 @@ import {
   nextAutoDispatchTripStatus,
   resolveScheduledDispatchConfig,
   shouldConvertScheduledToUrgent,
-} from "../../functions/_shared/scheduledDispatchConfig.ts";
+} from "./offline/scheduledDispatchConfig.ts";
 
 Deno.test("resolveScheduledDispatchConfig reads Admin screenshot values", () => {
   const cfg = resolveScheduledDispatchConfig({

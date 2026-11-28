@@ -4,7 +4,7 @@
 import {
   measureArrivePickupB5Workload,
   shouldSkipPostWaitingTripSelect,
-} from "../../functions/_shared/arrivePickupB5SSOT.ts";
+} from "./offline/arrivePickupB5SSOT.ts";
 
 export type B5SoakResult = {
   all_pass: boolean;

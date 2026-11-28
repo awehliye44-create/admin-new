@@ -12,7 +12,7 @@ import {
   remainingWeeklyPayableAfterEarlyAllocations,
   resolvePreviousCompletedCalendarWeek,
   selectWeeklyPeriodPayableCredits,
-} from '../../../supabase/functions/_shared/weeklyPayoutPeriodSSOT.ts';
+} from '../../../supabase/tests/_shared/offline/weeklyPayoutPeriodSSOT.ts';
 import { planPayoutItemFromEligibleEntries } from '../../../supabase/functions/_shared/payoutLedgerHandoffSSOT.ts';
 import {
   evaluateDriverBatchEligibility,

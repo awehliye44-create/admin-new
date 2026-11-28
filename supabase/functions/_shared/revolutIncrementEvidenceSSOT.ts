@@ -332,19 +332,6 @@ export const INCREMENT_EVIDENCE_FORBIDDEN_TOKENS = [
   "password",
 ] as const;
 
-export function evidencePayloadLooksSafe(payload: unknown): boolean {
-  const raw = JSON.stringify(payload ?? {}).toLowerCase();
-  for (const token of INCREMENT_EVIDENCE_FORBIDDEN_TOKENS) {
-    // Allow benign words like "authorised_amount" — only flag card-number-ish keys.
-    if (token === "number") {
-      if (raw.includes("card_number") || raw.includes('"number"')) return false;
-      continue;
-    }
-    if (raw.includes(token)) return false;
-  }
-  return true;
-}
-
 // ---------------------------------------------------------------------------
 // Webhook evidence (ORDER_INCREMENTAL_AUTHORISATION_*)
 // ---------------------------------------------------------------------------
@@ -356,12 +343,4 @@ export const REVOLUT_INCREMENT_WEBHOOK_EVENTS = [
 ] as const;
 
 export type RevolutIncrementWebhookEvent = typeof REVOLUT_INCREMENT_WEBHOOK_EVENTS[number];
-
-export function expectedIncrementStateForWebhook(
-  eventName: RevolutIncrementWebhookEvent,
-): ProviderIncrementState {
-  if (eventName === "ORDER_INCREMENTAL_AUTHORISATION_AUTHORISED") return "authorised";
-  if (eventName === "ORDER_INCREMENTAL_AUTHORISATION_DECLINED") return "declined";
-  return "failed";
-}
 

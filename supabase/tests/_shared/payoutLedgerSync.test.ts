@@ -2,7 +2,7 @@ import { assertEquals } from "https://deno.land/std@0.224.0/assert/mod.ts";
 import {
   ledgerTypeForBatchKind,
   payoutDescriptionForType,
-} from "../../functions/_shared/payoutLedgerSync.ts";
+} from "./offline/payoutLedgerSync.ts";
 
 Deno.test("ledgerTypeForBatchKind maps weekly and manual", () => {
   assertEquals(ledgerTypeForBatchKind("WEEKLY_MONDAY"), "WEEKLY_PAYOUT");

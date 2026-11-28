@@ -4,17 +4,17 @@ import type {
   AdminPaymentSessionsListRequest,
   AdminPaymentSessionsListResponse,
 } from '../../shared/adminPaymentSessionsSSOT';
-import { ADMIN_PAYMENT_SESSIONS_FN } from '../../shared/adminPaymentSessionsSSOT';
+import { ADMIN_PAYMENT_SESSIONS_FN } from '../../shared/edgePresentation/adminPaymentSessionsSSOT.ts';
 import {
   ADMIN_HOLD_ACTION_FN,
   type AdminHoldActionRequest,
-} from '../../shared/paymentHoldReconciliation';
+} from '../../shared/edgePresentation/paymentHoldReconciliation.ts';
 import { isAdminPageLiveActive } from '@/lib/adminPageVisibility';
 import {
   ADMIN_FINANCE_QUERY_DEFAULTS,
   withAdminFinanceQueryTiming,
 } from '@/lib/adminFinanceLoadPerf';
-import { isPaymentSessionsProviderPollBackendTab } from '../../shared/paymentSessionsNavigationSSOT.ts';
+import { isPaymentSessionsProviderPollBackendTab } from '../../shared/edgePresentation/paymentSessionsNavigationSSOT.ts';
 
 /**
  * Payment Sessions list — DB-first by default.

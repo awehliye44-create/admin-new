@@ -9,7 +9,7 @@ import {
   periodPayableVariancePence,
   sumActualWalletTripCreditsPence,
   sumExpectedPayablePence,
-} from "../../functions/_shared/frDriverReconciliationSSOT.ts";
+} from "./offline/frDriverReconciliationSSOT.ts";
 import { FR_EXPECTED_STAMP_STATUS } from "../../functions/_shared/frDriverExpectedEntitlementSSOT.ts";
 
 const ahmedLedger = [

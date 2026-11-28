@@ -6,7 +6,7 @@
  *     deno run --allow-net --allow-env scripts/run-mk261125003-integrity-recovery.ts
  */
 import { createClient } from "npm:@supabase/supabase-js@2.57.2";
-import { recoverMk261125003IntegrityGaps, MK_261125_003 } from "../supabase/functions/_shared/mk261125003RecoverySSOT.ts";
+import { recoverMk261125003IntegrityGaps, MK_261125_003 } from "../supabase/tests/_shared/mk261125003RecoverySSOT.ts";
 
 const url = Deno.env.get("SUPABASE_URL") ?? Deno.env.get("SUPABASE_SERVICE_URL");
 const key = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");

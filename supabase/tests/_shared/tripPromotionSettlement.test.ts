@@ -10,7 +10,7 @@ import {
   resolvePrePromotionCommissionableFarePence,
   resolvePreviousLockedPromotionPence,
   resolveCapturedTripEarningNetPence,
-} from "../../functions/_shared/tripSettlement.ts";
+} from "./offline/tripSettlement.ts";
 
 const MK_260817_005 = {
   fare_snapshot_json: { gross_fare_pence: 500, original_fare_pence: 500 },

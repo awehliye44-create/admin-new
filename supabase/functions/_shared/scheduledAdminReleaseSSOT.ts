@@ -48,23 +48,6 @@ export function buildPendingReleasePatch(input: {
   };
 }
 
-/** Assign Now — pre-confirm driver; leave trip scheduled (not live). */
-export function buildAssignNowPatch(input: {
-  driverId: string;
-  nowIso: string;
-}): Record<string, unknown> {
-  return {
-    confirmed_driver_id: input.driverId,
-    scheduled_status: "driver_assigned",
-    scheduled_accepted_at: input.nowIso,
-    // Keep list-only trip status — do not flip into live searching/en_route.
-    status: "scheduled",
-    // Never stamp live driver_id on pre-confirm — activation NRO Accept does that.
-    driver_id: null,
-    ...clearPendingReleasePatch(),
-  };
-}
-
 /**
  * Make Available in Scheduled Jobs — leave Admin HELD and publish for advance
  * PRE-CONFIRMATION only. Does NOT start NRO / auto-dispatch.

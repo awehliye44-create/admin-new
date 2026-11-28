@@ -12,8 +12,6 @@ import {
   type PaymentSessionsNavTab,
 } from "./paymentSessionsNavigationSSOT.ts";
 
-export const ADMIN_PAYMENT_SESSIONS_FN = "admin-payment-sessions";
-
 export type AdminPaymentSessionsTab =
   | "overview"
   | "active_holds"
@@ -427,45 +425,3 @@ export type AdminPaymentSessionsListResponse = {
   provider_verification_message?: string | null;
   trip_evidence_message?: string | null;
 };
-
-export function paymentSessionsUrl(args?: {
-  tab?: AdminPaymentSessionsTab | PaymentSessionsNavTab;
-  paymentSessionId?: string | null;
-  providerOrderId?: string | null;
-  tripId?: string | null;
-  customerId?: string | null;
-  providerFeesPending?: boolean;
-  captureFailed?: boolean;
-  recoveryPending?: boolean;
-  releaseFailed?: boolean;
-  moneyAtRisk?: boolean;
-  matchStatus?: PaymentTripMatchStatus;
-}): string {
-  if (!args) return '/payment-sessions?tab=captured';
-
-  const mapped = args.tab != null
-    ? resolveLegacyPaymentSessionsTabMapping(String(args.tab))
-    : { navTab: 'captured' as PaymentSessionsNavTab };
-  let navTab: PaymentSessionsNavTab = mapped.navTab;
-  let opFilter: import('./paymentSessionsNavigationSSOT.ts').PaymentSessionsOpChip | undefined = mapped.opChip;
-
-  if (args.captureFailed) opFilter = 'refund_failed';
-  if (args.releaseFailed) opFilter = 'release_failed';
-  if (args.recoveryPending) {
-    navTab = 'recovery';
-    opFilter = 'recovery_required';
-  }
-  if (args.moneyAtRisk) opFilter = 'release_failed';
-  if (args.providerFeesPending) {
-    navTab = 'captured';
-  }
-
-  return paymentSessionsNavUrl({
-    tab: navTab,
-    opFilter,
-    paymentSessionId: args.paymentSessionId ?? undefined,
-    providerOrderId: args.providerOrderId ?? undefined,
-    tripId: args.tripId ?? undefined,
-    customerId: args.customerId ?? undefined,
-  });
-}

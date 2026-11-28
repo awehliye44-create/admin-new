@@ -179,58 +179,6 @@ export function buildExclusiveActivationOfferSnapshot(input: {
   };
 }
 
-export function buildExclusiveActivationRideOfferPush(input: {
-  offerId: string;
-  tripId: string;
-  driverId: string;
-  netPence: number;
-  expiresAtIso: string;
-  pickupAddress?: string | null;
-  dropoffAddress?: string | null;
-  currencyCode?: string | null;
-  tripReference?: string | null;
-}): {
-  type: "RIDE_OFFER";
-  title: string;
-  body: string;
-  data: Record<string, string>;
-} {
-  const currency = String(input.currencyCode ?? "GBP").trim() || "GBP";
-  const body = rideOfferPushBodyDriverNet(currency, input.netPence);
-  return {
-    type: "RIDE_OFFER",
-    title: DRIVER_NEW_RIDE_OFFER_TITLE,
-    body,
-    data: {
-      type: DRIVER_NEW_RIDE_OFFER_DATA_TYPE,
-      notificationType: DRIVER_NEW_RIDE_OFFER_DATA_TYPE,
-      offer_notification_type: "new_ride_offer",
-      offer_id: input.offerId,
-      offerId: input.offerId,
-      requestId: input.offerId,
-      trip_id: input.tripId,
-      tripId: input.tripId,
-      booking_id: input.tripId,
-      driver_id: input.driverId,
-      driverId: input.driverId,
-      expires_at: input.expiresAtIso,
-      expiresAt: input.expiresAtIso,
-      sound: RIDE_OFFER_IOS_ALERT_SOUND,
-      pickupAddress: String(input.pickupAddress ?? ""),
-      dropoffAddress: String(input.dropoffAddress ?? ""),
-      driver_earnings_pence: String(input.netPence),
-      driver_net_preview_pence: String(input.netPence),
-      currencyCode: currency,
-      currency_code: currency,
-      offer_kind: "scheduled",
-      scheduled_status: "awaiting_activation_accept",
-      ...(input.tripReference
-        ? { trip_reference: input.tripReference, tripReference: input.tripReference }
-        : {}),
-    },
-  };
-}
-
 export function mergeExcludedDriverIds(
   existing: unknown,
   driverId: string | null | undefined,

@@ -12,12 +12,12 @@ import {
   sumCustomerRevenuePence,
   totalCommissionEarnedPence,
   tripProviderProcessingFeePence,
-} from "../../functions/_shared/financialReconciliationSSOT.ts";
+} from "./offline/financialReconciliationSSOT.ts";
 
 Deno.test("customer revenue prefers payments over trips", () => {
   const r = sumCustomerRevenuePence({
     payments: [{ captured_amount_pence: 5000, status: "captured" }],
-    trips: [{ capture_amount_pence: 3000, final_fare_pence: 3000 } as import("../../functions/_shared/financialReconciliationSSOT.ts").TripSSOTRow],
+    trips: [{ capture_amount_pence: 3000, final_fare_pence: 3000 } as import("./offline/financialReconciliationSSOT.ts").TripSSOTRow],
   });
   assertEquals(r.total_pence, 5000);
   assertEquals(r.source, "payment_sessions_captured");
@@ -71,7 +71,7 @@ Deno.test("computeSSOTMetrics end-to-end", () => {
       driver_net_pence: 8500,
       gross_fare_pence: 10000,
       capture_amount_pence: 10000,
-    } as import("../../functions/_shared/financialReconciliationSSOT.ts").TripSSOTRow],
+    } as import("./offline/financialReconciliationSSOT.ts").TripSSOTRow],
     ledger: [{ type: "WEEKLY_PAYOUT", amount_pence: -4116 }],
     providerAvailableBalancePence: 5000,
     providerPendingBalancePence: 0,
@@ -91,7 +91,7 @@ Deno.test("historical legacy cash trips excluded from digital reconciliation", (
       commission_pence: 126,
       driver_net_pence: 714,
       gross_fare_pence: 840,
-    } as import("../../functions/_shared/financialReconciliationSSOT.ts").TripSSOTRow],
+    } as import("./offline/financialReconciliationSSOT.ts").TripSSOTRow],
   });
   assertEquals(ledger.cash_collected_by_driver_pence, 0);
   assertEquals(ledger.cash_driver_already_received_pence, 0);
@@ -122,7 +122,7 @@ Deno.test("mixed card+cash balances separately — no false mismatch from mixing
         commission_pence: 126,
         driver_net_pence: 714,
       },
-    ] as import("../../functions/_shared/financialReconciliationSSOT.ts").TripSSOTRow[],
+    ] as import("./offline/financialReconciliationSSOT.ts").TripSSOTRow[],
     payments: [{ trip_id: "c1", captured_amount_pence: 5783, status: "captured" }],
   });
   const check = buildSplitReconciliationCheck({ ledger });
@@ -160,7 +160,7 @@ Deno.test("total commission and net platform revenue — card + cash, provider f
         driver_net_pence: 1259,
         provider_fee_pence: 99,
       },
-    ] as import("../../functions/_shared/financialReconciliationSSOT.ts").TripSSOTRow[],
+    ] as import("./offline/financialReconciliationSSOT.ts").TripSSOTRow[],
     ledger: [],
     providerAvailableBalancePence: 0,
     providerPendingBalancePence: 0,
@@ -185,7 +185,7 @@ Deno.test("computePaymentMethodLedgerMetrics sums all payment PIs per trip (MK-2
       commission_pence: 127,
       driver_net_pence: 722,
       provider_fee_pence: 0,
-    }] as import("../../functions/_shared/financialReconciliationSSOT.ts").TripSSOTRow[],
+    }] as import("./offline/financialReconciliationSSOT.ts").TripSSOTRow[],
     payments: [
       { trip_id: "trip-mk-624", captured_amount_pence: 400, status: "captured" },
       { trip_id: "trip-mk-624", captured_amount_pence: 449, status: "captured" },
@@ -205,7 +205,7 @@ Deno.test("completed card trip without capture does not increase reconciled comm
       commission_pence: 500,
       driver_net_pence: 2000,
       final_fare_pence: 2500,
-    } as import("../../functions/_shared/financialReconciliationSSOT.ts").TripSSOTRow],
+    } as import("./offline/financialReconciliationSSOT.ts").TripSSOTRow],
     ledger: [],
     providerAvailableBalancePence: 0,
     providerPendingBalancePence: 0,
@@ -243,7 +243,7 @@ Deno.test("isTripPaymentCaptureConfirmed never uses trips.capture_amount_pence",
     gross_fare_pence: null,
     final_fare_pence: null,
     commissionable_fare_pence: null,
-  } as import("../../functions/_shared/financialReconciliationSSOT.ts").TripSSOTRow;
+  } as import("./offline/financialReconciliationSSOT.ts").TripSSOTRow;
   assertEquals(isTripPaymentCaptureConfirmed(trip, new Map()), false);
   assertEquals(isTripPaymentCaptureConfirmed(trip, new Map([["t1", 480]])), true);
 });
@@ -264,7 +264,7 @@ Deno.test("computeSSOTMetrics consumes session fee and capture — ignores trip 
       final_fare_pence: 480,
       onecab_net_pence: null,
       commissionable_fare_pence: 480,
-    } as import("../../functions/_shared/financialReconciliationSSOT.ts").TripSSOTRow],
+    } as import("./offline/financialReconciliationSSOT.ts").TripSSOTRow],
     ledger: [],
     providerAvailableBalancePence: 0,
     providerPendingBalancePence: 0,

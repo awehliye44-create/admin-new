@@ -8,7 +8,7 @@ import {
   isValidLongitude,
   isPositiveInteger,
   isValidPaymentMethod,
-} from "../../supabase/functions/_shared/security";
+} from "../../supabase/tests/_shared/offline/security.ts";
 
 describe("Security Utilities", () => {
   describe("Rate Limiting", () => {

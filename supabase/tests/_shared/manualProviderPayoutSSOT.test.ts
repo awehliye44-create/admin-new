@@ -4,7 +4,7 @@ import {
   isValidProviderReference,
   manualProviderEligiblePence,
   normalizeProviderReference,
-} from "../../functions/_shared/manualProviderPayoutSSOT.ts";
+} from "./offline/manualProviderPayoutSSOT.ts";
 
 Deno.test("isManualBankPayoutProvider identifies revolut", () => {
   assertEquals(isManualBankPayoutProvider("revolut"), true);

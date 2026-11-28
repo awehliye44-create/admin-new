@@ -11,7 +11,7 @@ import {
   isInstantInClosedRange,
   londonCivilDateKey,
   sumAttributedTripEarningNetPence,
-} from "../../functions/_shared/economicEarnedAtSSOT.ts";
+} from "./offline/economicEarnedAtSSOT.ts";
 import {
   PAYMENT_SESSION_PURPOSE_PAYMENT_RECOVERY,
   specResolveEconomicDate,

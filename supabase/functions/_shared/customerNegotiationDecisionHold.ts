@@ -36,14 +36,6 @@ export function shouldTimeoutAbandonedDecisionHold(input: {
   return input.nowMs - respondedMs >= (input.abandonAfterMs ?? NEGOTIATION_DECISION_ABANDON_MS);
 }
 
-export function customerSubmittedBeforeDeadline(input: {
-  submittedAtMs: number;
-  deadlineMs: number | null;
-}): boolean {
-  if (input.deadlineMs == null || !Number.isFinite(input.deadlineMs)) return true;
-  return input.submittedAtMs <= input.deadlineMs;
-}
-
 export type ClaimCustomerNegotiationDecisionResult =
   | { ok: true; alreadyClaimed: boolean }
   | { ok: false; reason: "expired" | "invalid_state" };

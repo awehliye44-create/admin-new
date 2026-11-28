@@ -14,12 +14,6 @@ import { recordPaymentFinancialEvent } from "./paymentFinancialDiagnosticsSSOT.t
 export const TRIP_EARNING_PENDING_TYPE = "TRIP_EARNING_PENDING";
 export const TRIP_EARNING_PENDING_RELEASE_TYPE = "TRIP_EARNING_PENDING_RELEASE";
 
-/** Included in Today/period earnings (with RELEASE so net = one economic amount). */
-export const TODAY_EARNINGS_PENDING_TYPES = [
-  TRIP_EARNING_PENDING_TYPE,
-  TRIP_EARNING_PENDING_RELEASE_TYPE,
-] as const;
-
 /** Excluded from live wallet liability and payout eligibility. */
 export const PENDING_ENTITLEMENT_BALANCE_EXCLUDED_TYPES = [
   TRIP_EARNING_PENDING_TYPE,
@@ -213,26 +207,4 @@ export async function releaseTripEarningPendingIfPresent(
     reason: error?.code === "23505" ? "already_released_race" : "released",
     pendingAmountPence: pendingAmount,
   };
-}
-
-/** Prefer TEN amount for trip display; else open PENDING (no RELEASE yet). */
-export function resolveVisibleTripEarningPence(rows: Array<{
-  type?: string | null;
-  amount_pence?: number | null;
-}>): { amountPence: number; state: "confirmed" | "awaiting_confirmation" | "none" } {
-  let ten = 0;
-  let pending = 0;
-  let released = 0;
-  for (const row of rows) {
-    const type = String(row.type ?? "").toUpperCase();
-    const amt = Math.round(Number(row.amount_pence) || 0);
-    if (type === "TRIP_EARNING_NET") ten += Math.max(0, amt);
-    else if (type === TRIP_EARNING_PENDING_TYPE) pending += Math.max(0, amt);
-    else if (type === TRIP_EARNING_PENDING_RELEASE_TYPE) released += Math.abs(amt);
-  }
-  if (ten > 0) return { amountPence: ten, state: "confirmed" };
-  if (pending > 0 && released <= 0) {
-    return { amountPence: pending, state: "awaiting_confirmation" };
-  }
-  return { amountPence: 0, state: "none" };
 }

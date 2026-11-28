@@ -62,7 +62,7 @@ import { downloadCsv, downloadRecordsAsExcel, printFinanceReport, printFinanceRe
 import { formatNullablePence } from '@/lib/formatNullablePence';
 import { unbackedWalletReasonLabel } from '@/lib/driverWalletPayoutStatusDisplay';
 import { DriverOperationalPauseMenuItem } from '@/components/finance/DriverOperationalPauseMenuItem';
-import { paymentSessionsUrl } from '../../shared/adminPaymentSessionsSSOT';
+import { paymentSessionsUrl } from '../../shared/edgePresentation/adminPaymentSessionsSSOT.ts';
 import { payoutLedgerUrl } from '../../shared/adminPayoutLedgerSSOT';
 import { DriverCreditExceptionsBanner } from '@/components/finance/DriverCreditExceptionsBanner';
 import {

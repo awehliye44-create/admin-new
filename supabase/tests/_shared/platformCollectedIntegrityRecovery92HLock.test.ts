@@ -7,7 +7,7 @@ const ROOT = new URL("../../../", import.meta.url).pathname;
 
 Deno.test("92H: generic integrity recovery never POSTs money or duplicates TEN", () => {
   const src = Deno.readTextFileSync(
-    `${ROOT}supabase/functions/_shared/platformCollectedFinancialIntegrityRecoverySSOT.ts`,
+    `${ROOT}supabase/functions/sweep-revolut-stale-holds/lib/platformCollectedFinancialIntegrityRecoverySSOT.ts`,
   );
   assert(src.includes("Never POSTs CAPTURE/INCREMENT") || src.includes("Never POSTs"));
   assert(src.includes("Never creates a second TEN") || src.includes("second TEN"));
@@ -47,7 +47,7 @@ Deno.test("92H: wallet realtime publication migration present", () => {
 
 Deno.test("92H: MK-261125-003 recovery delegates to generic SSOT", () => {
   const src = Deno.readTextFileSync(
-    `${ROOT}supabase/functions/_shared/mk261125003RecoverySSOT.ts`,
+    `${ROOT}supabase/tests/_shared/mk261125003RecoverySSOT.ts`,
   );
   assert(src.includes("recoverPlatformCollectedTripFinancialIntegrity"));
   assert(src.includes("tenCount"));

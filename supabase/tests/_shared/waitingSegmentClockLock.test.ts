@@ -17,7 +17,7 @@ import {
   segmentDurationSeconds,
   sumSegmentSeconds,
   type TrustedDriverLocation,
-} from "../../functions/_shared/waitingSegmentClock.ts";
+} from "./offline/waitingSegmentClock.ts";
 import { evaluateCanMarkNoShow } from "../../functions/pickup-no-show/lib/tripNoShowRules.ts";
 
 const PICKUP = { lat: 52.04, lng: -0.76 };

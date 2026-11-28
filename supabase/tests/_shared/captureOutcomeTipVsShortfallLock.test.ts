@@ -13,7 +13,7 @@ import {
   isFareDurableRecoveryStatus,
   isFarePaymentShortfallStatus,
   isTipCaptureOutcomeStatus,
-} from "../../functions/_shared/captureOutcomeClassificationSSOT.ts";
+} from "../../functions/process-trip-capture-jobs/lib/captureOutcomeClassificationSSOT.ts";
 import { durableSettlementColumns } from "../../functions/_shared/durableSettlementOutcomeSSOT.ts";
 import { resolveTrustedCaptureTipPence } from "../../functions/_shared/resolveTrustedCaptureTipPence.ts";
 

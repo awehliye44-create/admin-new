@@ -10,7 +10,7 @@ import {
   sumActiveReservedDriverPayoutsPence,
   sumCompletedDriverPayoutsThisMonthPence,
   sumProtectedDriverLiabilitiesPence,
-} from "../../../shared/payoutLedgerCompanyFundingSSOT";
+} from "../../../supabase/tests/_shared/offline/payoutLedgerCompanyFundingSSOT.ts";
 
 const {
   AHMED_ID,

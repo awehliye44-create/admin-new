@@ -12,18 +12,6 @@ export function isManualBankPayoutProvider(provider: string | null | undefined):
   return MANUAL_BANK_PAYOUT_PROVIDERS.has(provider.trim().toLowerCase());
 }
 
-/** Wallet-ledger eligibility for manual provider payouts (no provider Connect allocation). */
-export function manualProviderEligiblePence(args: {
-  walletUnpaidPence: number;
-  inFlightPayoutPence?: number;
-  payoutBlocked?: boolean;
-}): number {
-  if (args.payoutBlocked) return 0;
-  const wallet = Math.max(0, args.walletUnpaidPence);
-  const inFlight = Math.max(0, args.inFlightPayoutPence ?? 0);
-  return Math.max(0, wallet - inFlight);
-}
-
 /**
  * Resolve driver payout provider for a service area.
  * Prefer driver_payout_gateway — never let legacy payment_provider='provider' override Revolut payouts.

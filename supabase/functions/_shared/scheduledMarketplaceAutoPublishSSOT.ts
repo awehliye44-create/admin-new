@@ -112,7 +112,7 @@ export type ScheduledMarketplaceTripSnapshot = {
 /** Max automatic publication retry stamps before permanent hold for review. */
 export const SCHEDULED_MARKETPLACE_PUBLISH_MAX_ATTEMPTS = 5;
 
-const TERMINAL_STATUSES = new Set([
+export const TERMINAL_STATUSES = new Set([
   "completed",
   "cancelled",
   "customer_cancelled",
@@ -122,7 +122,7 @@ const TERMINAL_STATUSES = new Set([
   "expired_no_driver",
 ]);
 
-const LIVE_STATUSES = new Set([
+export const LIVE_STATUSES = new Set([
   "en_route_to_pickup",
   "arrived",
   "arrived_at_pickup",
@@ -131,11 +131,11 @@ const LIVE_STATUSES = new Set([
   "on_trip",
 ]);
 
-function lower(v: unknown): string {
+export function lower(v: unknown): string {
   return String(v ?? "").trim().toLowerCase();
 }
 
-function isBlank(v: unknown): boolean {
+export function isBlank(v: unknown): boolean {
   return v == null || String(v).trim() === "";
 }
 
@@ -192,112 +192,6 @@ export function isPrematureIdealBroadcastStamp(
   if (!isRoutineAutoPublishBookingSource(trip.booking_source)) return false;
   const at = trip.scheduled_broadcast_at ? Date.parse(String(trip.scheduled_broadcast_at)) : NaN;
   return Number.isFinite(at) && at > nowMs;
-}
-
-/**
- * Dry-run / ops classification — first matching class wins.
- * Mirror of docs Phase 3 hold taxonomy (H0–H9).
- */
-export function classifyScheduledMarketplaceHold(
-  trip: ScheduledMarketplaceTripSnapshot,
-  nowMs: number = Date.now(),
-): {
-  class: ScheduledMarketplaceHoldClass;
-  proposedAction: "skip" | "auto_publish" | "review" | "already_ok";
-  reason: string;
-} {
-  const status = lower(trip.status);
-  const sched = lower(trip.scheduled_status);
-  const mode = lower(trip.dispatch_mode);
-
-  if (mode && mode !== "scheduled" && !trip.scheduled_at) {
-    return { class: "not_scheduled", proposedAction: "skip", reason: "not_scheduled" };
-  }
-  if (
-    trip.completed_at ||
-    trip.cancelled_at ||
-    TERMINAL_STATUSES.has(status) ||
-    sched === "cancelled" ||
-    sched === "expired" ||
-    sched === "no_driver_found" ||
-    sched === "converted_to_instant" ||
-    (!isBlank(trip.driver_id) && LIVE_STATUSES.has(status))
-  ) {
-    return { class: "terminal_or_live", proposedAction: "skip", reason: "terminal_or_live" };
-  }
-  if (sched === "payment_gate_blocked") {
-    return {
-      class: "payment_gate_blocked",
-      proposedAction: "skip",
-      reason: "payment_or_capture_coverage",
-    };
-  }
-  if (trip.broadcast_enabled === false && Number(trip.airport_charge_pence ?? 0) > 0) {
-    return {
-      class: "airport_pricing_hold",
-      proposedAction: "skip",
-      reason: "airport_fare_persist_hold",
-    };
-  }
-  if (trip.broadcast_enabled === false) {
-    return {
-      class: "other_broadcast_disabled",
-      proposedAction: "review",
-      reason: "broadcast_enabled_false",
-    };
-  }
-  const pendingKind = lower(trip.pending_release_kind);
-  if (pendingKind === "assign" || pendingKind === "broadcast" || pendingKind === "jobs") {
-    const at = trip.pending_release_at ? Date.parse(String(trip.pending_release_at)) : NaN;
-    if (Number.isFinite(at)) {
-      return {
-        class: "exceptional_pending_release",
-        proposedAction: "skip",
-        reason: `pending_${pendingKind}_at_${trip.pending_release_at}`,
-      };
-    }
-  }
-  if (!isBlank(trip.confirmed_driver_id) && isBlank(trip.driver_id)) {
-    return { class: "preconfirmed", proposedAction: "skip", reason: "already_assigned_preconfirm" };
-  }
-  if (isScheduledMarketplaceAlreadyPublished(trip, nowMs)) {
-    return { class: "already_published", proposedAction: "already_ok", reason: "marketplace_open" };
-  }
-  if (isExceptionalManualBookingSource(trip.booking_source)) {
-    return {
-      class: "manual_admin_hold",
-      proposedAction: "review",
-      reason: "admin_manual_booking_source",
-    };
-  }
-  if (sched === "admin_held" && isBlank(trip.scheduled_broadcast_at) && isBlank(trip.driver_id) &&
-    isBlank(trip.confirmed_driver_id)) {
-    return {
-      class: "routine_admin_held",
-      proposedAction: "auto_publish",
-      reason: "routine_create_held",
-    };
-  }
-  if (
-    (sched === "scheduled" || sched === "pending" || sched === "") &&
-    isBlank(trip.scheduled_broadcast_at) &&
-    isBlank(trip.driver_id) &&
-    isBlank(trip.confirmed_driver_id)
-  ) {
-    return {
-      class: "legacy_unpublished",
-      proposedAction: "auto_publish",
-      reason: "legacy_null_broadcast_at",
-    };
-  }
-  if (isPrematureIdealBroadcastStamp(trip, nowMs)) {
-    return {
-      class: "legacy_unpublished",
-      proposedAction: "auto_publish",
-      reason: "premature_ideal_broadcast_stamp",
-    };
-  }
-  return { class: "already_published", proposedAction: "already_ok", reason: "no_hold" };
 }
 
 /**

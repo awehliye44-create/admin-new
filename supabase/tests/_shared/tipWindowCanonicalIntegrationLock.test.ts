@@ -14,7 +14,7 @@ import {
   TIP_NOT_COLLECTED_CUSTOMER_MESSAGE,
   TIP_WINDOW_STATUS,
   TIP_WINDOW_TRIGGER,
-} from "../../functions/_shared/tipWindowConstants.ts";
+} from "./offline/tipWindowConstants.ts";
 import {
   runCustomerTipWindowTrigger,
   runExpiredTipWindowTrigger,

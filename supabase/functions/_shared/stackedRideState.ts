@@ -18,5 +18,3 @@ export const STACKED_RIDE_STATES = {
   stacked_cancelled: "stacked_cancelled",
 } as const;
 
-export type StackedRideState = (typeof STACKED_RIDE_STATES)[keyof typeof STACKED_RIDE_STATES];
-

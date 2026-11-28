@@ -26,7 +26,7 @@ import {
   canConfigureForSelection,
   validateDemandZoneSettings,
   type DemandZoneSettings,
-} from '../../../shared/demandZoneSurgeSSOT';
+} from '../../../shared/edgePresentation/demandZoneSurgeSSOT.ts';
 import {
   buildDemandZoneSettingsSavePayload,
   demandZoneSettingsFormsEqual,

@@ -8,7 +8,7 @@ import {
   computeCashoutLimitPence,
   computeDriverWalletPayoutSnapshot,
   computeManualBankAvailablePence,
-} from "../../functions/_shared/driverWalletPayoutSSOT.ts";
+} from "./offline/driverWalletPayoutSSOT.ts";
 
 Deno.test("cashout limit is zero when provider instant is zero even if wallet owed", () => {
   assertEquals(

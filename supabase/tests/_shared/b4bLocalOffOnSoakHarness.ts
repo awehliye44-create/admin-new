@@ -4,7 +4,7 @@
 import {
   measureCompleteTripB4bWorkload,
   shouldParalleliseTipSetupReads,
-} from "../../functions/_shared/completeTripB4bSSOT.ts";
+} from "./offline/completeTripB4bSSOT.ts";
 
 export type B4bSoakResult = {
   all_pass: boolean;

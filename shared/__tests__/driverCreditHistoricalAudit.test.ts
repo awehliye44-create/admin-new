@@ -8,7 +8,7 @@ import { describe, expect, it } from "vitest";
 import {
   classifyDriverCreditHealth,
   runDriverCreditHistoricalAudit,
-} from "../driverCreditMonitoringSSOT.ts";
+} from "../../supabase/tests/_shared/offline/driverCreditMonitoringSSOT.ts";
 
 type PlatformCollectedTripFixture = {
   trip_id: string;

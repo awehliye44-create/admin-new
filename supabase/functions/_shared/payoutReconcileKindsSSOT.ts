@@ -30,10 +30,6 @@ export const POLLER_RECONCILE_BATCH_KINDS: readonly string[] = [
 /** Default for every other caller (driver-withdraw edge): Driver Withdraw only. */
 export const DEFAULT_RECONCILE_BATCH_KINDS: readonly string[] = [EARLY_CASHOUT_BATCH_KIND];
 
-export function isWeeklyPayoutBatchKind(kind: string | null | undefined): boolean {
-  return (WEEKLY_PAYOUT_BATCH_KINDS as readonly string[]).includes(String(kind ?? ""));
-}
-
 /** Only EARLY_CASHOUT may auto-fail + release on a provider terminal failure. */
 export function payoutKindAllowsAutoFailRelease(kind: string | null | undefined): boolean {
   return String(kind ?? "") === EARLY_CASHOUT_BATCH_KIND;

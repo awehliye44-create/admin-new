@@ -29,22 +29,6 @@ export const REVOLUT_TRANSACTION_STATES = {
   REVERTED: "reverted",
 } as const;
 
-export const NON_FINALISING_PROVIDER_STATES = new Set([
-  "created",
-  "pending",
-  "submitted",
-  "processing",
-  "failed",
-  "declined",
-  "cancelled",
-  "canceled",
-  "reverted",
-  "unknown",
-  "",
-]);
-
-export const SLICE8_LEDGER_DEBIT_TYPE = "WEEKLY_PAYOUT" as const;
-
 export const SLICE8_PROOF_DRIVERS = {
   AHMED_ID: "5ed232c3-8bb5-4085-95d6-73e48e6c5e28",
   AHMED_AMOUNT_PENCE: 1001,
@@ -89,22 +73,6 @@ export function evaluateSlice8FlagGate(_env: {
   get(key: string): string | undefined;
 }): { ok: true } | { ok: false; code: CompletionErrorCode; message: string } {
   return { ok: true };
-}
-
-export function completionDebitIdempotencyKey(providerPaymentId: string): string {
-  return `revolut-payout-completion:${String(providerPaymentId).trim()}`;
-}
-
-export function completionLedgerDescription(args: {
-  payout_item_id: string;
-  provider_payment_id: string;
-  reservation_id?: string | null;
-}): string {
-  const res = args.reservation_id ? ` reservation=${args.reservation_id}` : "";
-  return (
-    `Revolut payout completion debit item=${args.payout_item_id}` +
-    ` payment=${args.provider_payment_id}${res}`
-  );
 }
 
 export function evaluateCompletionEligibility(args: {

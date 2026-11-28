@@ -7,7 +7,7 @@ import {
   buildTowardsDestinationMap,
   isTowardsDestinationSessionActive,
   isValidTowardsDestinationCoord,
-} from "../../functions/_shared/towardsDestinationDispatchFilter.ts";
+} from "../../functions/auto-dispatch/lib/towardsDestinationDispatchFilter.ts";
 
 const ROOT = fromFileUrl(new URL("../../functions", import.meta.url));
 

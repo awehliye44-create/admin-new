@@ -21,7 +21,7 @@ export type RevolutMerchantContext = {
  * No durable invalidation bus — freshness is TTL + cold isolate restart.
  */
 export const MERCHANT_CONTEXT_TTL_MS = 30_000;
-const merchantContextCache = new Map<
+export const merchantContextCache = new Map<
   string,
   { expiresAt: number; value: RevolutMerchantContext }
 >();
@@ -74,9 +74,4 @@ export async function resolveRevolutMerchantContext(
     value,
   });
   return value;
-}
-
-/** Test helper — clear isolate cache between cases. */
-export function __resetRevolutMerchantContextCacheForTests(): void {
-  merchantContextCache.clear();
 }

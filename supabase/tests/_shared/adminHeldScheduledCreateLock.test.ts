@@ -19,7 +19,7 @@ import {
   isAdminHeldScheduledStatus,
   NO_PRECONFIRMED_CONVERT_SCHEDULED_STATUSES,
   resolveScheduledDispatchConfig,
-} from "../../functions/_shared/scheduledDispatchConfig.ts";
+} from "./offline/scheduledDispatchConfig.ts";
 
 const FIXTURE = {
   body: {

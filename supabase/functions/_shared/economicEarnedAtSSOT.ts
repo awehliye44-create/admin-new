@@ -23,9 +23,6 @@ export const ECONOMIC_DATE_STATUS = {
   CAPTURE_NOT_VERIFIED: "CAPTURE_NOT_VERIFIED",
 } as const;
 
-export const ECONOMIC_EARNED_AT_CREATED_AT_LOOKAROUND_MS =
-  45 * 24 * 60 * 60 * 1000;
-
 export type BackendEconomicFields = {
   ledger_entry_id?: string | null;
   related_trip_id?: string | null;
@@ -41,7 +38,7 @@ export type BackendEconomicFields = {
   clearing_status?: string | null;
 };
 
-function upper(value: string | null | undefined): string {
+export function upper(value: string | null | undefined): string {
   return String(value ?? "").trim().toUpperCase();
 }
 
@@ -128,26 +125,4 @@ export function mergeBackendEconomicFields<T extends { id?: string | null }>(
     eligible_at: fields.eligible_at ?? null,
     clearing_status: fields.clearing_status ?? null,
   };
-}
-
-export function sumAttributedTripEarningNetPence<
-  T extends {
-    type?: string | null;
-    amount_pence?: number | null;
-    economic_earned_at?: string | null;
-  },
->(
-  rows: T[],
-  startIso: string,
-  endIso: string,
-): number {
-  let sum = 0;
-  for (const row of rows) {
-    if (upper(row.type) !== LEDGER_TYPE_TRIP_EARNING_NET) continue;
-    if (!isInstantInHalfOpenRange(row.economic_earned_at, startIso, endIso)) continue;
-    const amount = Number(row.amount_pence ?? 0);
-    if (!Number.isFinite(amount)) continue;
-    sum += Math.round(amount);
-  }
-  return sum;
 }

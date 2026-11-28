@@ -6,7 +6,7 @@
  */
 import { assertEquals, assertStrictEquals } from "https://deno.land/std@0.224.0/assert/mod.ts";
 import { applyProviderRefundToOnecab } from "../../functions/_shared/applyProviderRefund.ts";
-import { computeRefundEventDriverReversalDelta } from "../../functions/_shared/providerRefundSSOT.ts";
+import { computeRefundEventDriverReversalDelta } from "./offline/providerRefundSSOT.ts";
 import { PAYMENT_SESSION_GATE_STATUS } from "../../functions/_shared/paymentSessionCaptureGateSSOT.ts";
 import {
   buildClientWithAtomicRpcMock,

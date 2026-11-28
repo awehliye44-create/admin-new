@@ -29,7 +29,7 @@ import {
 } from "../_shared/fcmHttpV1.ts";
 import { resolveCustomerAuthoritativeToken } from "../_shared/authoritativeDevicePush.ts";
 import { resolveCustomerLiveTripPlatformGates } from "../_shared/customerLiveTripFeatureFlag.ts";
-import { isCustomerLiveTripRuntimeCompatible } from "../_shared/customerLiveTripRuntimeGate.ts";
+import { isCustomerLiveTripRuntimeCompatible } from "./lib/customerLiveTripRuntimeGate.ts";
 import {
   peekTripRouteCacheLeg,
   resolveLiveTripEtaLeg,

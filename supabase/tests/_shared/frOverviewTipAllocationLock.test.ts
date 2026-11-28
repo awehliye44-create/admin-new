@@ -8,7 +8,7 @@ import { assertEquals } from "https://deno.land/std@0.224.0/assert/mod.ts";
 import {
   evaluateFrSettlementCaptureIdentity,
   sumFrAllocatedDriverEntitlementPence,
-} from "../../functions/_shared/frConsumeOnlySSOT.ts";
+} from "./offline/frConsumeOnlySSOT.ts";
 import {
   buildFrPerTripAuditRecord,
   aggregateFrOverviewFromPerTripRecords,

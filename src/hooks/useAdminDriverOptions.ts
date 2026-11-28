@@ -5,7 +5,7 @@ import {
   FINANCIAL_MODEL,
   type FinancialModel,
   normaliseServiceAreaFinancialModel,
-} from '../../shared/financialModelScopeSSOT';
+} from '../../shared/edgePresentation/financialModelScopeSSOT.ts';
 
 type AdminDriverRow = {
   id: string;

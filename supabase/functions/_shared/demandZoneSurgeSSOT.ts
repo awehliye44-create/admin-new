@@ -14,8 +14,6 @@
 
 export type DemandLevel = 'LOW' | 'MEDIUM' | 'HIGH';
 
-export const DEMAND_LEVELS: DemandLevel[] = ['LOW', 'MEDIUM', 'HIGH'];
-
 export interface DemandZoneSettings {
   service_area_id: string;
   heat_map_enabled: boolean;
@@ -68,13 +66,6 @@ export const DEFAULT_LEVEL_COLOURS: Record<DemandLevel, string> = {
   HIGH: DEMAND_ZONE_SETTINGS_DEFAULTS.colour_high,
 };
 
-/** Presentation-only fill/stroke opacity per level. */
-export const LEVEL_OPACITY: Record<DemandLevel, { fill: number; stroke: number }> = {
-  LOW: { fill: 0.18, stroke: 0.45 },
-  MEDIUM: { fill: 0.28, stroke: 0.55 },
-  HIGH: { fill: 0.38, stroke: 0.72 },
-};
-
 // ─── Colours ───
 
 const HEX_RE = /^#?[0-9a-fA-F]{6}$/;
@@ -90,13 +81,6 @@ export function normaliseHexColour(value: string): string {
   }
   const raw = value.trim().replace(/^#/, '');
   return `#${raw.toUpperCase()}`;
-}
-
-export function levelColour(settings: Pick<DemandZoneSettings, 'colour_low' | 'colour_medium' | 'colour_high'> | null | undefined, level: DemandLevel): string {
-  if (!settings) return DEFAULT_LEVEL_COLOURS[level];
-  const raw =
-    level === 'HIGH' ? settings.colour_high : level === 'MEDIUM' ? settings.colour_medium : settings.colour_low;
-  return isValidHexColour(raw) ? normaliseHexColour(raw) : DEFAULT_LEVEL_COLOURS[level];
 }
 
 // ─── Validation ───
@@ -164,16 +148,6 @@ export function validateSurge(s: Pick<DemandZoneSettings,
     errors.push('HIGH_LT_MEDIUM');
   }
 
-  return { valid: errors.length === 0, errors };
-}
-
-export function validateDemandZoneSettings(s: Omit<DemandZoneSettings, 'service_area_id'> & { service_area_id?: string }): ValidationResult {
-  const errors = [
-    ...validateThresholds(s).errors,
-    ...validateColours(s).errors,
-    ...validateSurge(s).errors,
-  ];
-  if (!s.service_area_id) errors.push('SERVICE_AREA_REQUIRED');
   return { valid: errors.length === 0, errors };
 }
 
@@ -264,25 +238,6 @@ export interface DemandTripCandidate {
   created_at: string | number | Date;
 }
 
-/** Counts each unique open, unassigned, in-lifetime trip exactly once. */
-export function countOpenTrips(
-  trips: DemandTripCandidate[],
-  nowMs: number,
-  openTripMaxLifetimeMinutes: number,
-): number {
-  const lifetimeMs = openTripMaxLifetimeMinutes * 60_000;
-  const seen = new Set<string>();
-  for (const t of trips) {
-    if (t.driver_id) continue;
-    if (!(OPEN_TRIP_DEMAND_STATUSES as readonly string[]).includes(String(t.status).toLowerCase())) continue;
-    const created = new Date(t.created_at).getTime();
-    if (!Number.isFinite(created)) continue;
-    if (nowMs - created > lifetimeMs) continue;
-    seen.add(t.trip_id);
-  }
-  return seen.size;
-}
-
 // ─── Zone-based surge resolution ───
 
 export interface SurgeZone {
@@ -341,43 +296,6 @@ export function multiplierForLevel(
   const raw = level === 'HIGH' ? s.multiplier_high : level === 'MEDIUM' ? s.multiplier_medium : s.multiplier_low;
   if (raw == null || !Number.isFinite(raw) || raw < 1) return 1;
   return Math.min(raw, s.max_multiplier ?? raw);
-}
-
-/**
- * Backend-only surge resolution. The pickup coordinate is the sole input;
- * destination never influences surge.
- */
-export function resolveZoneSurge(params: {
-  zones: SurgeZone[];
-  settings: DemandZoneSettings | null;
-  serviceAreaId: string;
-  pickupLat: number;
-  pickupLng: number;
-}): SurgeResolution {
-  const { zones, settings, serviceAreaId, pickupLat, pickupLng } = params;
-  if (!settings) {
-    return { zone_id: null, confirmed_demand_level: null, applied_multiplier: 1, surge_enabled: false, reason: 'NO_SETTINGS' };
-  }
-  const zone = findPickupZone(zones, pickupLat, pickupLng, serviceAreaId);
-  if (!zone) {
-    return { zone_id: null, confirmed_demand_level: null, applied_multiplier: 1, surge_enabled: settings.surge_enabled, reason: 'NO_ZONE' };
-  }
-  if (!settings.surge_enabled) {
-    return {
-      zone_id: zone.id,
-      confirmed_demand_level: zone.confirmed_demand_level,
-      applied_multiplier: 1,
-      surge_enabled: false,
-      reason: 'SURGE_DISABLED',
-    };
-  }
-  return {
-    zone_id: zone.id,
-    confirmed_demand_level: zone.confirmed_demand_level,
-    applied_multiplier: multiplierForLevel(settings, zone.confirmed_demand_level),
-    surge_enabled: true,
-    reason: 'ZONE_MULTIPLIER',
-  };
 }
 
 // ─── Quote shape + lock ───
@@ -560,23 +478,6 @@ export async function assertBookingSurgeAtPickup(
   );
 }
 
-/** A quote must be refreshed when the pickup moves out of the quoted zone or it expires. */
-export function quoteRequiresRefresh(
-  quote: SurgeQuote,
-  currentPickup: { lat: number; lng: number },
-  nowMs: number,
-  zones: SurgeZone[],
-): boolean {
-  if (new Date(quote.quote_expires_at).getTime() <= nowMs) return true;
-  const zone = findPickupZone(zones, currentPickup.lat, currentPickup.lng, quote.service_area_id);
-  return (zone?.id ?? null) !== quote.zone_id;
-}
-
-/** Client-supplied multipliers are never trusted — the locked quote value wins. */
-export function lockedBookingMultiplier(quote: SurgeQuote, _clientSubmittedMultiplier?: unknown): number {
-  return quote.applied_multiplier;
-}
-
 // ─── Permissions + admin mode ───
 
 export const DEMAND_ZONE_ACTION_KEYS = {
@@ -591,17 +492,3 @@ export const DEMAND_ZONE_ACTION_KEYS = {
 export type DemandZoneActionKey = (typeof DEMAND_ZONE_ACTION_KEYS)[keyof typeof DEMAND_ZONE_ACTION_KEYS];
 
 export const ALL_SERVICE_AREAS = 'all';
-
-export const ALL_SERVICE_AREAS_MESSAGE =
-  'Select one service area to configure heat-map and surge settings.';
-
-export function canConfigureForSelection(params: {
-  selectedServiceAreaId: string;
-  isSuperAdmin: boolean;
-  allowedActions: string[];
-  actionKey: DemandZoneActionKey;
-}): boolean {
-  if (params.selectedServiceAreaId === ALL_SERVICE_AREAS || !params.selectedServiceAreaId) return false;
-  if (params.isSuperAdmin) return true;
-  return params.allowedActions.includes(params.actionKey);
-}

@@ -9,7 +9,7 @@ import {
   isVerifiedCurrentActiveHoldRow,
   rowNeedsActiveReleaseNow,
   rowNeedsManualRecoveryNow,
-} from '../../../shared/paymentSessionsOperationalChipsSSOT.ts';
+} from '../../../shared/edgePresentation/paymentSessionsOperationalChipsSSOT.ts';
 
 function row(partial: Partial<AdminPaymentSessionsListRow>): AdminPaymentSessionsListRow {
   return {

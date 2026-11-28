@@ -4,3 +4,4 @@
  */
 
 export * from "../supabase/functions/_shared/commissionWalletSSOT.ts";
+export * from "./edgePresentation/commissionWalletSSOT.ts";

@@ -41,10 +41,6 @@ export type RideBookingPaymentSessionLoadResult = {
   error: { code?: string; message: string } | null;
 };
 
-export function paymentSessionCaptureGateSelectColumns(): string[] {
-  return PAYMENT_SESSION_CAPTURE_GATE_SELECT.split(/,\s*/).map((c) => c.trim()).filter(Boolean);
-}
-
 function normalizeGateRow(
   data: unknown,
 ): PaymentSessionGateRow | null {

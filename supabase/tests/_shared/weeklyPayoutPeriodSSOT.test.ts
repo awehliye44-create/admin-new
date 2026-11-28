@@ -18,7 +18,7 @@ import {
   resolvePreviousCompletedCalendarWeek,
   resolveWeeklyOccurrenceMoneyAmounts,
   selectWeeklyPeriodPayableCredits,
-} from "../../functions/_shared/weeklyPayoutPeriodSSOT.ts";
+} from "./offline/weeklyPayoutPeriodSSOT.ts";
 import { planPayoutItemFromEligibleEntries } from "../../functions/_shared/payoutLedgerHandoffSSOT.ts";
 import { evaluateDriverBatchEligibility } from "../../functions/_shared/weeklyDriverPayoutBatchWorkflowSSOT.ts";
 import { isConflictingActivePayoutItem } from "../../functions/_shared/payoutItemLifecycleSSOT.ts";

@@ -12,7 +12,7 @@ import {
   fleetMaxPickupMilesFromDispatchRow,
   resolveFleetMaxPickupDistanceMiles,
   validateFleetMaxPickupDistanceMiles,
-} from "./fleetMaxPickupDistanceSSOT.ts";
+} from "../supabase/tests/_shared/offline/fleetMaxPickupDistanceSSOT.ts";
 
 Deno.test("failsafe is 17.8 miles", () => {
   assertEquals(FLEET_MAX_PICKUP_DISTANCE_MILES_FAILSAFE, 17.8);

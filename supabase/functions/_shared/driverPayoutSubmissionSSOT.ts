@@ -27,19 +27,6 @@ export const SUBMISSION_ERROR = {
 export type SubmissionErrorCode =
   (typeof SUBMISSION_ERROR)[keyof typeof SUBMISSION_ERROR];
 
-/** Admin labels — never "Paid" for Slice 7 submission success. */
-export const ADMIN_SLICE7_LABELS = {
-  RESERVED: "Reserved",
-  PROVIDER_SUBMITTED: "Submitted to provider",
-  PROVIDER_PENDING: "Provider pending",
-  PROVIDER_UNKNOWN: "Provider state unknown",
-  PROVIDER_FAILED: "Provider submission failed",
-  PROVIDER_DECLINED: "Provider declined",
-  PAID: "Paid",
-  WALLET_DEBIT_NOT_APPLIED: "Wallet debit not applied",
-  NOT_PAID: "Not paid",
-} as const;
-
 export const SLICE7_PROOF_DRIVERS = {
   AHMED_ID: "5ed232c3-8bb5-4085-95d6-73e48e6c5e28",
   AHMED_AMOUNT_PENCE: 1001,

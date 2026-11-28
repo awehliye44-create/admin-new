@@ -25,52 +25,6 @@ export function getServiceSupabase(): SupabaseClient {
   });
 }
 
-export function veriffApiKey(): string | null {
-  return (
-    Deno.env.get("VERIFF_API_KEY")?.trim() ||
-    Deno.env.get("VERIFF_API_TOKEN")?.trim() ||
-    null
-  );
-}
-
-export function veriffSharedSecret(): string | null {
-  return (
-    Deno.env.get("VERIFF_SHARED_SECRET")?.trim() ||
-    Deno.env.get("VERIFF_WEBHOOK_SECRET")?.trim() ||
-    Deno.env.get("VERIFF_API_SECRET")?.trim() ||
-    null
-  );
-}
-
-export function veriffBaseUrl(): string {
-  return (
-    Deno.env.get("VERIFF_API_BASE_URL")?.trim() ||
-    "https://stationapi.veriff.com"
-  );
-}
-
-/** HMAC-SHA256 hex digest of payload with Veriff shared secret. */
-export async function veriffHmacHex(
-  payload: string,
-  secret: string,
-): Promise<string> {
-  const key = await crypto.subtle.importKey(
-    "raw",
-    new TextEncoder().encode(secret),
-    { name: "HMAC", hash: "SHA-256" },
-    false,
-    ["sign"],
-  );
-  const sig = await crypto.subtle.sign(
-    "HMAC",
-    key,
-    new TextEncoder().encode(payload),
-  );
-  return Array.from(new Uint8Array(sig))
-    .map((b) => b.toString(16).padStart(2, "0"))
-    .join("");
-}
-
 export async function timingSafeEqualHex(
   a: string,
   b: string,
@@ -144,28 +98,6 @@ export async function assertCustomerIdentityBookAllowed(
     message:
       "Verify your identity in Account before booking in this service area.",
   };
-}
-
-export type VeriffSessionCreateResult =
-  | {
-      ok: true;
-      sessionId: string;
-      sessionUrl: string;
-      raw: Record<string, unknown>;
-    }
-  | { ok: false; code: string; message: string };
-
-export function mapVeriffDecisionStatus(
-  raw: string | null | undefined,
-): "approved" | "declined" | "resubmission_requested" | "expired" | "processing" {
-  const s = (raw ?? "").toLowerCase().trim();
-  if (s === "approved" || s === "success") return "approved";
-  if (s === "declined" || s === "rejected") return "declined";
-  if (s === "resubmission_requested" || s === "resubmission") {
-    return "resubmission_requested";
-  }
-  if (s === "expired" || s === "abandoned") return "expired";
-  return "processing";
 }
 
 /**

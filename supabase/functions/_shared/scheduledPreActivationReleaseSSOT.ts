@@ -113,18 +113,3 @@ export function buildScheduledUrgentRematchPatch(input: {
   };
 }
 
-export function resolvePreActivationReleaseKind(input: {
-  scheduledAtIso: string;
-  nowMs?: number;
-  urgentTriggerMinutesBeforePickup?: number;
-  broadcastEnabled?: boolean | null;
-}): ScheduledPreActivationReleaseKind {
-  const urgent = shouldUrgentConvertOnPreActivationRelease({
-    scheduledAtIso: input.scheduledAtIso,
-    nowMs: input.nowMs,
-    urgentTriggerMinutesBeforePickup: input.urgentTriggerMinutesBeforePickup,
-  });
-  if (urgent && input.broadcastEnabled !== false) return "urgent_convert";
-  return "marketplace_reopen";
-}
-

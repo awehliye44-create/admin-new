@@ -9,7 +9,7 @@ import {
   BOOKING_CANONICAL_TRIP_LOOKUP_SELECT,
   evaluateBookingCanonicalTripLookup,
   type BookingCanonicalTripRow,
-} from "../_shared/bookingCanonicalTripLookupSSOT.ts";
+} from "./lib/bookingCanonicalTripLookupSSOT.ts";
 import { serveWithEdgeTiming } from "../_shared/edgeFunctionTiming.ts";
 
 const corsHeaders = {

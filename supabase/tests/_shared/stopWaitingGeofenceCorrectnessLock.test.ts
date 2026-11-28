@@ -18,7 +18,7 @@ import {
 import {
   evaluateWaitingInsideRadius,
   sumSegmentSeconds,
-} from "../../functions/_shared/waitingSegmentClock.ts";
+} from "./offline/waitingSegmentClock.ts";
 
 const stopWorkflowPath = new URL(
   "../../functions/stop-workflow/index.ts",

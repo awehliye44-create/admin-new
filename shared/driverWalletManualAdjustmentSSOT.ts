@@ -4,3 +4,4 @@
  */
 
 export * from "../supabase/functions/_shared/driverWalletManualAdjustmentSSOT.ts";
+export * from "./edgePresentation/driverWalletManualAdjustmentSSOT.ts";

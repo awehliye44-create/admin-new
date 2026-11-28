@@ -6,7 +6,7 @@ import {
   resolveTerminalOutcomeKind,
   isTerminalFeeTrip,
   type TerminalTripRow,
-} from "../../functions/_shared/terminalFeeSettlementResumptionSSOT.ts";
+} from "./offline/terminalFeeSettlementResumptionSSOT.ts";
 import { computeTerminalOutcomeEntitlement } from "../../functions/_shared/terminalOutcomeEntitlementSSOT.ts";
 
 const ROOT = new URL("../../functions/", import.meta.url);

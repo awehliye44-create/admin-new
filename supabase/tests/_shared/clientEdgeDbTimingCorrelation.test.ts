@@ -8,7 +8,7 @@ import {
 import {
   correlateClientEdgeTimings,
   summarizeCorrelation,
-} from "../../functions/_shared/clientEdgeDbTimingCorrelation.ts";
+} from "./clientEdgeDbTimingCorrelation.ts";
 
 Deno.test("correlates on client_action_id and derives transport gap", () => {
   const rows = correlateClientEdgeTimings(

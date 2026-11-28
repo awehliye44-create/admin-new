@@ -15,7 +15,7 @@ import {
   normalizeCapabilityList,
   resolveDepartureAckCapabilityConfig,
   resolveDepartureAckExecutionModeForDriver,
-} from "../../functions/_shared/scheduledDepartureAckCapabilitySSOT.ts";
+} from "./offline/scheduledDepartureAckCapabilitySSOT.ts";
 
 const capableV2Snap = {
   capabilities: [

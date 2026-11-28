@@ -25,47 +25,6 @@ const UNRESOLVED_STATES = [
   "RECONCILING",
 ] as const;
 
-/**
- * Count durable ops that must be reconciled before Edge rollback or Stage D enablement
- * while mixed-version workers could still POST.
- */
-export async function loadInflightFinancialOperationSummary(
-  supabase: SupabaseClient,
-): Promise<InflightFinancialOpSummary | { error: string; missingMigration: boolean }> {
-  try {
-    const { data, error } = await supabase
-      .from("payment_financial_operations")
-      .select("execution_id, state, provider_post_inflight")
-      .or(
-        `provider_post_inflight.eq.true,state.in.(${UNRESOLVED_STATES.join(",")})`,
-      )
-      .limit(50);
-
-    if (error) {
-      const missing = /relation .* does not exist|payment_financial_operations/i
-        .test(error.message);
-      return { error: error.message, missingMigration: missing };
-    }
-
-    const rows = data ?? [];
-    const inflight = rows.filter((r) => r.provider_post_inflight === true);
-    return {
-      inflight_count: inflight.length,
-      unresolved_count: rows.length,
-      sample_execution_ids: rows
-        .slice(0, 5)
-        .map((r) => String(r.execution_id ?? ""))
-        .filter(Boolean),
-    };
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    return {
-      error: msg,
-      missingMigration: /relation .* does not exist|payment_financial_operations/i.test(msg),
-    };
-  }
-}
-
 /** Safe to roll Edge back to 871c73ac only when no provider POST is inflight/unresolved. */
 export function decideEdgeRollbackSafety(
   summary: InflightFinancialOpSummary,
@@ -82,25 +41,6 @@ export function decideEdgeRollbackSafety(
       reason: `unresolved_financial_ops=${summary.unresolved_count}; quiesce before rollback`,
     };
   }
-  return { ok: true };
-}
-
-/**
- * Stage D may enable only when operators confirm all Edge workers are fence-aware
- * AND no inflight posts remain (rolling deploy complete).
- */
-export function decideStageDEnablement(args: {
-  allWorkersFenceAware: boolean;
-  inflight: InflightFinancialOpSummary;
-}): { ok: true } | { ok: false; reason: string } {
-  if (!args.allWorkersFenceAware) {
-    return {
-      ok: false,
-      reason: "incompatible_workers_still_active; keep stage<=C until 100% fence-aware Edge",
-    };
-  }
-  const quiet = decideEdgeRollbackSafety(args.inflight);
-  if (!quiet.ok) return quiet;
   return { ok: true };
 }
 

@@ -4,3 +4,4 @@
  */
 
 export * from "../supabase/functions/_shared/performanceHealthControl.ts";
+export * from "./edgePresentation/performanceHealthControl.ts";

@@ -4,7 +4,7 @@ import { supabase } from '@/integrations/supabase/client';
 import {
   isDriverEligibleForAdminCommissionCredit,
   matchesAdminCommissionCreditDriverSearch,
-} from '../../shared/commissionWalletSSOT';
+} from '../../shared/edgePresentation/commissionWalletSSOT.ts';
 
 export type CommissionWalletCreditDriver = {
   id: string;

@@ -118,7 +118,7 @@ export type TripSettlementTripRow = {
   accepted_driver_offer_fare_pence?: number | null;
 };
 
-function nonNegInt(value: unknown): number {
+export function nonNegInt(value: unknown): number {
   const n = Number(value);
   if (!Number.isFinite(n) || n <= 0) return 0;
   return Math.round(n);
@@ -143,18 +143,6 @@ export function isPromotionSupersededByNegotiation(trip: TripSettlementTripRow):
 /** Locked ONECAB-funded promotion — existing `offer_discount_pence` when source is global_offer. */
 export function resolveLockedPromotionPence(trip: TripSettlementTripRow): number {
   if (isPromotionSupersededByNegotiation(trip)) return 0;
-  const src = typeof trip.discount_source === "string" ? trip.discount_source : "";
-  if (src !== "global_offer") return 0;
-  return nonNegInt(trip.offer_discount_pence);
-}
-
-/** Audit-only prior promotion when negotiation superseded global_offer. */
-export function resolvePreviousLockedPromotionPence(trip: TripSettlementTripRow): number {
-  const snap = trip.fare_snapshot_json;
-  if (snap && typeof snap === "object") {
-    const fromSnap = nonNegInt(snap.previous_locked_promotion_pence);
-    if (fromSnap > 0) return fromSnap;
-  }
   const src = typeof trip.discount_source === "string" ? trip.discount_source : "";
   if (src !== "global_offer") return 0;
   return nonNegInt(trip.offer_discount_pence);

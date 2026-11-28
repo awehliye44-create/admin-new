@@ -9,7 +9,7 @@ import {
   classifyHistoricalReleaseEvidenceBackfill,
   isEligibleHistoricalReleaseEvidenceSession,
   wouldDowngradeReleaseEvidence,
-} from "../../_shared/historicalReleaseEvidenceBackfillSSOT.ts";
+} from "./historicalReleaseEvidenceBackfillSSOT.ts";
 import { safePersistCaptureResidualReleaseEvidence } from "../../_shared/paymentSessionSSOT.ts";
 import { RELEASE_EVIDENCE_SOURCE } from "../../_shared/paymentSessionReleaseEvidenceSSOT.ts";
 import { retrieveRevolutOrder } from "../../_shared/revolutOrders.ts";

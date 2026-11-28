@@ -9,7 +9,7 @@ import {
   CANONICAL_COMPLETED_EXECUTION_STATUS,
   isConflictingActivePayoutItem,
   resolvePayoutItemLifecycle,
-} from "../../functions/_shared/payoutItemLifecycleSSOT.ts";
+} from "./offline/payoutItemLifecycleSSOT.ts";
 
 const FORWARD =
   "../../migrations/20261123120000_finalize_payout_item_execution_status_terminal_and_repair.sql";

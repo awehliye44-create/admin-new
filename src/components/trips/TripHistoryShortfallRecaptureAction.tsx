@@ -31,7 +31,7 @@ import {
   resolveRecaptureAttemptUi,
   TRIP_SHORTFALL_RECAPTURE_UI_STATE,
   type TripShortfallRecaptureUiState,
-} from '../../../shared/tripHistoryShortfallRecaptureSSOT';
+} from '../../../shared/edgePresentation/tripHistoryShortfallRecaptureSSOT.ts';
 import {
   buildTripHistoryPaymentEvidenceReadModel,
   type TripHistoryPaymentEvidenceTrip,

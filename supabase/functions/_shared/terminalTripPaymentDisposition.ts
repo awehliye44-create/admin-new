@@ -112,25 +112,6 @@ export function buildTerminalDispositionMetadata(args: {
   };
 }
 
-export function sessionMetadataContradictsCapture(
-  metadata: Record<string, unknown> | null | undefined,
-  capturedFeePence: number,
-): boolean {
-  if (capturedFeePence <= 0) return false;
-  const meta = metadata ?? {};
-  if (meta.terminal_disposition_pending === true || meta.pending === true) return true;
-  if (meta.void_full === true) return true;
-  if (meta.terminal_disposition_provider_action === "void_full") return true;
-  if (Number(meta.terminal_disposition_fee_pence ?? meta.fee_pence ?? 0) === 0) return true;
-  const decision = meta.terminal_disposition_decision;
-  if (decision && typeof decision === "object") {
-    const row = decision as Record<string, unknown>;
-    if (row.provider_action === "void_full") return true;
-    if (Number(row.fee_amount_pence ?? row.capture_required_pence ?? 0) === 0) return true;
-  }
-  return false;
-}
-
 const TERMINAL_NON_COMPLETED = new Set([
   "cancelled",
   "canceled",

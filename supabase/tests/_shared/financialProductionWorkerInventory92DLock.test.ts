@@ -56,7 +56,7 @@ Deno.test("#92D process-trip-capture-jobs has local source and only invokes fina
   assertEquals(entry.includes("increment-authorisation"), false);
 
   const ssot = await Deno.readTextFile(
-    repoPath("supabase/functions/_shared/tripCaptureJobSSOT.ts"),
+    repoPath("supabase/functions/process-trip-capture-jobs/lib/tripCaptureJobSSOT.ts"),
   );
   assert(ssot.includes("invokeFinalizeTripCapture"));
   assert(ssot.includes("finalize-trip-and-capture") || ssot.includes("invokeFinalizeTripCapture"));

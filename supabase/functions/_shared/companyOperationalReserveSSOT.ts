@@ -1,14 +1,4 @@
-/**
- * Slice 10 — Operational / Refund Reserve SSOT + final company funds gate.
- *
- * Configuration never moves money. Client must not invent reserve amounts —
- * only ACTIVE backend policy unlocks final_company_available.
- *
- * Until ACTIVE policy: reserve NOT_CONFIGURED, final Available UNAVAILABLE,
- * company transfer execution BLOCKED. Never fall back to zero reserve silently.
- */
 
-export const SLICE10 = 10 as const;
 
 export const RESERVE_MODE = {
   FIXED_AMOUNT: "FIXED_AMOUNT",
@@ -40,26 +30,12 @@ export const OPERATIONAL_RESERVE_ERROR = {
   ACTIVATION_AUDIT_REASON_REQUIRED: "RESERVE_ACTIVATION_AUDIT_REASON_REQUIRED",
 } as const;
 
-/** Recommended launch/testing fixed reserve — £1.00. */
-export const RECOMMENDED_LAUNCH_RESERVE_PENCE = 100;
-
 /** Owner must type/confirm this exact phrase to activate a £0.00 fixed reserve. */
 export const ZERO_RESERVE_OWNER_CONFIRMATION_PHRASE =
   "I understand no operational/refund reserve will be protected.";
 
 export type OperationalReserveErrorCode =
   (typeof OPERATIONAL_RESERVE_ERROR)[keyof typeof OPERATIONAL_RESERVE_ERROR];
-
-/** Proven money state — do not mutate (Slice 7–9 PASS). */
-export const SLICE10_PROOF = {
-  SOURCE_PENCE: 1526,
-  LIABILITY_PENCE: 1001,
-  RESERVED_PENCE: 1001,
-  BEFORE_RESERVE_PENCE: 525,
-  NET_COMMISSION_PENCE: 172,
-  UNCLASSIFIED_PENCE: 353,
-  APPROVED_PAYABLES_PENCE: 0,
-} as const;
 
 export type CompanyOperationalReservePolicy = {
   id?: string | null;
@@ -109,19 +85,6 @@ export function computeEligibleCompanyCashPence(args: {
     + Math.max(0, Number(args.customer_refund_reserved_pence ?? 0))
     + Math.max(0, Number(args.approved_company_payables_pence ?? 0));
   return Math.max(0, args.provider_available_balance_pence - protectedSum);
-}
-
-/**
- * classified_company_cash = recognised_net_commission + other explicitly classified funding.
- * UNATTRIBUTED / RECONCILIATION_REQUIRED never included.
- */
-export function computeClassifiedCompanyCashPence(args: {
-  recognised_net_commission_pence: number | null | undefined;
-  other_classified_funding_pence?: number | null;
-}): number | null {
-  if (args.recognised_net_commission_pence == null) return null;
-  return Math.max(0, Math.round(Number(args.recognised_net_commission_pence)))
-    + Math.max(0, Math.round(Number(args.other_classified_funding_pence ?? 0)));
 }
 
 /** transferable_base = min(eligible_company_cash, classified_company_cash) */
@@ -427,24 +390,6 @@ export function resolveOperationalReserveAmount(args: {
     policy: gated.policy,
     reason_code: null,
   };
-}
-
-/** Explicit company-transfer gate reasons (never source / protected / gross / unclassified). */
-export function assertFinalCompanyTransferAllowed(args: {
-  final_company_available_pence: number | null | undefined;
-  amount_pence?: number | null;
-  reserve_reason_code?: string | null;
-}): void {
-  if (args.final_company_available_pence == null) {
-    throw new Error(
-      args.reserve_reason_code
-        || OPERATIONAL_RESERVE_ERROR.TRANSFER_BLOCKED,
-    );
-  }
-  const amount = args.amount_pence == null ? null : Number(args.amount_pence);
-  if (amount != null && amount > args.final_company_available_pence) {
-    throw new Error(OPERATIONAL_RESERVE_ERROR.TRANSFER_BLOCKED);
-  }
 }
 
 export function parsePolicyRow(raw: unknown): CompanyOperationalReservePolicy | null {

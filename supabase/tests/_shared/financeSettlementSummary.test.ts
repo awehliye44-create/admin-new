@@ -82,7 +82,7 @@ Deno.test("computeSafePayoutAmount caps to provider available balance", () => {
 });
 
 Deno.test("buildFinanceReconciliationSummary balances card ledger", async () => {
-  const { computeSSOTMetrics } = await import("../../functions/_shared/financialReconciliationSSOT.ts");
+  const { computeSSOTMetrics } = await import("./offline/financialReconciliationSSOT.ts");
   const ssot = computeSSOTMetrics({
     payments: [{ trip_id: "t1", captured_amount_pence: 5783, status: "captured" }],
     trips: [{ ...TRIP_5783, id: "t1" }],

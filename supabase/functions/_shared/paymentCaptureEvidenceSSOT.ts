@@ -1,13 +1,4 @@
-/**
- * Canonical capture evidence rules for Revolut/card/mobile-wallet payments.
- * captured_amount_pence = 0 is never valid terminal capture for a positive-fare ride.
- */
 
-export type CaptureRepairClassification =
-  | "CAPTURE_AMOUNT_MISSING"
-  | "CAPTURE_ZERO_INVALID"
-  | "CAPTURE_AMOUNT_MISMATCH"
-  | "CAPTURE_COMPLETE";
 
 /** True only when amount is a confirmed positive capture (pence). */
 export function isValidConfirmedCapturePence(

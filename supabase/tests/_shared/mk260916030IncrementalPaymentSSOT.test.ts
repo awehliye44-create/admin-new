@@ -14,12 +14,12 @@ import {
   decideModificationIncrementCoverage,
   poundsToPenceExact,
   simulateModificationAuthorisationSequence,
-} from "../../functions/_shared/tripModificationPaymentGateSSOT.ts";
+} from "./offline/tripModificationPaymentGateSSOT.ts";
 import {
   CUSTOMER_PAYMENT_INCREMENT_UNRESOLVED,
   resolveCommittedCustomerPayablePence,
   resolveProtectedCustomerPayablePence,
-} from "../../functions/_shared/executeFareIncreaseModificationPayment.ts";
+} from "./offline/executeFareIncreaseModificationPayment.ts";
 import type { RevolutOrder } from "../../functions/_shared/revolutOrders.ts";
 
 function orderShape(args: {

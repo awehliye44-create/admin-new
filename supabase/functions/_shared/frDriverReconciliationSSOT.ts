@@ -140,10 +140,6 @@ export const FR_TRIP_ENTITLEMENT_CREDIT_TYPES: ReadonlySet<string> = new Set([
   TRIP_TIP_CREDIT_TYPE,
 ]);
 
-export function isFrTripEntitlementCreditType(type: string | null | undefined): boolean {
-  return FR_TRIP_ENTITLEMENT_CREDIT_TYPES.has(String(type ?? "").toUpperCase());
-}
-
 const DEBT_RECOVERY_TYPES = new Set(["DEBT_RECOVERY"]);
 
 const PAYOUT_DEBIT_TYPES = new Set([
@@ -496,10 +492,6 @@ export function classifyFrPayoutStatus(payout_variance_pence: number, payoutActi
   return "PAYOUT_MISMATCH";
 }
 
-export function sumExpectedPayablePence(trips: FrDriverSettlementTrip[]): number | null {
-  return sumFrDriverExpectedEntitlementPence(trips).expected_payable_pence;
-}
-
 export function sumCompletedPayoutLedgerPence(items: FrDriverPayoutLedgerItem[]): number {
   const done = new Set(["completed", "paid", "succeeded"]);
   return items.reduce((s, row) => {
@@ -519,11 +511,6 @@ export function periodPayableVariancePence(args: {
 }): number | null {
   if (args.expected_payable_pence == null || args.actual_ten_credits_pence == null) return null;
   return Math.round(args.actual_ten_credits_pence) - Math.round(args.expected_payable_pence);
-}
-
-/** Live wallet balance is never the FR reconciliation-status input. */
-export function frReconciliationStatusIgnoresLiveWalletBalance(): true {
-  return true;
 }
 
 /**
@@ -868,80 +855,5 @@ export function computeFrDriverReconciliation(
     query_scope_status: queryScopeStatus,
     reconciliation_reasons: reasons,
     provider_balance_is_reference_only: true,
-  };
-}
-
-/** Aggregate per-driver statuses — no cross-driver amount netting. */
-export function aggregateFrDriverAuditOverview(
-  rows: Array<{ reconciliation_status: FrDriverReconciliationStatus }>,
-  args?: { settlementIdentityBalanced?: boolean },
-): FrDriverAuditOverviewCounts {
-  let balanced = 0;
-  let walletMismatch = 0;
-  let payoutMismatch = 0;
-  let providerUnavailable = 0;
-  let pendingSync = 0;
-
-  for (const row of rows) {
-    const s = row.reconciliation_status;
-    const credit = (row as { driver_credit_status?: FrDriverCreditStatus }).driver_credit_status;
-    const payout = (row as { payout_status?: FrPayoutReconciliationStatus }).payout_status;
-    if (s === "BALANCED") balanced += 1;
-    if (
-      s === "DRIVER_WALLET_MISMATCH"
-      || s === "DRIVER_AND_PAYOUT_MISMATCH"
-      || s === "MISSING_WALLET_EVIDENCE"
-      || credit === "DRIVER_UNDER_CREDITED"
-      || credit === "DRIVER_OVER_CREDITED"
-      || credit === "EXPECTED_STAMP_MISSING"
-    ) {
-      walletMismatch += 1;
-    }
-    if (
-      s === "PAYOUT_MISMATCH"
-      || s === "DRIVER_AND_PAYOUT_MISMATCH"
-      || payout === "PAYOUT_MISMATCH"
-    ) {
-      payoutMismatch += 1;
-    }
-    if (s === "PROVIDER_BALANCE_UNAVAILABLE") providerUnavailable += 1;
-    if (
-      s === "PENDING_SYNC"
-      || s === "MISSING_SETTLEMENT_EVIDENCE"
-      || s === "ACCOUNT_UNVERIFIED"
-    ) {
-      pendingSync += 1;
-    }
-  }
-
-  const audited = rows.length;
-  const mismatchAny = walletMismatch > 0 || payoutMismatch > 0;
-  const incomplete = pendingSync > 0 || providerUnavailable > 0;
-  const settlementOk = args?.settlementIdentityBalanced === true;
-
-  let overview: FrDriverAuditOverviewCounts["overview_driver_audit_status"];
-  if (audited === 0) {
-    overview = "SETTLEMENT_BALANCED_DRIVER_AUDIT_PENDING";
-  } else if (mismatchAny) {
-    overview = "DRIVER_AUDIT_MISMATCH";
-  } else if (incomplete) {
-    overview = settlementOk
-      ? "SETTLEMENT_BALANCED_DRIVER_AUDIT_PENDING"
-      : "PARTIAL";
-  } else if (balanced === audited) {
-    overview = "BALANCED";
-  } else {
-    overview = "PARTIAL";
-  }
-
-  return {
-    drivers_balanced_count: balanced,
-    driver_wallet_mismatches_count: walletMismatch,
-    payout_mismatches_count: payoutMismatch,
-    provider_balance_unavailable_count: providerUnavailable,
-    pending_sync_count: pendingSync,
-    drivers_audited_count: audited,
-    driver_audit_complete: audited > 0 && !incomplete && !mismatchAny,
-    overview_driver_audit_status: overview,
   };
 }

@@ -80,18 +80,3 @@ export function isDriverLocationFrozen(input: DriverLocationStateInput): boolean
   return computeDriverLocationState(input) === "location_frozen";
 }
 
-/** Admin Live Fleet visible status set (audit item #7) — collapses the 5
- * internal location states + online/offline into exactly the 5 labels ops
- * should see: Live | Stationary | Frozen | Delayed | Offline. */
-export type DriverFleetDisplayStatus =
-  | "Live"
-  | "Stationary"
-  | "Frozen"
-  | "Delayed"
-  | "Offline";
-
-export type DriverFleetDisplayStatusInput = DriverLocationStateInput & {
-  /** drivers.is_online (effective availability) — takes precedence over location state. */
-  isOnline: boolean | null | undefined;
-};
-

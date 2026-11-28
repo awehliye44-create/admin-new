@@ -15,7 +15,7 @@ import {
   DRIVER_CREDIT_EXCEPTION_SCOPE,
   DRIVER_CREDIT_RECOMMENDED_OWNER,
   isDriverCreditExceptionHealth,
-} from "../../functions/_shared/driverCreditMonitoringSSOT.ts";
+} from "./offline/driverCreditMonitoringSSOT.ts";
 
 const NOW = Date.parse("2026-09-01T12:00:00.000Z");
 const OLD_CAPTURE = new Date(NOW - DRIVER_CREDIT_PROCESSING_GRACE_MS - 60_000).toISOString();

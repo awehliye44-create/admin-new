@@ -7,7 +7,7 @@ import {
   type PerformanceActionName,
   type RecordPerformanceStepInput,
   type PerformanceStepResult,
-} from '../../shared/performanceHealthControl';
+} from '../../shared/edgePresentation/performanceHealthControl.ts';
 
 const adminPerfTelemetry = new OnecabTelemetry({
   supabaseUrl: import.meta.env.VITE_SUPABASE_URL,

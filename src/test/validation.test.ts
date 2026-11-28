@@ -12,7 +12,7 @@ import {
   declineTripSchema,
   dispatchTripSchema,
   completeTripSchema,
-} from "../../supabase/functions/_shared/validation";
+} from "../../supabase/tests/_shared/offline/validation.ts";
 
 describe("Validation Utilities", () => {
   describe("validateUUID", () => {

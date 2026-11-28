@@ -33,7 +33,7 @@ import {
 import {
   classifyCaptureConfirmation,
 } from "../../_shared/paymentSessionsCaptureConfirmationSSOT.ts";
-import { resolveAdminPaymentFinancialVisibility } from "../../_shared/adminPaymentFinancialVisibilitySSOT.ts";
+import { resolveAdminPaymentFinancialVisibility } from "./adminPaymentFinancialVisibilitySSOT.ts";
 import { derivePaymentSessionAllowedActions, isOpenTripPaymentRecoverySession } from "../../_shared/paymentSessionsAllowedActionsSSOT.ts";
 import { isValidConfirmedCapturePence } from "../../_shared/paymentCaptureEvidenceSSOT.ts";
 import {

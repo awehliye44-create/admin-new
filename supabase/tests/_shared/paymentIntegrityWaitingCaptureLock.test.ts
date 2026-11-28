@@ -14,7 +14,7 @@ import { revisedPayablePenceForModification } from "../../functions/_shared/modi
 import {
   resolveModificationRequiredAuthorisationPence,
   resolveProviderConfirmedCapturePence,
-} from "../../functions/_shared/providerConfirmedCaptureEvidenceSSOT.ts";
+} from "./offline/providerConfirmedCaptureEvidenceSSOT.ts";
 import { tripHasConflictingFinalCapture } from "../../functions/_shared/revolutCaptureIdempotencySSOT.ts";
 import { durableSettlementColumns } from "../../functions/finalize-trip-and-capture/lib/durableSettlementOutcomeSSOT.ts";
 import { foldTripModificationFare } from "./support/foldTripModificationFare.ts";

@@ -17,11 +17,11 @@ import {
   resolveInitialAuthorisedHoldPence,
   resolveLocalConfirmedCoveragePence,
   resolveSessionAuthorisedCoveragePence,
-} from "../../functions/_shared/authorisationProjectionSSOT.ts";
+} from "./offline/authorisationProjectionSSOT.ts";
 import {
   expectedResidualReleasePenceForRow,
   sumExpectedResidualReleasePence,
-} from "../../functions/_shared/paymentSessionsDisplaySSOT.ts";
+} from "../../../shared/edgePresentation/paymentSessionsDisplaySSOT.ts";
 
 Deno.test("#103 MK-009 shape: original 700 / total 800 / capture 800", () => {
   const row = {

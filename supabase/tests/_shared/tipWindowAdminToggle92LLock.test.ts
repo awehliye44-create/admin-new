@@ -9,7 +9,7 @@ import {
   TIP_WINDOW_ADMIN_TOGGLE_POLICY,
   mayOpenTipWindowForCompletion,
   openTipWindowRemainsActiveAfterAdminToggle,
-} from "../../functions/_shared/tipWindowAdminToggleSSOT.ts";
+} from "./tipWindowAdminToggleSSOT.ts";
 
 Deno.test("#92L tip window opens only when tips_enabled at complete", () => {
   assertEquals(mayOpenTipWindowForCompletion({ tipsEnabledAtComplete: true }), true);

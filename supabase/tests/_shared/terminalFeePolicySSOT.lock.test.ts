@@ -15,7 +15,7 @@ import {
   shouldSettleCancelledWithFeeAsTerminalTen,
   terminalFeeLedgerDescription,
   resolveTerminalEarningCategoryFromEvidence,
-} from "../../functions/_shared/terminalFeePolicySSOT.ts";
+} from "./offline/terminalFeePolicySSOT.ts";
 import { computeTerminalOutcomeEntitlement } from "../../functions/_shared/terminalOutcomeEntitlementSSOT.ts";
 
 Deno.test("#111C CANCELLED_WITH_FEE settle gate is true with a documented UTC cutover", () => {

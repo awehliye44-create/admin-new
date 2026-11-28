@@ -2,7 +2,7 @@ import {
   receiptEmailBadgeLabel,
   resolveReceiptEmailBadge,
   type ReceiptEmailBadge,
-} from '../../shared/manualTripReceiptSSOT';
+} from '../../shared/edgePresentation/manualTripReceiptSSOT.ts';
 
 export type TripInvoiceEmailFields = {
   invoice_email_sent_at?: string | null;

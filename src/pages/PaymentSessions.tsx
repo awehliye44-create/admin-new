@@ -54,7 +54,7 @@ import {
   PAYMENT_SESSIONS_NAV_TABS,
   type PaymentSessionsNavTab,
   type PaymentSessionsOpChip,
-} from '../../shared/paymentSessionsNavigationSSOT';
+} from '../../shared/edgePresentation/paymentSessionsNavigationSSOT.ts';
 import { classifyCaptureConfirmation } from '../../shared/paymentSessionsCaptureConfirmationSSOT';
 import {
   DEFAULT_SERVICE_AREA_SELECTION,

@@ -19,13 +19,6 @@ export const SCHEDULED_ACTIVATION_DEFAULTS: ScheduledActivationConfig = {
   urgentFallbackMinutesBeforePickup: 9,
 };
 
-export const SCHEDULED_ACTIVATION_MAXIMA: ScheduledActivationConfig = {
-  longTripThresholdMinutes: 24 * 60,
-  localActivationMinutesBeforePickup: 24 * 60,
-  longActivationMinutesBeforePickup: 24 * 60,
-  urgentFallbackMinutesBeforePickup: 24 * 60,
-};
-
 export type ScheduledActivationDbRow = {
   long_trip_threshold_minutes?: number | null;
   local_activation_minutes_before_pickup?: number | null;

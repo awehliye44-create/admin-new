@@ -22,9 +22,6 @@ export type TipWindowTrigger =
 /** Tip increment/auth declined — fare must remain AUTHORISED; window stays OPEN. */
 export const TIP_AUTHORISATION_DECLINED = "TIP_AUTHORISATION_DECLINED";
 
-export const TIP_AUTHORISATION_DECLINED_CUSTOMER_MESSAGE =
-  "Your bank declined the tip. Your fare has not been taken yet. You can try again, continue without a tip, or skip.";
-
 /**
  * Tip > 0 was requested but confirmed capture did not cover the tip
  * (fare-only already_captured / tip_shortfall). Must NOT seal tip=0 under
@@ -32,9 +29,6 @@ export const TIP_AUTHORISATION_DECLINED_CUSTOMER_MESSAGE =
  * window immediately (MK-260926-001) so Rate Trip hides tip stepper/timer.
  */
 export const TIP_NOT_COLLECTED = "TIP_NOT_COLLECTED";
-
-export const TIP_NOT_COLLECTED_CUSTOMER_MESSAGE =
-  "The fare was already taken, so this tip could not be added. You can continue without a tip or skip.";
 
 export function resolveCustomerTipWindowTrigger(args: {
   tipAmountPence: number;

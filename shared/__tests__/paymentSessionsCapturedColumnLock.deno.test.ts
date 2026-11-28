@@ -6,7 +6,7 @@
  * Run: deno test --allow-read --no-check shared/__tests__/paymentSessionsCapturedColumnLock.deno.test.ts
  */
 import { assertEquals } from "https://deno.land/std@0.224.0/assert/mod.ts";
-import { formatCapturedAmountDisplay } from "../paymentSessionsDisplaySSOT.ts";
+import { formatCapturedAmountDisplay } from "../../supabase/tests/_shared/offline/paymentSessionsDisplaySSOT.ts";
 
 const PS_PAGE = new URL("../../src/pages/PaymentSessions.tsx", import.meta.url);
 

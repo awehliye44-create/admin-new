@@ -27,13 +27,6 @@ export function realtimeFresh(
 /** Max age for realtime socket anchor when gating offer delivery (seconds). */
 export const REALTIME_FRESH_MAX_AGE_SECONDS = 90;
 
-export type DriverOfferReachability = {
-  reachable: boolean;
-  rejectReason: "no_socket_no_push" | null;
-  hasRealtimeFresh: boolean;
-  hasRegisteredPushToken: boolean;
-};
-
 /** Wave sizes / TTLs occasionally arrive as numeric strings â parse safely (>0 only). */
 export function coercePositiveInt(raw: unknown): number | null {
   if (typeof raw === "number" && Number.isFinite(raw) && raw > 0) return Math.floor(raw);

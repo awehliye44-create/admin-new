@@ -20,7 +20,7 @@ import {
   decryptCompanyPayeeSecret,
 } from "../../../shared/companyPayeeEncryptionSSOT";
 import { canApproveCompanyTransfer } from "../../../shared/companyOutgoingTransferApprovalSSOT";
-import { assertCompanyTransferFundingAvailable } from "../../../shared/companyBalanceSSOT";
+import { assertCompanyTransferFundingAvailable } from "../../../supabase/tests/_shared/offline/companyBalanceSSOT.ts";
 
 describe("company payee SSOT", () => {
   it("masks account as •••• 1234", () => {

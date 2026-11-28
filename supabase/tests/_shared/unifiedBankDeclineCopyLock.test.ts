@@ -25,7 +25,7 @@ import {
   PAYMENT_CANCELLATION_REASONS,
   REVOLUT_CARD_DECLINED_CUSTOMER_MESSAGE,
   TRIP_CHANGE_BANK_DECLINED_CUSTOMER_MESSAGE,
-} from "../../functions/_shared/revolutCustomerError.ts";
+} from "./offline/revolutCustomerError.ts";
 import {
   classifyGooglePaySubmitFailure,
   latestFailedPaymentDeclineReason,

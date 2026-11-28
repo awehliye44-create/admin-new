@@ -51,8 +51,3 @@ export async function loadPaymentSsotCutoverConfig(
     return DEFAULT_CONFIG;
   }
 }
-
-/** Test helper — clear cache between cases. */
-export function clearPaymentSsotCutoverCache(): void {
-  cached = null;
-}

@@ -9,7 +9,7 @@ import {
   COMPANY_BALANCE_LABELS,
   formatCompanyBalancePence,
   resolveCompanyBalanceSnapshot,
-} from "../../../shared/companyBalanceSSOT";
+} from "../../../supabase/tests/_shared/offline/companyBalanceSSOT.ts";
 import {
   emptyPayoutLedgerOverviewDto,
   finalisePayoutLedgerOverviewStatus,

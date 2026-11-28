@@ -32,7 +32,7 @@ import {
   isRevolutProviderStateRegression,
   revolutProviderStateRank,
 } from "../_shared/revolutProviderStateRankSSOT.ts";
-import { resolveTripPaymentStatusWrite } from "../_shared/tripPaymentStatusProjectionSSOT.ts";
+import { resolveTripPaymentStatusWrite } from "./lib/tripPaymentStatusProjectionSSOT.ts";
 import {
   isCanonicalAuthorisedOrCaptured,
   normalizeLifecycleProviderState,

@@ -10,7 +10,7 @@ import {
   isCompleteTripB4bEnabled,
   measureCompleteTripB4bWorkload,
   shouldParalleliseTipSetupReads,
-} from "../../functions/_shared/completeTripB4bSSOT.ts";
+} from "./offline/completeTripB4bSSOT.ts";
 
 Deno.test("B4-B flag defaults OFF", () => {
   assertEquals(isCompleteTripB4bEnabled(undefined), false);

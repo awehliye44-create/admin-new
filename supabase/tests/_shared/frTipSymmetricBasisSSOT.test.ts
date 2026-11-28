@@ -17,7 +17,7 @@ import {
   sumActualWalletTripCreditsPence,
   sumExpectedPayablePence,
   sumUnlinkedTipCreditsPence,
-} from "../../functions/_shared/frDriverReconciliationSSOT.ts";
+} from "./offline/frDriverReconciliationSSOT.ts";
 import {
   resolveFrDriverExpectedEntitlement,
   type FrDriverSettlementTripForReconciliation,

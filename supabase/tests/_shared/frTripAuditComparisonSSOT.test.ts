@@ -8,7 +8,7 @@ import {
   classifyReleaseReconciliation,
   classifyWalletReconciliation,
   onecabNetFromSessionFee,
-} from "../../functions/_shared/frTripAuditComparisonSSOT.ts";
+} from "./offline/frTripAuditComparisonSSOT.ts";
 
 Deno.test("capture variance: actual − expected fare", () => {
   assertEquals(captureVariancePence({ captured_pence: 480, final_customer_fare_pence: 480 }), 0);

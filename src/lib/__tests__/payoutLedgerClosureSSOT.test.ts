@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { isAllocatableWalletLedgerType, evaluatePayoutEligibilityGate } from "../../../shared/payoutAllocationEligibilitySSOT";
+import { isAllocatableWalletLedgerType, evaluatePayoutEligibilityGate } from "../../../supabase/tests/_shared/offline/payoutAllocationEligibilitySSOT.ts";
 import { normalizePayoutItemStatus } from "../../../shared/payoutCanonicalStatusSSOT";
 import { resolvePayoutTransferAmountPence } from "../../../shared/payoutLedgerConsumeDwlSSOT";
 import {
   planEligibleLedgerAllocations,
   payoutDestinationLabel,
-} from "../../../shared/payoutLedgerHandoffSSOT";
+} from "../../../supabase/tests/_shared/offline/payoutLedgerHandoffSSOT.ts";
 import { shouldBlockZeroValuePayoutBatch } from "../../../shared/driverPayoutEligibilitySSOT";
 
 describe("payout ledger closure SSOT", () => {

@@ -47,22 +47,6 @@ export type BookingWaterfallDominance = {
   share_pct: number;
 };
 
-export type BookingWaterfallTimeline = {
-  client_action_id: string | null;
-  trip_id: string | null;
-  payment_session_id: string | null;
-  revolut_order_id: string | null;
-  pay_tapped_at_ms: number | null;
-  completed_at_ms: number | null;
-  total_duration_ms: number | null;
-  steps: BookingWaterfallStepRecord[];
-  measured_duration_ms: number;
-  unmeasured_gap_ms: number;
-  dominant_steps: BookingWaterfallDominance[];
-  /** Step accounting for ≥80% of measured wall time (may be multiple if tied). */
-  p80_steps: BookingWaterfallDominance[];
-};
-
 export type BookingWaterfallMilestones = {
   book_tap_ms?: number | null;
   hold_start_ms?: number | null;
@@ -161,57 +145,5 @@ export function buildBookingWaterfallStepRecord(input: {
     source: input.source,
     metadata: input.metadata,
   };
-}
-
-export function mergeBookingWaterfallSteps(
-  existing: BookingWaterfallStepRecord[],
-  incoming: BookingWaterfallStepRecord[],
-): BookingWaterfallStepRecord[] {
-  const byStep = new Map<BookingWaterfallStep, BookingWaterfallStepRecord>();
-  for (const record of existing) byStep.set(record.step, record);
-  for (const record of incoming) {
-    const prev = byStep.get(record.step);
-    if (!prev || record.finish_time_ms >= prev.finish_time_ms) {
-      byStep.set(record.step, record);
-    }
-  }
-  return BOOKING_WATERFALL_STEP_ORDER
-    .map((step) => byStep.get(step))
-    .filter((record): record is BookingWaterfallStepRecord => Boolean(record));
-}
-
-export function analyzeBookingWaterfallDominance(
-  steps: BookingWaterfallStepRecord[],
-): { dominant_steps: BookingWaterfallDominance[]; p80_steps: BookingWaterfallDominance[]; measured_duration_ms: number; unmeasured_gap_ms: number } {
-  if (steps.length === 0) {
-    return { dominant_steps: [], p80_steps: [], measured_duration_ms: 0, unmeasured_gap_ms: 0 };
-  }
-
-  const measured_duration_ms = steps.reduce((sum, step) => sum + step.duration_ms, 0);
-  const wall_start = steps[0]!.start_time_ms;
-  const wall_end = steps[steps.length - 1]!.finish_time_ms;
-  const wall_ms = Math.max(0, wall_end - wall_start);
-  const unmeasured_gap_ms = Math.max(0, wall_ms - measured_duration_ms);
-
-  const dominant_steps = [...steps]
-    .map((record) => ({
-      step: record.step,
-      label: record.label,
-      duration_ms: record.duration_ms,
-      share_pct: measured_duration_ms > 0
-        ? Math.round((record.duration_ms / measured_duration_ms) * 1000) / 10
-        : 0,
-    }))
-    .sort((a, b) => b.duration_ms - a.duration_ms);
-
-  let cumulative = 0;
-  const p80_steps: BookingWaterfallDominance[] = [];
-  for (const entry of dominant_steps) {
-    if (cumulative >= 80 && p80_steps.length > 0) break;
-    p80_steps.push(entry);
-    cumulative += entry.share_pct;
-  }
-
-  return { dominant_steps, p80_steps, measured_duration_ms, unmeasured_gap_ms };
 }
 

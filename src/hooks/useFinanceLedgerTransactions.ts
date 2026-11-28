@@ -19,7 +19,7 @@ import {
   formatDriverWalletAdminAdjustmentAuditNotes,
   isDriverWalletAdminAdjustmentLedgerType,
   parseDriverWalletAdminAdjustmentMetadata,
-} from '../../shared/driverWalletManualAdjustmentSSOT';
+} from '../../shared/edgePresentation/driverWalletManualAdjustmentSSOT.ts';
 
 export type FinanceLedgerTransactionRow = {
   id: string;

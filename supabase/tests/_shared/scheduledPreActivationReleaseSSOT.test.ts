@@ -11,7 +11,7 @@ import {
   buildScheduledUrgentRematchPatch,
   clearScheduledAssignmentSpecificState,
   resolvePreActivationReleaseKind,
-} from "../../functions/_shared/scheduledPreActivationReleaseSSOT.ts";
+} from "./offline/scheduledPreActivationReleaseSSOT.ts";
 
 Deno.test("Bug #22: urgent convert uses ~9m clock — not check-in ~20m", () => {
   const pickup = "2026-11-15T15:00:00.000Z";

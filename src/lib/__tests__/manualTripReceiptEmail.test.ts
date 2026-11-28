@@ -8,7 +8,7 @@ import {
   receiptEmailBadgeLabel,
   receiptSendClaimDecision,
   resolveReceiptEmailBadge,
-} from '../../../shared/manualTripReceiptSSOT';
+} from '../../../shared/edgePresentation/manualTripReceiptSSOT.ts';
 
 const ROOT = path.join(__dirname, '../../..');
 

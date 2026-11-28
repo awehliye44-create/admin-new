@@ -22,7 +22,7 @@ import { FinancePanelErrorBoundary } from '@/components/finance/FinancePanelErro
 import { useFinanceReconciliationMoney } from '@/hooks/useFinanceReconciliationMoney';
 import { AlertTriangle, RefreshCw } from 'lucide-react';
 import { startAdminPerformanceStep } from '@/lib/recordAdminPerformanceStep';
-import { paymentSessionsUrl } from '../../shared/adminPaymentSessionsSSOT';
+import { paymentSessionsUrl } from '../../shared/edgePresentation/adminPaymentSessionsSSOT.ts';
 import { classifyFinanceReconciliationError } from '@/lib/financeReconciliationErrors';
 import {
   Collapsible,

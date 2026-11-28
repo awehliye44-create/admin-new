@@ -128,10 +128,3 @@ export function forceCompletePayableSnapshot(args: {
     receivablesPence: args.receivablesPence,
   });
 }
-
-export function requiredAuthorisedTotalFromSnapshot(
-  snapshot: PayableFareSnapshot,
-): number {
-  // Tips may be authorised with fare at completion; receivables included (composition-before-cover).
-  return snapshot.total_payable_pence;
-}

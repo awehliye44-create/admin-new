@@ -17,7 +17,7 @@ import {
   presetNegotiationSnapshotFields,
   resolvePersistedTripBookingSource,
   resolvePresetNegotiation,
-} from "../../functions/_shared/presetNegotiationEligibility.ts";
+} from "./offline/presetNegotiationEligibility.ts";
 
 const slots = (
   amounts: Array<{ multiplier?: number; fixed?: number; active?: boolean }>,

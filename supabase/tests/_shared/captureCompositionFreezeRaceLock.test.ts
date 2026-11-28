@@ -13,7 +13,7 @@ import {
   readFrozenCapturePlan,
   rejectPlanMutationAfterFreeze,
   validateFrozenCapturePlan,
-} from "../../functions/_shared/captureCompositionFreezeSSOT.ts";
+} from "./offline/captureCompositionFreezeSSOT.ts";
 import {
   buildCaptureIdempotencyKey,
   planCaptureComposition,

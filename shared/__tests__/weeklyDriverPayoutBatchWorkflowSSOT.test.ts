@@ -31,7 +31,7 @@ import {
   buildPayoutScheduleDto,
   computeNextWeeklyPayoutRun,
   zonedWallTimeToUtc,
-} from "../payoutScheduleSSOT.ts";
+} from "../../supabase/tests/_shared/offline/payoutScheduleSSOT.ts";
 
 const TUESDAY_SETTINGS = {
   payouts_enabled: true,

@@ -38,7 +38,7 @@ import {
 import {
   paymentCoverageBadgeLabel,
   computeOutstandingShortfallPence,
-} from '../../../shared/tripHistoryShortfallRecaptureSSOT';
+} from '../../../shared/edgePresentation/tripHistoryShortfallRecaptureSSOT.ts';
 
 interface PaymentState {
   trip_id: string;

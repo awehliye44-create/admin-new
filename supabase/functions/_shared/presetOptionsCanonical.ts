@@ -339,25 +339,3 @@ export function buildNegotiationFromPresetOptions(
   return { selectedOffer: selected, remainingOptions };
 }
 
-export type DriverPresetChipOption = {
-  key: string;
-  /** Negotiation wire format â not shown to drivers. */
-  grossFarePence: number;
-  /** Driver-visible chip amount (net earnings). */
-  driverNetPence: number;
-  label?: string | null;
-  color?: string | null;
-  order?: number;
-  configuredAmountPence?: number | null;
-};
-
-export type CustomerPresetFareOption = {
-  key: string;
-  grossFarePence: number;
-  grossFare?: number;
-  label?: string | null;
-  color?: string | null;
-  order?: number;
-  configuredAmountPence?: number | null;
-};
-

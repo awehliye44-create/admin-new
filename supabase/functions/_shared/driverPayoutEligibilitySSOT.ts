@@ -749,8 +749,3 @@ export function shouldBlockZeroValuePayoutBatch(args: {
   }
   return { block: false, error_code: null };
 }
-
-/** Idempotency key for DES companion / backfill rows. */
-export function desCompanionIdempotencyKey(ledgerEntryId: string, source: string): string {
-  return `des:${source}:${ledgerEntryId}`;
-}

@@ -7,7 +7,7 @@ import {
   derivePayoutEligibility,
   isCardCaptureFailed,
   isCardPaymentCaptured,
-} from "../../functions/_shared/onecabFinanceLedger.ts";
+} from "../../../shared/edgePresentation/onecabFinanceLedger.ts";
 
 Deno.test("card capture failed — no captured status", () => {
   assertEquals(

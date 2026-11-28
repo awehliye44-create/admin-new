@@ -132,12 +132,6 @@ export function resolveStopWaitingChargePence(trip: TripFareRow): number {
   return 0;
 }
 
-export type TripStopWaitingRow = {
-  type?: string | null;
-  waiting_total_amount_pence?: number | null;
-  waiting_charge_pence?: number | null;
-};
-
 /** Modification surcharges (destination change, stop edits, extras). */
 export function resolveCustomerModificationChargePence(trip: TripFareRow): number {
   const direct = nonNegInt(trip.customer_modification_charge_pence);

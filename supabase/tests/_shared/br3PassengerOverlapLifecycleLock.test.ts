@@ -13,7 +13,7 @@ import {
   isPassengerOverlapTerminalTripStatus,
   PASSENGER_OVERLAP_TERMINAL_STATUS_POSTGREST_LIST,
   PASSENGER_OVERLAP_TERMINAL_TRIP_STATUSES,
-} from "../../functions/_shared/passengerBookingOverlapLifecycleSSOT.ts";
+} from "./offline/passengerBookingOverlapLifecycleSSOT.ts";
 import { findPassengerScheduleOverlap } from "../../functions/_shared/passengerScheduleOverlapSSOT.ts";
 import { findCorporateScheduleOverlap } from "../../functions/_shared/corporateScheduleOverlapSSOT.ts";
 import {

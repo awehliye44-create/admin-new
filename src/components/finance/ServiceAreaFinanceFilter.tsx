@@ -7,7 +7,7 @@ import {
   emptyServiceAreaScopeMessage,
   filterServiceAreasByFinancialModel,
   type FinancialModel,
-} from '../../../shared/financialModelScopeSSOT';
+} from '../../../shared/edgePresentation/financialModelScopeSSOT.ts';
 
 /**
  * Financial-model scope for the dropdown.

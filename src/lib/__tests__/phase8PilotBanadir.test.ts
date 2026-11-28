@@ -4,7 +4,7 @@ import { resolve } from "node:path";
 import {
   COMMISSION_WALLET_PHASE8_PILOT,
   planCommissionWalletServiceAreaEnablement,
-} from "../../../shared/commissionWalletSSOT";
+} from "../../../shared/edgePresentation/commissionWalletSSOT.ts";
 
 describe("Phase 8 Banadir pilot lock", () => {
   const pilotId = COMMISSION_WALLET_PHASE8_PILOT.service_area_id;

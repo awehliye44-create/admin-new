@@ -38,22 +38,3 @@ export function sessionRoleAllowsAccess(args: {
 }): boolean {
   return args.boundRole === args.requiredRole;
 }
-
-/** Two sessions of the same Auth user never overwrite each other. */
-export function sessionRolesAreIndependent(args: {
-  sessionA: { sessionId: string; role: OnecabAccessRole };
-  sessionB: { sessionId: string; role: OnecabAccessRole };
-}): boolean {
-  if (args.sessionA.sessionId === args.sessionB.sessionId) return false;
-  return (
-    sessionRoleAllowsAccess({
-      boundRole: args.sessionA.role,
-      requiredRole: "customer",
-    }) !==
-      sessionRoleAllowsAccess({
-        boundRole: args.sessionB.role,
-        requiredRole: "customer",
-      }) ||
-    args.sessionA.role !== args.sessionB.role
-  );
-}

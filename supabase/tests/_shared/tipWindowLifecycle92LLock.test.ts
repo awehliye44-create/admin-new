@@ -12,7 +12,7 @@ import {
 import {
   mayOpenTipWindowForCompletion,
   openTipWindowRemainsActiveAfterAdminToggle,
-} from "../../functions/_shared/tipWindowAdminToggleSSOT.ts";
+} from "./tipWindowAdminToggleSSOT.ts";
 
 Deno.test("#92L exactly four tip-window close triggers", () => {
   assertEquals(TIP_WINDOW_MS, 20 * 60 * 1000);

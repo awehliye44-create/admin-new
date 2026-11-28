@@ -179,7 +179,7 @@ Deno.test("Phase 5 capability gate: v1-only → ack_nro; fresh v2 → arm_ack 45
     SCHEDULED_DEPARTURE_ACK_CAPABILITY_V2,
     resolveDepartureAckCapabilityConfig,
     resolveDepartureAckExecutionModeForDriver,
-  } = await import("../../functions/_shared/scheduledDepartureAckCapabilitySSOT.ts");
+  } = await import("./offline/scheduledDepartureAckCapabilitySSOT.ts");
 
   const cfgV2 = resolveDepartureAckCapabilityConfig({
     scheduled_departure_ack_enabled: true,

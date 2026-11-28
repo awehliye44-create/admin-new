@@ -146,16 +146,3 @@ export function getTripAvailablePayoutCreatedPence(args: {
   });
 }
 
-/** Captured amount for audit — payments.captured_amount_pence primary, trips.capture_amount_pence fallback. */
-export function getTripCapturedPenceForAudit(args: {
-  paymentCapturedPence?: number | null;
-  tripCaptureAmountPence?: number | null;
-}): number | null {
-  // Finance isolation rule: never invent customer capture from trips.capture_amount_pence.
-  // Only Payment Sessions capture evidence may populate "captured" for audit.
-  if (args.paymentCapturedPence != null && args.paymentCapturedPence > 0) {
-    return args.paymentCapturedPence;
-  }
-  return null;
-}
-

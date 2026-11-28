@@ -2,7 +2,7 @@ import { assertEquals } from "https://deno.land/std@0.224.0/assert/mod.ts";
 import {
   allocateProviderBalanceByLiability,
   perDriverRemainingLiabilityPence,
-} from "../../functions/_shared/financialReconciliationSSOT.ts";
+} from "./offline/financialReconciliationSSOT.ts";
 import {
   computePerDriverSSOT,
   sumCompletedEarlyCashoutsPence,

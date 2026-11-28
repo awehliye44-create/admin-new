@@ -13,7 +13,7 @@ import {
   sumVerifiedCapturedFromSessions,
   sumVerifiedRefundedFromSessions,
   TRIP_SHORTFALL_RECAPTURE_UI_STATE,
-} from "../tripHistoryShortfallRecaptureSSOT";
+} from "../../supabase/tests/_shared/offline/tripHistoryShortfallRecaptureSSOT.ts";
 import { computeOutstandingBalancePence, recoveryWalletCreditDecision } from "../paymentSessionsCaptureConfirmationSSOT";
 import { isRecoveryCompletionIdempotent, planRecoveryCaptureCompletion } from "../paymentSessionsRecoveryCompletionSSOT";
 

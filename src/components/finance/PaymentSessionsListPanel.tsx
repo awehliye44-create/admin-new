@@ -15,7 +15,7 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import type { AdminPaymentSessionsListRow } from '../../../shared/adminPaymentSessionsSSOT';
-import { isStaleUnverifiedAuthorisationRow } from '../../../shared/paymentSessionsOperationalChipsSSOT';
+import { isStaleUnverifiedAuthorisationRow } from '../../../shared/edgePresentation/paymentSessionsOperationalChipsSSOT.ts';
 import { financeReconciliationTripUrl, tripSettlementRecoverUrl } from '@/lib/financialReconciliationRoutes';
 import { formatAgeMinutes, formatNullablePence } from '@/lib/formatNullablePence';
 import {
@@ -26,7 +26,7 @@ import { PaymentSessionsRowActions } from '@/components/finance/PaymentSessionsR
 import {
   expectedResidualReleasePenceForRow,
   formatReleasedAmountDisplay,
-} from '../../../shared/paymentSessionsDisplaySSOT';
+} from '../../../shared/edgePresentation/paymentSessionsDisplaySSOT.ts';
 
 export type PaymentSessionsListPanelProps = {
   rows: AdminPaymentSessionsListRow[];

@@ -18,7 +18,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { resolveCommittedOfferGrossPence } from "../supabase/functions/_shared/committedBookingOfferFareSSOT.ts";
+import { resolveCommittedOfferGrossPence } from "../supabase/tests/_shared/offline/committedBookingOfferFareSSOT.ts";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = join(here, "..");

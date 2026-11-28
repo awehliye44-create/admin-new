@@ -90,29 +90,6 @@ export type FrCaptureCompositionIdentityEval =
     capture_variance_pence: null;
   };
 
-/**
- * Prefer composition identity when receivable (or multi-component target)
- * is present. Fail closed when composition is required but unreadable.
- * Returns absent for fare-only / no composition (legacy allocation path).
- */
-export function evaluateFrCaptureCompositionIdentity(args: {
-  session: {
-    trip_fare_component_pence?: number | null;
-    tip_component_pence?: number | null;
-    receivable_component_pence?: number | null;
-    buffer_pence?: number | null;
-    provider_capture_target_pence?: number | null;
-    metadata?: Record<string, unknown> | null;
-    captured_amount_pence?: number | null;
-    purpose?: string | null;
-  } | null | undefined;
-  actual_captured_pence?: number | null;
-}): FrCaptureCompositionIdentity | null {
-  const result = evaluateFrCaptureCompositionIdentityClosed(args);
-  if (result.kind === "ok") return result.identity;
-  return null;
-}
-
 export function evaluateFrCaptureCompositionIdentityClosed(args: {
   session: {
     trip_fare_component_pence?: number | null;

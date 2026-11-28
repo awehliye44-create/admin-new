@@ -4,3 +4,4 @@
  */
 
 export * from "../supabase/functions/_shared/communicationSsot.ts";
+export * from "./edgePresentation/communicationSsot.ts";

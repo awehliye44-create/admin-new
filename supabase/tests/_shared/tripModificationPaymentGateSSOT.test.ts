@@ -18,7 +18,7 @@ import {
   poundsToPenceExact,
   simulateModificationAuthorisationSequence,
   tripFareBasisMatchesExpectation,
-} from "../../functions/_shared/tripModificationPaymentGateSSOT.ts";
+} from "./offline/tripModificationPaymentGateSSOT.ts";
 
 function orderShape(args: {
   state?: string;

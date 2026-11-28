@@ -10,7 +10,7 @@ import {
   sumActiveReservedDriverPayoutsPence,
   sumCompletedDriverPayoutsThisMonthPence,
   sumProtectedDriverLiabilitiesPence,
-} from "../payoutLedgerCompanyFundingSSOT";
+} from "../../supabase/tests/_shared/offline/payoutLedgerCompanyFundingSSOT.ts";
 import {
   PROTECTED_LIABILITY_ACCEPTANCE_PROOF,
   computeProtectedDriverLiabilitiesPence,

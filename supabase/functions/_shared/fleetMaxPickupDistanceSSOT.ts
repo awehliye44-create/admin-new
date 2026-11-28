@@ -25,7 +25,7 @@ export type FleetMaxPickupDistanceIssue = {
   message: string;
 };
 
-function coerceFiniteNumber(raw: unknown): number | null {
+export function coerceFiniteNumber(raw: unknown): number | null {
   if (typeof raw === "number" && Number.isFinite(raw)) return raw;
   if (typeof raw === "string") {
     const t = raw.trim();
@@ -50,13 +50,6 @@ export function fleetMaxPickupDistanceMeters(rawMiles: unknown): number {
   return resolveFleetMaxPickupDistanceMiles(rawMiles) * FLEET_MAX_PICKUP_MILES_TO_METERS;
 }
 
-/** Read fleet max miles from a global_dispatch_settings-shaped row (or null). */
-export function fleetMaxPickupMilesFromDispatchRow(
-  row: Record<string, unknown> | null | undefined,
-): number {
-  return resolveFleetMaxPickupDistanceMiles(row?.fleet_max_pickup_distance_miles);
-}
-
 export function fleetMaxPickupMetersFromDispatchRow(
   row: Record<string, unknown> | null | undefined,
 ): number {
@@ -69,22 +62,4 @@ export function exceedsFleetMaxPickupDistance(
 ): boolean {
   if (!Number.isFinite(distanceMeters) || distanceMeters < 0) return true;
   return distanceMeters > fleetMaxPickupDistanceMeters(fleetMaxMilesRaw);
-}
-
-/** Admin save validation — blank / non-finite blocked; range 1–100 miles. */
-export function validateFleetMaxPickupDistanceMiles(
-  raw: unknown,
-): FleetMaxPickupDistanceIssue[] {
-  const n = coerceFiniteNumber(raw);
-  if (n == null) {
-    return [{ code: "required", message: "Fleet maximum pickup distance is required" }];
-  }
-  if (n < FLEET_MAX_PICKUP_DISTANCE_MILES_MIN || n > FLEET_MAX_PICKUP_DISTANCE_MILES_MAX) {
-    return [{
-      code: "out_of_range",
-      message:
-        `Fleet maximum pickup distance must be between ${FLEET_MAX_PICKUP_DISTANCE_MILES_MIN} and ${FLEET_MAX_PICKUP_DISTANCE_MILES_MAX} miles`,
-    }];
-  }
-  return [];
 }

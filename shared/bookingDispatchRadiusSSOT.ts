@@ -3,3 +3,4 @@
  * Re-exported here for frontend/test imports.
  */
 export * from "../supabase/functions/_shared/bookingDispatchRadiusSSOT.ts";
+export * from "./edgePresentation/bookingDispatchRadiusSSOT.ts";

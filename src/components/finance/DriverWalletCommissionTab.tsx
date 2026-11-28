@@ -10,7 +10,7 @@ import {
 import type { DriverWalletSsotRow } from '@/hooks/useDriverWalletSsot';
 import { formatNullablePence } from '@/lib/formatNullablePence';
 import { getTripDisplayId } from '@/lib/tripUtils';
-import { paymentSessionsUrl } from '../../../shared/adminPaymentSessionsSSOT';
+import { paymentSessionsUrl } from '../../../shared/edgePresentation/adminPaymentSessionsSSOT.ts';
 import { ProviderFeeConfigPanel } from '@/components/finance/ProviderFeeConfigPanel';
 
 function Metric({

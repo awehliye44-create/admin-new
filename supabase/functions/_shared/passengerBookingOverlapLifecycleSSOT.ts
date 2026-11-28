@@ -59,12 +59,3 @@ export function isPassengerOverlapEligibleTripStatus(
   if (!s) return false;
   return !PASSENGER_OVERLAP_TERMINAL_TRIP_STATUSES.has(s);
 }
-
-/** Inverse — terminal lifecycle → immediately ineligible for overlap. */
-export function isPassengerOverlapTerminalTripStatus(
-  status: string | null | undefined,
-): boolean {
-  const s = normalizePassengerOverlapTripStatus(status);
-  if (!s) return true;
-  return PASSENGER_OVERLAP_TERMINAL_TRIP_STATUSES.has(s);
-}
