@@ -2018,6 +2018,32 @@ Deno.serve(async (req) => {
       );
     }
 
+    // DT1 recovery: reclaim pending Driver tip heads-ups (never invents historical tips).
+    let dt1Reclaim: {
+      scanned: number;
+      delivered: number;
+      skipped: number;
+      failed: number;
+      ambiguous_observed: number;
+    } | null = null;
+    try {
+      const { reclaimPendingDriverTipNotifies } = await import(
+        "../_shared/driverTipNotifyDurable.ts"
+      );
+      dt1Reclaim = await reclaimPendingDriverTipNotifies(supabase, {
+        limit: 20,
+        nowMs,
+      });
+      if (dt1Reclaim.scanned > 0 || dt1Reclaim.ambiguous_observed > 0) {
+        console.log("[scheduled-dispatch] DT1 tip reclaim", dt1Reclaim);
+      }
+    } catch (dt1Err) {
+      console.warn(
+        "[scheduled-dispatch] DT1 tip reclaim failed:",
+        dt1Err instanceof Error ? dt1Err.message : String(dt1Err),
+      );
+    }
+
     const summary = {
       timestamp: now.toISOString(),
       committedCount,
@@ -2027,6 +2053,7 @@ Deno.serve(async (req) => {
       expired,
       pendingReleasesExecuted,
       sn1_reclaim: sn1Reclaim,
+      dt1_tip_reclaim: dt1Reclaim,
     };
 
     console.log("[scheduled-dispatch] Summary:", summary);

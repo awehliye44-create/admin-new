@@ -518,6 +518,33 @@ export async function applyCanonicalSettlementAfterCapture(args: {
         errorMessage: reconciled.failureStage ?? "wallet_readback_mismatch",
       });
     }
+    // DT1: tip credit trigger already persisted notify intent in the same txn.
+    // Kick async FCM deliver only when tip was covered — never blocks settlement.
+    if (tipPence > 0) {
+      try {
+        const { scheduleEdgeBackground } = await import("./scheduleEdgeBackground.ts");
+        const { kickDriverTipReceivedDeliverForTrip } = await import(
+          "./driverTipNotifyDurable.ts"
+        );
+        scheduleEdgeBackground(async () => {
+          try {
+            await kickDriverTipReceivedDeliverForTrip(args.supabase, tripId);
+          } catch (tipNotifyErr) {
+            console.warn(
+              "[applyCanonicalSettlementAfterCapture] DT1 tip notify kick failed",
+              tipNotifyErr instanceof Error
+                ? tipNotifyErr.message
+                : String(tipNotifyErr),
+            );
+          }
+        }, "dt1_driver_tip_notify");
+      } catch (kickErr) {
+        console.warn(
+          "[applyCanonicalSettlementAfterCapture] DT1 tip notify schedule failed",
+          kickErr instanceof Error ? kickErr.message : String(kickErr),
+        );
+      }
+    }
     return reconciled;
   } catch (err) {
     const parts = supabaseErrorParts(err);

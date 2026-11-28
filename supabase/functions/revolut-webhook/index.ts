@@ -409,11 +409,15 @@ Deno.serve(async (req) => {
         // Never double-credit when TRIP_EARNING_NET already exists.
         if (plan.wallet.write_driver_credit && tripRow?.driver_id) {
           try {
+            const tipPenceRecovery = Math.max(
+              0,
+              Math.round(Number(tripRow.tip_pence ?? 0)),
+            );
             const creditResult = await creditCapturedCardTripLedger(supabase, {
               driverId: tripRow.driver_id,
               tripId: recoverySession.trip_id,
               driverNetPence: Math.max(0, Math.round(Number(tripRow.driver_net_pence ?? 0))),
-              tipPence: Math.max(0, Math.round(Number(tripRow.tip_pence ?? 0))),
+              tipPence: tipPenceRecovery,
               currency: String(tripRow.currency_code ?? "GBP"),
               paymentId: recoverySession.id,
             });
@@ -426,6 +430,28 @@ Deno.serve(async (req) => {
                 write_driver_credit: true,
               },
             });
+            // DT1: tip intent is same-txn with credit; kick async deliver (non-blocking).
+            if (tipPenceRecovery > 0) {
+              try {
+                const { scheduleEdgeBackground } = await import(
+                  "../_shared/scheduleEdgeBackground.ts"
+                );
+                const { kickDriverTipReceivedDeliverForTrip } = await import(
+                  "../_shared/driverTipNotifyDurable.ts"
+                );
+                const tripIdForTip = String(recoverySession.trip_id);
+                scheduleEdgeBackground(async () => {
+                  await kickDriverTipReceivedDeliverForTrip(supabase, tripIdForTip);
+                }, "dt1_driver_tip_notify_recovery");
+              } catch (tipKickErr) {
+                console.warn(
+                  "[revolut-webhook] DT1 tip notify schedule failed:",
+                  tipKickErr instanceof Error
+                    ? tipKickErr.message
+                    : String(tipKickErr),
+                );
+              }
+            }
           } catch (walletErr) {
             console.error(
               "[revolut-webhook] recovery wallet credit failed:",

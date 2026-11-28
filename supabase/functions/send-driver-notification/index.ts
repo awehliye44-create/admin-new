@@ -52,7 +52,9 @@ interface NotificationPayload {
     // Silent GPS readiness wake for confirmed scheduled JIT (no tray / no sound).
     | 'SCHEDULED_JIT_LOCATION_READINESS'
     // Compliance release of a confirmed scheduled booking (no penalty).
-    | 'SCHEDULED_COMPLIANCE_RELEASE';
+    | 'SCHEDULED_COMPLIANCE_RELEASE'
+    // DT1 — Customer tip credit heads-up (Wallet Activity deep-link).
+    | 'DRIVER_TIP_RECEIVED';
   title: string;
   body: string;
   data?: Record<string, string>;
@@ -74,6 +76,7 @@ const VALID_NOTIFICATION_TYPES = [
   'SCHEDULED_COMMITMENT',
   'SCHEDULED_JIT_LOCATION_READINESS',
   'SCHEDULED_COMPLIANCE_RELEASE',
+  'DRIVER_TIP_RECEIVED',
 ];
 const RATE_LIMIT_CONFIG = { limit: 200, windowMs: 60000, keyPrefix: 'send-notification' };
 
@@ -314,6 +317,7 @@ Deno.serve(async (req) => {
     const isRideStop = payload.type === 'RIDE_STOP';
     const isNegotiationUpdate = payload.type === 'NEGOTIATION_UPDATE';
     const isScheduledMarketplaceInvite = payload.type === 'SCHEDULED_RIDE_REQUEST';
+    const isDriverTipReceived = payload.type === 'DRIVER_TIP_RECEIVED';
     const incomingDataType = String(
       payload.data?.type || payload.data?.notification_type || "",
     ).toLowerCase();
@@ -673,6 +677,29 @@ Deno.serve(async (req) => {
                 sound: "trip_cancelled",
               },
             };
+          } else if (isDriverTipReceived) {
+            // DT1 — tip heads-up: HIGH priority tray → Wallet tip entry.
+            message.notification = {
+              title: sanitizedTitle,
+              body: sanitizedBody,
+            };
+            message.data = {
+              ...dataPayload,
+              type: "driver_tip_received",
+              title: sanitizedTitle,
+              body: sanitizedBody,
+              channel_id: "onecab_driver_trip_updates_v1",
+            };
+            message.android = {
+              priority: "HIGH",
+              ttl: "120s",
+              direct_boot_ok: true,
+              notification: {
+                channel_id: "onecab_driver_trip_updates_v1",
+                sound: "default",
+                default_vibrate_timings: true,
+              },
+            };
           } else if (isRideStop || isJitLocationReadiness) {
             // ── Silent data-only (offer-expire RIDE_STOP / JIT GPS readiness) ──
             // No message.notification — tray would bypass JS and show a ghost alert.
@@ -741,6 +768,34 @@ Deno.serve(async (req) => {
                   badge: 0,
                   "interruption-level": "time-sensitive",
                   category: "ONECAB_TRIP_CANCELLED",
+                },
+              },
+            };
+          } else if (isDriverTipReceived) {
+            // DT1 — tip heads-up: time-sensitive alert → Wallet tip entry.
+            message.data = {
+              ...dataPayload,
+              type: "driver_tip_received",
+            };
+            message.apns = {
+              headers: {
+                "apns-priority": "10",
+                "apns-push-type": "alert",
+                "apns-topic": "com.onecab.driver.app",
+                "apns-collapse-id": `driver_tip_${
+                  dataPayload.ledger_id || dataPayload.ledgerId || "na"
+                }`,
+              },
+              payload: {
+                aps: {
+                  alert: {
+                    title: sanitizedTitle,
+                    body: sanitizedBody,
+                  },
+                  sound: "default",
+                  badge: 0,
+                  "interruption-level": "time-sensitive",
+                  category: "ONECAB_DRIVER_TIP",
                 },
               },
             };
