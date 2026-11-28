@@ -12,4 +12,4 @@
 - [x] admin_page_select/mutate findings — accepted by user (staff-gated, allowlisted, bound values)
 - [x] Driver Details: Add Documents / Approve / Reject / Re-reject in Documents tab
 - [x] Verify and fix declined completion top-up fallback and payable snapshot parity; 65 focused regressions pass.
-- [ ] Deploy the payment correction — blocked by the shared upload exceeding Supabase's size limit; packaging plan awaits approval.
+- [ ] Deploy the payment correction — uploads now measure under the limit (stop-workflow has only ~1.8 KB headroom); deploy the seven payment functions and confirm startup, then close the monitoring finding.
