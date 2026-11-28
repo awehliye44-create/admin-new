@@ -11,13 +11,11 @@ import {
   failClosedWithoutSessionWhenReceivableEvidence,
 } from "./captureCompositionAcquireSSOT.ts";
 import {
-  captureRevolutOrder,
   mapRevolutStateToPaymentStatus,
   retrieveRevolutOrder,
   revolutProviderAuthorisedTotalPence,
 } from "./revolutOrders.ts";
 import { guardedCaptureRevolutOrder } from "./guardedProviderCaptureSSOT.ts";
-void captureRevolutOrder; // legacy primitive retained; capture POSTs go through guardedCaptureRevolutOrder
 import { assertFareCaptureAllowedAtProvider } from "./scheduledFareCaptureGateSSOT.ts";
 import { executeSameOrderIncrement } from "./executeSameOrderIncrementSSOT.ts";
 import { safeCaptureAfterIncrementDecline } from "./paymentRecoveryGuardSSOT.ts";
@@ -1004,7 +1002,7 @@ export async function executeRevolutTripCompletionCapture(args: {
           paymentSessionId: String(paymentSession.id),
           providerOrderId: orderId,
           amountPence: safe.capturePence,
-          expectedPayablePence: safe.capturePence,
+          expectedPayablePence: safe.payablePence,
           sessionLockAlreadyHeld: true,
           sessionLockOwner: safeLock.ok ? safeLock.owner : null,
           purpose: "fare",

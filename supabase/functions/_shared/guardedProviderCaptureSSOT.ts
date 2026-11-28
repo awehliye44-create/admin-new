@@ -54,7 +54,9 @@ export async function guardedCaptureRevolutOrder(args: {
   providerOrderId: string;
   amountPence: number;
   payableSnapshotVersion?: number;
-  /** When set, refuse capture if a newer snapshot total exceeds this version's basis. */
+  /** Full payable basis, NOT the funded capture amount (which may be partial).
+   * Refuse capture if the latest snapshot exceeds that agreed payable.
+   */
   expectedPayablePence?: number | null;
   merchantAccountRef?: string | null;
   currency?: string;

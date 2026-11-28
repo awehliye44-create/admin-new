@@ -11,3 +11,5 @@
 - [x] Security batch: call-masking report filter, invoice resend email logging
 - [x] admin_page_select/mutate findings — accepted by user (staff-gated, allowlisted, bound values)
 - [x] Driver Details: Add Documents / Approve / Reject / Re-reject in Documents tab
+- [x] Verify and fix declined completion top-up fallback and payable snapshot parity; 65 focused regressions pass.
+- [ ] Deploy the payment correction — blocked by the shared upload exceeding Supabase's size limit; packaging plan awaits approval.

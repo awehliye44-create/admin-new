@@ -13,8 +13,22 @@ import {
   type WaitingBasis,
 } from "./payableFareSnapshotSSOT.ts";
 import { persistPayableFareSnapshot } from "./paymentFinancialOperationPersistSSOT.ts";
+import {
+  isAirportAlreadyInRideBase,
+  isDiscountAlreadyInLockedRideBase,
+  isModificationAlreadyInRideBase,
+  resolveArrivalWaitingChargePence,
+  resolveAirportChargePence,
+  resolveCustomerModificationChargePence,
+  resolveDiscountPence,
+  resolvePassThroughChargePence,
+  resolveRideFareBasePence,
+  resolveStopWaitingChargePence,
+  resolveTipsPence,
+  type TripFareRow,
+} from "./tripFareSSOT.ts";
 
-export type TripPayableSnapshotRow = {
+export type TripPayableSnapshotRow = TripFareRow & {
   id?: string;
   locked_base_fare_pence?: number | null;
   final_customer_fare_pence?: number | null;
@@ -39,11 +53,6 @@ function nonNeg(v: unknown): number {
   return Number.isFinite(n) && n > 0 ? n : 0;
 }
 
-function signed(v: unknown): number {
-  const n = Math.round(Number(v));
-  return Number.isFinite(n) ? n : 0;
-}
-
 /**
  * Build snapshot from committed trip columns (not live projections).
  * Waiting counted once via waitingBasis.
@@ -57,21 +66,26 @@ export function buildAuthoritativePayableFromTrip(args: {
   /** When set, overrides computed total (e.g. force_complete admin fare). */
   totalPayableOverridePence?: number | null;
 }): PayableFareSnapshot {
-  const trip = args.trip;
+  const trip = {
+    ...args.trip,
+    customer_modification_charge_pence:
+      args.trip.customer_modification_charge_pence ?? args.trip.modification_delta_pence,
+  };
   const waitingBasis = args.waitingBasis ?? "columns";
   const waitingColumns =
-    nonNeg(trip.pickup_waiting_charge_pence) + nonNeg(trip.stop_waiting_charge_pence);
-  const gross = nonNeg(trip.gross_fare_pence) ||
-    nonNeg(trip.final_customer_fare_pence) ||
-    nonNeg(trip.locked_base_fare_pence) ||
-    nonNeg(trip.final_fare_pence);
-  const modification = signed(
-    trip.customer_modification_charge_pence ?? trip.modification_delta_pence,
-  );
-  const discount = nonNeg(trip.offer_discount_pence) + nonNeg(trip.voucher_discount_pence);
-  const tip = args.tipPence != null
-    ? nonNeg(args.tipPence)
-    : nonNeg(trip.tip_pence ?? trip.tip_amount_pence);
+    resolveArrivalWaitingChargePence(trip) + resolveStopWaitingChargePence(trip);
+  // Use the same effective additions as capture: folded charges/discounts are
+  // audit columns, not extra payable. Never rebuild a second fare formula.
+  const rideBase = resolveRideFareBasePence(trip);
+  const modification = isModificationAlreadyInRideBase(trip, rideBase)
+    ? 0 : resolveCustomerModificationChargePence(trip);
+  const airport = isAirportAlreadyInRideBase(trip, rideBase)
+    ? 0 : resolveAirportChargePence(trip);
+  const discountIncluded = isDiscountAlreadyInLockedRideBase(trip)
+    || (nonNeg(trip.final_customer_fare_pence) > 0
+      && rideBase === nonNeg(trip.final_customer_fare_pence));
+  const discount = discountIncluded ? 0 : resolveDiscountPence(trip);
+  const tip = resolveTipsPence(trip, args.tipPence ?? undefined);
 
   if (args.totalPayableOverridePence != null) {
     return forceCompletePayableSnapshot({
@@ -87,13 +101,13 @@ export function buildAuthoritativePayableFromTrip(args: {
 
   return buildPayableFareSnapshot({
     source: args.source,
-    grossFarePence: gross,
+    grossFarePence: rideBase,
     modificationPence: modification,
     waitingPence: waitingColumns,
     waitingBasis,
     discountPence: discount,
     airportPassThroughPence:
-      nonNeg(trip.airport_charge_pence) + nonNeg(trip.other_pass_through_charges_pence),
+      airport + resolvePassThroughChargePence(trip),
     tipPence: tip,
     receivablesPence: args.receivablesPence,
     currency: String(trip.currency_code ?? "GBP"),

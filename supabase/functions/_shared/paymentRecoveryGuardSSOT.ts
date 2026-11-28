@@ -54,7 +54,7 @@ export function computeRemainingShortfallPence(args: {
 export function safeCaptureAfterIncrementDecline(args: {
   finalFarePence: number;
   providerConfirmedAuthorisedTotalPence: number;
-}): { capturePence: number; shortfallPence: number } {
+}): { capturePence: number; shortfallPence: number; payablePence: number } {
   const finalFare = Math.max(0, Math.round(Number(args.finalFarePence)));
   const auth = Math.max(
     0,
@@ -64,5 +64,7 @@ export function safeCaptureAfterIncrementDecline(args: {
   return {
     capturePence,
     shortfallPence: Math.max(0, finalFare - capturePence),
+    // Guard against a changed fare, not the deliberately smaller funded capture.
+    payablePence: finalFare,
   };
 }

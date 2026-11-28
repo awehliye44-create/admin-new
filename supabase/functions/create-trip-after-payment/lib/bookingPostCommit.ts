@@ -126,7 +126,7 @@ const AIRPORT_ABSENT_DISPATCH: FareEnrichDispatchDecision = {
 };
 
 const BOOKING_PAYABLE_TRIP_SELECT =
-  "locked_base_fare_pence, final_customer_fare_pence, final_fare_pence, gross_fare_pence, pickup_waiting_charge_pence, stop_waiting_charge_pence, offer_discount_pence, voucher_discount_pence, airport_charge_pence, other_pass_through_charges_pence, tip_pence, tip_amount_pence, currency_code";
+  "locked_base_fare_pence, final_customer_fare_pence, final_fare_pence, gross_fare_pence, pickup_waiting_charge_pence, stop_waiting_charge_pence, offer_discount_pence, voucher_discount_pence, airport_charge_pence, other_pass_through_charges_pence, tip_pence, tip_amount_pence, currency_code, commissionable_fare_pence, fare_breakdown, fare_snapshot_json, fare_locked";
 
 /**
  * #92J — Booking payable snapshot writer (PLATFORM_COLLECTED).

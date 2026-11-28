@@ -129,7 +129,9 @@ export async function recoverPlatformCollectedTripFinancialIntegrity(
         + "final_fare_pence, gross_fare_pence, capture_amount_pence, tip_pence, tip_amount_pence, "
         + "pickup_waiting_charge_pence, stop_waiting_charge_pence, offer_discount_pence, "
         + "voucher_discount_pence, airport_charge_pence, other_pass_through_charges_pence, "
-        + "currency_code, customer_modification_charge_pence, modification_delta_pence",
+        + "currency_code, customer_modification_charge_pence, modification_delta_pence, "
+        + "commissionable_fare_pence, fare_breakdown, fare_snapshot_json, fare_locked, "
+        + "total_waiting_charge_pence, stop_charge_total_pence, discount_pence, discount_source",
     )
     .eq("id", tripId)
     .maybeSingle();
@@ -177,6 +179,14 @@ export async function recoverPlatformCollectedTripFinancialIntegrity(
     tip_pence: trip.tip_pence,
     tip_amount_pence: trip.tip_amount_pence,
     currency_code: trip.currency_code,
+    commissionable_fare_pence: trip.commissionable_fare_pence,
+    fare_breakdown: trip.fare_breakdown,
+    fare_snapshot_json: trip.fare_snapshot_json,
+    fare_locked: trip.fare_locked,
+    total_waiting_charge_pence: trip.total_waiting_charge_pence,
+    stop_charge_total_pence: trip.stop_charge_total_pence,
+    discount_pence: trip.discount_pence,
+    discount_source: trip.discount_source,
   };
   const { count: bookingSnapCount } = await supabase
     .from("payment_payable_snapshots")
@@ -208,8 +218,14 @@ export async function recoverPlatformCollectedTripFinancialIntegrity(
         trip: {
           locked_base_fare_pence: bookingEvidence.grossFarePence,
           gross_fare_pence: bookingEvidence.grossFarePence,
-          final_customer_fare_pence: bookingEvidence.grossFarePence,
-          final_fare_pence: bookingEvidence.grossFarePence,
+          // These columns mean NET customer fare to the shared fare resolver.
+          // Keep booking gross/discount as evidence, never label gross as net.
+          final_customer_fare_pence: Math.max(
+            0, bookingEvidence.grossFarePence - bookingEvidence.discountPence,
+          ),
+          final_fare_pence: Math.max(
+            0, bookingEvidence.grossFarePence - bookingEvidence.discountPence,
+          ),
           tip_pence: 0,
           tip_amount_pence: 0,
           pickup_waiting_charge_pence: 0,
