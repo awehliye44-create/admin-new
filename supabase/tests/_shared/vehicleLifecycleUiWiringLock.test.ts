@@ -124,6 +124,18 @@ Deno.test("driver list/primary/remove and replacement docs RPCs exist", async ()
   assert(sql.includes("document_attachments"));
 });
 
+Deno.test("Primary and Remove are Admin-only — drivers cannot EXECUTE mutate RPCs", async () => {
+  const sql = await Deno.readTextFile(
+    new URL("../../migrations/20270305240000_driver_primary_remove_admin_only.sql", import.meta.url),
+  );
+  assert(sql.includes("'can_set_primary', false"));
+  assert(sql.includes("'can_remove', false"));
+  assert(sql.includes("REVOKE ALL ON FUNCTION public.set_driver_primary_vehicle(uuid) FROM PUBLIC, anon, authenticated"));
+  assert(sql.includes("REVOKE ALL ON FUNCTION public.remove_driver_saved_vehicle(uuid) FROM PUBLIC, anon, authenticated"));
+  assert(sql.includes("GRANT EXECUTE ON FUNCTION public.set_driver_primary_vehicle(uuid) TO service_role"));
+  assert(sql.includes("GRANT EXECUTE ON FUNCTION public.remove_driver_saved_vehicle(uuid) TO service_role"));
+});
+
 Deno.test("Admin management controls migration adds page-RBAC lifecycle actions", async () => {
   const sql = await Deno.readTextFile(
     new URL("../../migrations/20270305120000_vehicle_admin_management_controls.sql", import.meta.url),
