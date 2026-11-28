@@ -28,6 +28,7 @@ import { sweepRecoverMissingTripEarningNet } from "../_shared/missingTripEarning
 import { sweepRecoverTerminalFeeMissingTen } from "../_shared/terminalFeeMissingTenRecoverySSOT.ts";
 import { invokeFinalizeTripCapture } from "../_shared/invokeFinalizeTripCapture.ts";
 import { getRevolutMerchantConfig, retrieveRevolutOrder } from "../_shared/revolutOrders.ts";
+import { stampProviderCancelledPreauthSession } from "../_shared/stampProviderCancelledPreauthSSOT.ts";
 import { extractConfirmedCaptureAmountPence } from "../_shared/paymentHoldProviderTerminalPure.ts";
 import { transitionPaymentSession } from "../_shared/paymentSessionTransitionFacade.ts";
 import { reclaimExpiredPaymentSessionFinancialLock } from "../_shared/paymentSessionFinancialLockSSOT.ts";
@@ -818,6 +819,83 @@ serve(async (req) => {
     }
   }
 
+  // BR2 — durable recovery for provider-cancelled create-preauth orphans with
+  // incomplete local cancel/release stamps. Provider GET is authoritative.
+  // Never mutates historical settled rows; never invents released amounts.
+  const incompleteCancelStampResults: Array<Record<string, unknown>> = [];
+  try {
+    const { data: incompleteCancels } = await supabase
+      .from("payment_sessions")
+      .select(
+        "id, trip_id, provider_order_id, client_action_id, provider_state, status, hold_release_state, hold_terminal_reason, metadata, created_at",
+      )
+      .in("provider_state", ["CANCELLED", "CANCELED"])
+      .in("status", ["cancelled", "canceled", "failed", "pending_payment", "released"])
+      .is("trip_id", null)
+      .not("provider_order_id", "is", null)
+      .is("hold_terminal_reason", null)
+      .order("created_at", { ascending: true })
+      .limit(Math.min(25, limit));
+
+    let envForStamp: ReturnType<typeof getRevolutMerchantConfig> | null = null;
+    try {
+      envForStamp = getRevolutMerchantConfig();
+    } catch {
+      envForStamp = null;
+    }
+
+    for (const row of incompleteCancels ?? []) {
+      const meta = row.metadata && typeof row.metadata === "object"
+        ? (row.metadata as Record<string, unknown>)
+        : {};
+      if (
+        meta.cancellation_class === "without_authorisation" ||
+        meta.cancellation_class === "authorised_hold_release"
+      ) {
+        continue;
+      }
+      if (dryRun) {
+        incompleteCancelStampResults.push({
+          payment_session_id: row.id,
+          dry_run: true,
+          action: "would_stamp_provider_cancel",
+        });
+        continue;
+      }
+      let providerPayload: Record<string, unknown> | null = {
+        state: String(row.provider_state ?? "CANCELLED"),
+      };
+      if (envForStamp?.secretKey && row.provider_order_id) {
+        try {
+          providerPayload = await retrieveRevolutOrder(
+            envForStamp.environment,
+            envForStamp.secretKey,
+            String(row.provider_order_id),
+          ) as unknown as Record<string, unknown>;
+        } catch {
+          /* use local provider_state only */
+        }
+      }
+      const stamp = await stampProviderCancelledPreauthSession({
+        supabase,
+        sessionId: String(row.id),
+        providerOrderId: String(row.provider_order_id),
+        reason: "sweep_incomplete_cancel_stamp",
+        evidenceSource: "sweep_revolut_stale_holds",
+        providerPayload,
+      });
+      incompleteCancelStampResults.push({
+        payment_session_id: row.id,
+        applied: stamp.applied,
+        skipped: stamp.skipped,
+        cancellation_class: stamp.classification.cancellationClass,
+        hold_terminal_reason: stamp.classification.holdTerminalReason,
+      });
+    }
+  } catch (e) {
+    console.error("[sweep-revolut-stale-holds] incomplete cancel stamp recovery failed", e);
+  }
+
   // Provider-confirmed capture with incomplete driver settlement (missing TEN).
   // Durable retry — exactly-once via ledger insert / readback. No Revolut mutation.
   let missingTenRecovery: Awaited<ReturnType<typeof sweepRecoverMissingTripEarningNet>> = {
@@ -1082,6 +1160,7 @@ serve(async (req) => {
     eligible: candidates.length,
     results,
     tripless_holds: orphanResults,
+    incomplete_cancel_stamp_recovery_br2: incompleteCancelStampResults,
     completed_capture_heals: healResults,
     completed_authorised_retries: retryResults,
     missing_ten_recovery: missingTenRecovery,

@@ -21,6 +21,7 @@ import {
   isRevolutInFlightState,
 } from "./revolutPaymentConfirmation.ts";
 import {
+  cancelRevolutOrder,
   createRevolutOrder,
   isRevolutPaymentAuthenticationChallenge,
   isRevolutPaymentAuthorisedState,
@@ -29,6 +30,7 @@ import {
   retrieveRevolutOrder,
   retrieveRevolutOrderPayment,
 } from "./revolutOrders.ts";
+import { stampProviderCancelledPreauthSession } from "./stampProviderCancelledPreauthSSOT.ts";
 import {
   captureRevolutProviderTokenFromOrder,
   invalidateRevolutProviderToken,
@@ -163,6 +165,81 @@ export type RevolutPreauthInput = {
   /** Frozen booking financial contract (#89). Persisted on payment session create. */
   bookingFinancialPolicyJson?: Record<string, unknown> | null;
 };
+
+/**
+ * BR2 — After a Revolut order exists, cancel provider-side and stamp local
+ * session distinguishing cancel-without-auth vs authorised-hold release.
+ * Idempotent; never invents released_amount; never auto-retries Pay.
+ */
+async function cancelCreatedPreauthOrderAndStamp(args: {
+  supabase: SupabaseClient;
+  environment: ProviderEnvironment;
+  secretKey: string;
+  orderId: string;
+  paymentSessionId: string | null | undefined;
+  clientActionId: string | null | undefined;
+  reason: string;
+  logStep: (step: string, details?: unknown) => void;
+}): Promise<void> {
+  let providerPayload: Record<string, unknown> | null = null;
+  try {
+    const cancelled = await cancelRevolutOrder(
+      args.environment,
+      args.secretKey,
+      args.orderId,
+    );
+    providerPayload = cancelled as unknown as Record<string, unknown>;
+  } catch (cancelErr) {
+    args.logStep("Post-order cancel failed — retrieving for stamp", {
+      orderId: args.orderId,
+      reason: args.reason,
+      error: String(cancelErr),
+    });
+    try {
+      const retrieved = await retrieveRevolutOrder(
+        args.environment,
+        args.secretKey,
+        args.orderId,
+      );
+      providerPayload = retrieved as unknown as Record<string, unknown>;
+    } catch (retrieveErr) {
+      args.logStep("Post-order retrieve after cancel-fail also failed", {
+        orderId: args.orderId,
+        error: String(retrieveErr),
+      });
+    }
+  }
+
+  const stamp = await stampProviderCancelledPreauthSession({
+    supabase: args.supabase,
+    sessionId: args.paymentSessionId ?? null,
+    clientActionId: args.clientActionId ?? null,
+    providerOrderId: args.orderId,
+    reason: args.reason,
+    evidenceSource: "create_preauth_rollback",
+    providerPayload,
+  });
+  args.logStep("Post-order cancel stamp", {
+    orderId: args.orderId,
+    reason: args.reason,
+    applied: stamp.applied,
+    skipped: stamp.skipped,
+    cancellation_class: stamp.classification.cancellationClass,
+    hold_terminal_reason: stamp.classification.holdTerminalReason,
+    sessionId: stamp.sessionId,
+  });
+
+  const sessionId = stamp.sessionId ?? args.paymentSessionId ?? null;
+  if (sessionId) {
+    await releaseReceivablesOnCancelIfAllowed(args.supabase, {
+      payment_session_id: sessionId,
+      provider_order_id: args.orderId,
+      provider_state: "CANCELLED",
+      has_capture: false,
+      reason: args.reason,
+    });
+  }
+}
 
 export async function createRevolutPreauthResponse(
   input: RevolutPreauthInput,
@@ -1250,6 +1327,9 @@ export async function createRevolutPreauthResponse(
     { order_id: order.id, state: order.state ?? null },
   );
 
+  // BR2 — any exception after order create must cancel + stamp (never leave
+  // an untracked provider order). Structured catch identifies the site.
+  try {
   if (userId && clientActionId && metadataExtra.service_area_id) {
     const orderLinkStarted = Date.now();
     edgeTiming.markPersistStart();
@@ -1289,31 +1369,24 @@ export async function createRevolutPreauthResponse(
         orderId: order.id,
         clientActionId,
       });
-      try {
-        const { cancelRevolutOrder } = await import("./revolutOrders.ts");
-        await cancelRevolutOrder(environment, secretKey, order.id);
-      } catch (cancelErr) {
-        logStep("Session-persist cancel failed", {
-          orderId: order.id,
-          error: String(cancelErr),
-        });
-      }
-      // Provider order cancelled → release reservations on the pending session.
-      if (priorPaymentSessionId) {
-        await releaseReceivablesOnCancelIfAllowed(supabase, {
-          payment_session_id: priorPaymentSessionId,
-          provider_order_id: order.id,
-          provider_state: "CANCELLED",
-          has_capture: false,
-          reason: "session_persist_failed_after_order",
-        });
-      }
+      await cancelCreatedPreauthOrderAndStamp({
+        supabase,
+        environment,
+        secretKey,
+        orderId: order.id,
+        paymentSessionId: priorPaymentSessionId,
+        clientActionId,
+        reason: "session_persist_failed_after_order",
+        logStep,
+      });
       return new Response(JSON.stringify({
         error:
           "We couldn't complete your booking. Any temporary card hold will be released.",
         code: "PAYMENT_SESSION_PERSIST_FAILED",
+        error_code: "PAYMENT_SESSION_PERSIST_FAILED",
         charge_state: "reversed",
         payment_intent_id: order.id,
+        note: "session_persist_failed_after_order",
       }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
         status: 500,
@@ -1369,21 +1442,24 @@ export async function createRevolutPreauthResponse(
             paymentSessionId,
             error: attemptErr.message,
           });
-          try {
-            const { cancelRevolutOrder } = await import("./revolutOrders.ts");
-            await cancelRevolutOrder(environment, secretKey, order.id);
-          } catch (cancelErr) {
-            logStep("Google Pay attempt-bind cancel failed", {
-              orderId: order.id,
-              error: String(cancelErr),
-            });
-          }
+          await cancelCreatedPreauthOrderAndStamp({
+            supabase,
+            environment,
+            secretKey,
+            orderId: order.id,
+            paymentSessionId,
+            clientActionId,
+            reason: "google_pay_attempt_bind_failed",
+            logStep,
+          });
           return new Response(JSON.stringify({
             error:
               "We couldn't start Google Pay for this booking. Please try again.",
             code: "GOOGLE_PAY_ATTEMPT_BIND_FAILED",
+            error_code: "GOOGLE_PAY_ATTEMPT_BIND_FAILED",
             charge_state: "reversed",
             payment_intent_id: order.id,
+            note: "google_pay_attempt_bind_failed",
           }), {
             headers: { ...corsHeaders, "Content-Type": "application/json" },
             status: 500,
@@ -1399,18 +1475,24 @@ export async function createRevolutPreauthResponse(
           paymentSessionId,
           error: bindErr instanceof Error ? bindErr.message : String(bindErr),
         });
-        try {
-          const { cancelRevolutOrder } = await import("./revolutOrders.ts");
-          await cancelRevolutOrder(environment, secretKey, order.id);
-        } catch {
-          // best-effort cancel
-        }
+        await cancelCreatedPreauthOrderAndStamp({
+          supabase,
+          environment,
+          secretKey,
+          orderId: order.id,
+          paymentSessionId,
+          clientActionId,
+          reason: "google_pay_attempt_bind_threw",
+          logStep,
+        });
         return new Response(JSON.stringify({
           error:
             "We couldn't start Google Pay for this booking. Please try again.",
           code: "GOOGLE_PAY_ATTEMPT_BIND_FAILED",
+          error_code: "GOOGLE_PAY_ATTEMPT_BIND_FAILED",
           charge_state: "reversed",
           payment_intent_id: order.id,
+          note: "google_pay_attempt_bind_threw",
         }), {
           headers: { ...corsHeaders, "Content-Type": "application/json" },
           status: 500,
@@ -1513,6 +1595,39 @@ export async function createRevolutPreauthResponse(
         (receivableReservedTotal > 0 ? "consent_matched" : null),
     }),
   });
+  } catch (postOrderErr) {
+    const errMessage = postOrderErr instanceof Error
+      ? postOrderErr.message
+      : String(postOrderErr);
+    logStep("POST_ORDER_EXCEPTION — cancelling Revolut order", {
+      orderId: order.id,
+      paymentSessionId,
+      clientActionId,
+      error: errMessage,
+    });
+    await cancelCreatedPreauthOrderAndStamp({
+      supabase,
+      environment,
+      secretKey,
+      orderId: order.id,
+      paymentSessionId,
+      clientActionId,
+      reason: `post_order_exception:${errMessage}`.slice(0, 200),
+      logStep,
+    });
+    return new Response(JSON.stringify({
+      error:
+        "We couldn't complete your booking. Any temporary card hold will be released.",
+      code: "POST_ORDER_EXCEPTION",
+      error_code: "POST_ORDER_EXCEPTION",
+      charge_state: "reversed",
+      payment_intent_id: order.id,
+      note: errMessage.slice(0, 200),
+    }), {
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+      status: 500,
+    });
+  }
 }
 
 async function attemptRevolutSavedCardCharge(args: {
@@ -1596,21 +1711,24 @@ async function attemptRevolutSavedCardCharge(args: {
           orderId: args.orderId,
           clientActionId: args.clientActionId,
         });
-        try {
-          const { cancelRevolutOrder } = await import("./revolutOrders.ts");
-          await cancelRevolutOrder(args.environment, args.secretKey, args.orderId);
-        } catch (cancelErr) {
-          args.logStep("Authorised-without-session cancel failed", {
-            orderId: args.orderId,
-            error: String(cancelErr),
-          });
-        }
+        await cancelCreatedPreauthOrderAndStamp({
+          supabase: args.supabase,
+          environment: args.environment,
+          secretKey: args.secretKey,
+          orderId: args.orderId,
+          paymentSessionId: args.paymentSessionId ?? null,
+          clientActionId: args.clientActionId ?? null,
+          reason: "authorised_without_payment_session",
+          logStep: args.logStep,
+        });
         return new Response(JSON.stringify({
           error:
             "We couldn't complete your booking. Any temporary card hold will be released.",
           code: "PAYMENT_SESSION_PERSIST_FAILED",
+          error_code: "PAYMENT_SESSION_PERSIST_FAILED",
           charge_state: "reversed",
           payment_intent_id: args.orderId,
+          note: "authorised_without_payment_session",
         }), {
           headers: { ...args.corsHeaders, "Content-Type": "application/json" },
           status: 500,

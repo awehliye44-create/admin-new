@@ -51,6 +51,7 @@ import {
   handleRevolutPaymentInvariantViolation,
   isRevolutWrongCaptureBeforeTripComplete,
 } from "../_shared/revolutPreauthReleaseSSOT.ts";
+import { stampProviderCancelledPreauthSession } from "../_shared/stampProviderCancelledPreauthSSOT.ts";
 import {
   persistCaptureDeadlineFromOrder,
   extractCaptureDeadlineFromRevolutOrder,
@@ -779,6 +780,48 @@ Deno.serve(async (req) => {
             decision: lifecycleResult.decision,
             reason: lifecycleResult.reason,
           });
+        }
+
+        // BR2 — provider CANCELLED must stamp cancel-without-auth vs authorised
+        // hold release. Delayed webhooks are idempotent on cancellation_class.
+        if (
+          !ignoredTerminalAfterAuthorised
+          && ["CANCELLED", "CANCELED"].includes(effectiveStateUpper)
+          && !lifecycleResult.error_message
+        ) {
+          try {
+            const orderPayload =
+              event.data && typeof event.data === "object"
+                ? (event.data as Record<string, unknown>)
+                : { state: effectiveStateUpper };
+            const stamp = await stampProviderCancelledPreauthSession({
+              supabase,
+              sessionId: String(session.id),
+              providerOrderId: orderId,
+              reason: `webhook_${effectiveStateUpper.toLowerCase()}`,
+              evidenceSource: "revolut_webhook",
+              providerPayload: {
+                ...orderPayload,
+                state: effectiveStateUpper,
+              },
+              // Lifecycle already advanced status; only fill terminal fields when
+              // needed — stamp still sets status when session was pending.
+              allowStatusAdvance: true,
+            });
+            console.log("[revolut-webhook] provider cancel stamp", {
+              session_id: session.id,
+              applied: stamp.applied,
+              skipped: stamp.skipped,
+              cancellation_class: stamp.classification.cancellationClass,
+              hold_terminal_reason: stamp.classification.holdTerminalReason,
+              skip_reason: stamp.classification.skipReason ?? null,
+            });
+          } catch (stampErr) {
+            console.error("[revolut-webhook] provider cancel stamp failed", {
+              session_id: session.id,
+              error: stampErr instanceof Error ? stampErr.message : String(stampErr),
+            });
+          }
         }
 
         // MK-261105-002: definitive cancel of the trip's current auth → stop dispatch.

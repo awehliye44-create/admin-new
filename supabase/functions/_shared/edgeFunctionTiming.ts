@@ -25,6 +25,13 @@ export type EdgeTimingRecord = {
   httpStatus: number;
   /** Observability only — optional stage marks (ms from request start). */
   stagesMs: Record<string, number> | null;
+  /**
+   * BR1 — HTTP business error from JSON body (error_code / code / note).
+   * Never overwritten by performance_status on ops_logs.error_code.
+   */
+  businessErrorCode: string | null;
+  businessErrorNote: string | null;
+  chargeState: string | null;
 };
 
 /** Optional stage clock passed to serveWithEdgeTiming handlers (obs only). */
@@ -72,7 +79,40 @@ export function startEdgeTiming(source: string, path = "POST"): EdgeTimingRecord
     fingerprintSkipped: null,
     httpStatus: 500,
     stagesMs: null,
+    businessErrorCode: null,
+    businessErrorNote: null,
+    chargeState: null,
   };
+}
+
+/**
+ * BR1 — Clone a non-2xx JSON body and stamp business error fields onto the timer.
+ * Never consumes the response body returned to the client.
+ */
+export async function attachBusinessErrorFromResponse(
+  response: Response,
+  timer: EdgeTimingRecord,
+): Promise<void> {
+  if (response.status < 400) return;
+  try {
+    const body = await response.clone().json();
+    if (!body || typeof body !== "object") return;
+    const record = body as Record<string, unknown>;
+    const codeRaw = record.error_code ?? record.code;
+    if (typeof codeRaw === "string" && codeRaw.trim()) {
+      timer.businessErrorCode = codeRaw.trim().slice(0, 128);
+    }
+    const noteRaw = record.note ?? record.error_note;
+    if (typeof noteRaw === "string" && noteRaw.trim()) {
+      timer.businessErrorNote = noteRaw.trim().slice(0, 256);
+    }
+    const chargeRaw = record.charge_state;
+    if (typeof chargeRaw === "string" && chargeRaw.trim()) {
+      timer.chargeState = chargeRaw.trim().slice(0, 64);
+    }
+  } catch {
+    /* non-JSON error body */
+  }
 }
 
 function readOptionalTrimmedString(body: Record<string, unknown>, key: string): string | null {
@@ -147,6 +187,12 @@ export function logEdgeTimingConsole(timer: EdgeTimingRecord, perf: EdgePerforma
         performance_status: perf.performance_status,
       }
       : {}),
+    ...(timer.businessErrorCode
+      ? { business_error_code: timer.businessErrorCode }
+      : {}),
+    ...(timer.businessErrorNote
+      ? { business_error_note: timer.businessErrorNote }
+      : {}),
   }));
 }
 
@@ -160,15 +206,31 @@ export async function finishEdgeTiming(
   logEdgeTimingConsole(timer, perf);
   if (!adminClient) return;
 
+  const businessMeta = {
+    ...(timer.businessErrorCode
+      ? { business_error_code: timer.businessErrorCode }
+      : {}),
+    ...(timer.businessErrorNote
+      ? { business_error_note: timer.businessErrorNote }
+      : {}),
+    ...(timer.chargeState ? { charge_state: timer.chargeState } : {}),
+  };
+  // BR1: prefer HTTP business error_code (e.g. BOOKING_QUOTE_INVALID) over
+  // performance_status so 409 quote rejects remain searchable in ops_logs.
+  const opsErrorCode = timer.businessErrorCode
+    ?? (timer.httpStatus >= 500 ? (perf?.performance_status ?? undefined) : undefined);
+
   const perfWarning = perf && perf.performance_status !== "OK" && perf.performance_status !== "FAILED";
   await opsLog(adminClient, {
-    level: perfWarning || timer.httpStatus >= 500 ? "warn" : "info",
+    level: perfWarning || timer.httpStatus >= 500 || timer.httpStatus === 409
+      ? "warn"
+      : "info",
     source: timer.source,
     app: "customer_app",
     message: `${timer.source} ${timer.path} completed in ${duration_ms}ms`,
     duration_ms,
     http_status: timer.httpStatus,
-    error_code: perf?.performance_status ?? undefined,
+    error_code: opsErrorCode,
     metadata: {
       request_id: timer.requestId,
       path: timer.path,
@@ -185,6 +247,7 @@ export async function finishEdgeTiming(
         ? { stages_ms: timer.stagesMs }
         : {}),
       ...(perf ?? {}),
+      ...businessMeta,
     },
   });
 
@@ -216,6 +279,7 @@ export async function finishEdgeTiming(
           ...(timer.stagesMs && Object.keys(timer.stagesMs).length > 0
             ? { stages_ms: timer.stagesMs }
             : {}),
+          ...businessMeta,
         },
       });
     } catch (err) {
@@ -282,6 +346,7 @@ export function serveWithEdgeTiming(
       const response = await handler(req, stages);
       timer.stagesMs = Object.keys(stageMarks).length > 0 ? { ...stageMarks } : null;
       timer.httpStatus = response.status;
+      await attachBusinessErrorFromResponse(response, timer);
       const duration_ms = Date.now() - timer.startedAt;
       const perf = resolveEdgePerformance(source, duration_ms, response.status < 500);
       return attachTimingHeaders(response, timer, perf);
@@ -289,8 +354,14 @@ export function serveWithEdgeTiming(
       timer.stagesMs = Object.keys(stageMarks).length > 0 ? { ...stageMarks } : null;
       timer.httpStatus = 500;
       const message = error instanceof Error ? error.message : String(error);
+      timer.businessErrorCode = timer.businessErrorCode ?? "UNHANDLED_EDGE_EXCEPTION";
+      timer.businessErrorNote = message.slice(0, 256);
       console.error(`[${source}] unhandled`, message);
-      const errResponse = new Response(JSON.stringify({ error: message }), {
+      const errResponse = new Response(JSON.stringify({
+        error: message,
+        code: "UNHANDLED_EDGE_EXCEPTION",
+        error_code: "UNHANDLED_EDGE_EXCEPTION",
+      }), {
         status: 500,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
