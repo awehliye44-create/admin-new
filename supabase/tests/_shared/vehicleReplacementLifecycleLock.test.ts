@@ -55,6 +55,18 @@ Deno.test("submit creates a new pending vehicle; does not mutate previous identi
   assert(submit.includes("p_suspend_previous"));
 });
 
+Deno.test("submit treats reason as optional (20270305200000)", async () => {
+  const optional = new URL(
+    "../../migrations/20270305200000_vehicle_change_reason_optional.sql",
+    import.meta.url,
+  );
+  const sql = await Deno.readTextFile(optional);
+  const submit = fnBody(sql, "submit_driver_vehicle_change_request");
+  assert(submit.includes("Reason is optional"));
+  assertEquals(submit.includes("WHEN v_reason IS NULL THEN 'reason'"), false);
+  assert(submit.includes("v_reason IS NOT NULL AND length(v_reason) > 200"));
+});
+
 Deno.test("approve activates the new vehicle without rewriting the previous plate/make/model", async () => {
   const sql = await Deno.readTextFile(MIGRATION);
   const decide = fnBody(sql, "admin_decide_vehicle_change_request");
