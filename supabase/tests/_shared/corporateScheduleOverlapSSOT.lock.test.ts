@@ -79,9 +79,26 @@ Deno.test("cancelled and completed jobs ignored", () => {
   }
 });
 
+Deno.test("BR3: expired and expired_no_driver ignored", () => {
+  for (const status of ["expired", "expired_no_driver"]) {
+    const r = findCorporateScheduleOverlap({
+      candidateScheduledAt: "2026-09-15T12:00:00.000Z",
+      candidateDurationMinutes: 30,
+      existing: [{
+        id: "t1",
+        scheduled_at: "2026-09-15T12:00:00.000Z",
+        estimated_duration_minutes: 30,
+        status,
+      }],
+    });
+    assertEquals(r.has_conflict, false, status);
+  }
+});
+
 Deno.test("status filter", () => {
   assertEquals(isCorporateOverlapCandidateStatus("scheduled"), true);
   assertEquals(isCorporateOverlapCandidateStatus("cancelled"), false);
+  assertEquals(isCorporateOverlapCandidateStatus("expired"), false);
 });
 
 Deno.test("DST-safe absolute instants: same UTC windows conflict regardless of local label", () => {

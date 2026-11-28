@@ -6,6 +6,10 @@ import {
   errorResponse,
 } from "../_shared/security.ts";
 import { findPassengerScheduleOverlap } from "../_shared/passengerScheduleOverlapSSOT.ts";
+import { PASSENGER_OVERLAP_TERMINAL_STATUS_POSTGREST_LIST } from "../_shared/passengerBookingOverlapLifecycleSSOT.ts";
+import {
+  BOOKING_TIME_CONFLICT_CUSTOMER_MESSAGE,
+} from "../_shared/preauthPassengerOverlapGateSSOT.ts";
 import {
   evaluateScheduledAdvanceWindow,
   resolveScheduledAdvanceWindowPolicy,
@@ -118,6 +122,7 @@ serve(async (req) => {
             "id, scheduled_at, estimated_duration_minutes, status, passenger_id, created_at, is_scheduled",
           )
           .in("passenger_id", passengerKeys)
+          .not("status", "in", PASSENGER_OVERLAP_TERMINAL_STATUS_POSTGREST_LIST)
           .limit(200);
         if (ovErr) {
           console.error("[validate-scheduled-booking] overlap query failed:", ovErr);
@@ -132,8 +137,9 @@ serve(async (req) => {
         if (overlap.has_conflict) {
           return successResponse({
             valid: false,
-            reason: "Booking time conflict",
+            reason: BOOKING_TIME_CONFLICT_CUSTOMER_MESSAGE,
             code: "BOOKING_TIME_CONFLICT",
+            booking_conflict: true,
             conflicting_trip_id: overlap.conflicting_trip_id,
             conflicting_time: overlap.conflicting_time,
             min_advance_minutes: minAdvance,

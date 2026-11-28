@@ -8,6 +8,7 @@ import {
   findCorporateScheduleOverlap,
   type CorporateOverlapTrip,
 } from "../_shared/corporateScheduleOverlapSSOT.ts";
+import { PASSENGER_OVERLAP_TERMINAL_STATUS_POSTGREST_LIST } from "../_shared/passengerBookingOverlapLifecycleSSOT.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -85,7 +86,8 @@ Deno.serve(async (req) => {
       .from("trips")
       .select("id, scheduled_at, estimated_duration_minutes, status, passenger_id, corporate_account_id")
       .eq("corporate_account_id", corporateAccountId)
-      .not("scheduled_at", "is", null);
+      .not("scheduled_at", "is", null)
+      .not("status", "in", PASSENGER_OVERLAP_TERMINAL_STATUS_POSTGREST_LIST);
 
     if (passengerId) {
       query = query.eq("passenger_id", passengerId);

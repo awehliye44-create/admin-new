@@ -73,3 +73,21 @@ Deno.test("overlap: NOW vs nearby scheduled blocks when intervals collide", () =
   });
   assertEquals(result.has_conflict, true);
 });
+
+Deno.test("BR3: NOW vs expired scheduled does not collide", () => {
+  const result = findPassengerScheduleOverlap({
+    candidateScheduledAt: null,
+    candidateIsImmediate: true,
+    candidateDurationMinutes: 40,
+    nowMs: Date.parse("2026-09-21T13:50:00.000Z"),
+    existing: [
+      {
+        id: "sched-1",
+        scheduled_at: "2026-09-21T14:00:00.000Z",
+        estimated_duration_minutes: 30,
+        status: "expired",
+      },
+    ],
+  });
+  assertEquals(result.has_conflict, false);
+});

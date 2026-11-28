@@ -15,6 +15,7 @@ import {
   findCorporateScheduleOverlap,
   type CorporateOverlapTrip,
 } from "../_shared/corporateScheduleOverlapSSOT.ts";
+import { PASSENGER_OVERLAP_TERMINAL_STATUS_POSTGREST_LIST } from "../_shared/passengerBookingOverlapLifecycleSSOT.ts";
 import {
   resolveAuthoritativeCorporateAccountId,
   assertCorporateAccountBookable,
@@ -227,6 +228,7 @@ Deno.serve(async (req) => {
         .select("id, scheduled_at, estimated_duration_minutes, status, passenger_id, corporate_account_id")
         .eq("corporate_account_id", corporateAccountId)
         .not("scheduled_at", "is", null)
+        .not("status", "in", PASSENGER_OVERLAP_TERMINAL_STATUS_POSTGREST_LIST)
         .limit(200);
       if (ovErr) {
         return json(500, { error: "Unable to check schedule overlap" });

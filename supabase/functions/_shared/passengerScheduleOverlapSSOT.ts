@@ -4,6 +4,9 @@
  *
  * 20-minute min-advance is NOT overlap protection — that stays in
  * validate-scheduled-booking advance checks only.
+ *
+ * BR3 — lifecycle eligibility always runs before window math. scheduled_at must
+ * never bypass terminal status exclusion.
  */
 import {
   CORPORATE_OVERLAP_BUFFER_MINUTES,
@@ -13,6 +16,7 @@ import {
   windowsOverlap,
   type CorporateOverlapTrip,
 } from "./corporateScheduleOverlapSSOT.ts";
+import { isPassengerOverlapEligibleTripStatus } from "./passengerBookingOverlapLifecycleSSOT.ts";
 
 export {
   CORPORATE_OVERLAP_BUFFER_MINUTES as PASSENGER_OVERLAP_BUFFER_MINUTES,
@@ -31,12 +35,13 @@ export function resolvePassengerExpectedWindowMs(
   trip: PassengerOverlapTrip,
   opts?: { nowMs?: number; bufferMinutes?: number },
 ): { start: number; end: number } | null {
+  // BR3 — terminal lifecycle → no window (scheduled_at cannot bypass).
+  if (!isPassengerOverlapEligibleTripStatus(trip.status)) return null;
   const bufferMinutes = opts?.bufferMinutes ?? CORPORATE_OVERLAP_BUFFER_MINUTES;
   if (trip.scheduled_at) {
     return tripWindowMs(trip, bufferMinutes);
   }
   // Live / immediate trip without scheduled_at — window from created_at (or now).
-  if (!isCorporateOverlapCandidateStatus(trip.status)) return null;
   const nowMs = opts?.nowMs ?? Date.now();
   const startRaw = trip.created_at ? Date.parse(trip.created_at) : NaN;
   const start = Number.isFinite(startRaw) ? startRaw : nowMs;

@@ -3,7 +3,14 @@
  * Distinct from driver-centric check_schedule_overlap(driver_id, trip_id)
  * which is EXECUTE-locked to postgres (Phase A6) and is the wrong product shape
  * for Corporate create-time checks (no driver yet).
+ *
+ * BR3 — terminal lifecycle eligibility is owned by
+ * passengerBookingOverlapLifecycleSSOT (includes expired / expired_no_driver).
  */
+import {
+  isPassengerOverlapEligibleTripStatus,
+} from "./passengerBookingOverlapLifecycleSSOT.ts";
+
 export const CORPORATE_OVERLAP_BUFFER_MINUTES = 15;
 
 export type CorporateOverlapTrip = {
@@ -15,18 +22,9 @@ export type CorporateOverlapTrip = {
   corporate_account_id?: string | null;
 };
 
-const TERMINAL = new Set([
-  "cancelled",
-  "canceled",
-  "completed",
-  "no_show",
-  "failed",
-  "discarded",
-]);
-
+/** @deprecated Prefer isPassengerOverlapEligibleTripStatus — same semantics. */
 export function isCorporateOverlapCandidateStatus(status: string | null | undefined): boolean {
-  if (!status) return false;
-  return !TERMINAL.has(String(status).toLowerCase());
+  return isPassengerOverlapEligibleTripStatus(status);
 }
 
 /** Half-open style with buffer: [start - buf, end + buf) overlaps. */

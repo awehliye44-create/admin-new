@@ -17,8 +17,14 @@ import {
   findPassengerScheduleOverlap,
   type PassengerOverlapTrip,
 } from "./passengerScheduleOverlapSSOT.ts";
+import { PASSENGER_OVERLAP_TERMINAL_STATUS_POSTGREST_LIST } from "./passengerBookingOverlapLifecycleSSOT.ts";
 
 export const PREAUTH_BOOKING_TIME_CONFLICT = "BOOKING_TIME_CONFLICT" as const;
+
+/** Customer-facing booking conflict — never payment/auth wording. */
+export const BOOKING_TIME_CONFLICT_CUSTOMER_TITLE = "Booking time conflict";
+export const BOOKING_TIME_CONFLICT_CUSTOMER_MESSAGE =
+  "You already have an active booking that overlaps with this journey. Please choose another pickup time or manage your existing booking.";
 
 export type PreauthOverlapGateResult =
   | { ok: true }
@@ -112,12 +118,14 @@ export async function assertPassengerClearForNewPreauth(
     return { ok: true };
   }
 
+  // BR3 — authoritative DB filter: terminal lifecycle rows never enter overlap.
   const { data, error } = await supabase
     .from("trips")
     .select(
       "id, scheduled_at, estimated_duration_minutes, status, passenger_id, created_at, is_scheduled",
     )
     .in("passenger_id", passengerKeys)
+    .not("status", "in", PASSENGER_OVERLAP_TERMINAL_STATUS_POSTGREST_LIST)
     .limit(200);
 
   if (error) {
@@ -144,7 +152,7 @@ export async function assertPassengerClearForNewPreauth(
     code: PREAUTH_BOOKING_TIME_CONFLICT,
     conflicting_trip_id: overlap.conflicting_trip_id,
     conflicting_time: overlap.conflicting_time,
-    message: "Booking time conflict",
+    message: BOOKING_TIME_CONFLICT_CUSTOMER_MESSAGE,
   };
 }
 
@@ -153,12 +161,15 @@ export function preauthOverlapConflictResponse(
   corsHeaders: Record<string, string>,
 ): Response {
   const status = gate.code === "BOOKING_TIME_CONFLICT_CHECK_FAILED" ? 500 : 409;
+  const isConflict = gate.code === PREAUTH_BOOKING_TIME_CONFLICT;
   return new Response(
     JSON.stringify({
-      error: gate.message,
+      error: isConflict ? BOOKING_TIME_CONFLICT_CUSTOMER_MESSAGE : gate.message,
       error_code: gate.code,
       code: gate.code,
+      title: isConflict ? BOOKING_TIME_CONFLICT_CUSTOMER_TITLE : undefined,
       charge_state: "no_charge",
+      booking_conflict: isConflict,
       conflicting_trip_id: gate.conflicting_trip_id ?? null,
       conflicting_time: gate.conflicting_time ?? null,
     }),

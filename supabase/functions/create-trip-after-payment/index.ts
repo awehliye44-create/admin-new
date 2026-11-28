@@ -10,6 +10,10 @@ import {
 import { assertBookingSurgeAtPickup } from "../_shared/demandZoneSurgeSSOT.ts";
 import { resolveScheduledDispatchConfig } from "../_shared/scheduledDispatchConfig.ts";
 import { findPassengerScheduleOverlap } from "../_shared/passengerScheduleOverlapSSOT.ts";
+import { PASSENGER_OVERLAP_TERMINAL_STATUS_POSTGREST_LIST } from "../_shared/passengerBookingOverlapLifecycleSSOT.ts";
+import {
+  BOOKING_TIME_CONFLICT_CUSTOMER_MESSAGE,
+} from "../_shared/preauthPassengerOverlapGateSSOT.ts";
 import {
   buildBookingPostCommitTasks,
   persistBookingPayableSnapshotAfterInsert,
@@ -1409,12 +1413,14 @@ serveWithEdgeTiming("create-trip-after-payment", corsHeaders, async (req, stages
     // Min-advance is NOT used as overlap protection.
     {
       const durationMinutes = Math.max(1, Number(body.estimated_duration ?? 30));
+      // BR3 — terminal lifecycle excluded at DB before overlap window math.
       const { data: existingTrips, error: ovErr } = await supabase
         .from("trips")
         .select(
           "id, scheduled_at, estimated_duration_minutes, status, passenger_id, created_at, is_scheduled, client_action_id, provider_order_id, payment_session_id",
         )
         .eq("passenger_id", customerId)
+        .not("status", "in", PASSENGER_OVERLAP_TERMINAL_STATUS_POSTGREST_LIST)
         .limit(200);
       if (ovErr) {
         return failBookingAfterAuthorizedPayment(
@@ -1466,9 +1472,10 @@ serveWithEdgeTiming("create-trip-after-payment", corsHeaders, async (req, stages
             failureReason: "booking_time_conflict",
           },
           409,
-          "Booking time conflict",
+          BOOKING_TIME_CONFLICT_CUSTOMER_MESSAGE,
           {
             code: "BOOKING_TIME_CONFLICT",
+            booking_conflict: true,
             conflicting_trip_id: overlap.conflicting_trip_id,
             conflicting_time: overlap.conflicting_time,
           },
