@@ -74,7 +74,7 @@ Deno.test("#92L stop-workflow defers capture when tips_enabled stamps window", a
 
 Deno.test("#92L capture job refuses while tip window open", async () => {
   const job = await Deno.readTextFile(
-    new URL("../../functions/_shared/tripCaptureJobSSOT.ts", import.meta.url),
+    new URL("../../functions/process-trip-capture-jobs/lib/tripCaptureJobSSOT.ts", import.meta.url),
   );
   assert(job.includes('outcome: "tip_window_open"'));
   assert(job.includes("tip_window_expires_at"));

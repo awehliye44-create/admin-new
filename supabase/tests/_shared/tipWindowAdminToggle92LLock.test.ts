@@ -95,7 +95,7 @@ Deno.test("#92L CTAP idempotent paths ensure booking payable snapshot", async ()
 Deno.test("#92L integrity recovery fills booking gap while tip window defers capture", async () => {
   const recovery = await Deno.readTextFile(
     new URL(
-      "../../functions/_shared/platformCollectedFinancialIntegrityRecoverySSOT.ts",
+      "../../functions/sweep-revolut-stale-holds/lib/platformCollectedFinancialIntegrityRecoverySSOT.ts",
       import.meta.url,
     ),
   );
