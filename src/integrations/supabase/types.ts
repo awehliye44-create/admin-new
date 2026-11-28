@@ -31934,6 +31934,7 @@ export type Database = {
           p_original_filename?: string
           p_side?: string
           p_storage_path: string
+          p_vehicle_id?: string
         }
         Returns: Json
       }

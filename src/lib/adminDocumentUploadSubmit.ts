@@ -324,6 +324,8 @@ export async function uploadSideAndSubmit(args: {
   side: AdminAttachmentSubmitSide;
   file: File;
   expiryDate: string | null;
+  /** Required for vehicle-scoped documents. Ignored for driver documents. */
+  vehicleId?: string | null;
 }): Promise<void> {
   assertAdminDocumentFileAllowed(args.file);
   const resolvedMime = resolveAdminDocumentMime(args.file)!;
@@ -358,6 +360,7 @@ export async function uploadSideAndSubmit(args: {
       p_original_filename: args.file.name,
       p_file_size_bytes: args.file.size,
       p_idempotency_key: crypto.randomUUID(),
+      p_vehicle_id: args.vehicleId ?? null,
     });
     rpcData = response.data;
     rpcError = response.error;

@@ -58,11 +58,25 @@ Deno.test("admin_submit_driver_document does not accept a client vehicle_id argu
   assertEquals(/p_vehicle_id/i.test(sig), false, "admin submit must not take p_vehicle_id");
 });
 
-Deno.test("admin upload client path does not send vehicle_id", async () => {
+Deno.test("admin upload sends the confirmed vehicle and the server checks ownership", async () => {
   const src = await Deno.readTextFile(ADMIN_UPLOAD);
   assert(src.includes("admin_submit_driver_document"));
-  assertEquals(/p_vehicle_id/i.test(src), false);
-  assertEquals(/vehicle_id\s*:/.test(src), false);
+  assert(src.includes("p_vehicle_id"));
+  const mig = await Deno.readTextFile(
+    new URL(
+      "../../migrations/20270305290000_admin_vehicle_remove_and_document_target.sql",
+      import.meta.url,
+    ),
+  );
+  assert(mig.includes("v.driver_id = p_driver_id"));
+  assert(mig.includes("p_vehicle_id IS NOT NULL"));
+  assert(mig.includes("p_vehicle_id IS NULL"));
+  assert(mig.includes("Omitted vehicle id"));
+  assert(mig.includes("ACTIVE_IN_USE"));
+  assert(mig.includes("documents_preserved"));
+  assert(mig.includes("onecab.admin_document_vehicle_id"));
+  assert(!mig.includes("DELETE FROM public.documents"));
+  assert(!mig.includes("DELETE FROM public.vehicles"));
 });
 
 Deno.test("cross-vehicle supersession remains blocked in lifecycle migration", async () => {

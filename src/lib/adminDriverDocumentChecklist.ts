@@ -34,6 +34,29 @@ export type AdminChecklistStatus =
   | 'expired'
   | 'expiring_soon';
 
+/** Matches public.vehicle_change_document_slugs(). */
+export const VEHICLE_SCOPED_DOCUMENT_SLUGS = [
+  'v5_logbook',
+  'mot_certificate',
+  'phv_license',
+  'private_hire_insurance',
+  'additional_insurance_document',
+  'exemption_certificate',
+] as const;
+
+export function isVehicleScopedDocumentSlug(slug: string | null | undefined): boolean {
+  return (VEHICLE_SCOPED_DOCUMENT_SLUGS as readonly string[]).includes(slug ?? '');
+}
+
+export type VehicleDocumentSnapshot = {
+  id: string;
+  document_type_id: string;
+  vehicle_id: string | null;
+  status: string | null;
+  expiry_date: string | null;
+  is_current: boolean | null;
+};
+
 export type AdminChecklistRow = {
   document_type_id: string;
   document_type_key: string;
@@ -45,6 +68,7 @@ export type AdminChecklistRow = {
   status_label: string;
   requirement_label: 'Required' | 'Optional';
   can_upload: boolean;
+  vehicle_scoped: boolean;
   capture: ReturnType<typeof resolveAdminDocumentCaptureLayout>;
   /** Underlying SSOT row when present (null for synthesized missing optionals). */
   compliance: DriverDocumentComplianceRow | null;
@@ -175,11 +199,56 @@ export function resolveAdminChecklistUploadEligible(
  * Compose the Admin checklist from SA rules + compliance SSOT rows.
  * Visible rules: is_active + display_in_driver_app (same as Driver My Documents).
  */
+function vehicleDocCompliance(
+  driverId: string,
+  meta: DocumentTypeMeta,
+  isRequired: boolean,
+  requiresExpiry: boolean,
+  doc: VehicleDocumentSnapshot | undefined,
+): DriverDocumentComplianceRow {
+  const base = syntheticMissingCompliance(driverId, meta, isRequired, requiresExpiry);
+  if (!doc) {
+    return { ...base, can_upload_replacement: true };
+  }
+  const approval = (doc.status ?? '').toLowerCase();
+  let expiryStatus = 'pending';
+  if (approval === 'rejected' || approval === 'declined') expiryStatus = 'rejected';
+  else if (approval === 'expired') expiryStatus = 'expired';
+  else if (approval === 'approved') {
+    const today = new Date().toISOString().slice(0, 10);
+    expiryStatus = doc.expiry_date && doc.expiry_date < today ? 'expired' : 'approved_valid';
+  } else if (
+    approval === 'pending' ||
+    approval === 'uploaded' ||
+    approval === 'submitted' ||
+    approval === 'under_review'
+  ) {
+    expiryStatus = 'pending';
+  }
+  const open =
+    expiryStatus === 'missing' ||
+    expiryStatus === 'rejected' ||
+    expiryStatus === 'expired' ||
+    expiryStatus === 'pending';
+  return {
+    ...base,
+    document_id: doc.id,
+    approval_status: doc.status,
+    expiry_date: doc.expiry_date,
+    expiry_status: expiryStatus,
+    is_current: true,
+    can_upload_replacement: open,
+  };
+}
+
 export function composeAdminDriverDocumentChecklist(input: {
   driverId: string;
   rules: ServiceAreaDocumentRule[];
   typeMetaById: Map<string, DocumentTypeMeta>;
   complianceRows: DriverDocumentComplianceRow[];
+  /** When set, vehicle-scoped rows use this vehicle's documents, not the trip-active list. */
+  selectedVehicleId?: string | null;
+  vehicleDocuments?: VehicleDocumentSnapshot[];
 }): AdminChecklistRow[] {
   const visibleRules = input.rules.filter(
     (r) => r.is_active === true && r.display_in_driver_app === true,
@@ -204,11 +273,29 @@ export function composeAdminDriverDocumentChecklist(input: {
     const isRequired = rule.mandatory != null ? Boolean(rule.mandatory) : meta.is_required;
     const requiresExpiry =
       rule.expiry_required != null ? Boolean(rule.expiry_required) : meta.has_expiry;
+    const vehicleScoped = isVehicleScopedDocumentSlug(meta.slug);
+    const scopeToVehicle =
+      input.selectedVehicleId !== undefined || input.vehicleDocuments !== undefined;
 
     const existing = ssotByType.get(rule.doc_type_id);
+    const vehicleDoc = vehicleScoped
+      ? input.vehicleDocuments?.find(
+          (doc) =>
+            doc.vehicle_id === input.selectedVehicleId &&
+            doc.document_type_id === rule.doc_type_id &&
+            doc.is_current !== false,
+        )
+      : undefined;
     const base =
-      existing ??
-      syntheticMissingCompliance(input.driverId, meta, isRequired, requiresExpiry);
+      vehicleScoped && scopeToVehicle
+        ? input.selectedVehicleId
+          ? vehicleDocCompliance(input.driverId, meta, isRequired, requiresExpiry, vehicleDoc)
+          : {
+              ...syntheticMissingCompliance(input.driverId, meta, isRequired, requiresExpiry),
+              can_upload_replacement: false,
+            }
+        : existing ??
+          syntheticMissingCompliance(input.driverId, meta, isRequired, requiresExpiry);
     const withSa = applyServiceAreaRule(
       {
         ...base,
@@ -236,7 +323,9 @@ export function composeAdminDriverDocumentChecklist(input: {
       status,
       status_label: label,
       requirement_label: withSa.is_required ? 'Required' : 'Optional',
-      can_upload: canUpload,
+      can_upload:
+        vehicleScoped && scopeToVehicle && !input.selectedVehicleId ? false : canUpload,
+      vehicle_scoped: vehicleScoped,
       capture,
       compliance: existing ?? null,
     });

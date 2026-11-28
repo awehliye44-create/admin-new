@@ -680,7 +680,10 @@ export function DriverDetailsDialog({
 
   if (!driver) return null;
 
-  const driverVehicles = vehicles.filter(v => v.driver_id === driver.id);
+  const driverVehicles = vehicles.filter(
+    (v) => v.driver_id === driver.id && v.operational_status !== 'archived',
+  );
+  const anotherVehicleIsActive = driverVehicles.some((v) => v.is_trip_active);
 
   return (
     <>
@@ -1413,8 +1416,7 @@ export function DriverDetailsDialog({
                             </Button>
                           ) : null}
                           {!vehicle.is_trip_active &&
-                          !vehicle.is_primary &&
-                          vehicle.operational_status !== 'archived' ? (
+                          (!vehicle.is_primary || anotherVehicleIsActive) ? (
                             <Button
                               size="sm"
                               variant="outline"
@@ -1422,7 +1424,7 @@ export function DriverDetailsDialog({
                                 setVehicleReasonAction({ kind: 'archive', vehicle })
                               }
                             >
-                              Remove
+                              Remove vehicle
                             </Button>
                           ) : null}
                           {openAssignments.some((a) => a.vehicle_id === vehicle.id) ? (
@@ -1623,7 +1625,7 @@ export function DriverDetailsDialog({
             : vehicleReasonAction?.kind === 'set_active'
               ? 'Set Active trip vehicle?'
               : vehicleReasonAction?.kind === 'archive'
-                ? 'Remove vehicle from active use?'
+                ? 'Remove vehicle?'
                 : 'Return shared vehicle to fleet?'
         }
         description={
@@ -1632,7 +1634,7 @@ export function DriverDetailsDialog({
             : vehicleReasonAction?.kind === 'set_active'
               ? 'Makes this the driver’s Active trip vehicle. Documents are not moved or overwritten.'
               : vehicleReasonAction?.kind === 'archive'
-                ? 'Archives the vehicle. Historical trips, assignments and documents are preserved.'
+                ? 'Removes this vehicle from the current list by archiving it. Documents and audit history stay on the vehicle and can be used if it is reinstated.'
                 : 'Ends the shared assignment. Driver-private documents stay private.'
         }
         confirmLabel={
@@ -1641,7 +1643,7 @@ export function DriverDetailsDialog({
             : vehicleReasonAction?.kind === 'set_active'
               ? 'Set Active'
               : vehicleReasonAction?.kind === 'archive'
-                ? 'Archive'
+                ? 'Remove vehicle'
                 : 'Return to fleet'
         }
         destructive={
@@ -1692,13 +1694,24 @@ export function DriverDetailsDialog({
                 });
                 toast.success('Active vehicle updated');
               } else if (vehicleReasonAction.kind === 'archive') {
+                if (v.is_primary) {
+                  vehicles.forEach((other) => {
+                    if (
+                      other.driver_id === v.driver_id &&
+                      other.id !== v.id &&
+                      other.is_trip_active
+                    ) {
+                      onVehicleUpdate({ ...other, is_primary: true });
+                    }
+                  });
+                }
                 onVehicleUpdate({
                   ...v,
                   operational_status: 'archived',
                   is_trip_active: false,
                   is_primary: false,
                 });
-                toast.success('Vehicle archived — history retained');
+                toast.success('Vehicle removed from the current list. Documents and history kept.');
               } else {
                 onVehicleUpdate({
                   ...v,

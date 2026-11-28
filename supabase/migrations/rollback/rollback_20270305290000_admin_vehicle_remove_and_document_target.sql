@@ -1,0 +1,14 @@
+-- Emergency rollback notes for 20270305290000_admin_vehicle_remove_and_document_target.
+-- Preimage on thazislrdkjpvvghtvzo before apply (function bodies, no row data):
+--   admin_submit_driver_document(uuid,uuid,text,text,date,text,text,bigint,uuid)
+--     args p_driver_id, p_document_type_id, p_storage_path, p_side, p_expiry_date,
+--          p_mime_type, p_original_filename, p_file_size_bytes, p_idempotency_key
+--     md5 83a3f245069fc83a471d5c63edc0ba6c
+--   admin_archive_driver_vehicle(uuid,text) md5 657cba81b9f4b2cd865dd660d39ea407
+--   trg_documents_stamp_vehicle_id() md5 838ccdde04853beba42e56ca0e693aae
+-- Restore those bodies from:
+--   supabase/migrations/20270226150000_admin_submit_driver_document_idempotency_uuid.sql
+--   supabase/migrations/20270305120000_vehicle_admin_management_controls.sql (archive function)
+--   supabase/migrations/20270305280000_document_link_security.sql (stamp function)
+-- Then DELETE FROM supabase_migrations.schema_migrations WHERE version = '20270305290000'.
+-- Do not apply this file as a migration.

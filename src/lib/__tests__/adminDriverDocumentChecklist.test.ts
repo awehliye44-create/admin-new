@@ -308,6 +308,42 @@ describe('adminDriverDocumentChecklist', () => {
     expect(rows[2].status).toBe('not_uploaded');
   });
 
+  it('uses the selected vehicle documents instead of the trip-active approval', () => {
+    const rows = composeAdminDriverDocumentChecklist({
+      driverId: DRIVER,
+      rules: [rule('t-phi', { sort_order: 1 })],
+      typeMetaById: new Map([
+        ['t-phi', meta('t-phi', 'private_hire_insurance', 'Insurance', { has_expiry: true })],
+      ]),
+      complianceRows: [
+        ssot({
+          document_type_id: 't-phi',
+          document_type_key: 'private_hire_insurance',
+          display_name: 'Insurance',
+          document_id: 'active-doc',
+          approval_status: 'approved',
+          expiry_status: 'approved_valid',
+          is_current: true,
+          can_upload_replacement: false,
+        }),
+      ],
+      selectedVehicleId: 'pending-vehicle',
+      vehicleDocuments: [
+        {
+          id: 'old-doc',
+          document_type_id: 't-phi',
+          vehicle_id: 'old-vehicle',
+          status: 'approved',
+          expiry_date: null,
+          is_current: true,
+        },
+      ],
+    });
+    expect(rows[0].vehicle_scoped).toBe(true);
+    expect(rows[0].status).toBe('missing');
+    expect(rows[0].can_upload).toBe(true);
+  });
+
   it('maps status labels independently of requirement', () => {
     const requiredMissing = ssot({
       document_type_id: 'x',

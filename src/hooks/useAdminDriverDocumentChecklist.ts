@@ -9,6 +9,7 @@ import {
   composeAdminDriverDocumentChecklist,
   type DocumentTypeMeta,
   type ServiceAreaDocumentRule,
+  type VehicleDocumentSnapshot,
 } from '@/lib/adminDriverDocumentChecklist';
 import type { DriverDocumentComplianceRow } from '@/hooks/useDriverDocumentCompliance';
 
@@ -22,9 +23,24 @@ async function fetchCompliance(driverId: string): Promise<DriverDocumentComplian
   return (data ?? []) as DriverDocumentComplianceRow[];
 }
 
-export function useAdminDriverDocumentChecklist(driverId: string | null | undefined) {
+export type AdminUploadVehicle = {
+  id: string;
+  make: string | null;
+  model: string | null;
+  year: number | null;
+  license_plate: string | null;
+  approval_status: string | null;
+  operational_status: string | null;
+  is_trip_active: boolean | null;
+  is_primary: boolean | null;
+};
+
+export function useAdminDriverDocumentChecklist(
+  driverId: string | null | undefined,
+  selectedVehicleId?: string | null,
+) {
   return useQuery({
-    queryKey: ['admin-driver-document-checklist', driverId],
+    queryKey: ['admin-driver-document-checklist', driverId, selectedVehicleId ?? null],
     enabled: !!driverId,
     staleTime: 15_000,
     queryFn: async () => {
@@ -44,6 +60,7 @@ export function useAdminDriverDocumentChecklist(driverId: string | null | undefi
       if (!serviceAreaId) {
         return {
           serviceAreaId: null as string | null,
+          vehicles: [] as AdminUploadVehicle[],
           rows: composeAdminDriverDocumentChecklist({
             driverId: id,
             rules: [],
@@ -54,7 +71,8 @@ export function useAdminDriverDocumentChecklist(driverId: string | null | undefi
         };
       }
 
-      const [{ rows: ruleRows }, complianceRows] = await Promise.all([
+      const [{ rows: ruleRows }, complianceRows, { rows: vehicleRows }, { rows: documentRows }] =
+        await Promise.all([
         adminPageSelect<ServiceAreaDocumentRule & { id?: string }>(
           PAGE,
           'service_area_document_rules',
@@ -73,7 +91,34 @@ export function useAdminDriverDocumentChecklist(driverId: string | null | undefi
           },
         ),
         fetchCompliance(id),
+        adminPageSelect<AdminUploadVehicle>(PAGE, 'vehicles', {
+          columns: [
+            'id',
+            'make',
+            'model',
+            'year',
+            'license_plate',
+            'approval_status',
+            'operational_status',
+            'is_trip_active',
+            'is_primary',
+          ],
+          filters: [{ op: 'eq', col: 'driver_id', val: id }],
+          limit: 50,
+        }),
+        adminPageSelect<VehicleDocumentSnapshot>(PAGE, 'documents', {
+          columns: ['id', 'document_type_id', 'vehicle_id', 'status', 'expiry_date', 'is_current'],
+          filters: [
+            { op: 'eq', col: 'driver_id', val: id },
+            { op: 'eq', col: 'is_current', val: true },
+          ],
+          limit: 500,
+        }),
       ]);
+
+      const vehicles = vehicleRows.filter(
+        (vehicle) => vehicle.operational_status !== 'archived',
+      );
 
       const visibleTypeIds = ruleRows
         .filter((r) => r.is_active === true && r.display_in_driver_app === true)
@@ -94,11 +139,14 @@ export function useAdminDriverDocumentChecklist(driverId: string | null | undefi
       return {
         serviceAreaId,
         rulesConfigured: ruleRows.length > 0,
+        vehicles,
         rows: composeAdminDriverDocumentChecklist({
           driverId: id,
           rules: ruleRows,
           typeMetaById,
           complianceRows,
+          selectedVehicleId,
+          vehicleDocuments: documentRows,
         }),
       };
     },

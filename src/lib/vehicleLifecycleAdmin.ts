@@ -56,7 +56,9 @@ export function adminVehicleLifecycleMessage(code: string): string {
     case 'SUSPENDED':
       return 'Reactivate the vehicle before setting it Active.';
     case 'ACTIVE_IN_USE':
-      return 'Choose another Active vehicle first, then archive this one.';
+      return 'Set another vehicle Active before removing this one.';
+    case 'VEHICLE_REQUIRED':
+      return 'Choose the vehicle registration before uploading a vehicle document.';
     case 'IS_PRIMARY':
       return 'Clear Primary on another saved vehicle before archiving this one.';
     case 'OPEN_ASSIGNMENT':

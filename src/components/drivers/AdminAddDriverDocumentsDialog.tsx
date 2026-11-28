@@ -20,8 +20,16 @@ import {
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { Separator } from '@/components/ui/separator';
 import { useAdminDriverDocumentChecklist } from '@/hooks/useAdminDriverDocumentChecklist';
 import {
@@ -146,15 +154,19 @@ export function AdminAddDriverDocumentsDialog({
 }: Props) {
   const queryClient = useQueryClient();
   const driverId = driver?.id ?? null;
+  const [vehicleId, setVehicleId] = useState<string>('');
+  const [registrationConfirmed, setRegistrationConfirmed] = useState(false);
   const {
     data: checklist,
     isLoading,
     isError,
     error: loadError,
     refetch,
-  } = useAdminDriverDocumentChecklist(open ? driverId : null);
+  } = useAdminDriverDocumentChecklist(open ? driverId : null, vehicleId || null);
 
   const rows = checklist?.rows ?? [];
+  const vehicles = checklist?.vehicles ?? [];
+  const selectedVehicle = vehicles.find((vehicle) => vehicle.id === vehicleId) ?? null;
   const [drafts, setDrafts] = useState<Record<string, Draft>>({});
   const [submitting, setSubmitting] = useState(false);
 
@@ -165,6 +177,8 @@ export function AdminAddDriverDocumentsDialog({
     if (!open) {
       setDrafts({});
       setSubmitting(false);
+      setVehicleId('');
+      setRegistrationConfirmed(false);
     }
   }, [open, driverId]);
 
@@ -197,6 +211,13 @@ export function AdminAddDriverDocumentsDialog({
 
   const handleSubmit = async () => {
     if (!driver || !uploadAllowed || filledTypeIds.length === 0) return;
+    const needsVehicle = filledTypeIds.some((typeId) =>
+      rows.find((row) => row.document_type_id === typeId)?.vehicle_scoped,
+    );
+    if (needsVehicle && (!selectedVehicle || !registrationConfirmed)) {
+      toast.error('Confirm the vehicle registration before uploading a vehicle document.');
+      return;
+    }
 
     for (const typeId of filledTypeIds) {
       const row = rows.find((r) => r.document_type_id === typeId);
@@ -229,6 +250,7 @@ export function AdminAddDriverDocumentsDialog({
         const draft = drafts[typeId]!;
         const expiry = row.requires_expiry ? draft.expiryDate || null : null;
 
+        const targetVehicleId = row.vehicle_scoped ? selectedVehicle?.id ?? null : null;
         if (row.capture.kind === 'dual') {
           await uploadSideAndSubmit({
             driverId: driver.id,
@@ -237,6 +259,7 @@ export function AdminAddDriverDocumentsDialog({
             side: 'front',
             file: draft.primary!,
             expiryDate: expiry,
+            vehicleId: targetVehicleId,
           });
           await uploadSideAndSubmit({
             driverId: driver.id,
@@ -245,6 +268,7 @@ export function AdminAddDriverDocumentsDialog({
             side: 'back',
             file: draft.back!,
             expiryDate: expiry,
+            vehicleId: targetVehicleId,
           });
         } else {
           await uploadSideAndSubmit({
@@ -254,6 +278,7 @@ export function AdminAddDriverDocumentsDialog({
             side: row.capture.submitSide,
             file: draft.primary!,
             expiryDate: expiry,
+            vehicleId: targetVehicleId,
           });
         }
       }
@@ -327,9 +352,70 @@ export function AdminAddDriverDocumentsDialog({
             </Alert>
           ) : (
             <div className="space-y-4" data-testid="admin-add-documents-checklist">
+              <div className="space-y-3 rounded-lg border p-3">
+                <div className="space-y-1.5">
+                  <Label htmlFor="admin-upload-vehicle">Vehicle registration</Label>
+                  <Select
+                    value={vehicleId || undefined}
+                    onValueChange={(value) => {
+                      setVehicleId(value);
+                      setRegistrationConfirmed(false);
+                    }}
+                  >
+                    <SelectTrigger id="admin-upload-vehicle">
+                      <SelectValue placeholder="Select the vehicle these documents belong to" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {vehicles.map((vehicle) => (
+                        <SelectItem key={vehicle.id} value={vehicle.id}>
+                          {vehicle.license_plate || 'No registration'}
+                          {vehicle.is_trip_active ? ' · Active' : ''}
+                          {vehicle.approval_status === 'rejected' ? ' · Rejected' : ''}
+                          {vehicle.operational_status &&
+                          vehicle.operational_status !== 'active'
+                            ? ` · ${vehicle.operational_status.replaceAll('_', ' ')}`
+                            : ''}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                {selectedVehicle ? (
+                  <div className="space-y-2">
+                    <p className="text-sm font-medium">
+                      Registration: {selectedVehicle.license_plate || 'No registration on file'}
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      {[selectedVehicle.year, selectedVehicle.make, selectedVehicle.model]
+                        .filter(Boolean)
+                        .join(' ')}
+                      . Vehicle documents below are for this registration. Other vehicles&apos;
+                      documents stay where they are.
+                    </p>
+                    <label className="flex items-start gap-2 text-sm">
+                      <Checkbox
+                        checked={registrationConfirmed}
+                        onCheckedChange={(checked) => setRegistrationConfirmed(checked === true)}
+                      />
+                      <span>Upload vehicle documents for this registration</span>
+                    </label>
+                  </div>
+                ) : vehicles.length === 0 ? (
+                  <p className="text-xs text-muted-foreground">
+                    This driver has no current vehicle. Driver documents can still be uploaded.
+                    Vehicle documents need a vehicle that has not been removed.
+                  </p>
+                ) : (
+                  <p className="text-xs text-muted-foreground">
+                    Select a registration before uploading insurance, licence, MOT, or logbook files.
+                  </p>
+                )}
+              </div>
               {rows.map((row, index) => {
                 const draft = drafts[row.document_type_id] ?? EMPTY_DRAFT;
-                const uploadEnabled = uploadAllowed && row.can_upload && !submitting;
+                const vehicleReady = !row.vehicle_scoped || registrationConfirmed;
+                const uploadEnabled =
+                  uploadAllowed && row.can_upload && vehicleReady && !submitting;
                 return (
                   <div key={row.document_type_id} className="space-y-3">
                     {index > 0 ? <Separator /> : null}
@@ -408,7 +494,9 @@ export function AdminAddDriverDocumentsDialog({
                       </>
                     ) : (
                       <p className="text-xs text-muted-foreground">
-                        Upload unavailable — replacement is not open for this document.
+                        {row.vehicle_scoped && !registrationConfirmed
+                          ? 'Select and confirm the registration above before uploading this vehicle document.'
+                          : 'Upload unavailable — replacement is not open for this document.'}
                       </p>
                     )}
                   </div>
