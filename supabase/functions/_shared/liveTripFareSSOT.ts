@@ -212,7 +212,7 @@ export function computeLiveTripFarePreview(trip: LiveTripFareInput): LiveTripFar
   };
 }
 
-export const CAPTURED_PAYMENT_STATUSES = new Set([
+const CAPTURED_PAYMENT_STATUSES = new Set([
   "captured",
   "paid",
   "partially_paid",
@@ -220,3 +220,12 @@ export const CAPTURED_PAYMENT_STATUSES = new Set([
   "refunded",
   "settled",
 ]);
+
+/** True when trip is still live for fare preview (not yet captured/settled). */
+export function isUncapturedActivePaymentStatus(
+  paymentStatus: string | null | undefined,
+): boolean {
+  const s = (paymentStatus ?? "").trim().toLowerCase();
+  if (!s) return true;
+  return !CAPTURED_PAYMENT_STATUSES.has(s);
+}

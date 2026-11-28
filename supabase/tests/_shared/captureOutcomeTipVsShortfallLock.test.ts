@@ -81,7 +81,7 @@ Deno.test("trip-capture-job trusted tip is always fare-only (0)", () => {
 
 Deno.test("applyCompleteTripCaptureOutcome + job SSOT wire tip vs fare separation", async () => {
   const outcome = await Deno.readTextFile(
-    new URL("../../functions/_shared/applyCompleteTripCaptureOutcome.ts", import.meta.url),
+    new URL("../../functions/process-trip-capture-jobs/lib/applyCompleteTripCaptureOutcome.ts", import.meta.url),
   );
   assertStringIncludes(outcome, "isTipCaptureOutcomeStatus");
   assertStringIncludes(outcome, "isFareDurableRecoveryStatus");
@@ -92,7 +92,7 @@ Deno.test("applyCompleteTripCaptureOutcome + job SSOT wire tip vs fare separatio
   assertEquals(outcome.includes("isDurableRecoveryStatus"), false);
 
   const job = await Deno.readTextFile(
-    new URL("../../functions/_shared/tripCaptureJobSSOT.ts", import.meta.url),
+    new URL("../../functions/process-trip-capture-jobs/lib/tripCaptureJobSSOT.ts", import.meta.url),
   );
   assertStringIncludes(job, "isTipCaptureOutcomeStatus");
   assertStringIncludes(job, "isFareDurableRecoveryStatus");

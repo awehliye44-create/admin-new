@@ -14,7 +14,7 @@ const MIGRATION =
 const STOP = "../../functions/stop-workflow/index.ts";
 const SSOT = "../../functions/_shared/clearDriverCurrentTripSSOT.ts";
 const AUTO = "../../functions/auto-dispatch/index.ts";
-const STACKED = "../../functions/_shared/stackedPromotionReconcileSSOT.ts";
+const STACKED = "../../functions/reconcile-stranded-stacked-promotions/lib/stackedPromotionReconcileSSOT.ts";
 
 Deno.test("#118 migration: CAS clear helper, terminal trigger, reconcile RPC", async () => {
   const sql = await Deno.readTextFile(new URL(MIGRATION, import.meta.url));

@@ -16,11 +16,11 @@ const stopWorkflowPath = new URL(
   import.meta.url,
 );
 const jobSsotPath = new URL(
-  "../../functions/_shared/tripCaptureJobSSOT.ts",
+  "../../functions/process-trip-capture-jobs/lib/tripCaptureJobSSOT.ts",
   import.meta.url,
 );
 const outcomePath = new URL(
-  "../../functions/_shared/applyCompleteTripCaptureOutcome.ts",
+  "../../functions/process-trip-capture-jobs/lib/applyCompleteTripCaptureOutcome.ts",
   import.meta.url,
 );
 const processorPath = new URL(

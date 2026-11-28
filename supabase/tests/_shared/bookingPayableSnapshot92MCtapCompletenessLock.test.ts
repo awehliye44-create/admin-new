@@ -55,7 +55,7 @@ Deno.test("#92M CTAP: every success:true / idempotent path ensures booking snap"
 Deno.test("#92M recovery: booking gap during authorised tip-deferral; no fabricate", async () => {
   const recovery = await Deno.readTextFile(
     new URL(
-      "../../functions/_shared/platformCollectedFinancialIntegrityRecoverySSOT.ts",
+      "../../functions/sweep-revolut-stale-holds/lib/platformCollectedFinancialIntegrityRecoverySSOT.ts",
       import.meta.url,
     ),
   );
