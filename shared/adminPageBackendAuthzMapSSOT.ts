@@ -77,10 +77,10 @@ export const CLEAR_TABLE_PAGE_MAP: readonly TableOpPageMap[] = [
   {
     table: 'vehicles',
     op: 'SELECT',
-    pages: ['vehicles', 'drivers'],
+    pages: ['vehicles', 'drivers', 'documents', 'document-management'],
     status: 'clear',
     notes:
-      'RESOLVED: admin SELECT via staff_has_any_page_access(vehicles|drivers). Drivers list hydrates vehicles by driver_id; Vehicles page retains primary grant. Writes stay Vehicles/driver-owned.',
+      'RESOLVED: admin SELECT via staff_has_any_page_access + admin_page_select allowlist. Drivers/Vehicles primary; Document Review hydrates vehicle-scoped docs (20270305180000). Writes stay Vehicles/driver-owned.',
   },
   { table: 'payout_batches', op: 'SELECT', pages: ['payout-ledger'], status: 'clear', notes: '' },
   { table: 'payout_batches', op: 'INSERT', pages: ['payout-ledger'], status: 'clear', notes: '' },

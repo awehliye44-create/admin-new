@@ -57,6 +57,16 @@ import {
   type DocumentReviewDecision,
   type DocumentReviewTarget,
 } from '@/components/documents/DocumentReviewDialog';
+import { AdminVehicleReasonDialog } from '@/components/vehicles/AdminVehicleReasonDialog';
+import {
+  adminArchiveDriverVehicle,
+  adminListOpenVehicleAssignments,
+  adminReactivateDriverVehicle,
+  adminReturnSharedVehicleAssignment,
+  adminSetTripActiveVehicle,
+  adminSuspendDriverVehicle,
+  type OpenVehicleAssignment,
+} from '@/lib/vehicleLifecycleAdmin';
 
 interface Driver {
   id: string;
@@ -99,6 +109,9 @@ interface Vehicle {
   color: string;
   license_plate: string;
   is_primary: boolean;
+  is_trip_active?: boolean | null;
+  operational_status?: string | null;
+  fleet_shared?: boolean | null;
   approval_status: string;
   rejection_reason: string | null;
   capacity: number;
@@ -168,6 +181,14 @@ export function DriverDetailsDialog({
   const [isAddDocumentsOpen, setIsAddDocumentsOpen] = useState(false);
   const [activeTab, setActiveTab] = useState('overview');
   const [isUpdating, setIsUpdating] = useState(false);
+  const [openAssignments, setOpenAssignments] = useState<OpenVehicleAssignment[]>([]);
+  const [lifecycleBusyId, setLifecycleBusyId] = useState<string | null>(null);
+  const [vehicleReasonAction, setVehicleReasonAction] = useState<{
+    kind: 'suspend' | 'set_active' | 'archive' | 'return';
+    vehicle: Vehicle;
+    assignmentId?: string;
+  } | null>(null);
+  const [vehicleReasonBusy, setVehicleReasonBusy] = useState(false);
   const [isPetFriendly, setIsPetFriendly] = useState(driver?.is_pet_friendly ?? false);
   const { photoUrl: resolvedPhotoUrl } = useDriverProfilePhoto(open ? driver?.id : null);
   
@@ -183,6 +204,14 @@ export function DriverDetailsDialog({
   const [selectedCategoryId, setSelectedCategoryId] = useState<string>('');
   const [commissionOverride] = useState<string>('');
   const [isSavingCommission, setIsSavingCommission] = useState(false);
+
+  useEffect(() => {
+    if (!open || !driver?.id) {
+      setOpenAssignments([]);
+      return;
+    }
+    void adminListOpenVehicleAssignments(driver.id).then(setOpenAssignments);
+  }, [open, driver?.id, vehicles]);
 
   // React Query: vehicle types (cached globally)
   const { data: vehicleTypes = [] } = useQuery({
@@ -1210,16 +1239,41 @@ export function DriverDetailsDialog({
                               <Car className="h-6 w-6 text-muted-foreground" />
                             </div>
                             <div>
-                              <div className="flex items-center gap-2">
+                              <div className="flex items-center gap-2 flex-wrap">
                                 <p className="font-semibold">
                                   {vehicle.year} {vehicle.make} {vehicle.model}
                                 </p>
                                 {vehicle.is_primary && (
-                                  <Badge variant="outline" className="text-xs">Primary</Badge>
+                                  <Badge variant="outline" className="text-xs bg-green-50 text-green-700">
+                                    Primary
+                                  </Badge>
+                                )}
+                                {vehicle.is_trip_active && (
+                                  <Badge variant="outline" className="text-xs bg-green-100 text-green-800">
+                                    Active
+                                  </Badge>
+                                )}
+                                {vehicle.operational_status === 'suspended_under_repair' && (
+                                  <Badge variant="outline" className="text-xs bg-red-100 text-red-700">
+                                    Suspended — Under repair
+                                  </Badge>
+                                )}
+                                {vehicle.operational_status === 'available_in_fleet' && (
+                                  <Badge variant="outline" className="text-xs bg-blue-100 text-blue-700">
+                                    Available in fleet
+                                  </Badge>
+                                )}
+                                {vehicle.approval_status === 'pending' && (
+                                  <Badge variant="outline" className="text-xs bg-yellow-100 text-yellow-700">
+                                    Pending review
+                                  </Badge>
                                 )}
                               </div>
                               <p className="text-sm text-muted-foreground">
                                 {vehicle.color} • {vehicle.license_plate}
+                              </p>
+                              <p className="text-xs text-muted-foreground mt-1">
+                                Vehicle documents retained for Admin history.
                               </p>
                             </div>
                           </div>
@@ -1249,7 +1303,7 @@ export function DriverDetailsDialog({
                           </div>
                         )}
 
-                        <div className="flex gap-2 pt-2 border-t">
+                        <div className="flex flex-wrap gap-2 pt-2 border-t">
                           {vehicle.approval_status !== 'approved' && (
                             <Button 
                               size="sm"
@@ -1296,6 +1350,99 @@ export function DriverDetailsDialog({
                               Set Pending
                             </Button>
                           )}
+                          {vehicle.operational_status === 'suspended_under_repair' && (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              disabled={lifecycleBusyId === vehicle.id}
+                              onClick={() => {
+                                const temp = openAssignments[0];
+                                setLifecycleBusyId(vehicle.id);
+                                void adminReactivateDriverVehicle({
+                                  vehicleId: vehicle.id,
+                                  releaseTemporaryVehicleId: temp?.vehicle_id ?? null,
+                                })
+                                  .then((result) => {
+                                    if (result.ok) {
+                                      toast.success('Vehicle reactivated; temporary release applied when present');
+                                      onVehicleUpdate({
+                                        ...vehicle,
+                                        operational_status: 'active',
+                                        is_trip_active: true,
+                                        is_primary: true,
+                                        approval_status: 'approved',
+                                      });
+                                      void adminListOpenVehicleAssignments(driver.id).then(setOpenAssignments);
+                                    } else {
+                                      toast.error(result.message);
+                                    }
+                                  })
+                                  .finally(() => setLifecycleBusyId(null));
+                              }}
+                            >
+                              {lifecycleBusyId === vehicle.id ? (
+                                <Loader2 className="h-3 w-3 animate-spin mr-1" />
+                              ) : null}
+                              Reactivate (council clearance)
+                            </Button>
+                          )}
+                          {vehicle.approval_status === 'approved' &&
+                          vehicle.operational_status !== 'suspended_under_repair' &&
+                          !vehicle.is_trip_active ? (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() =>
+                                setVehicleReasonAction({ kind: 'set_active', vehicle })
+                              }
+                            >
+                              Set Active
+                            </Button>
+                          ) : null}
+                          {vehicle.operational_status !== 'suspended_under_repair' &&
+                          vehicle.operational_status !== 'available_in_fleet' &&
+                          vehicle.operational_status !== 'archived' ? (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() =>
+                                setVehicleReasonAction({ kind: 'suspend', vehicle })
+                              }
+                            >
+                              Suspend
+                            </Button>
+                          ) : null}
+                          {!vehicle.is_trip_active &&
+                          !vehicle.is_primary &&
+                          vehicle.operational_status !== 'archived' ? (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() =>
+                                setVehicleReasonAction({ kind: 'archive', vehicle })
+                              }
+                            >
+                              Remove
+                            </Button>
+                          ) : null}
+                          {openAssignments.some((a) => a.vehicle_id === vehicle.id) ? (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              disabled={lifecycleBusyId === `ret-${vehicle.id}`}
+                              onClick={() => {
+                                const asg = openAssignments.find((a) => a.vehicle_id === vehicle.id);
+                                if (!asg) return;
+                                setVehicleReasonAction({
+                                  kind: 'return',
+                                  vehicle,
+                                  assignmentId: asg.id,
+                                });
+                              }}
+                            >
+                              Return to fleet
+                            </Button>
+                          ) : null}
                         </div>
                       </div>
                     ))}
@@ -1467,6 +1614,106 @@ export function DriverDetailsDialog({
           </div>
         </DialogContent>
       </Dialog>
+
+      <AdminVehicleReasonDialog
+        open={Boolean(vehicleReasonAction)}
+        title={
+          vehicleReasonAction?.kind === 'suspend'
+            ? 'Suspend vehicle?'
+            : vehicleReasonAction?.kind === 'set_active'
+              ? 'Set Active trip vehicle?'
+              : vehicleReasonAction?.kind === 'archive'
+                ? 'Remove vehicle from active use?'
+                : 'Return shared vehicle to fleet?'
+        }
+        description={
+          vehicleReasonAction?.kind === 'suspend'
+            ? 'Marks the vehicle suspended under repair and clears Active. Documents stay on this vehicle.'
+            : vehicleReasonAction?.kind === 'set_active'
+              ? 'Makes this the driver’s Active trip vehicle. Documents are not moved or overwritten.'
+              : vehicleReasonAction?.kind === 'archive'
+                ? 'Archives the vehicle. Historical trips, assignments and documents are preserved.'
+                : 'Ends the shared assignment. Driver-private documents stay private.'
+        }
+        confirmLabel={
+          vehicleReasonAction?.kind === 'suspend'
+            ? 'Suspend'
+            : vehicleReasonAction?.kind === 'set_active'
+              ? 'Set Active'
+              : vehicleReasonAction?.kind === 'archive'
+                ? 'Archive'
+                : 'Return to fleet'
+        }
+        destructive={
+          vehicleReasonAction?.kind === 'archive' || vehicleReasonAction?.kind === 'suspend'
+        }
+        busy={vehicleReasonBusy}
+        onClose={() => {
+          if (!vehicleReasonBusy) setVehicleReasonAction(null);
+        }}
+        onConfirm={(reason) => {
+          if (!vehicleReasonAction) return;
+          setVehicleReasonBusy(true);
+          const run =
+            vehicleReasonAction.kind === 'suspend'
+              ? adminSuspendDriverVehicle(vehicleReasonAction.vehicle.id, reason)
+              : vehicleReasonAction.kind === 'set_active'
+                ? adminSetTripActiveVehicle(vehicleReasonAction.vehicle.id, reason)
+                : vehicleReasonAction.kind === 'archive'
+                  ? adminArchiveDriverVehicle(vehicleReasonAction.vehicle.id, reason)
+                  : adminReturnSharedVehicleAssignment(
+                      vehicleReasonAction.assignmentId ?? '',
+                      reason,
+                    );
+          void run
+            .then((result) => {
+              if (!result.ok) {
+                toast.error(result.message);
+                return;
+              }
+              const v = vehicleReasonAction.vehicle;
+              if (vehicleReasonAction.kind === 'suspend') {
+                onVehicleUpdate({
+                  ...v,
+                  operational_status: 'suspended_under_repair',
+                  is_trip_active: false,
+                });
+                toast.success('Vehicle suspended');
+              } else if (vehicleReasonAction.kind === 'set_active') {
+                vehicles.forEach((other) => {
+                  if (other.id !== v.id && other.is_trip_active) {
+                    onVehicleUpdate({ ...other, is_trip_active: false });
+                  }
+                });
+                onVehicleUpdate({
+                  ...v,
+                  is_trip_active: true,
+                  operational_status: 'active',
+                });
+                toast.success('Active vehicle updated');
+              } else if (vehicleReasonAction.kind === 'archive') {
+                onVehicleUpdate({
+                  ...v,
+                  operational_status: 'archived',
+                  is_trip_active: false,
+                  is_primary: false,
+                });
+                toast.success('Vehicle archived — history retained');
+              } else {
+                onVehicleUpdate({
+                  ...v,
+                  operational_status: 'available_in_fleet',
+                  is_trip_active: false,
+                  is_primary: false,
+                });
+                toast.success('Shared vehicle returned to fleet');
+                void adminListOpenVehicleAssignments(driver.id).then(setOpenAssignments);
+              }
+              setVehicleReasonAction(null);
+            })
+            .finally(() => setVehicleReasonBusy(false));
+        }}
+      />
 
       {/* Vehicle Rejection Dialog */}
       <AlertDialog open={!!rejectVehicleId} onOpenChange={(open) => !open && setRejectVehicleId(null)}>

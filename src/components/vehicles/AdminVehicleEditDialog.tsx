@@ -11,6 +11,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
+import { Textarea } from '@/components/ui/textarea';
 import {
   Select,
   SelectContent,
@@ -19,6 +20,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { supabase } from '@/integrations/supabase/client';
+import { adminPageMutate } from '@/lib/adminPageGatedData';
 import { Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -33,6 +35,7 @@ export type AdminEditableVehicle = {
   capacity?: number | null;
   vehicle_type_id?: string | null;
   approval_status?: string | null;
+  rejection_reason?: string | null;
   driver?: {
     first_name: string;
     last_name: string;
@@ -43,13 +46,21 @@ export type AdminEditableVehicle = {
 type Props = {
   vehicle: AdminEditableVehicle | null;
   open: boolean;
+  /** Page slug for staff_has_page_access — Vehicles or Drivers. */
+  pageSlug?: 'vehicles' | 'drivers';
   onClose: () => void;
   onSaved: (vehicle: AdminEditableVehicle) => void;
 };
 
 type VehicleTypeOption = { id: string; name: string };
 
-export function AdminVehicleEditDialog({ vehicle, open, onClose, onSaved }: Props) {
+export function AdminVehicleEditDialog({
+  vehicle,
+  open,
+  pageSlug = 'vehicles',
+  onClose,
+  onSaved,
+}: Props) {
   const [saving, setSaving] = useState(false);
   const [vehicleTypes, setVehicleTypes] = useState<VehicleTypeOption[]>([]);
   const [form, setForm] = useState({
@@ -61,6 +72,7 @@ export function AdminVehicleEditDialog({ vehicle, open, onClose, onSaved }: Prop
     capacity: '',
     vehicle_type_id: '',
     approval_status: 'pending',
+    rejection_reason: '',
     is_primary: false,
   });
 
@@ -75,6 +87,7 @@ export function AdminVehicleEditDialog({ vehicle, open, onClose, onSaved }: Prop
       capacity: String(vehicle.capacity ?? 4),
       vehicle_type_id: vehicle.vehicle_type_id ?? '',
       approval_status: vehicle.approval_status ?? 'pending',
+      rejection_reason: vehicle.rejection_reason ?? '',
       is_primary: Boolean(vehicle.is_primary),
     });
   }, [open, vehicle]);
@@ -82,7 +95,7 @@ export function AdminVehicleEditDialog({ vehicle, open, onClose, onSaved }: Prop
   useEffect(() => {
     if (!open) return;
     let cancelled = false;
-    (async () => {
+    void (async () => {
       const { data } = await supabase
         .from('vehicle_types')
         .select('id, name')
@@ -116,10 +129,14 @@ export function AdminVehicleEditDialog({ vehicle, open, onClose, onSaved }: Prop
       toast.error('Enter a valid capacity');
       return;
     }
+    if (form.approval_status === 'rejected' && !form.rejection_reason.trim()) {
+      toast.error('A rejection reason is required');
+      return;
+    }
 
     setSaving(true);
     try {
-      const patch = {
+      const patch: Record<string, unknown> = {
         make: form.make.trim(),
         model: form.model.trim(),
         year,
@@ -128,22 +145,19 @@ export function AdminVehicleEditDialog({ vehicle, open, onClose, onSaved }: Prop
         capacity,
         is_primary: form.is_primary,
         approval_status: form.approval_status,
+        rejection_reason:
+          form.approval_status === 'rejected' ? form.rejection_reason.trim() : null,
         vehicle_type_id: form.vehicle_type_id || null,
       };
-      const { data, error } = await supabase
-        .from('vehicles')
-        .update(patch)
-        .eq('id', vehicle.id)
-        .select(
-          'id, make, model, year, color, license_plate, is_primary, capacity, vehicle_type_id, approval_status, rejection_reason',
-        )
-        .maybeSingle();
-      if (error) throw error;
-      if (!data) throw new Error('Update returned no row');
+      const { row } = await adminPageMutate<AdminEditableVehicle>(pageSlug, 'vehicles', 'update', {
+        id: vehicle.id,
+        patch,
+      });
+      if (!row) throw new Error('Update returned no row');
       toast.success('Vehicle updated');
       onSaved({
         ...vehicle,
-        ...data,
+        ...row,
         driver: vehicle.driver,
       });
       onClose();
@@ -254,10 +268,24 @@ export function AdminVehicleEditDialog({ vehicle, open, onClose, onSaved }: Prop
               </SelectContent>
             </Select>
           </div>
+          {form.approval_status === 'rejected' ? (
+            <div className="space-y-2 sm:col-span-2">
+              <Label htmlFor="veh_reject_reason">Rejection reason</Label>
+              <Textarea
+                id="veh_reject_reason"
+                value={form.rejection_reason}
+                onChange={(e) => setForm((f) => ({ ...f, rejection_reason: e.target.value }))}
+                rows={2}
+                placeholder="Required — recorded in compliance audit"
+              />
+            </div>
+          ) : null}
           <div className="flex items-center justify-between rounded-md border px-3 py-2 sm:col-span-2">
             <div>
               <Label>Primary vehicle</Label>
-              <p className="text-xs text-muted-foreground">Shown as the driver’s main car</p>
+              <p className="text-xs text-muted-foreground">
+                Driver&apos;s usual choice — distinct from Active (trip) vehicle
+              </p>
             </div>
             <Switch
               checked={form.is_primary}
@@ -270,7 +298,7 @@ export function AdminVehicleEditDialog({ vehicle, open, onClose, onSaved }: Prop
           <Button variant="outline" onClick={onClose} disabled={saving}>
             Cancel
           </Button>
-          <Button onClick={handleSave} disabled={saving}>
+          <Button onClick={() => void handleSave()} disabled={saving}>
             {saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
             Save vehicle
           </Button>

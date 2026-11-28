@@ -146,6 +146,9 @@ interface Vehicle {
   color: string;
   license_plate: string;
   is_primary: boolean;
+  is_trip_active?: boolean | null;
+  operational_status?: string | null;
+  fleet_shared?: boolean | null;
   approval_status: string;
   rejection_reason: string | null;
   capacity: number;
@@ -341,7 +344,8 @@ export default function Drivers() {
           adminPageSelect<Vehicle & { driver_id: string }>('drivers', 'vehicles', {
             columns: [
               'id', 'driver_id', 'make', 'model', 'year', 'license_plate', 'color',
-              'approval_status', 'is_primary', 'capacity', 'vehicle_type_id', 'rejection_reason',
+              'approval_status', 'is_primary', 'is_trip_active', 'operational_status',
+              'fleet_shared', 'capacity', 'vehicle_type_id', 'rejection_reason',
             ],
             filters: [{ op: 'in', col: 'driver_id', val: driverIds }],
             limit: Math.min(driverIds.length * 5, 500),
