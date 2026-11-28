@@ -1,5 +1,8 @@
 import type { SupabaseClient } from "npm:@supabase/supabase-js@2.57.2";
-import { isDocumentExpiredLondon } from "./documentExpiryLondon.ts";
+import {
+  isDocumentExpiredLondon,
+  parseExpiryCalendarDate,
+} from "./documentExpiryLondon.ts";
 import { DRIVER_BLOCKED_REASON, type DriverBlockedReason } from "./driverEligibility.ts";
 
 /** Canonical driver document states (Phase 4F.6). */
@@ -18,6 +21,8 @@ export type DocumentRowSnapshot = {
   rejection_reason?: string | null;
   created_at?: string | null;
   updated_at?: string | null;
+  /** When false, row is superseded history — must not beat the current logical doc. */
+  is_current?: boolean | null;
 };
 
 export type RequiredDocumentRule = {
@@ -67,30 +72,46 @@ function isExpired(expiryDate: string | null | undefined, now: Date): boolean {
   return isDocumentExpiredLondon(expiryDate, now);
 }
 
-/** Match SQL get_driver_document_eligibility: prefer approved, then newest updated_at. */
-function pickBestDocumentForSlug(
+/**
+ * Match SQL get_driver_document_eligibility current-row preference.
+ * MK0006 flash: superseded expired rows shared updated_at with the current
+ * approved row after vehicle stamp — ranking by updated_at alone picked the
+ * expired history row → push-gate revoked ineligible_before_push:documents_expired
+ * ~3s after realtime showed the offer card.
+ */
+export function pickBestDocumentForSlug(
   documents: DocumentRowSnapshot[],
   slug: string,
+  now: Date = new Date(),
 ): DocumentRowSnapshot | undefined {
   const candidates = documents.filter((doc) => doc.document_type === slug);
   if (candidates.length === 0) return undefined;
 
-  const rank = (doc: DocumentRowSnapshot): [number, number] => {
+  const rank = (doc: DocumentRowSnapshot): [number, number, number, number, number] => {
     const status = normalizeDocumentStatus(doc.status);
+    // Prefer explicit current rows; unknown is_current (legacy callers) stays mid.
+    const currentRank =
+      doc.is_current === true ? 0 : doc.is_current === false ? 2 : 1;
     const approvedRank = status === "approved" ? 0 : 1;
+    const expiredRank = isExpired(doc.expiry_date, now) ? 1 : 0;
+    const expiryDay = parseExpiryCalendarDate(doc.expiry_date ?? "") ?? "";
+    // Later expiry wins when timestamps tie (current valid vs superseded expired).
+    const expiryRank = expiryDay ? -Date.parse(`${expiryDay}T12:00:00Z`) : 0;
     const updatedMs = doc.updated_at
       ? new Date(doc.updated_at).getTime()
       : doc.created_at
         ? new Date(doc.created_at).getTime()
         : 0;
-    return [approvedRank, -updatedMs];
+    return [currentRank, approvedRank, expiredRank, expiryRank, -updatedMs];
   };
 
   return [...candidates].sort((a, b) => {
-    const [approvedA, updatedA] = rank(a);
-    const [approvedB, updatedB] = rank(b);
-    if (approvedA !== approvedB) return approvedA - approvedB;
-    return updatedA - updatedB;
+    const ra = rank(a);
+    const rb = rank(b);
+    for (let i = 0; i < ra.length; i++) {
+      if (ra[i] !== rb[i]) return ra[i]! - rb[i]!;
+    }
+    return 0;
   })[0];
 }
 
@@ -118,7 +139,7 @@ export function evaluateDriverDocumentStateFromSnapshot(args: {
 
   for (const rule of mandatoryRules) {
     const slug = rule.slug;
-    const doc = pickBestDocumentForSlug(args.documents, slug);
+    const doc = pickBestDocumentForSlug(args.documents, slug, now);
     if (!doc) {
       missing_documents.push(slug);
       continue;
@@ -353,7 +374,9 @@ export async function evaluateDriverDocumentState(
 
   const { data: documents } = await service
     .from("documents")
-    .select("document_type, status, expiry_date, rejection_reason, created_at, updated_at")
+    .select(
+      "document_type, status, expiry_date, rejection_reason, created_at, updated_at, is_current",
+    )
     .eq("driver_id", driverId);
 
   return evaluateDriverDocumentStateFromSnapshot({
