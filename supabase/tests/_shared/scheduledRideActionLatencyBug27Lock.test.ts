@@ -9,7 +9,7 @@ const src = await Deno.readTextFile(
 );
 
 Deno.test("Bug #27: scheduled-ride-action imports scheduleEdgeBackground", () => {
-  assertStringIncludes(src, 'from "../../functions/_shared/scheduleEdgeBackground.ts"');
+  assertStringIncludes(src, 'from "../_shared/scheduleEdgeBackground.ts"');
 });
 
 Deno.test("Bug #27: accept post-commit notify/broadcast is backgrounded", () => {
@@ -30,6 +30,9 @@ Deno.test("Bug #27: accept post-commit notify/broadcast is backgrounded", () => 
   assertEquals(syncTail.includes("broadcastScheduledMarketplaceChanged"), false);
   assertEquals(syncTail.includes("notifyCustomerTripLifecycle"), false);
   assertEquals(syncTail.includes("send-driver-notification"), false);
+  assertEquals(syncTail.includes("deliverCustomerLifecycleNotifyByKind"), false);
+  // SN1: durable intent allowed on sync path; provider send stays background.
+  assertStringIncludes(syncTail, "persistCustomerLifecycleNotifyIntent");
 });
 
 Deno.test("Bug #27: cancel_confirmed post-CAS work is backgrounded", () => {

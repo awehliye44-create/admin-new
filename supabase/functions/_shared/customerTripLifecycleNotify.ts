@@ -58,6 +58,8 @@ export const CUSTOMER_ANDROID_CHANNEL_BY_EVENT: Record<string, string> = {
   safety_reminder: "onecab_customer_updates_v1",
   lost_item_followup: "onecab_customer_general_v1",
   high_demand: "onecab_customer_general_v1",
+  /** SN1 — scheduled booking created (CTAP). */
+  scheduled_booking_confirmed: "onecab_customer_general_v1",
 };
 
 /** Android res/raw name (no extension) for FCM notification.sound. */
@@ -90,6 +92,7 @@ export const CUSTOMER_ANDROID_SOUND_BY_EVENT: Record<string, string> = {
   safety_reminder: "general_notification",
   lost_item_followup: "general_notification",
   high_demand: "general_notification",
+  scheduled_booking_confirmed: "general_notification",
 };
 
 /** Exact iOS bundled WAV filename for aps.sound. */
@@ -122,6 +125,7 @@ export const CUSTOMER_IOS_SOUND_BY_EVENT: Record<string, string> = {
   safety_reminder: "general_notification.wav",
   lost_item_followup: "general_notification.wav",
   high_demand: "general_notification.wav",
+  scheduled_booking_confirmed: "general_notification.wav",
 };
 
 /** iOS UNNotificationCategory identifiers (must match Customer registry). */
@@ -217,6 +221,7 @@ export const CUSTOMER_IOS_INTERRUPTION_LEVEL_BY_EVENT: Record<
   payment_success: "time-sensitive",
   payment_failed: "time-sensitive",
   payment_action_required: "time-sensitive",
+  scheduled_booking_confirmed: "active",
 };
 
 export function customerIosInterruptionLevelForEvent(

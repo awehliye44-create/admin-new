@@ -52,6 +52,7 @@ import {
   SCHEDULED_MARKETPLACE_AUTO_PUBLISH_VIA,
 } from "../../_shared/scheduledMarketplaceAutoPublishSSOT.ts";
 import { notifyScheduledMarketplaceOpen } from "../../_shared/scheduledMarketplaceNotifySSOT.ts";
+import { deliverCustomerLifecycleNotifyByKind } from "../../_shared/customerLifecycleNotifyDurable.ts";
 
 export type TripStopRow = {
   trip_id: string;
@@ -587,6 +588,18 @@ export function buildBookingPostCommitTasks(ctx: BookingPostCommitContext): Prom
   }
 
   if (ctx.isScheduled) {
+    // SN1: provider send for booking-confirm claim (intent already on HTTP path).
+    tasks.push((async () => {
+      try {
+        await deliverCustomerLifecycleNotifyByKind(ctx.supabase, {
+          kind: "scheduled_booking_confirmed",
+          tripId: ctx.tripId,
+        });
+      } catch (e) {
+        ctx.log("SN1_BOOKING_CONFIRM_DELIVER_FAILED", { error: String(e) });
+      }
+    })());
+
     // Phase 3: after fare enrich gates, auto-publish to Scheduled Jobs Requested.
     // Create remains admin_held until this CAS Make Available (idempotent).
     tasks.push((async () => {

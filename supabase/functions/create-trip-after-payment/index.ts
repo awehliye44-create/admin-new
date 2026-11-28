@@ -1759,6 +1759,29 @@ serveWithEdgeTiming("create-trip-after-payment", corsHeaders, async (req, stages
     }
     stages?.mark("session_mark_end");
 
+    // SN1: durable scheduled booking-confirm intent before HTTP 200 (no FCM).
+    if (isScheduled) {
+      try {
+        const { persistCustomerLifecycleNotifyIntent } = await import(
+          "../_shared/customerLifecycleNotifyDurable.ts"
+        );
+        const intent = await persistCustomerLifecycleNotifyIntent(supabase, {
+          kind: "scheduled_booking_confirmed",
+          tripId: trip.id,
+          passengerId: customerId,
+          scheduledAt: trip.scheduled_at ?? body.scheduled_at ?? null,
+          source: "create_trip_after_payment",
+        });
+        if (!intent.ok) {
+          log("SN1_BOOKING_CONFIRM_INTENT_FAILED", { reason: intent.reason });
+        }
+      } catch (sn1Err) {
+        log("SN1_BOOKING_CONFIRM_INTENT_THREW", {
+          error: sn1Err instanceof Error ? sn1Err.message : String(sn1Err),
+        });
+      }
+    }
+
     const bookingMilestones = {
       ctap_start_ms: ctapStartedAt,
       trip_inserted_ms: ctapResponseAt,

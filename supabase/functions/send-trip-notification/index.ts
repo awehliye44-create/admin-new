@@ -38,6 +38,7 @@ import {
   readFcmServiceAccountJson,
 } from "../_shared/fcmHttpV1.ts";
 import { TRAFFIC_DELAY_DEDUPE_PREFIX } from "../scheduled-dispatch/lib/scheduledPostActivationLatenessSSOT.ts";
+import { isSn1LifecycleNotificationId } from "../_shared/customerLifecycleNotifyDurableSSOT.ts";
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
@@ -133,6 +134,10 @@ const NOTIFICATION_COPY: Record<string, { title: string; body: string }> = {
     title: 'ONECAB HIGH DEMAND',
     body: 'High demand in your area — fares may be higher than usual.',
   },
+  scheduled_booking_confirmed: {
+    title: 'Scheduled ride booked',
+    body: "Your ride is booked. We'll notify you when a driver confirms.",
+  },
 };
 
 // ── Event → Android channel mapping (native per-event versioned IDs) ──────
@@ -166,6 +171,7 @@ const EVENT_PRIORITY: Record<string, 'high' | 'normal'> = {
   new_driver_assigned: 'high',
   driver_cancelled: 'high',
   customer_new_message: 'high',
+  scheduled_booking_confirmed: 'high',
   high_demand: 'high',
 };
 
@@ -198,6 +204,7 @@ const EVENT_SCREEN: Record<string, string> = {
   driver_cancelled: '/booking/finding-drivers',
   customer_new_message: '/booking/trip-chat',
   high_demand: '/',
+  scheduled_booking_confirmed: '/account/rides',
 };
 
 // ============================================================================
@@ -411,6 +418,57 @@ serve(async (req) => {
         );
       }
       // status sending | failed — allow (caller owns reclaim → sending).
+    }
+
+    // SN1 defense: scheduled lifecycle ids require a durable claim (pending|sending|failed).
+    if (isSn1LifecycleNotificationId(notificationId)) {
+      const supabaseGuard = createClient(supabaseUrl, supabaseServiceKey);
+      const { data: delivery } = await supabaseGuard
+        .from("customer_trip_notification_deliveries")
+        .select("id, status")
+        .eq("notification_id", notificationId)
+        .maybeSingle();
+      const deliveryStatus = String(delivery?.status ?? "").toLowerCase();
+      if (!delivery?.id) {
+        console.warn(
+          `[TripNotif] Refusing SN1 lifecycle notify without ledger claim: ${notificationId}`,
+        );
+        return new Response(
+          JSON.stringify({
+            success: true,
+            sent: 0,
+            failed: 0,
+            event,
+            tripId,
+            reason: "missing_delivery_claim",
+          }),
+          {
+            status: 200,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          },
+        );
+      }
+      if (
+        deliveryStatus === "sent" ||
+        deliveryStatus === "skipped" ||
+        deliveryStatus === "ambiguous"
+      ) {
+        return new Response(
+          JSON.stringify({
+            success: true,
+            sent: 0,
+            failed: 0,
+            event,
+            tripId,
+            reason: `already_${deliveryStatus}`,
+          }),
+          {
+            status: 200,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          },
+        );
+      }
+      // pending | sending | failed — allow (deliver path owns lease).
     }
 
     const channelId = customerAndroidChannelIdForEvent(event);

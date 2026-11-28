@@ -235,12 +235,9 @@ Deno.test("producers send after authoritative success; rematch does not cancel",
   assertEquals(scheduledDispatch.includes('type: "DRIVER_UNAVAILABLE"'), false);
   assertEquals(scheduledDispatch.includes('type: "NO_DRIVER_AVAILABLE"'), false);
   assertEquals(scheduledDispatch.includes('type: "DRIVER_EN_ROUTE"'), false);
-  const commitmentChunk = scheduledDispatch.slice(
-    scheduledDispatch.indexOf("SCHEDULED_COMMITMENT_MODE_TRIGGERED"),
-    scheduledDispatch.indexOf("committedCount++"),
-  );
-  assertStringIncludes(commitmentChunk, 'event: "driver_assigned"');
-  assertStringIncludes(commitmentChunk, "notifyCustomerTripLifecycle");
+  // Assign-at still emits driver_assigned; SN1 covers marketplace Accept durable notify.
+  assertStringIncludes(scheduledDispatch, "scheduled_assign_at");
+  assertStringIncludes(scheduledDispatch, "reclaimPendingCustomerLifecycleNotifies");
   const adminNegCancel = await read("../admin-cancel-trip-negotiation/index.ts");
   assertStringIncludes(adminNegCancel, "notifyCustomerTripLifecycle");
   assertStringIncludes(adminNegCancel, 'event: "trip_cancelled"');
@@ -289,9 +286,12 @@ Deno.test("producers send after authoritative success; rematch does not cancel",
   // Finding-another push is centralized — not duplicated on DECLINE.
   assertEquals(driverFareFinal.includes('event: "finding_another_driver_updated_fare"'), false);
   const scheduledRide = await read("../scheduled-ride-action/index.ts");
-  assertStringIncludes(scheduledRide, 'event: "driver_cancelled"');
-  assertStringIncludes(scheduledRide, "notifyCustomerTripLifecycle");
-  assertStringIncludes(scheduledRide, 'event: "driver_assigned"');
+  // SN1: durable intent + background deliver (not raw notifyCustomerTripLifecycle).
+  assertStringIncludes(scheduledRide, "persistCustomerLifecycleNotifyIntent");
+  assertStringIncludes(scheduledRide, "deliverCustomerLifecycleNotifyByKind");
+  assertStringIncludes(scheduledRide, 'kind: "scheduled_accept"');
+  assertStringIncludes(scheduledRide, 'kind: "scheduled_cancel_rematch"');
+  assertEquals(scheduledRide.includes("notifyCustomerTripLifecycle"), false);
   assertEquals(scheduledRide.includes('type: "DRIVER_CONFIRMED"'), false);
   assertEquals(scheduledRide.includes('invoke("send-customer-notification"'), false);
   const cancelConfirmedChunk = scheduledRide.slice(

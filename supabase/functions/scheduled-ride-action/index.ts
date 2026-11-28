@@ -18,7 +18,10 @@ import {
   resolveScheduledDispatchConfig,
 } from "../_shared/scheduledDispatchConfig.ts";
 import { maxBroadcastSequences } from "../_shared/dispatch-settings.ts";
-import { notifyCustomerTripLifecycle } from "../_shared/customerTripLifecycleNotify.ts";
+import {
+  deliverCustomerLifecycleNotifyByKind,
+  persistCustomerLifecycleNotifyIntent,
+} from "../_shared/customerLifecycleNotifyDurable.ts";
 import { driverMayTakeAdditionalScheduledBooking } from "../_shared/scheduledCommitmentOfferGateSSOT.ts";
 import {
   checkScheduledCommissionWalletGate,
@@ -726,8 +729,36 @@ Deno.serve(async (req) => {
         confirmed_driver_id: driver_id,
       });
 
-      // Bug #27: return after authoritative accept + preconfirm. Notify /
-      // marketplace broadcast via waitUntil so Accept→Confirmed stays <2s.
+      // SN1: durable Customer notify intent before HTTP 200 (no FCM on path).
+      let acceptPassengerId: string | null = null;
+      {
+        const stageAt = Date.now();
+        const { data: tripForIntent } = await supabase
+          .from("trips")
+          .select("passenger_id, scheduled_at")
+          .eq("id", trip_id)
+          .maybeSingle();
+        acceptPassengerId = tripForIntent?.passenger_id
+          ? String(tripForIntent.passenger_id)
+          : null;
+        if (acceptPassengerId) {
+          const intent = await persistCustomerLifecycleNotifyIntent(supabase, {
+            kind: "scheduled_accept",
+            tripId: trip_id,
+            passengerId: acceptPassengerId,
+            confirmedDriverId: driver_id,
+            scheduledAt: tripForIntent?.scheduled_at ?? null,
+            source: "scheduled_ride_action_accept",
+          });
+          if (!intent.ok) {
+            console.warn("[scheduled-ride-action] accept SN1 intent failed:", intent.reason);
+          }
+          markAcceptStage("sn1_intent_ms", stageAt);
+        }
+      }
+
+      // Bug #27: return after authoritative accept + preconfirm + SN1 claim.
+      // Provider send / marketplace broadcast via waitUntil — Accept stays <2s.
       scheduleEdgeBackground(async () => {
         const { data: tripRow } = await supabase
           .from("trips")
@@ -758,14 +789,13 @@ Deno.serve(async (req) => {
             const driverName = driverRow
               ? `${driverRow.first_name ?? "Your driver"}`.trim()
               : "Your driver";
-            await notifyCustomerTripLifecycle(supabase, {
-              passengerId: tripRow.passenger_id,
+            await deliverCustomerLifecycleNotifyByKind(supabase, {
+              kind: "scheduled_accept",
               tripId: trip_id,
-              event: "driver_assigned",
               title: "Driver confirmed",
               body: `${driverName} will pick you up for your scheduled ride.`,
-              notificationId: `driver_assigned-${trip_id}-scheduled_accept`,
               path: "/account/rides",
+              driverName,
             });
           }
         } catch (notifErr) {
@@ -926,7 +956,7 @@ Deno.serve(async (req) => {
       const validateAt = Date.now();
       const { data: trip, error: tripError } = await supabase
         .from("trips")
-        .select("id, driver_id, confirmed_driver_id, status, scheduled_status, is_scheduled, scheduled_at, scheduled_broadcast_at, service_area_id")
+        .select("id, driver_id, confirmed_driver_id, status, scheduled_status, is_scheduled, scheduled_at, scheduled_broadcast_at, service_area_id, passenger_id")
         .eq("id", trip_id)
         .single();
 
@@ -1188,8 +1218,29 @@ Deno.serve(async (req) => {
 
       console.log(`[scheduled-ride-action] Driver ${driver_id} cancelled confirmed job ${trip_id}. Reason: ${cancellation_reason}`);
 
+      // SN1: durable rematch notify intent before HTTP 200.
+      {
+        const passengerId = trip.passenger_id ? String(trip.passenger_id) : null;
+        if (passengerId) {
+          const intent = await persistCustomerLifecycleNotifyIntent(supabase, {
+            kind: "scheduled_cancel_rematch",
+            tripId: trip_id,
+            passengerId,
+            confirmedDriverId: driver_id,
+            convertedToInstant,
+            source: "scheduled_ride_action_cancel_confirmed",
+          });
+          if (!intent.ok) {
+            console.warn(
+              "[scheduled-ride-action] cancel SN1 intent failed:",
+              intent.reason,
+            );
+          }
+        }
+      }
+
       // Bug #27: CAS release + exclusion already durable. Kick dispatch /
-      // notify / marketplace via waitUntil so cancel UI is not blocked.
+      // provider send / marketplace via waitUntil so cancel UI is not blocked.
       // Cron/sweep recover if background work is interrupted.
       const serviceAreaIdForBroadcast = trip.service_area_id ?? null;
       scheduleEdgeBackground(async () => {
@@ -1244,25 +1295,16 @@ Deno.serve(async (req) => {
         }
 
         try {
-          const { data: tripForNotif } = await supabase
-            .from("trips")
-            .select("passenger_id, scheduled_at")
-            .eq("id", trip_id)
-            .single();
-          if (tripForNotif?.passenger_id) {
-            const customerMsg = convertedToInstant
-              ? "We're finding you a replacement driver right now."
-              : "We're looking for another driver for your scheduled trip.";
-            await notifyCustomerTripLifecycle(supabase, {
-              passengerId: tripForNotif.passenger_id,
-              tripId: trip_id,
-              event: "driver_cancelled",
-              title: "Driver cancelled",
-              body: customerMsg,
-              notificationId: `driver_cancelled-scheduled-${trip_id}`,
-              path: convertedToInstant ? "/booking/finding-drivers" : "/account/rides",
-            });
-          }
+          const customerMsg = convertedToInstant
+            ? "We're finding you a replacement driver right now."
+            : "We're looking for another driver for your scheduled trip.";
+          await deliverCustomerLifecycleNotifyByKind(supabase, {
+            kind: "scheduled_cancel_rematch",
+            tripId: trip_id,
+            title: "Driver cancelled",
+            body: customerMsg,
+            path: convertedToInstant ? "/booking/finding-drivers" : "/account/rides",
+          });
         } catch (notifErr) {
           console.warn("[scheduled-ride-action] cancel_confirmed: customer notification failed:", notifErr);
         }

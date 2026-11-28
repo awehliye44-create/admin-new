@@ -54,6 +54,11 @@ import {
   notifyCustomerTripLifecycle,
 } from "../_shared/customerTripLifecycleNotify.ts";
 import { claimAndNotifyScheduledTrafficDelay } from "./lib/customerTrafficDelayNotify.ts";
+import {
+  deliverCustomerLifecycleNotifyByKind,
+  persistCustomerLifecycleNotifyIntent,
+  reclaimPendingCustomerLifecycleNotifies,
+} from "../_shared/customerLifecycleNotifyDurable.ts";
 import { notifyScheduledMarketplaceOpen } from "../_shared/scheduledMarketplaceNotifySSOT.ts";
 import { broadcastScheduledMarketplaceChanged } from "../_shared/scheduledMarketplaceRealtimeBroadcastSSOT.ts";
 import {
@@ -1603,7 +1608,7 @@ Deno.serve(async (req) => {
     const { data: ridesToConvert, error: convertError } = await supabase
       .from("trips")
       .select(
-        "id, scheduled_at, scheduled_broadcast_at, scheduled_convert_at, broadcast_started_at, driver_id, confirmed_driver_id, scheduled_status, status, dispatch_status, dispatch_mode, broadcast_enabled",
+        "id, scheduled_at, scheduled_broadcast_at, scheduled_convert_at, broadcast_started_at, driver_id, confirmed_driver_id, scheduled_status, status, dispatch_status, dispatch_mode, broadcast_enabled, passenger_id",
       )
       .eq("dispatch_mode", "scheduled")
       .in("scheduled_status", [...NO_PRECONFIRMED_CONVERT_SCHEDULED_STATUSES])
@@ -1698,6 +1703,39 @@ Deno.serve(async (req) => {
             broadcast_enabled: allowBroadcast,
           },
         });
+
+        // SN1: durable Customer convert→instant notify (intent then deliver).
+        const passengerId = String(
+          (trip as { passenger_id?: string | null }).passenger_id ?? "",
+        ).trim();
+        if (passengerId) {
+          try {
+            const intent = await persistCustomerLifecycleNotifyIntent(supabase, {
+              kind: "scheduled_converted_to_instant",
+              tripId: trip.id,
+              passengerId,
+              convertedToInstant: true,
+              source: "scheduled_dispatch_convert",
+            });
+            if (intent.ok) {
+              await deliverCustomerLifecycleNotifyByKind(supabase, {
+                kind: "scheduled_converted_to_instant",
+                tripId: trip.id,
+              });
+            } else {
+              console.warn(
+                "[scheduled-dispatch] SN1 convert intent failed:",
+                intent.reason,
+              );
+            }
+          } catch (sn1Err) {
+            console.warn(
+              "[scheduled-dispatch] SN1 convert notify failed:",
+              sn1Err instanceof Error ? sn1Err.message : String(sn1Err),
+            );
+          }
+        }
+
         if (!allowBroadcast) {
           console.warn(
             `[scheduled-dispatch] Convert held broadcast (airport/fare enrich) for ${trip.id}`,
@@ -1964,6 +2002,28 @@ Deno.serve(async (req) => {
       }
     }
 
+    // SN1 recovery: reclaim pending / stale sending / failed lifecycle notifies.
+    let sn1Reclaim: {
+      scanned: number;
+      delivered: number;
+      skipped: number;
+      failed: number;
+    } | null = null;
+    try {
+      sn1Reclaim = await reclaimPendingCustomerLifecycleNotifies(supabase, {
+        limit: 20,
+        nowMs,
+      });
+      if (sn1Reclaim.scanned > 0) {
+        console.log("[scheduled-dispatch] SN1 reclaim", sn1Reclaim);
+      }
+    } catch (sn1Err) {
+      console.warn(
+        "[scheduled-dispatch] SN1 reclaim failed:",
+        sn1Err instanceof Error ? sn1Err.message : String(sn1Err),
+      );
+    }
+
     const summary = {
       timestamp: now.toISOString(),
       committedCount,
@@ -1972,6 +2032,7 @@ Deno.serve(async (req) => {
       stackedRedispatched,
       expired,
       pendingReleasesExecuted,
+      sn1_reclaim: sn1Reclaim,
     };
 
     console.log("[scheduled-dispatch] Summary:", summary);
