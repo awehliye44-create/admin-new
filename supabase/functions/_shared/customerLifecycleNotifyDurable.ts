@@ -399,14 +399,65 @@ export async function deliverCustomerLifecycleNotifyByKind(
 }
 
 /**
- * Cron / recovery: reclaim pending + stale sending + failed SN1 rows.
+ * Durable recovery: insert missing pending intents from trip state, then
+ * reclaim pending / stale sending / failed SN1 rows. Ambiguous stays terminal
+ * (observable only — no blind retry / spam).
  * Bounded batch — Shared CPU safe.
  */
 export async function reclaimPendingCustomerLifecycleNotifies(
   supabase: SupabaseClient,
   input?: { limit?: number; nowMs?: number },
-): Promise<{ scanned: number; delivered: number; skipped: number; failed: number }> {
+): Promise<{
+  scanned: number;
+  delivered: number;
+  skipped: number;
+  failed: number;
+  reconcile?: Record<string, unknown> | null;
+  ambiguous_observed?: number;
+}> {
   const limit = Math.max(1, Math.min(40, input?.limit ?? 20));
+
+  let reconcile: Record<string, unknown> | null = null;
+  try {
+    const { data: recon } = await supabase.rpc(
+      "sn1_reconcile_missing_lifecycle_intents",
+      { p_limit: limit },
+    );
+    if (recon && typeof recon === "object") {
+      reconcile = recon as Record<string, unknown>;
+    }
+  } catch (err) {
+    console.warn(
+      "[sn1] reconcile_missing_lifecycle_intents failed",
+      err instanceof Error ? err.message : String(err),
+    );
+  }
+
+  // Observable ambiguous outcomes — never re-lease / re-send.
+  let ambiguousObserved = 0;
+  try {
+    const { data: ambRows, count } = await supabase
+      .from("customer_trip_notification_deliveries")
+      .select("notification_id", { count: "exact", head: false })
+      .eq("status", "ambiguous")
+      .order("updated_at", { ascending: false })
+      .limit(20);
+    ambiguousObserved = typeof count === "number"
+      ? count
+      : (Array.isArray(ambRows) ? ambRows.length : 0);
+    if (ambiguousObserved > 0) {
+      console.warn("[sn1] ambiguous_lifecycle_deliveries_observed", {
+        count: ambiguousObserved,
+        sample_ids: (Array.isArray(ambRows) ? ambRows : [])
+          .slice(0, 5)
+          .map((r) => String((r as { notification_id?: string }).notification_id ?? ""))
+          .filter(Boolean),
+      });
+    }
+  } catch {
+    // observability only
+  }
+
   // Fetch a wider pending/sending/failed window, then filter SN1 ids in-process
   // (PostgREST OR+LIKE on mixed prefixes is fragile).
   const { data: rows } = await supabase
@@ -437,5 +488,12 @@ export async function reclaimPendingCustomerLifecycleNotifies(
     else if (result.status === "failed") failed++;
     else skipped++;
   }
-  return { scanned: list.length, delivered, skipped, failed };
+  return {
+    scanned: list.length,
+    delivered,
+    skipped,
+    failed,
+    reconcile,
+    ambiguous_observed: ambiguousObserved,
+  };
 }

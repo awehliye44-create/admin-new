@@ -31,8 +31,8 @@ Deno.test("Bug #27: accept post-commit notify/broadcast is backgrounded", () => 
   assertEquals(syncTail.includes("notifyCustomerTripLifecycle"), false);
   assertEquals(syncTail.includes("send-driver-notification"), false);
   assertEquals(syncTail.includes("deliverCustomerLifecycleNotifyByKind"), false);
-  // SN1: durable intent allowed on sync path; provider send stays background.
-  assertStringIncludes(syncTail, "persistCustomerLifecycleNotifyIntent");
+  // SN1: atomic finalize RPC on sync path; provider send stays background.
+  assertStringIncludes(syncTail, "sn1_finalize_scheduled_accept_preconfirm");
 });
 
 Deno.test("Bug #27: cancel_confirmed post-CAS work is backgrounded", () => {

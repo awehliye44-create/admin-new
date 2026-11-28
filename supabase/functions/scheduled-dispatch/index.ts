@@ -1704,30 +1704,24 @@ Deno.serve(async (req) => {
           },
         });
 
-        // SN1: durable Customer convert→instant notify (intent then deliver).
+        // SN1: AFTER UPDATE trigger inserts convert intent in the same txn as
+        // the status flip. Deliver only (idempotent persist is belt-and-suspenders).
         const passengerId = String(
           (trip as { passenger_id?: string | null }).passenger_id ?? "",
         ).trim();
         if (passengerId) {
           try {
-            const intent = await persistCustomerLifecycleNotifyIntent(supabase, {
+            await persistCustomerLifecycleNotifyIntent(supabase, {
               kind: "scheduled_converted_to_instant",
               tripId: trip.id,
               passengerId,
               convertedToInstant: true,
               source: "scheduled_dispatch_convert",
             });
-            if (intent.ok) {
-              await deliverCustomerLifecycleNotifyByKind(supabase, {
-                kind: "scheduled_converted_to_instant",
-                tripId: trip.id,
-              });
-            } else {
-              console.warn(
-                "[scheduled-dispatch] SN1 convert intent failed:",
-                intent.reason,
-              );
-            }
+            await deliverCustomerLifecycleNotifyByKind(supabase, {
+              kind: "scheduled_converted_to_instant",
+              tripId: trip.id,
+            });
           } catch (sn1Err) {
             console.warn(
               "[scheduled-dispatch] SN1 convert notify failed:",

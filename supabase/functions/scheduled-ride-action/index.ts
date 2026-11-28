@@ -691,27 +691,32 @@ Deno.serve(async (req) => {
         );
       }
 
-      // Hard Rule #4 / preconfirm: never leave live driver_id after marketplace Accept.
+      // Hard Rule #4 / preconfirm + SN1 intent: one SQL txn (accept_scheduled_ride
+      // already inserted intent; this normalizes driver_id/status and re-ensures claim).
       // Activation NRO Accept (scheduled-checkin) is the only path that stamps driver_id.
       {
         const stageAt = Date.now();
-        const nowIso = new Date().toISOString();
-        const { error: preconfirmErr } = await supabase
-          .from("trips")
-          .update({
-            driver_id: null,
-            confirmed_driver_id: driver_id,
-            scheduled_status: "driver_assigned",
-            // Keep list-only trip status — do not flip into live searching/en_route.
-            status: "scheduled",
-            updated_at: nowIso,
-          })
-          .eq("id", trip_id)
-          .or(`confirmed_driver_id.eq.${driver_id},confirmed_driver_id.is.null`);
-        if (preconfirmErr) {
-          console.warn("[scheduled-ride-action] accept preconfirm normalize soft-fail:", preconfirmErr);
+        const { data: finalizeRow, error: finalizeErr } = await supabase.rpc(
+          "sn1_finalize_scheduled_accept_preconfirm",
+          { p_trip_id: trip_id, p_driver_id: driver_id },
+        );
+        if (finalizeErr) {
+          console.warn(
+            "[scheduled-ride-action] accept SN1 finalize soft-fail:",
+            finalizeErr.message,
+          );
+        } else if (
+          finalizeRow &&
+          typeof finalizeRow === "object" &&
+          (finalizeRow as { ok?: boolean }).ok !== true
+        ) {
+          console.warn(
+            "[scheduled-ride-action] accept SN1 finalize not ok:",
+            finalizeRow,
+          );
         }
         markAcceptStage("preconfirm_ms", stageAt);
+        markAcceptStage("sn1_intent_ms", stageAt);
       }
 
       acceptStagesMs.authoritative_commit_ms = Math.max(
@@ -728,34 +733,6 @@ Deno.serve(async (req) => {
         trip_id,
         confirmed_driver_id: driver_id,
       });
-
-      // SN1: durable Customer notify intent before HTTP 200 (no FCM on path).
-      let acceptPassengerId: string | null = null;
-      {
-        const stageAt = Date.now();
-        const { data: tripForIntent } = await supabase
-          .from("trips")
-          .select("passenger_id, scheduled_at")
-          .eq("id", trip_id)
-          .maybeSingle();
-        acceptPassengerId = tripForIntent?.passenger_id
-          ? String(tripForIntent.passenger_id)
-          : null;
-        if (acceptPassengerId) {
-          const intent = await persistCustomerLifecycleNotifyIntent(supabase, {
-            kind: "scheduled_accept",
-            tripId: trip_id,
-            passengerId: acceptPassengerId,
-            confirmedDriverId: driver_id,
-            scheduledAt: tripForIntent?.scheduled_at ?? null,
-            source: "scheduled_ride_action_accept",
-          });
-          if (!intent.ok) {
-            console.warn("[scheduled-ride-action] accept SN1 intent failed:", intent.reason);
-          }
-          markAcceptStage("sn1_intent_ms", stageAt);
-        }
-      }
 
       // Bug #27: return after authoritative accept + preconfirm + SN1 claim.
       // Provider send / marketplace broadcast via waitUntil — Accept stays <2s.
@@ -1218,8 +1195,9 @@ Deno.serve(async (req) => {
 
       console.log(`[scheduled-ride-action] Driver ${driver_id} cancelled confirmed job ${trip_id}. Reason: ${cancellation_reason}`);
 
-      // SN1: durable rematch notify intent before HTTP 200.
-      {
+      // SN1: SQL CAS inserts rematch intent in the same txn. Edge fallback only
+      // needs a separate durable claim (reconcile recovers if this crashes).
+      if (!casViaSql) {
         const passengerId = trip.passenger_id ? String(trip.passenger_id) : null;
         if (passengerId) {
           const intent = await persistCustomerLifecycleNotifyIntent(supabase, {
@@ -1228,7 +1206,7 @@ Deno.serve(async (req) => {
             passengerId,
             confirmedDriverId: driver_id,
             convertedToInstant,
-            source: "scheduled_ride_action_cancel_confirmed",
+            source: "scheduled_ride_action_cancel_confirmed_edge_fallback",
           });
           if (!intent.ok) {
             console.warn(

@@ -306,3 +306,59 @@ export function scheduledConvertedToInstantCopy(): {
     body: "Your scheduled trip is now searching for an available driver.",
   };
 }
+
+/**
+ * Fault-injection model for the residual Edge multi-call crash gap.
+ * Simulates interruption between lifecycle persistence and notify intent.
+ */
+export type Sn1AtomicStep =
+  | "lifecycle_committed"
+  | "intent_persisted"
+  | "crash_before_intent";
+
+export type Sn1CrashGapState = {
+  lifecycleCommitted: boolean;
+  intentPersisted: boolean;
+};
+
+/** Non-atomic Edge sequence: crash between steps leaves a recoverable gap. */
+export function simulateNonAtomicLifecycleThenIntent(input: {
+  crashAfter: "lifecycle" | "intent" | "none";
+}): Sn1CrashGapState {
+  const state: Sn1CrashGapState = {
+    lifecycleCommitted: false,
+    intentPersisted: false,
+  };
+  state.lifecycleCommitted = true;
+  if (input.crashAfter === "lifecycle") return state;
+  state.intentPersisted = true;
+  return state;
+}
+
+/** Atomic same-txn sequence: crash rolls both back or neither. */
+export function simulateAtomicLifecycleWithIntent(input: {
+  crashBeforeCommit: boolean;
+}): Sn1CrashGapState {
+  if (input.crashBeforeCommit) {
+    return { lifecycleCommitted: false, intentPersisted: false };
+  }
+  return { lifecycleCommitted: true, intentPersisted: true };
+}
+
+/** Reconcile closes a detected missing-intent gap from authoritative state. */
+export function reconcileMissingIntentFromLifecycle(input: {
+  lifecycleCommitted: boolean;
+  intentPersisted: boolean;
+}): Sn1CrashGapState {
+  if (input.lifecycleCommitted && !input.intentPersisted) {
+    return { lifecycleCommitted: true, intentPersisted: true };
+  }
+  return {
+    lifecycleCommitted: input.lifecycleCommitted,
+    intentPersisted: input.intentPersisted,
+  };
+}
+
+export function sn1CrashGapOpen(state: Sn1CrashGapState): boolean {
+  return state.lifecycleCommitted && !state.intentPersisted;
+}

@@ -13,7 +13,11 @@ import {
   decideLifecycleSendLease,
   isSn1LifecycleNotificationId,
   isSn1LifecycleNotifyObsolete,
+  reconcileMissingIntentFromLifecycle,
   resolveLifecycleDeliveryOutcome,
+  simulateAtomicLifecycleWithIntent,
+  simulateNonAtomicLifecycleThenIntent,
+  sn1CrashGapOpen,
   SN1_SEND_LEASE_MS,
 } from "../../functions/_shared/customerLifecycleNotifyDurableSSOT.ts";
 
@@ -204,24 +208,44 @@ Deno.test("SN1 delivery outcome maps provider results without inventing heads-up
   );
 });
 
-Deno.test("SN1 wiring: Accept persists intent on sync path; FCM stays background", async () => {
+Deno.test("SN1 wiring: Accept uses atomic finalize RPC; FCM stays background", async () => {
   const src = await Deno.readTextFile(
     new URL("../../functions/scheduled-ride-action/index.ts", import.meta.url),
   );
   const acceptAt = src.indexOf('if (action === "accept")');
   const declineAt = src.indexOf('if (action === "decline")');
   const acceptBlock = src.slice(acceptAt, declineAt);
-  assertStringIncludes(acceptBlock, "persistCustomerLifecycleNotifyIntent");
-  assertStringIncludes(acceptBlock, 'kind: "scheduled_accept"');
+  assertStringIncludes(acceptBlock, "sn1_finalize_scheduled_accept_preconfirm");
   const syncTail = acceptBlock.slice(
     0,
     acceptBlock.indexOf("scheduleEdgeBackground(async () => {"),
   );
-  assertStringIncludes(syncTail, "persistCustomerLifecycleNotifyIntent");
+  assertStringIncludes(syncTail, "sn1_finalize_scheduled_accept_preconfirm");
   assertEquals(syncTail.includes("deliverCustomerLifecycleNotifyByKind"), false);
   assertEquals(syncTail.includes("notifyCustomerTripLifecycle"), false);
+  assertEquals(syncTail.includes("persistCustomerLifecycleNotifyIntent"), false);
   assertStringIncludes(acceptBlock, "deliverCustomerLifecycleNotifyByKind");
   assertStringIncludes(acceptBlock, "sn1_intent_ms");
+});
+
+Deno.test("SN1 wiring: cancel SQL CAS owns intent; Edge persist only on fallback", async () => {
+  const src = await Deno.readTextFile(
+    new URL("../../functions/scheduled-ride-action/index.ts", import.meta.url),
+  );
+  const cancelAt = src.indexOf('if (action === "cancel_confirmed")');
+  const cancelBlock = src.slice(cancelAt);
+  assertStringIncludes(cancelBlock, "release_scheduled_assignment_for_driver_cancel");
+  assertStringIncludes(cancelBlock, "if (!casViaSql)");
+  assertStringIncludes(
+    cancelBlock,
+    'source: "scheduled_ride_action_cancel_confirmed_edge_fallback"',
+  );
+  const beforeBg = cancelBlock.slice(
+    0,
+    cancelBlock.indexOf("scheduleEdgeBackground(async () => {"),
+  );
+  // Provider send stays background.
+  assertEquals(beforeBg.includes("deliverCustomerLifecycleNotifyByKind"), false);
 });
 
 Deno.test("SN1 wiring: CTAP persists booking-confirm intent before response", async () => {
@@ -248,6 +272,15 @@ Deno.test("SN1 wiring: scheduled-dispatch convert + reclaim", async () => {
   assertStringIncludes(src, 'kind: "scheduled_converted_to_instant"');
   assertStringIncludes(src, "reclaimPendingCustomerLifecycleNotifies");
   assertStringIncludes(src, "persistCustomerLifecycleNotifyIntent");
+  const durable = await Deno.readTextFile(
+    new URL(
+      "../../functions/_shared/customerLifecycleNotifyDurable.ts",
+      import.meta.url,
+    ),
+  );
+  assertStringIncludes(durable, "sn1_reconcile_missing_lifecycle_intents");
+  assertStringIncludes(durable, "ambiguous_lifecycle_deliveries_observed");
+  assertStringIncludes(durable, "ambiguous_observed");
 });
 
 Deno.test("SN1 send-trip-notification refuses missing durable claim", async () => {
@@ -267,4 +300,68 @@ Deno.test("SN1 migration adds pending status", async () => {
   );
   assertStringIncludes(sql, "'pending'");
   assertStringIncludes(sql, "customer_trip_notification_deliveries_recovery_idx");
+});
+
+Deno.test("SN1 atomic gap-close migration: same-txn helpers + reconcile", async () => {
+  const sql = await Deno.readTextFile(
+    new URL(
+      "../../migrations/20270305260000_sn1_atomic_lifecycle_notify_intent.sql",
+      import.meta.url,
+    ),
+  );
+  assertStringIncludes(sql, "sn1_insert_pending_lifecycle_notify");
+  assertStringIncludes(sql, "sn1_finalize_scheduled_accept_preconfirm");
+  assertStringIncludes(sql, "trg_sn1_scheduled_booking_confirm_intent");
+  assertStringIncludes(sql, "trg_sn1_scheduled_converted_intent");
+  assertStringIncludes(sql, "sn1_reconcile_missing_lifecycle_intents");
+  assertStringIncludes(sql, "sn1_insert_pending_lifecycle_notify");
+  // Accept + cancel release insert intent in the same function body.
+  assertStringIncludes(sql, "source', 'accept_scheduled_ride");
+  assertStringIncludes(
+    sql,
+    "source', 'release_scheduled_assignment_for_driver_cancel",
+  );
+});
+
+Deno.test("SN1 fault injection: non-atomic crash opens gap; atomic does not; reconcile closes", () => {
+  const crashed = simulateNonAtomicLifecycleThenIntent({ crashAfter: "lifecycle" });
+  assertEquals(sn1CrashGapOpen(crashed), true);
+
+  const completed = simulateNonAtomicLifecycleThenIntent({ crashAfter: "none" });
+  assertEquals(sn1CrashGapOpen(completed), false);
+
+  const atomicCrash = simulateAtomicLifecycleWithIntent({ crashBeforeCommit: true });
+  assertEquals(atomicCrash.lifecycleCommitted, false);
+  assertEquals(atomicCrash.intentPersisted, false);
+  assertEquals(sn1CrashGapOpen(atomicCrash), false);
+
+  const atomicOk = simulateAtomicLifecycleWithIntent({ crashBeforeCommit: false });
+  assertEquals(sn1CrashGapOpen(atomicOk), false);
+
+  const healed = reconcileMissingIntentFromLifecycle(crashed);
+  assertEquals(sn1CrashGapOpen(healed), false);
+  assertEquals(healed.intentPersisted, true);
+});
+
+Deno.test("SN1 ambiguous stays terminal — no blind lease retry", () => {
+  const decision = decideLifecycleSendLease({
+    existing: {
+      status: "ambiguous",
+      updatedAtIso: new Date().toISOString(),
+      attempts: 1,
+    },
+    nowMs: Date.now(),
+  });
+  assertEquals(decision.action, "skip");
+  if (decision.action === "skip") {
+    assertEquals(decision.reason, "already_terminal");
+  }
+  assertEquals(
+    resolveLifecycleDeliveryOutcome({
+      httpOk: true,
+      sent: null,
+      reason: null,
+    }).status,
+    "ambiguous",
+  );
 });

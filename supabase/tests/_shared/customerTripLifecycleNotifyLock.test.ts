@@ -286,7 +286,8 @@ Deno.test("producers send after authoritative success; rematch does not cancel",
   // Finding-another push is centralized — not duplicated on DECLINE.
   assertEquals(driverFareFinal.includes('event: "finding_another_driver_updated_fare"'), false);
   const scheduledRide = await read("../scheduled-ride-action/index.ts");
-  // SN1: durable intent + background deliver (not raw notifyCustomerTripLifecycle).
+  // SN1: atomic finalize / SQL CAS intent + background deliver (not raw notify).
+  assertStringIncludes(scheduledRide, "sn1_finalize_scheduled_accept_preconfirm");
   assertStringIncludes(scheduledRide, "persistCustomerLifecycleNotifyIntent");
   assertStringIncludes(scheduledRide, "deliverCustomerLifecycleNotifyByKind");
   assertStringIncludes(scheduledRide, 'kind: "scheduled_accept"');
