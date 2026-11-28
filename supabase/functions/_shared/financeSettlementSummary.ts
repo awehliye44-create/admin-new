@@ -983,8 +983,6 @@ export function mapTripToFinancialAuditRow(
 
   // #103: settlement authorised display prefers confirmed coverage mirror over original hold.
   const authorisedPence = (() => {
-    const total = session?.total_authorised_amount_pence;
-    if (total != null && Number(total) > 0) return Math.max(0, Math.round(Number(total)));
     if (session?.authorised_amount_pence != null) {
       return Math.max(0, Math.round(Number(session.authorised_amount_pence)));
     }

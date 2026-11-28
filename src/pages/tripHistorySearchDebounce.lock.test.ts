@@ -1,6 +1,7 @@
 /**
  * A1 continued — Trip History client search debounce (typing immediate; filter lagged).
  */
+import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 

@@ -20,6 +20,7 @@ export type MissedCancelledBucket =
   | 'ARRIVAL_CANCELLATION'
   | 'NO_SHOW'
   | 'LATE_PASSENGER_CANCELLATION'
+  | 'CANCELLED_WITH_FEE'
   | 'CANCELLED_NO_FEE'
   | 'MISSED_EXPIRED';
 
@@ -68,7 +69,8 @@ export function classifyMissedCancelledBucket(
 export function isChargeableTerminalBucket(bucket: MissedCancelledBucket): boolean {
   return bucket === 'ARRIVAL_CANCELLATION'
     || bucket === 'NO_SHOW'
-    || bucket === 'LATE_PASSENGER_CANCELLATION';
+    || bucket === 'LATE_PASSENGER_CANCELLATION'
+    || bucket === 'CANCELLED_WITH_FEE';
 }
 
 function hasLegacyFeeEvidence(trip: MissedCancelledStatsRow): boolean {
@@ -104,6 +106,9 @@ export function summarizeMissedCancelledStats(
         break;
       case 'LATE_PASSENGER_CANCELLATION':
         stats.late_passenger_cancellation += 1;
+        stats.chargeable_total += 1;
+        break;
+      case 'CANCELLED_WITH_FEE':
         stats.chargeable_total += 1;
         break;
       case 'MISSED_EXPIRED':
