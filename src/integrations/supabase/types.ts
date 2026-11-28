@@ -13769,6 +13769,30 @@ export type Database = {
           },
         ]
       }
+      expire_offers_single_flight_lease: {
+        Row: {
+          claimed_at: string | null
+          id: number
+          lease_expires_at: string
+          owner_token: string | null
+          updated_at: string
+        }
+        Insert: {
+          claimed_at?: string | null
+          id?: number
+          lease_expires_at?: string
+          owner_token?: string | null
+          updated_at?: string
+        }
+        Update: {
+          claimed_at?: string | null
+          id?: number
+          lease_expires_at?: string
+          owner_token?: string | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
       faqs: {
         Row: {
           answer: string
@@ -18443,6 +18467,313 @@ export type Database = {
           },
         ]
       }
+      payment_financial_events: {
+        Row: {
+          created_at: string
+          decline_code: string | null
+          detail: Json
+          event_type: string
+          execution_id: string | null
+          fence: string | null
+          http_status: number | null
+          id: number
+          idempotency_reference: string | null
+          op_type: string | null
+          operation_id: string | null
+          payment_session_id: string | null
+          provider_confirmed_amount_pence: number | null
+          provider_correlation_id: string | null
+          provider_response_state: string | null
+          requested_amount_pence: number | null
+          trip_id: string | null
+        }
+        Insert: {
+          created_at?: string
+          decline_code?: string | null
+          detail?: Json
+          event_type: string
+          execution_id?: string | null
+          fence?: string | null
+          http_status?: number | null
+          id?: number
+          idempotency_reference?: string | null
+          op_type?: string | null
+          operation_id?: string | null
+          payment_session_id?: string | null
+          provider_confirmed_amount_pence?: number | null
+          provider_correlation_id?: string | null
+          provider_response_state?: string | null
+          requested_amount_pence?: number | null
+          trip_id?: string | null
+        }
+        Update: {
+          created_at?: string
+          decline_code?: string | null
+          detail?: Json
+          event_type?: string
+          execution_id?: string | null
+          fence?: string | null
+          http_status?: number | null
+          id?: number
+          idempotency_reference?: string | null
+          op_type?: string | null
+          operation_id?: string | null
+          payment_session_id?: string | null
+          provider_confirmed_amount_pence?: number | null
+          provider_correlation_id?: string | null
+          provider_response_state?: string | null
+          requested_amount_pence?: number | null
+          trip_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "payment_financial_events_operation_id_fkey"
+            columns: ["operation_id"]
+            isOneToOne: false
+            referencedRelation: "payment_financial_operations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "payment_financial_events_payment_session_id_fkey"
+            columns: ["payment_session_id"]
+            isOneToOne: false
+            referencedRelation: "payment_sessions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "payment_financial_events_payment_session_id_fkey"
+            columns: ["payment_session_id"]
+            isOneToOne: false
+            referencedRelation: "v_payment_lifecycle_audit"
+            referencedColumns: ["parent_session_id"]
+          },
+          {
+            foreignKeyName: "payment_financial_events_payment_session_id_fkey"
+            columns: ["payment_session_id"]
+            isOneToOne: false
+            referencedRelation: "v_payment_lifecycle_audit"
+            referencedColumns: ["recovery_session_id"]
+          },
+        ]
+      }
+      payment_financial_operations: {
+        Row: {
+          created_at: string
+          currency: string
+          decline_code: string | null
+          execution_id: string
+          fence: string
+          id: string
+          last_provider_correlation_id: string | null
+          last_provider_http_status: number | null
+          lease_expires_at: string
+          logical_idempotency_key: string
+          merchant_account_ref: string | null
+          op_type: string
+          payable_snapshot_id: string | null
+          payment_session_id: string
+          provider_confirmed_amount_pence: number | null
+          provider_idempotency_key: string | null
+          provider_order_id: string | null
+          provider_post_dispatched_at: string | null
+          provider_post_inflight: boolean
+          requested_amount_pence: number | null
+          state: string
+          trip_id: string | null
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          currency?: string
+          decline_code?: string | null
+          execution_id: string
+          fence: string
+          id?: string
+          last_provider_correlation_id?: string | null
+          last_provider_http_status?: number | null
+          lease_expires_at: string
+          logical_idempotency_key: string
+          merchant_account_ref?: string | null
+          op_type: string
+          payable_snapshot_id?: string | null
+          payment_session_id: string
+          provider_confirmed_amount_pence?: number | null
+          provider_idempotency_key?: string | null
+          provider_order_id?: string | null
+          provider_post_dispatched_at?: string | null
+          provider_post_inflight?: boolean
+          requested_amount_pence?: number | null
+          state: string
+          trip_id?: string | null
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          currency?: string
+          decline_code?: string | null
+          execution_id?: string
+          fence?: string
+          id?: string
+          last_provider_correlation_id?: string | null
+          last_provider_http_status?: number | null
+          lease_expires_at?: string
+          logical_idempotency_key?: string
+          merchant_account_ref?: string | null
+          op_type?: string
+          payable_snapshot_id?: string | null
+          payment_session_id?: string
+          provider_confirmed_amount_pence?: number | null
+          provider_idempotency_key?: string | null
+          provider_order_id?: string | null
+          provider_post_dispatched_at?: string | null
+          provider_post_inflight?: boolean
+          requested_amount_pence?: number | null
+          state?: string
+          trip_id?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "payment_financial_operations_payable_snapshot_id_fkey"
+            columns: ["payable_snapshot_id"]
+            isOneToOne: false
+            referencedRelation: "payment_payable_snapshots"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "payment_financial_operations_payment_session_id_fkey"
+            columns: ["payment_session_id"]
+            isOneToOne: false
+            referencedRelation: "payment_sessions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "payment_financial_operations_payment_session_id_fkey"
+            columns: ["payment_session_id"]
+            isOneToOne: false
+            referencedRelation: "v_payment_lifecycle_audit"
+            referencedColumns: ["parent_session_id"]
+          },
+          {
+            foreignKeyName: "payment_financial_operations_payment_session_id_fkey"
+            columns: ["payment_session_id"]
+            isOneToOne: false
+            referencedRelation: "v_payment_lifecycle_audit"
+            referencedColumns: ["recovery_session_id"]
+          },
+          {
+            foreignKeyName: "payment_financial_operations_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "admin_trip_lifecycle_fees"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "payment_financial_operations_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "available_scheduled_jobs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "payment_financial_operations_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "trips"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "payment_financial_operations_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "v_payment_lifecycle_audit"
+            referencedColumns: ["trip_id"]
+          },
+        ]
+      }
+      payment_payable_snapshots: {
+        Row: {
+          airport_pass_through_pence: number
+          created_at: string
+          currency: string
+          discount_pence: number
+          gross_fare_pence: number
+          id: string
+          modification_pence: number
+          receivables_pence: number
+          source: string
+          tip_pence: number
+          total_payable_pence: number
+          trip_id: string
+          version: number
+          waiting_basis: string
+          waiting_pence: number
+        }
+        Insert: {
+          airport_pass_through_pence?: number
+          created_at?: string
+          currency?: string
+          discount_pence?: number
+          gross_fare_pence?: number
+          id?: string
+          modification_pence?: number
+          receivables_pence?: number
+          source: string
+          tip_pence?: number
+          total_payable_pence: number
+          trip_id: string
+          version: number
+          waiting_basis?: string
+          waiting_pence?: number
+        }
+        Update: {
+          airport_pass_through_pence?: number
+          created_at?: string
+          currency?: string
+          discount_pence?: number
+          gross_fare_pence?: number
+          id?: string
+          modification_pence?: number
+          receivables_pence?: number
+          source?: string
+          tip_pence?: number
+          total_payable_pence?: number
+          trip_id?: string
+          version?: number
+          waiting_basis?: string
+          waiting_pence?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "payment_payable_snapshots_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "admin_trip_lifecycle_fees"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "payment_payable_snapshots_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "available_scheduled_jobs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "payment_payable_snapshots_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "trips"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "payment_payable_snapshots_trip_id_fkey"
+            columns: ["trip_id"]
+            isOneToOne: false
+            referencedRelation: "v_payment_lifecycle_audit"
+            referencedColumns: ["trip_id"]
+          },
+        ]
+      }
       payment_provider_configs: {
         Row: {
           apple_pay_enabled: boolean | null
@@ -18967,16 +19298,20 @@ export type Database = {
           advance_window_validated_scheduled_at: string | null
           authorised_amount_pence: number | null
           authorised_at: string | null
+          booking_financial_policy_json: Json | null
           booking_snapshot: Json
           buffer_pence: number | null
           cancellation_fee_pence: number | null
           capture_composition_frozen_at: string | null
           capture_composition_version: string | null
+          capture_confirmation_state: string | null
+          capture_confirmed_pence: number | null
           capture_deadline: string | null
           capture_deadline_observed_at: string | null
           capture_deadline_source: string | null
           capture_deadline_updated_at: string | null
           capture_idempotency_key: string | null
+          capture_requested_pence: number | null
           captured_amount_pence: number | null
           captured_at: string | null
           client_action_id: string
@@ -18990,6 +19325,7 @@ export type Database = {
             | Database["public"]["Enums"]["payment_session_fee_status"]
             | null
           final_charge_pence: number | null
+          financial_operation_fence: string | null
           financial_operation_owner: string | null
           financial_operation_started_at: string | null
           financial_operation_state: string | null
@@ -19057,16 +19393,20 @@ export type Database = {
           advance_window_validated_scheduled_at?: string | null
           authorised_amount_pence?: number | null
           authorised_at?: string | null
+          booking_financial_policy_json?: Json | null
           booking_snapshot?: Json
           buffer_pence?: number | null
           cancellation_fee_pence?: number | null
           capture_composition_frozen_at?: string | null
           capture_composition_version?: string | null
+          capture_confirmation_state?: string | null
+          capture_confirmed_pence?: number | null
           capture_deadline?: string | null
           capture_deadline_observed_at?: string | null
           capture_deadline_source?: string | null
           capture_deadline_updated_at?: string | null
           capture_idempotency_key?: string | null
+          capture_requested_pence?: number | null
           captured_amount_pence?: number | null
           captured_at?: string | null
           client_action_id: string
@@ -19080,6 +19420,7 @@ export type Database = {
             | Database["public"]["Enums"]["payment_session_fee_status"]
             | null
           final_charge_pence?: number | null
+          financial_operation_fence?: string | null
           financial_operation_owner?: string | null
           financial_operation_started_at?: string | null
           financial_operation_state?: string | null
@@ -19147,16 +19488,20 @@ export type Database = {
           advance_window_validated_scheduled_at?: string | null
           authorised_amount_pence?: number | null
           authorised_at?: string | null
+          booking_financial_policy_json?: Json | null
           booking_snapshot?: Json
           buffer_pence?: number | null
           cancellation_fee_pence?: number | null
           capture_composition_frozen_at?: string | null
           capture_composition_version?: string | null
+          capture_confirmation_state?: string | null
+          capture_confirmed_pence?: number | null
           capture_deadline?: string | null
           capture_deadline_observed_at?: string | null
           capture_deadline_source?: string | null
           capture_deadline_updated_at?: string | null
           capture_idempotency_key?: string | null
+          capture_requested_pence?: number | null
           captured_amount_pence?: number | null
           captured_at?: string | null
           client_action_id?: string
@@ -19170,6 +19515,7 @@ export type Database = {
             | Database["public"]["Enums"]["payment_session_fee_status"]
             | null
           final_charge_pence?: number | null
+          financial_operation_fence?: string | null
           financial_operation_owner?: string | null
           financial_operation_started_at?: string | null
           financial_operation_state?: string | null
@@ -19303,6 +19649,30 @@ export type Database = {
             referencedColumns: ["trip_id"]
           },
         ]
+      }
+      payment_ssot_cutover: {
+        Row: {
+          id: number
+          require_financial_op_claim: boolean
+          stage: string
+          strict_trip_capture_mirror: boolean
+          updated_at: string
+        }
+        Insert: {
+          id?: number
+          require_financial_op_claim?: boolean
+          stage?: string
+          strict_trip_capture_mirror?: boolean
+          updated_at?: string
+        }
+        Update: {
+          id?: number
+          require_financial_op_claim?: boolean
+          stage?: string
+          strict_trip_capture_mirror?: boolean
+          updated_at?: string
+        }
+        Relationships: []
       }
       payment_webhook_events: {
         Row: {
@@ -22602,6 +22972,53 @@ export type Database = {
           },
         ]
       }
+      service_area_financial_policy_versions: {
+        Row: {
+          change_source: string
+          changed_by: string | null
+          created_at: string
+          effective_at: string
+          id: string
+          new_value: Json
+          policy_kind: string
+          previous_value: Json | null
+          service_area_id: string
+          version_number: number
+        }
+        Insert: {
+          change_source?: string
+          changed_by?: string | null
+          created_at?: string
+          effective_at?: string
+          id?: string
+          new_value: Json
+          policy_kind?: string
+          previous_value?: Json | null
+          service_area_id: string
+          version_number: number
+        }
+        Update: {
+          change_source?: string
+          changed_by?: string | null
+          created_at?: string
+          effective_at?: string
+          id?: string
+          new_value?: Json
+          policy_kind?: string
+          previous_value?: Json | null
+          service_area_id?: string
+          version_number?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "service_area_financial_policy_versions_service_area_id_fkey"
+            columns: ["service_area_id"]
+            isOneToOne: false
+            referencedRelation: "service_areas"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       service_area_identity_verification_settings: {
         Row: {
           active_work_deferral_enabled: boolean
@@ -25872,6 +26289,7 @@ export type Database = {
           authorised_amount_pence: number | null
           authorized_amount_pence: number | null
           base_fare_pence: number | null
+          booking_financial_policy_json: Json | null
           booking_source: string | null
           booking_type: string | null
           broadcast_enabled: boolean
@@ -26156,6 +26574,9 @@ export type Database = {
           tip_window_claimed_at: string | null
           tip_window_closed_at: string | null
           tip_window_expires_at: string | null
+          tip_window_expiry_attempt_count: number
+          tip_window_last_provider_get_at: string | null
+          tip_window_next_attempt_at: string | null
           tip_window_opened_at: string | null
           tip_window_status: string | null
           tip_window_trigger: string | null
@@ -26200,6 +26621,7 @@ export type Database = {
           authorised_amount_pence?: number | null
           authorized_amount_pence?: number | null
           base_fare_pence?: number | null
+          booking_financial_policy_json?: Json | null
           booking_source?: string | null
           booking_type?: string | null
           broadcast_enabled?: boolean
@@ -26484,6 +26906,9 @@ export type Database = {
           tip_window_claimed_at?: string | null
           tip_window_closed_at?: string | null
           tip_window_expires_at?: string | null
+          tip_window_expiry_attempt_count?: number
+          tip_window_last_provider_get_at?: string | null
+          tip_window_next_attempt_at?: string | null
           tip_window_opened_at?: string | null
           tip_window_status?: string | null
           tip_window_trigger?: string | null
@@ -26528,6 +26953,7 @@ export type Database = {
           authorised_amount_pence?: number | null
           authorized_amount_pence?: number | null
           base_fare_pence?: number | null
+          booking_financial_policy_json?: Json | null
           booking_source?: string | null
           booking_type?: string | null
           broadcast_enabled?: boolean
@@ -26812,6 +27238,9 @@ export type Database = {
           tip_window_claimed_at?: string | null
           tip_window_closed_at?: string | null
           tip_window_expires_at?: string | null
+          tip_window_expiry_attempt_count?: number
+          tip_window_last_provider_get_at?: string | null
+          tip_window_next_attempt_at?: string | null
           tip_window_opened_at?: string | null
           tip_window_status?: string | null
           tip_window_trigger?: string | null
@@ -28151,33 +28580,42 @@ export type Database = {
       }
       whatsapp_inbound_messages: {
         Row: {
+          attempt_count: number
           inbound_text: string | null
+          last_error: string | null
           message_type: string
           meta_message_id: string
           phone_number_id: string | null
           processed_at: string | null
+          processing_started_at: string | null
           raw_payload: Json
           received_at: string
           wa_id: string
           workflow_action: string | null
         }
         Insert: {
+          attempt_count?: number
           inbound_text?: string | null
+          last_error?: string | null
           message_type: string
           meta_message_id: string
           phone_number_id?: string | null
           processed_at?: string | null
+          processing_started_at?: string | null
           raw_payload?: Json
           received_at?: string
           wa_id: string
           workflow_action?: string | null
         }
         Update: {
+          attempt_count?: number
           inbound_text?: string | null
+          last_error?: string | null
           message_type?: string
           meta_message_id?: string
           phone_number_id?: string | null
           processed_at?: string | null
+          processing_started_at?: string | null
           raw_payload?: Json
           received_at?: string
           wa_id?: string
@@ -31653,6 +32091,10 @@ export type Database = {
         Args: { _admin_notes?: string; _merchant_id: string }
         Returns: Json
       }
+      assert_credit_trip_earning_pending_contract: {
+        Args: never
+        Returns: Json
+      }
       assert_driver_presence_online_eligible: {
         Args: { p_driver_id: string }
         Returns: Json
@@ -31664,6 +32106,10 @@ export type Database = {
       assert_driver_wallet_read_access: {
         Args: { p_driver_id: string }
         Returns: undefined
+      }
+      assert_expire_offers_lease_owner: {
+        Args: { p_owner_token: string }
+        Returns: Json
       }
       assert_finance_payout_ledger_access: { Args: never; Returns: undefined }
       assert_payment_authorized: {
@@ -31770,10 +32216,6 @@ export type Database = {
           p_trip_status: string
         }
         Returns: string
-      }
-      assert_expire_offers_lease_owner: {
-        Args: { p_owner_token: string }
-        Returns: Json
       }
       capture_expired_tip_windows_sweep: { Args: never; Returns: undefined }
       capture_expired_tip_windows_sweep_has_work: {
@@ -31957,6 +32399,16 @@ export type Database = {
         Args: { p_dry_run?: boolean; p_schedule_occurrence_key: string }
         Returns: Json
       }
+      claim_whatsapp_inbound_retry: {
+        Args: {
+          p_max_attempts?: number
+          p_meta_message_id: string
+          p_stale_after_seconds?: number
+        }
+        Returns: {
+          attempt_count: number
+        }[]
+      }
       classify_scheduled_capture_deadline_backfill: {
         Args: { p_dry_run?: boolean }
         Returns: {
@@ -31977,6 +32429,10 @@ export type Database = {
       cleanup_unverified_accounts: {
         Args: { _older_than?: string }
         Returns: Json
+      }
+      clear_driver_current_trip_if_matches: {
+        Args: { p_driver_id: string; p_trip_id: string }
+        Returns: boolean
       }
       clear_driver_own_towards_destination: { Args: never; Returns: Json }
       clear_phone_change_pending: {
@@ -32144,6 +32600,16 @@ export type Database = {
           p_year: number
         }
         Returns: string
+      }
+      credit_trip_earning_pending: {
+        Args: {
+          p_amount_pence: number
+          p_currency?: string
+          p_description?: string
+          p_driver_id: string
+          p_trip_id: string
+        }
+        Returns: Json
       }
       cron_edge_auth_token: { Args: never; Returns: string }
       current_approved_driver_id: { Args: never; Returns: string }
@@ -32854,10 +33320,6 @@ export type Database = {
       }
       expire_offers_sweep: { Args: never; Returns: undefined }
       expire_offers_sweep_has_work: { Args: never; Returns: boolean }
-      try_claim_expire_offers_lease: {
-        Args: { p_owner_token: string; p_ttl_seconds?: number }
-        Returns: Json
-      }
       expire_stale_drivers: {
         Args: { p_ttl_seconds?: number }
         Returns: number
@@ -32890,6 +33352,16 @@ export type Database = {
       }
       fail_submitted_early_cashout: {
         Args: {
+          p_evidence_redacted?: Json
+          p_payout_item_id: string
+          p_provider_payment_id: string
+          p_provider_state: string
+        }
+        Returns: Json
+      }
+      fail_submitted_weekly_payout_item: {
+        Args: {
+          p_actor_user_id?: string
           p_evidence_redacted?: Json
           p_payout_item_id: string
           p_provider_payment_id: string
@@ -33398,6 +33870,25 @@ export type Database = {
           ledger_entry_id: string
           posting_created_at: string
           related_trip_id: string
+          type: string
+        }[]
+      }
+      get_driver_own_wallet_recent_activity: {
+        Args: { p_before?: string; p_limit?: number }
+        Returns: {
+          airport_charge_pence: number
+          amount_pence: number
+          clearing_status: string
+          created_at: string
+          description: string
+          earning_category: string
+          economic_earned_at: string
+          financial_outcome: string
+          ledger_entry_id: string
+          metadata: Json
+          public_trip_ref: string
+          related_trip_id: string
+          trip_status: string
           type: string
         }[]
       }
@@ -34509,12 +35000,20 @@ export type Database = {
         Args: { p_new_claim_token: string; p_now?: string; p_trip_id: string }
         Returns: Json
       }
+      reconcile_confirmed_capture_payment_status: {
+        Args: { p_dry_run?: boolean; p_limit?: number }
+        Returns: Json
+      }
       reconcile_driver_trip_bonus_qualified_credits: {
         Args: { p_limit?: number }
         Returns: Json
       }
       reconcile_scheduled_journey_compliance: {
         Args: { p_limit?: number }
+        Returns: Json
+      }
+      reconcile_stale_driver_current_trip: {
+        Args: { p_driver_id?: string; p_limit?: number }
         Returns: Json
       }
       reconcile_stale_online_drivers: {
@@ -35145,6 +35644,16 @@ export type Database = {
         Args: { _app_type: string; _new_phone: string; _user_id: string }
         Returns: undefined
       }
+      stamp_payment_session_sweep_retry: {
+        Args: {
+          p_attempts: number
+          p_capture_ambiguous?: boolean
+          p_last_outcome: string
+          p_next_at: string
+          p_session_id: string
+        }
+        Returns: boolean
+      }
       stamp_tip_window_capture_idempotency_key: {
         Args: {
           p_claim_token: string
@@ -35407,6 +35916,10 @@ export type Database = {
           p_old_status: string
         }
         Returns: string
+      }
+      try_claim_expire_offers_lease: {
+        Args: { p_owner_token: string; p_ttl_seconds?: number }
+        Returns: Json
       }
       update_corporate_account_profile: {
         Args: {
